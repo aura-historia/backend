@@ -3,6 +3,7 @@ mod budget;
 mod happy_path;
 mod hash_skip;
 mod normalization_fix;
+mod schema_fallback;
 mod seed_pages;
 
 // ---------------------------------------------------------------------------
@@ -13,17 +14,17 @@ use crate::scraper::candidate_service::MockScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
     GeneratedProductSchemas, MockProductSchemaService, SchemaLlmEvaluation,
-    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
+    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision, SchemaPromptSource,
 };
 use crate::scraper::css_selector::rule::{
     CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
 };
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::MockProductNormalizationService;
-use crate::scraper::scraper_service::ScraperService;
 use crate::scraper::scraper_service::service::{
-    DEFAULT_MAX_LLM_CALLS_PER_SHOP, MockHtmlFetcher, ScraperServiceImpl,
+    MockHtmlFetcher, ScraperServiceImpl, DEFAULT_MAX_LLM_CALLS_PER_SHOP,
 };
+use crate::scraper::scraper_service::ScraperService;
 use crate::spider::classification::url_metadata::UrlState;
 use common::language::domain::Language;
 use common::localized::Localized;
@@ -98,12 +99,19 @@ pub(super) fn shops_product_schema(shop_id: ShopId) -> ShopsProductSchema {
     }
 }
 
-pub(super) fn generated_schemas(schemas: Vec<ProductCssSelectorSchema>) -> GeneratedProductSchemas {
+pub(super) fn generated_schemas(
+    schemas: Vec<ProductCssSelectorSchema>,
+    confidence: SchemaLlmEvaluationConfidence,
+) -> GeneratedProductSchemas {
     GeneratedProductSchemas {
         schemas,
         evaluation: SchemaLlmEvaluation {
-            decision: SchemaLlmEvaluationDecision::Approve,
-            confidence: SchemaLlmEvaluationConfidence::High,
+            decision: if confidence == SchemaLlmEvaluationConfidence::High {
+                SchemaLlmEvaluationDecision::Approve
+            } else {
+                SchemaLlmEvaluationDecision::NeedsHumanReview
+            },
+            confidence,
             approved_by_llm: false,
             summary: "Selectors are product-specific.".to_string(),
             risks: Vec::new(),

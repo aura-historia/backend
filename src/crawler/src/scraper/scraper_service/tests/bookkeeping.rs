@@ -24,7 +24,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         .once()
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(generated_schemas(s)) })
+            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     schema_svc
         .expect_save_product_schemas()

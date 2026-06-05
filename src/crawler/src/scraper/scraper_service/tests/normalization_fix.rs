@@ -45,7 +45,12 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
         })
         .returning(move |_, _, _| {
             let s = minimal_schema();
-            Box::pin(async move { Ok(generated_schemas(vec![s])) })
+            Box::pin(async move {
+                Ok(generated_schemas(
+                    vec![s],
+                    SchemaLlmEvaluationConfidence::High,
+                ))
+            })
         });
     schema_svc
         .expect_save_product_schemas()
@@ -226,7 +231,10 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
                     _ => panic!("unexpected append attempt count: {call}"),
                 }
 
-                Ok(generated_schemas(vec![expected_bad_appended]))
+                Ok(generated_schemas(
+                    vec![expected_bad_appended],
+                    SchemaLlmEvaluationConfidence::High,
+                ))
             })
         },
     );
@@ -263,7 +271,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
 /// return `NormalizationFixExhausted` rather than `SchemaRegenerationExhausted`.
 #[tokio::test]
 async fn should_return_normalization_fix_exhausted_when_schema_applies_but_normalization_keeps_failing()
- {
+{
     let id = shop_id();
     let url = product_url();
 
@@ -293,7 +301,14 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norma
     schema_svc
         .expect_append_single_schema()
         .times(2)
-        .returning(|_, _, _| Box::pin(async { Ok(generated_schemas(vec![minimal_schema()])) }));
+        .returning(|_, _, _| {
+            Box::pin(async {
+                Ok(generated_schemas(
+                    vec![minimal_schema()],
+                    SchemaLlmEvaluationConfidence::High,
+                ))
+            })
+        });
     // Schema is never persisted because normalization never succeeds.
     schema_svc.expect_save_product_schemas().never();
 

@@ -17,7 +17,7 @@
 //! |------------------|--------------------------------------|--------------------------------------------------|
 //! | `GEMINI_API_KEY` | API key for the Gemini backend       | *(required)*                                     |
 //! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-pro-preview`                        |
-//! | `GEMINI_CHEAP_MODEL` | Default cheaper model for low-risk LLM calls | `gemini-2.5-flash-lite`                 |
+//! | `GEMINI_CHEAP_MODEL` | Default cheaper model for low-risk LLM calls | `gemini-3.1-flash-lite`                 |
 //! | `GEMINI_STATE_MAPPING_MODEL` | Optional override for state mapping calls | `GEMINI_CHEAP_MODEL`                 |
 //! | `GEMINI_URL_CLASSIFICATION_MODEL` | Optional override for URL classification calls | `GEMINI_CHEAP_MODEL`       |
 //! | `GEMINI_FLEX`    | Enable Gemini Flex inference         | unset / `false`                                  |
@@ -40,10 +40,10 @@ use common::domain::Domain;
 use common::logging::GeminiServiceTier;
 use common::shop_id::ShopId;
 use crawler::google_llm::{
-    GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
-    state_mapping_gemini_model, url_classification_gemini_model,
+    gemini_flex_enabled, google_llm_builder, state_mapping_gemini_model, url_classification_gemini_model,
+    GeminiRateLimitConfig, GeminiRateLimiter,
 };
-use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
+use crawler::local_db::{bootstrap_local_database, demo_db_url, DEMO_DB_NAME};
 use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
@@ -53,7 +53,7 @@ use crawler::scraper::normalization::product_normalization_service::ProductNorma
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
 use crawler::scraper::scraper_service::{
-    DEFAULT_SCHEMA_SEED_PAGES, ReqwestHtmlFetcher, ScraperServiceImpl,
+    ReqwestHtmlFetcher, ScraperServiceImpl, DEFAULT_SCHEMA_SEED_PAGES,
 };
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::product_push::FileProductPushService;
@@ -70,7 +70,7 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
 use shop::core::shop_type::ShopType;
-use tracing::{Instrument, error, info};
+use tracing::{error, info, Instrument};
 
 // ---------------------------------------------------------------------------
 // Demo shop source — returns hardcoded shops (no OpenSearch needed)
@@ -88,13 +88,13 @@ impl ShopRegistrationSource for DemoShopSource {
 }
 
 fn crawler_review_required() -> bool {
-    std::env::var("CRAWLER_REVIEW_REQUIRED")
+    env::var("CRAWLER_REVIEW_REQUIRED")
         .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
         .unwrap_or(false)
 }
 
 fn crawler_review_url_pattern_required() -> bool {
-    std::env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
+    env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
         .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
         .unwrap_or(false)
 }
@@ -102,29 +102,13 @@ fn crawler_review_url_pattern_required() -> bool {
 fn demo_shops() -> Vec<RegisteredShop> {
     // UUIDs are stable across runs so the upsert-on-conflict keeps the same rows
     // rather than creating a new shop row every time the demo starts.
-    vec![
-        RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000001").unwrap(),
-            shop_name: "Weitze".to_string(),
-            shop_slug: "weitze".to_string(),
-            shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("weitze.net").unwrap()]),
-        },
-        RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000002").unwrap(),
-            shop_name: "20th Century Militaria".to_string(),
-            shop_slug: "20thcenturymilitaria".to_string(),
-            shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("20thcenturymilitaria.com").unwrap()]),
-        },
-        RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000003").unwrap(),
-            shop_name: "Antichita Daziano".to_string(),
-            shop_slug: "Antichita Daziano".to_string(),
-            shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("antichitadaziano.com").unwrap()]),
-        },
-    ]
+    vec![RegisteredShop {
+        shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000003").unwrap(),
+        shop_name: "Antico Antico".to_string(),
+        shop_slug: "antico-antico".to_string(),
+        shop_type: ShopType::CommercialDealer,
+        domains: HashSet::from([Domain::try_from("saatchiart.com").unwrap()]),
+    }]
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +151,7 @@ async fn main() {
             scraper_batch_size: 10000,
             spider_concurrency: 5,
             scraper_concurrency: 5,
-            spider_classify_threshold: 200,
+            spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             ..Default::default()
         };
@@ -223,7 +207,7 @@ async fn main() {
             state_mapping_repo,
             Some(Arc::clone(&gemini_rate_limiter)),
         )
-        .expect("failed to build ProductStateMappingServiceImpl");
+            .expect("failed to build ProductStateMappingServiceImpl");
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
         let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
@@ -237,7 +221,7 @@ async fn main() {
             schema_repo,
             Some(Arc::clone(&gemini_rate_limiter)),
         )
-        .expect("failed to build ProductSchemaServiceImpl");
+            .expect("failed to build ProductSchemaServiceImpl");
 
         let scraper_candidates = Box::new(
             ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
@@ -262,7 +246,7 @@ async fn main() {
                 config.scraper_schema_seed_pages,
                 config.scraper_max_llm_calls_per_shop,
             )
-            .with_review_gate(review_repo.clone(), review_required),
+                .with_review_gate(review_repo.clone(), review_required),
         );
 
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
@@ -275,7 +259,7 @@ async fn main() {
                 llm_service_tier,
                 Some(Arc::clone(&gemini_rate_limiter)),
             )
-            .unwrap(),
+                .unwrap(),
         );
         let pattern_svc = Box::new(UrlPatternServiceImpl::new_with_review(
             Arc::new(*url_pattern_repo),
@@ -344,12 +328,12 @@ async fn main() {
             }
         }
     }
-    .instrument(tracing::info_span!(
+        .instrument(tracing::info_span!(
         "crawler_demo",
         entrypoint = "demo",
         database = DEMO_DB_NAME
     ))
-    .await;
+        .await;
 }
 
 // ---------------------------------------------------------------------------

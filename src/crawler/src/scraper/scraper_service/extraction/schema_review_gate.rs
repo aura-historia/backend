@@ -1,8 +1,8 @@
 use crate::review::model::SchemaMatrix;
-use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
+use crate::review::model::{SchemaReviewPageInput, STATUS_APPROVED};
 use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
-    evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage,
+    evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
 };
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
@@ -11,7 +11,7 @@ use crate::scraper::css_selector::product_schema_service::{
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tracing::info;
 
 pub(crate) enum GeneratedSchemaReviewOutcome {
@@ -123,6 +123,7 @@ fn with_schema_matrix_summary(
     let matrix_summary = json!({
         "deterministic_approval_ok": deterministic_approval_ok,
         "schema_candidate_count": matrix.candidates.len(),
+        "unused_schema_indices": unused_schema_indices(matrix),
         "present_but_missing_rule_failures": failed_fields,
     });
 

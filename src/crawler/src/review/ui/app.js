@@ -42,6 +42,14 @@ const schemaHighlightColors = {
 
 applyTheme(theme);
 
+function schemaLabel(index) {
+    return `Schema ${index}`;
+}
+
+function schemaLabelWithTotal(index, total) {
+    return `${schemaLabel(index)} (${total} total)`;
+}
+
 function applyTheme(nextTheme) {
     theme = nextTheme === 'dark' ? 'dark' : 'light';
     document.documentElement.dataset.theme = theme;
@@ -346,7 +354,7 @@ function renderSelectorPanel(schemas) {
       <div class="field-grid">
         <label>Schema
           <select onchange="selectedSchemaIndex=Number(this.value); normalizeSchemaSelection(); rerenderWorkbench()">
-            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>Schema ${i + 1} / ${schemas.length}</option>`).join('')}
+            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>${schemaLabelWithTotal(i, schemas.length)}</option>`).join('')}
           </select>
         </label>
         <label>Field
@@ -415,7 +423,7 @@ function renderSchemaOrderControls(schemas) {
         <div class="muted">Approval writes schemas in this order for the shop.</div>
       </div>
       <div class="schema-order-list">
-        ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">Schema ${i + 1}</button>`).join('')}
+        ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}
       </div>
       <div class="schema-order-actions">
         <button ${selectedSchemaIndex === 0 ? 'disabled' : ''} onclick="moveCurrentSchema(-1)">Move up</button>
@@ -469,12 +477,12 @@ function renderDiffPanel(schemas) {
       <div class="field-grid">
         <label>Current schema
           <select onchange="selectedSchemaIndex=Number(this.value); normalizeSchemaSelection(); rerenderWorkbench()">
-            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>Schema ${i + 1}</option>`).join('')}
+            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>${schemaLabel(i)}</option>`).join('')}
           </select>
         </label>
         <label>Compare with
           <select onchange="compareSchemaIndex=Number(this.value); rerenderWorkbench()">
-            ${schemas.map((_, i) => `<option value="${i}" ${i === compareSchemaIndex ? 'selected' : ''} ${i === selectedSchemaIndex ? 'disabled' : ''}>Schema ${i + 1}</option>`).join('')}
+            ${schemas.map((_, i) => `<option value="${i}" ${i === compareSchemaIndex ? 'selected' : ''} ${i === selectedSchemaIndex ? 'disabled' : ''}>${schemaLabel(i)}</option>`).join('')}
           </select>
         </label>
       </div>
@@ -953,7 +961,7 @@ async function deleteCurrentSchema() {
     const payload = schemasPayload();
     const schemas = payload.schemas || [];
     if (schemas.length <= 1) return;
-    if (!confirm(`Delete schema ${selectedSchemaIndex + 1}?`)) return;
+    if (!confirm(`Delete ${schemaLabel(selectedSchemaIndex)}?`)) return;
     schemas.splice(selectedSchemaIndex, 1);
     payload.schemas = schemas;
     selectedSchemaIndex = Math.min(selectedSchemaIndex, schemas.length - 1);

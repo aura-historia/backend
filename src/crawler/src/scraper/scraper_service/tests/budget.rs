@@ -74,7 +74,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
         .once()
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(generated_schemas(s)) })
+            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     schema_svc
         .expect_save_product_schemas()
@@ -140,7 +140,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
         .once()
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(generated_schemas(s)) })
+            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     // save_product_schemas IS called once during obtain_schemas (cache-miss
     // path), before normalization runs and the budget is rejected.

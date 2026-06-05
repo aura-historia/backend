@@ -69,6 +69,15 @@ pub(crate) fn schema_matrix_has_required_coverage(matrix: &SchemaMatrix) -> bool
     })
 }
 
+pub(crate) fn unused_schema_indices(matrix: &SchemaMatrix) -> Vec<usize> {
+    matrix
+        .candidates
+        .iter()
+        .filter(|candidate| !candidate.pages.iter().any(page_has_required_extraction))
+        .map(|candidate| candidate.schema_index)
+        .collect()
+}
+
 fn evaluate_schema_review_page(
     schema: &ProductCssSelectorSchema,
     page: &CrawlerReviewPage,
@@ -336,5 +345,16 @@ mod tests {
         let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
 
         assert!(schema_matrix_has_required_coverage(&matrix));
+    }
+
+    #[test]
+    fn should_report_unused_schema_without_failing_page_coverage() {
+        let schemas = vec![schema("h1"), schema("h3")];
+        let pages = vec![page(PAGE_ROLE_PRIMARY, "h1")];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+        assert!(schema_matrix_has_required_coverage(&matrix));
+        assert_eq!(unused_schema_indices(&matrix), vec![1]);
     }
 }
