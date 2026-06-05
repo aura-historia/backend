@@ -2765,9 +2765,9 @@ dependencies = [
 
 [[package]]
 name = "google-cloud-auth"
-version = "1.11.0"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f113435a49123cef1217367dc9b30a1cc0b63083df1fd025b807109aa509d61f"
+checksum = "4595b69c95c727ac896a4f2f16d0cdaa6f547de0bc5d64dbe9201487fc3226d5"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
