@@ -1,5 +1,6 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
 use crate::scraper::css_selector::product_schema::{ApplySchemaError, ProductCssSelectorSchema};
+use crate::scraper::css_selector::product_schema_service::SchemaPromptSource;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
@@ -117,7 +118,14 @@ impl ScraperServiceImpl {
         ctx: NormalizationRetryContext<'_>,
         first_norm_err: NormalizationError,
     ) -> Result<NormalizedProduct, ScraperError> {
-        let attempts = self.max_schema_fix_attempts.max(1);
+        let prompt_sources = [
+            SchemaPromptSource::YamlProjection,
+            SchemaPromptSource::CleanedHtmlFallback,
+        ];
+        let attempts = usize::min(
+            self.max_schema_fix_attempts.max(1) as usize,
+            prompt_sources.len(),
+        );
 
         // Hint for the schema generator derived from the last normalization error.
         let mut last_apply_error: Option<ApplySchemaError> =
@@ -129,7 +137,10 @@ impl ScraperServiceImpl {
         let mut last_generated_schema: Option<ProductCssSelectorSchema> =
             Some(ctx.selected_schema.clone());
 
-        for attempt in 1..=attempts {
+        for (attempt_idx, prompt_source) in
+            prompt_sources.iter().copied().take(attempts).enumerate()
+        {
+            let attempt = attempt_idx + 1;
             if let Some(review_id) = self.pending_product_schema_review_id(ctx.shop_id).await? {
                 return Err(ScraperError::PendingSchemaReview {
                     url: ctx.url.clone(),
@@ -146,7 +157,12 @@ impl ScraperServiceImpl {
 
             let generated = self
                 .schema_service
-                .append_single_schema(ctx.html, last_generated_schema.as_ref(), Some(&apply_hint))
+                .append_single_schema(
+                    ctx.html,
+                    prompt_source,
+                    last_generated_schema.as_ref(),
+                    Some(&apply_hint),
+                )
                 .await?;
             let Some(generated_schema) = generated.schemas.first().cloned() else {
                 return Err(ScraperError::SchemaServiceError(
@@ -210,6 +226,7 @@ impl ScraperServiceImpl {
                             pages,
                             json!({
                                 "attempt": attempt,
+                                "prompt_source": prompt_source.as_str(),
                                 "schema_applied": true,
                                 "normalization_fixed": true,
                             }),
@@ -221,6 +238,7 @@ impl ScraperServiceImpl {
                                 domain = ctx.domain,
                                 url = %ctx.url,
                                 attempt,
+                                prompt_source = prompt_source.as_str(),
                                 "Schema fixed normalization failure"
                             );
                             return Ok(product);
@@ -248,13 +266,13 @@ impl ScraperServiceImpl {
         if let Some(norm_err) = last_norm_error {
             Err(ScraperError::NormalizationFixExhausted {
                 url: ctx.url.clone(),
-                attempts,
+                attempts: attempts as u32,
                 last_norm_error: norm_err,
             })
         } else {
             Err(ScraperError::SchemaRegenerationExhausted {
                 url: ctx.url.clone(),
-                attempts,
+                attempts: attempts as u32,
                 last_error: last_apply_error.unwrap_or_else(|| {
                     ApplySchemaError::Title(ExtractionError::NoElementMatched {
                         selector: "title".to_string(),

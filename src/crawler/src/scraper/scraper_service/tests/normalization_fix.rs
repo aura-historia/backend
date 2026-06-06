@@ -53,8 +53,9 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
     schema_svc
         .expect_append_single_schema()
         .once()
-        .withf(move |_, failed_schema, last_error| {
-            failed_schema == &Some(&existing_schema_for_append)
+        .withf(move |_, prompt_source, failed_schema, last_error| {
+            *prompt_source == SchemaPromptSource::YamlProjection
+                && failed_schema == &Some(&existing_schema_for_append)
                 && matches!(
                     last_error,
                     Some(ApplySchemaError::Title(ExtractionError::NoElementMatched {
@@ -62,7 +63,7 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
                     })) if selector == "title"
                 )
         })
-        .returning(move |_, _, _| {
+        .returning(move |_, _, _, _| {
             let s = minimal_schema();
             Box::pin(async move {
                 Ok(generated_schemas(
@@ -288,7 +289,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
 
     let append_call_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     schema_svc.expect_append_single_schema().times(2).returning(
-        move |_, failed_schema, last_error| {
+        move |_, prompt_source, failed_schema, last_error| {
             let append_call_count = append_call_count.clone();
             let failed_schema = failed_schema.cloned();
             let last_error = last_error.cloned();
@@ -298,10 +299,12 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
 
                 match call {
                     1 => {
+                        assert_eq!(prompt_source, SchemaPromptSource::YamlProjection);
                         assert!(failed_schema.is_none());
                         assert!(last_error.is_none());
                     }
                     2 => {
+                        assert_eq!(prompt_source, SchemaPromptSource::CleanedHtmlFallback);
                         assert_eq!(failed_schema, Some(expected_bad_appended.clone()));
                         assert!(last_error.is_some());
                     }
@@ -377,7 +380,7 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
     schema_svc
         .expect_append_single_schema()
         .times(2)
-        .returning(|_, _, _| {
+        .returning(|_, _, _, _| {
             Box::pin(async {
                 Ok(generated_schemas(
                     vec![minimal_schema()],

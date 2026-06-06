@@ -10,10 +10,7 @@ use llm::{
     chat::{ChatMessage, ChatProvider},
     error::LLMError,
 };
-use prompt::{
-    build_append_schema_instruction, build_create_schemas_instruction,
-    log_schema_prompt_size_from_raw_pages,
-};
+use prompt::{build_append_schema_instruction, build_create_schemas_instruction};
 use response::{parse_product_schemas_response, product_schema_generation_response_schema_json};
 use schemars::schema_for;
 use std::sync::Arc;
@@ -75,6 +72,7 @@ pub trait ProductSchemaService {
     async fn append_single_schema(
         &self,
         html: &str,
+        prompt_source: SchemaPromptSource,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
@@ -188,10 +186,6 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         html_pages: &[String],
         prompt_source: SchemaPromptSource,
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
-        log_schema_prompt_size_from_raw_pages(
-            LlmOperation::CrawlerProductSchemaGeneration,
-            html_pages,
-        );
         let instruction = build_create_schemas_instruction(html_pages, prompt_source);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
@@ -232,20 +226,18 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
     #[tracing::instrument(
         name = "scraper_append_single_schema",
-        skip(self, html, failed_schema, last_error)
+        skip(self, html, failed_schema, last_error),
+        fields(prompt_source = prompt_source.as_str())
     )]
     async fn append_single_schema(
         &self,
         html: &str,
+        prompt_source: SchemaPromptSource,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
-        // Generate single schema for this HTML page
-        log_schema_prompt_size_from_raw_pages(
-            LlmOperation::CrawlerProductSchemaRepair,
-            &[html.to_string()],
-        );
-        let instruction = build_append_schema_instruction(html, failed_schema, last_error);
+        let instruction =
+            build_append_schema_instruction(html, prompt_source, failed_schema, last_error);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -282,6 +274,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         info!(
             schema_count = generated.schemas.len(),
             confidence = ?generated.evaluation.confidence,
+            prompt_source = prompt_source.as_str(),
             "Generated schema response for append-and-retry"
         );
         Ok(generated)
@@ -371,7 +364,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::prompt::build_create_schemas_instruction;
+    use super::prompt::{build_append_schema_instruction, build_create_schemas_instruction};
     use super::response::parse_product_schemas_response;
     use super::*;
     use crate::scraper::css_selector::product_schema_repository::MockShopsProductSchemaRepository;
@@ -856,6 +849,24 @@ mod tests {
         assert!(instruction.contains("--- SAMPLE 1 CLEANED HTML ---"));
         assert!(instruction.contains("cleaned HTML from the original pages"));
         assert!(instruction.contains("<h1>A</h1>"));
+        assert!(!instruction.contains("noise"));
+    }
+
+    #[test]
+    fn should_build_cleaned_html_fallback_append_instruction() {
+        let html = "<html><body><script>noise</script><h1>A</h1></body></html>";
+
+        let instruction = build_append_schema_instruction(
+            html,
+            SchemaPromptSource::CleanedHtmlFallback,
+            None,
+            None,
+        );
+
+        assert!(instruction.contains("page CLEANED HTML"));
+        assert!(instruction.contains("cleaned HTML from the original pages"));
+        assert!(instruction.contains("<h1>A</h1>"));
+        assert!(!instruction.contains("page_dsl"));
         assert!(!instruction.contains("noise"));
     }
 

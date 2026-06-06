@@ -102,13 +102,29 @@ fn crawler_review_url_pattern_required() -> bool {
 fn demo_shops() -> Vec<RegisteredShop> {
     // UUIDs are stable across runs so the upsert-on-conflict keeps the same rows
     // rather than creating a new shop row every time the demo starts.
-    vec![RegisteredShop {
-        shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000003").unwrap(),
-        shop_name: "Antico Antico".to_string(),
-        shop_slug: "antico-antico".to_string(),
-        shop_type: ShopType::CommercialDealer,
-        domains: HashSet::from([Domain::try_from("saatchiart.com").unwrap()]),
-    }]
+    vec![
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000001").unwrap(),
+            shop_name: "Livinta".to_string(),
+            shop_slug: "livinta".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("livinta.com").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000002").unwrap(),
+            shop_name: "Antixx".to_string(),
+            shop_slug: "antixx".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antixx.de").unwrap()]),
+        },
+        RegisteredShop {
+            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000003").unwrap(),
+            shop_name: "Antik Storys".to_string(),
+            shop_slug: "antik-storys".to_string(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::from([Domain::try_from("antikstorys.com").unwrap()]),
+        },
+    ]
 }
 
 // ---------------------------------------------------------------------------

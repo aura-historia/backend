@@ -4,6 +4,7 @@ mod happy_path;
 mod hash_skip;
 mod normalization_fix;
 mod schema_fallback;
+mod schema_retry;
 mod seed_pages;
 
 // ---------------------------------------------------------------------------

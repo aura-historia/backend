@@ -2,6 +2,7 @@ use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInp
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
+use crate::scraper::css_selector::product_schema_service::SchemaPromptSource;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
@@ -41,11 +42,21 @@ impl ScraperServiceImpl {
         ),
         ScraperError,
     > {
-        let attempts = self.max_schema_fix_attempts.max(1);
+        let prompt_sources = [
+            SchemaPromptSource::YamlProjection,
+            SchemaPromptSource::CleanedHtmlFallback,
+        ];
+        let attempts = usize::min(
+            self.max_schema_fix_attempts.max(1) as usize,
+            prompt_sources.len(),
+        );
         let mut last_error: Option<ApplySchemaError> = None;
         let mut last_generated_schema: Option<ProductCssSelectorSchema> = None;
 
-        for attempt in 1..=attempts {
+        for (attempt_idx, prompt_source) in
+            prompt_sources.iter().copied().take(attempts).enumerate()
+        {
+            let attempt = attempt_idx + 1;
             if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
                 return Err(ScraperError::PendingSchemaReview {
                     url: url.clone(),
@@ -57,7 +68,12 @@ impl ScraperServiceImpl {
 
             let generated = self
                 .schema_service
-                .append_single_schema(html, last_generated_schema.as_ref(), last_error.as_ref())
+                .append_single_schema(
+                    html,
+                    prompt_source,
+                    last_generated_schema.as_ref(),
+                    last_error.as_ref(),
+                )
                 .await?;
             let Some(generated_schema) = generated.schemas.first().cloned() else {
                 return Err(ScraperError::SchemaServiceError(
@@ -86,6 +102,7 @@ impl ScraperServiceImpl {
                             pages,
                             json!({
                                 "attempt": attempt,
+                                "prompt_source": prompt_source.as_str(),
                                 "schema_applied": true,
                             }),
                         )
@@ -108,6 +125,7 @@ impl ScraperServiceImpl {
                     warn!(
                         attempt,
                         max_attempts = attempts,
+                        prompt_source = prompt_source.as_str(),
                         error = ?err,
                         "Generated schema did not apply; discarding and retrying"
                     );
@@ -118,7 +136,7 @@ impl ScraperServiceImpl {
 
         Err(ScraperError::SchemaRegenerationExhausted {
             url: url.clone(),
-            attempts,
+            attempts: attempts as u32,
             last_error: last_error.unwrap_or_else(|| {
                 ApplySchemaError::Title(ExtractionError::NoElementMatched {
                     selector: "title".to_string(),

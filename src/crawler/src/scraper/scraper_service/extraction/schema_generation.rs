@@ -123,14 +123,6 @@ impl ScraperServiceImpl {
                 &pages,
             );
 
-            info!(
-                prompt_source = yaml_attempt.prompt_source.as_str(),
-                confidence = ?yaml_attempt.generated.evaluation.confidence,
-                deterministic_approval_ok = yaml_attempt.deterministic_approval_ok,
-                schema_count = yaml_attempt.generated.schemas.len(),
-                "Evaluated generated schema attempt"
-            );
-
             let (generated, validation_summary) = if yaml_attempt.should_use_cleaned_html_fallback()
             {
                 let fallback_reason = if !yaml_attempt.deterministic_approval_ok {
@@ -157,15 +149,6 @@ impl ScraperServiceImpl {
                             SchemaPromptSource::CleanedHtmlFallback,
                             fallback_generated,
                             &pages,
-                        );
-
-                        info!(
-                            prompt_source = fallback_attempt.prompt_source.as_str(),
-                            confidence = ?fallback_attempt.generated.evaluation.confidence,
-                            deterministic_approval_ok =
-                                fallback_attempt.deterministic_approval_ok,
-                            schema_count = fallback_attempt.generated.schemas.len(),
-                            "Evaluated generated schema attempt"
                         );
 
                         let schema_count = fallback_attempt.generated.schemas.len();

@@ -1,8 +1,6 @@
 use super::projection::{clean_html_for_schema_generation, html_to_schema_prompt_dsl};
 use crate::scraper::css_selector::product_schema::{ApplySchemaError, ProductCssSelectorSchema};
-use common::logging::LlmOperation;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -103,10 +101,14 @@ pub(super) fn build_create_schemas_instruction(
 
 pub(super) fn build_append_schema_instruction(
     html: &str,
+    prompt_source: SchemaPromptSource,
     failed_schema: Option<&ProductCssSelectorSchema>,
     last_error: Option<&ApplySchemaError>,
 ) -> String {
-    let page_dsl = html_to_schema_prompt_dsl(html);
+    let prompt_page = match prompt_source {
+        SchemaPromptSource::YamlProjection => html_to_schema_prompt_dsl(html),
+        SchemaPromptSource::CleanedHtmlFallback => clean_html_for_schema_generation(html),
+    };
     let failure_context = match (failed_schema, last_error) {
         (Some(schema), Some(error)) => {
             let schema_json = serde_json::to_string_pretty(schema)
@@ -128,68 +130,10 @@ pub(super) fn build_append_schema_instruction(
           Use confidence HIGH only when selectors are product-specific and likely safe for unattended approval after deterministic validation. Use MEDIUM for plausible schemas with ambiguity. Use LOW when selectors or fields are uncertain. MEDIUM and LOW require human review.\n\
           Optional fields may remain null if not confidently present.\n\
           {failure_context}\n\
-          The sample below is a compact YAML projection of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.\n\
-          Here is the compact page YAML:\n\
-          {page_dsl}"
+          {sample_description}\n\
+          Here is the page {sample_label}:\n\
+          {prompt_page}",
+        sample_description = prompt_source.sample_description(),
+        sample_label = prompt_source.sample_label()
     )
-}
-
-#[derive(Debug, Default)]
-struct SchemaPromptSizeTotals {
-    raw_html_bytes: usize,
-    cleaned_html_bytes: usize,
-    yaml_bytes: usize,
-}
-
-impl SchemaPromptSizeTotals {
-    fn add(&mut self, raw_html: &str, cleaned_html: &str, yaml: &str) {
-        self.raw_html_bytes += raw_html.len();
-        self.cleaned_html_bytes += cleaned_html.len();
-        self.yaml_bytes += yaml.len();
-    }
-}
-
-pub(super) fn log_schema_prompt_size_from_raw_pages(
-    operation: LlmOperation,
-    html_pages: &[String],
-) {
-    let mut totals = SchemaPromptSizeTotals::default();
-    for html in html_pages {
-        let cleaned_html = clean_html_for_schema_generation(html);
-        let yaml = html_to_schema_prompt_dsl(html);
-        totals.add(html, &cleaned_html, &yaml);
-    }
-
-    log_schema_prompt_size(operation, html_pages.len(), totals);
-}
-
-fn log_schema_prompt_size(
-    operation: LlmOperation,
-    page_count: usize,
-    totals: SchemaPromptSizeTotals,
-) {
-    info!(
-        llmOperation = %operation,
-        page_count,
-        raw_html_bytes = totals.raw_html_bytes,
-        cleaned_html_bytes = totals.cleaned_html_bytes,
-        yaml_bytes = totals.yaml_bytes,
-        raw_html_tokens = approx_prompt_tokens(totals.raw_html_bytes),
-        cleaned_html_tokens = approx_prompt_tokens(totals.cleaned_html_bytes),
-        yaml_tokens = approx_prompt_tokens(totals.yaml_bytes),
-        yaml_vs_cleaned_percent = percent(totals.yaml_bytes, totals.cleaned_html_bytes),
-        "Schema prompt source size summary"
-    );
-}
-
-fn approx_prompt_tokens(chars: usize) -> usize {
-    chars / 4
-}
-
-fn percent(part: usize, total: usize) -> f64 {
-    if total == 0 {
-        0.0
-    } else {
-        (part as f64 / total as f64) * 100.0
-    }
 }
