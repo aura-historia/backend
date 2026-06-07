@@ -156,7 +156,7 @@ mod tests {
         let shops_product_id = ShopsProductId::new();
         let dto = GetProductSummaryData {
             product_id,
-            product_slug_id: ProductSlugId::raw("beedel-beep-bap-fa87c45d").unwrap(),
+            product_slug_id: ProductSlugId::raw("beedel-beep-bap-fa87c4").unwrap(),
             shop_slug_id: "my-shop".into(),
             event_id,
             shop_id,
@@ -196,7 +196,7 @@ mod tests {
 
         let expected = json!({
             "productId": product_id,
-            "productSlugId": "beedel-beep-bap-fa87c45d",
+            "productSlugId": "beedel-beep-bap-fa87c4",
             "shopSlugId": "my-shop",
             "eventId": event_id,
             "shopId": shop_id,

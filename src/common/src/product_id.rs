@@ -110,8 +110,8 @@ mod tests {
     #[rstest::rstest]
     #[trace]
     #[case::differing(uuid::Uuid::new_v4().to_string(), "123456")]
-    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
-    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874-489746152")]
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874-489746152-49874651-845")]
     fn should_display_product_key(#[case] shop_id: String, #[case] shops_product_id: &str) {
         use crate::product_id::ProductKey;
 
@@ -129,8 +129,8 @@ mod tests {
     #[rstest::rstest]
     #[trace]
     #[case::differing(uuid::Uuid::new_v4().to_string(), "123456")]
-    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
-    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874-489746152")]
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874-489746152-49874651-845")]
     fn should_into_string_product_key(#[case] shop_id: String, #[case] shops_product_id: &str) {
         use crate::product_id::ProductKey;
 
@@ -148,8 +148,8 @@ mod tests {
     #[rstest::rstest]
     #[trace]
     #[case::differing(uuid::Uuid::new_v4().to_string(), "123456")]
-    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152")]
-    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874#489746152#49874651#845")]
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874-489746152")]
+    #[case::product_containing_separator(uuid::Uuid::new_v4().to_string(), "1874874-489746152-49874651-845")]
     fn should_parse_product_key(#[case] shop_id: String, #[case] shops_product_id: &str) {
         use crate::product_id::ProductKey;
 

@@ -934,6 +934,10 @@ mod faker {
             let notification_reason = NotificationReasonRecord::WatchlistPriceChanged;
             let created = OffsetDateTime::now_utc();
             let product_id: ProductId = config.fake_with_rng(rng);
+            let shop_name: String = config.fake_with_rng(rng);
+            let shop_slug_id = ShopSlugId::from(shop_name.as_str());
+            let title_en: String = config.fake_with_rng(rng);
+            let product_slug_id = ProductSlugId::from(title_en.as_str());
 
             NotificationRecord {
                 pk: mk_pk(&user_id),
@@ -949,13 +953,13 @@ mod faker {
                 external: config.fake_with_rng(rng),
                 image: None,
                 product_id: Some(product_id),
-                product_slug_id: Some(config.fake_with_rng(rng)),
-                shop_slug_id: Some(config.fake_with_rng(rng)),
+                product_slug_id: Some(product_slug_id),
+                shop_slug_id: Some(shop_slug_id),
                 shop_id: Some(config.fake_with_rng(rng)),
-                shops_product_id: Some(config.fake_with_rng(rng)),
-                shop_name: Some(config.fake_with_rng(rng)),
+                shops_product_id: Some(ShopsProductId::from("test-product-123")),
+                shop_name: Some(shop_name),
                 title_de: Some(config.fake_with_rng(rng)),
-                title_en: Some(config.fake_with_rng(rng)),
+                title_en: Some(title_en),
                 title_fr: None,
                 title_es: None,
                 title_it: None,

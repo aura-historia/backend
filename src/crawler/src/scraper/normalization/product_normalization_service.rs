@@ -275,7 +275,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.shops_product_id.to_string(), "PROD-001");
+        assert_eq!(result.shops_product_id.to_string(), "prod-001");
         assert_eq!(
             result.title.payload.as_ref(),
             "Antique ceramic vase from the early twentieth century in excellent condition"
@@ -319,7 +319,7 @@ mod tests {
 
         let (result, _) = svc.normalize(raw, base_url(), None).await.unwrap();
 
-        assert_eq!(result.shops_product_id.to_string(), "LOT-42");
+        assert_eq!(result.shops_product_id.to_string(), "lot-42");
         assert_eq!(
             result.title.payload.as_ref(),
             "Victorian silver brooch in excellent original condition from private collection"
