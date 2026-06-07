@@ -26,7 +26,8 @@ Always reference these instructions first and fallback to search or bash command
 
 ### Testing
 - **Unit tests**: `cargo test --workspace --lib --all-features` -- takes 120 seconds. Set timeout to 5+ minutes. Apply parameterized testing with crate `rstest` when plausible, e.g. for serialization.
-- **Integration tests**: In-house localstack test-api for fully self-contained integration-tests - can be run any time without additional setup (needs docker service running).
+- **Integration tests**: In-house localstack test-api for fully self-contained integration-tests - can be run any time without additional setup (needs docker service running). Run tests affected by changes.
+- **Acceptance tests**: End-to-end tests that validate the entire system's behavior. These tests take many minutes to build and to run. Run only if explicitly mentioned.
 - All test names need to follow a consistent naming convention, e.g., `should_[expectation]_when_[condition]_for_[purpose]`. The placeholders can be replaced with many words, e.g. `should_serialize_data_when_valid_for_storing`. Provide meaningful test-names that describe the purpose of the test.
 - Most types have an instance for `fake::Dummy<fake::Faker>`. Our internal crates provide this functionality via feature-flag `test-data`. You may need to include it for dev-dependencies. Use it to generate test data when plausible.
 
@@ -41,7 +42,8 @@ Always reference these instructions first and fallback to search or bash command
 ### Always Validate Changes
 - **ALWAYS** run format and lint checks before committing: `cargo fmt --all -- --check && cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - **ALWAYS** run unit tests after code changes: `cargo test --workspace --lib --all-features`
-- Run affected integration for changes: `cargo test --workspace --all-features --test '*'`
+- **ALWAYS** run affected integration for changes: `cargo test --workspace --all-features --test '*'`
+- **ALWAYS** check if there are any REST-API changes (endpoints AND types AND behaviors) for api-docs in `docs` and align the `docs/swagger.yaml` as well as its `docs/CHANGELOG.md` (one changelog-entry per pull-request).
 
 ### Manual Testing Scenarios
 Since this is a serverless backend, manual testing involves:
@@ -187,6 +189,12 @@ Located in various directories:
 - Test user module: `cd src/user && cargo test --lib --all-features`
 - Test FX rate module: `cd src/fxrate && cargo test --lib --all-features`
 - **Integration tests**: `cd src/product && cargo test --test '*' --all-features` (requires LocalStack containers)
+
+### Creating new lambdas
+- Add the lambda to the github action "deploy"
+- Add the lambda to `src/ci-determinator/src/main.rs` iff it has an integration-test in dir `tests`
+- Add the lambda to `src/test-api/src/cloudformation.rs` for deployment to Localstack in integration- and acceptance-tests
+- Add the required Cloudformation resources to all templates in dir `cfn`
 
 ### Code Quality
 - Format all code: `cargo fmt --all`
