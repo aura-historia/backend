@@ -4,7 +4,6 @@ use std::ops::Deref;
 use uuid::Uuid;
 
 /// Kebab-Case slug for any given String with a random hex-suffix of length N
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct SlugId<const N: usize>(String);
 
@@ -210,6 +209,22 @@ macro_rules! slug_id_newtype {
             }
         }
     };
+}
+
+#[cfg(feature = "test-data")]
+mod faker {
+    use crate::slug_id::SlugId;
+    use fake::{Fake, Faker};
+
+    impl<const N: usize> fake::Dummy<Faker> for SlugId<N> {
+        fn dummy_with_rng<R: fake::rand::prelude::RngExt + ?Sized>(
+            config: &Faker,
+            rng: &mut R,
+        ) -> Self {
+            let random_string: String = config.fake_with_rng(rng);
+            SlugId::from(random_string)
+        }
+    }
 }
 
 #[cfg(test)]
