@@ -7,8 +7,8 @@ use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     actor::data::ActorData, event_id::EventId, language::data::LocalizedTextData,
-    price::data::PriceData, product_id::ProductId, shop_id::ShopId, shop_name::ShopName,
-    shops_product_id::ShopsProductId, slug_id::SlugId,
+    price::data::PriceData, product_id::ProductId, product_slug_id::ProductSlugId, shop_id::ShopId,
+    shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
 };
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
@@ -47,8 +47,8 @@ pub enum NotificationPayloadData {
         product_id: ProductId,
         shop_id: ShopId,
         shops_product_id: ShopsProductId,
-        shop_slug_id: SlugId<0>,
-        product_slug_id: SlugId<6>,
+        shop_slug_id: ShopSlugId,
+        product_slug_id: ProductSlugId,
         shop_name: ShopName,
         title: LocalizedTextData,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,8 +61,8 @@ pub enum NotificationPayloadData {
         product_id: ProductId,
         shop_id: ShopId,
         shops_product_id: ShopsProductId,
-        shop_slug_id: SlugId<0>,
-        product_slug_id: SlugId<6>,
+        shop_slug_id: ShopSlugId,
+        product_slug_id: ProductSlugId,
         shop_name: ShopName,
         title: LocalizedTextData,
         #[serde(default, skip_serializing_if = "Option::is_none")]

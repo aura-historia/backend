@@ -3,11 +3,13 @@ use common::event_id::EventId;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::record::LanguageRecord;
 use common::product_id::ProductId;
+use common::product_slug_id::ProductSlugId;
 use common::query::range_query::RangeQuery;
 use common::resource_state::record::ResourceStateRecord;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use opensearch::http::Url;
@@ -805,9 +807,9 @@ fn base_product_document() -> ProductDocument {
     let shop_id = ShopId::new();
     ProductDocument {
         product_id: ProductId::new(),
-        product_slug_id: SlugId::from("product"),
-        shop_slug_id: SlugId::from("imperial-antiques"),
-        seller_slug_id: SlugId::from("imperial-antiques"),
+        product_slug_id: ProductSlugId::from("product"),
+        shop_slug_id: ShopSlugId::from("imperial-antiques"),
+        seller_slug_id: SellerSlugId::from("imperial-antiques"),
         event_id: EventId::new(),
         shop_id,
         seller_id: shop_id,
@@ -965,9 +967,9 @@ fn silver_tea_set_product_document() -> ProductDocument {
     let shop_id = ShopId::new();
     ProductDocument {
         product_id: ProductId::new(),
-        product_slug_id: SlugId::from("victorian-silver-tea-service"),
-        shop_slug_id: SlugId::from("silver-heirlooms-gallery"),
-        seller_slug_id: SlugId::from("silver-heirlooms-gallery"),
+        product_slug_id: ProductSlugId::from("victorian-silver-tea-service"),
+        shop_slug_id: ShopSlugId::from("silver-heirlooms-gallery"),
+        seller_slug_id: SellerSlugId::from("silver-heirlooms-gallery"),
         event_id: EventId::new(),
         shop_id,
         seller_id: shop_id,
@@ -1139,9 +1141,9 @@ fn ming_vase_product_document() -> ProductDocument {
     let shop_id = ShopId::new();
     ProductDocument {
         product_id: ProductId::new(),
-        product_slug_id: SlugId::from("ming-dynasty-blue-white-vase"),
-        shop_slug_id: SlugId::from("oriental-antiquities"),
-        seller_slug_id: SlugId::from("oriental-antiquities"),
+        product_slug_id: ProductSlugId::from("ming-dynasty-blue-white-vase"),
+        shop_slug_id: ShopSlugId::from("oriental-antiquities"),
+        seller_slug_id: SellerSlugId::from("oriental-antiquities"),
         event_id: EventId::new(),
         shop_id,
         seller_id: shop_id,
@@ -1307,9 +1309,9 @@ fn louis_xv_fauteuil_product_document() -> ProductDocument {
     let shop_id = ShopId::new();
     ProductDocument {
         product_id: ProductId::new(),
-        product_slug_id: SlugId::from("louis-xv-walnut-fauteuil-aubusson"),
-        shop_slug_id: SlugId::from("maison-des-antiquites"),
-        seller_slug_id: SlugId::from("maison-des-antiquites"),
+        product_slug_id: ProductSlugId::from("louis-xv-walnut-fauteuil-aubusson"),
+        shop_slug_id: ShopSlugId::from("maison-des-antiquites"),
+        seller_slug_id: SellerSlugId::from("maison-des-antiquites"),
         event_id: EventId::new(),
         shop_id,
         seller_id: shop_id,

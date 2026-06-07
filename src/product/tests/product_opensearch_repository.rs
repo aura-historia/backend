@@ -9,8 +9,9 @@ use common::product_id::ProductId;
 use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
+use common::seller_slug_id::SellerSlugId;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use common::sort::{Sort, SortOrder};
 use fake::{Fake, Faker};
 use geo::core::continent::Continent;
@@ -2653,7 +2654,7 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
         .enumerate()
         .map(|(idx, mut item)| {
             item.title_de = Some("Test product for shop slug id filter".into());
-            item.shop_slug_id = SlugId::from(
+            item.shop_slug_id = ShopSlugId::from(
                 shop_slug_ids[idx % shop_slug_ids.len()]
                     .to_string()
                     .as_str(),
@@ -2666,7 +2667,7 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("Test product for shop slug id filter".into());
-            item.shop_slug_id = SlugId::from("other-antique-shop");
+            item.shop_slug_id = ShopSlugId::from("other-antique-shop");
             item
         })
         .collect::<Vec<_>>();
@@ -2692,7 +2693,7 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
         seller_name_query: Default::default(),
         exclude_seller_name_query: Default::default(),
         shop_slug_id_query: AnyOfQuery::from(HashSet::from_iter(
-            shop_slug_ids.iter().map(|slug| SlugId::from(*slug)),
+            shop_slug_ids.iter().map(|slug| ShopSlugId::from(*slug)),
         )),
         exclude_shop_slug_id_query: Default::default(),
         seller_slug_id_query: Default::default(),
@@ -2745,7 +2746,7 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
         .enumerate()
         .map(|(idx, mut item)| {
             item.title_de = Some("Test product for exclude shop slug id filter".into());
-            item.shop_slug_id = SlugId::from(
+            item.shop_slug_id = ShopSlugId::from(
                 exclude_shop_slug_ids[idx % exclude_shop_slug_ids.len()]
                     .to_string()
                     .as_str(),
@@ -2758,7 +2759,7 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("Test product for exclude shop slug id filter".into());
-            item.shop_slug_id = SlugId::from("other-antique-shop");
+            item.shop_slug_id = ShopSlugId::from("other-antique-shop");
             item
         })
         .collect::<Vec<_>>();
@@ -2789,7 +2790,9 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
         exclude_seller_name_query: Default::default(),
         shop_slug_id_query: Default::default(),
         exclude_shop_slug_id_query: AnyOfQuery::from(HashSet::from_iter(
-            exclude_shop_slug_ids.iter().map(|slug| SlugId::from(*slug)),
+            exclude_shop_slug_ids
+                .iter()
+                .map(|slug| ShopSlugId::from(*slug)),
         )),
         seller_slug_id_query: Default::default(),
         exclude_seller_slug_id_query: Default::default(),
@@ -2842,7 +2845,7 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
         .enumerate()
         .map(|(idx, mut item)| {
             item.title_de = Some("Test product for seller slug id filter".into());
-            item.seller_slug_id = SlugId::from(
+            item.seller_slug_id = SellerSlugId::from(
                 seller_slug_ids[idx % seller_slug_ids.len()]
                     .to_string()
                     .as_str(),
@@ -2855,7 +2858,7 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("Test product for seller slug id filter".into());
-            item.seller_slug_id = SlugId::from("other-seller-shop");
+            item.seller_slug_id = SellerSlugId::from("other-seller-shop");
             item
         })
         .collect::<Vec<_>>();
@@ -2883,7 +2886,7 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
         shop_slug_id_query: Default::default(),
         exclude_shop_slug_id_query: Default::default(),
         seller_slug_id_query: AnyOfQuery::from(HashSet::from_iter(
-            seller_slug_ids.iter().map(|slug| SlugId::from(*slug)),
+            seller_slug_ids.iter().map(|slug| SellerSlugId::from(*slug)),
         )),
         exclude_seller_slug_id_query: Default::default(),
         shop_type_query: Default::default(),
@@ -2934,7 +2937,7 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
         .enumerate()
         .map(|(idx, mut item)| {
             item.title_de = Some("Test product for exclude seller slug id filter".into());
-            item.seller_slug_id = SlugId::from(
+            item.seller_slug_id = SellerSlugId::from(
                 exclude_seller_slug_ids[idx % exclude_seller_slug_ids.len()]
                     .to_string()
                     .as_str(),
@@ -2947,7 +2950,7 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
         .into_iter()
         .map(|mut item| {
             item.title_de = Some("Test product for exclude seller slug id filter".into());
-            item.seller_slug_id = SlugId::from("other-seller-shop");
+            item.seller_slug_id = SellerSlugId::from("other-seller-shop");
             item
         })
         .collect::<Vec<_>>();
@@ -2982,7 +2985,7 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
         exclude_seller_slug_id_query: AnyOfQuery::from(HashSet::from_iter(
             exclude_seller_slug_ids
                 .iter()
-                .map(|slug| SlugId::from(*slug)),
+                .map(|slug| SellerSlugId::from(*slug)),
         )),
         shop_type_query: Default::default(),
         country_query: Default::default(),

@@ -8,9 +8,10 @@ use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
 use common::product_id::{ProductId, ProductKey};
+use common::product_slug_id::ProductSlugId;
 use common::shop_id::ShopId;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
@@ -22,8 +23,8 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct GetProductData {
     pub product_id: ProductId,
-    pub product_slug_id: SlugId<6>,
-    pub shop_slug_id: SlugId<0>,
+    pub product_slug_id: ProductSlugId,
+    pub shop_slug_id: ShopSlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,

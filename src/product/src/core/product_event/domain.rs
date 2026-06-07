@@ -7,11 +7,13 @@ use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductKey;
+use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use shop::core::shop_type::ShopType;
@@ -263,9 +265,9 @@ impl ProductCommonEventPayload for ProductDomainEventPayload {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductCreatedDomainEventPayload {
-    pub product_slug_id: SlugId<6>,
-    pub shop_slug_id: SlugId<0>,
-    pub seller_slug_id: SlugId<0>,
+    pub product_slug_id: ProductSlugId,
+    pub shop_slug_id: ShopSlugId,
+    pub seller_slug_id: SellerSlugId,
     pub shop_id: ShopId,
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,

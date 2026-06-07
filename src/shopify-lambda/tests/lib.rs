@@ -142,7 +142,7 @@ fn real_shopify_sqs_event_from_detail(detail: Value) -> LambdaEvent<SqsEvent> {
 async fn seed_shopify_partner_shop(repository: &ShopDynamoDbRepositoryImpl<'_>) -> ShopRecord {
     let shopify_domain = Domain::try_from(SHOPIFY_DOMAIN).unwrap();
     let shop_id = common::shop_id::ShopId::new();
-    let slug = common::slug_id::SlugId::raw("shopify-test-shop");
+    let slug = common::shop_slug_id::ShopSlugId::raw("shopify-test-shop").unwrap();
     let now = OffsetDateTime::now_utc();
 
     let record = ShopRecord {

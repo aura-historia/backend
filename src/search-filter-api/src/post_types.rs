@@ -34,7 +34,7 @@ mod tests {
     use common::distance::data::{DistanceData, DistanceUnitData};
     use common::query::range_query::RangeQuery;
     use common::shop_name::ShopName;
-    use common::slug_id::SlugId;
+    use common::shop_slug_id::ShopSlugId;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use geo::data::continent_data::ContinentData;
     use product::data::product_search_data::ProductSearchData;
@@ -101,7 +101,7 @@ mod tests {
                 exclude_shop_name_query: [ShopName::from("baddlebap")].into(),
                 seller_name_query: Default::default(),
                 exclude_seller_name_query: Default::default(),
-                shop_slug_id_query: HashSet::from_iter([SlugId::from("imperial-antiques")]),
+                shop_slug_id_query: HashSet::from_iter([ShopSlugId::from("imperial-antiques")]),
                 exclude_shop_slug_id_query: Default::default(),
                 seller_slug_id_query: Default::default(),
                 exclude_seller_slug_id_query: Default::default(),

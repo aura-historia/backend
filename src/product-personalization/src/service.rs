@@ -236,9 +236,9 @@ fn hidden_title(language: Language) -> Title {
 fn anonymize_product(product: &mut LocalizedProductView) {
     let nil = uuid::Uuid::nil();
     product.product_id = ProductId::from(nil);
-    product.product_slug_id = common::slug_id::SlugId::raw("");
-    product.shop_slug_id = common::slug_id::SlugId::raw("");
-    product.seller_slug_id = common::slug_id::SlugId::raw("");
+    product.product_slug_id = common::product_slug_id::ProductSlugId::raw("").unwrap();
+    product.shop_slug_id = common::shop_slug_id::ShopSlugId::raw("").unwrap();
+    product.seller_slug_id = common::seller_slug_id::SellerSlugId::raw("").unwrap();
     product.event_id = common::event_id::EventId::from(nil);
     product.shop_id = common::shop_id::ShopId::from(nil);
     product.seller_id = common::shop_id::ShopId::from(nil);

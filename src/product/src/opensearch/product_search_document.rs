@@ -3,8 +3,9 @@ use crate::opensearch::product_state_document::ProductStateDocument;
 use common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery};
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_name::ShopName;
-use common::slug_id::SlugId;
+use common::shop_slug_id::ShopSlugId;
 use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,
     price::domain::MonetaryAmount,
@@ -86,25 +87,25 @@ pub struct ProductSearchDocument {
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    pub shop_slug_id_query: HashSet<SlugId<0>>,
+    pub shop_slug_id_query: HashSet<ShopSlugId>,
     #[serde(
         rename = "excludeShopSlugId",
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    pub exclude_shop_slug_id_query: HashSet<SlugId<0>>,
+    pub exclude_shop_slug_id_query: HashSet<ShopSlugId>,
     #[serde(
         rename = "sellerSlugId",
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    pub seller_slug_id_query: HashSet<SlugId<0>>,
+    pub seller_slug_id_query: HashSet<SellerSlugId>,
     #[serde(
         rename = "excludeSellerSlugId",
         skip_serializing_if = "HashSet::is_empty",
         default
     )]
-    pub exclude_seller_slug_id_query: HashSet<SlugId<0>>,
+    pub exclude_seller_slug_id_query: HashSet<SellerSlugId>,
     #[serde(
         rename = "shopType",
         skip_serializing_if = "HashSet::is_empty",

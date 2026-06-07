@@ -244,8 +244,8 @@ mod tests {
         ProductId,
         common::shop_id::ShopId,
         common::shops_product_id::ShopsProductId,
-        common::slug_id::SlugId<0>,
-        common::slug_id::SlugId<6>,
+        common::shop_slug_id::ShopSlugId,
+        common::product_slug_id::ProductSlugId,
         common::shop_name::ShopName,
     ) {
         match &cmd.notification_payload {

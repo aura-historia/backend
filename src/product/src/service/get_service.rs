@@ -12,9 +12,10 @@ use common::event::Event;
 use common::language::domain::Language;
 use common::price::domain::MonetaryAmountOverflowError;
 use common::product_id::{ProductId, ProductKey};
+use common::product_slug_id::ProductSlugId;
 use common::shop_id::ShopId;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use tracing::error;
 
 #[derive(thiserror::Error, Debug)]
@@ -23,7 +24,7 @@ pub enum GetProductError {
     ProductNotFound(ShopId, ShopsProductId),
 
     #[error("Product with ShopSlugId '{0}' and ProductSlugId '{1}' not found.")]
-    ProductSlugNotFound(SlugId<0>, SlugId<6>),
+    ProductSlugNotFound(ShopSlugId, ProductSlugId),
 
     #[error("{0}")]
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
@@ -88,8 +89,8 @@ pub trait GetProductService {
 
     async fn find_product_by_slug(
         &self,
-        shop_slug_id: &SlugId<0>,
-        product_slug_id: &SlugId<6>,
+        shop_slug_id: &ShopSlugId,
+        product_slug_id: &ProductSlugId,
     ) -> Result<Product, GetProductError>;
 
     async fn find_products(&self, items: Vec<ProductKey>) -> Result<Vec<Product>, GetProductError>;
@@ -104,8 +105,8 @@ pub trait GetProductService {
 
     async fn view_product_by_slug(
         &self,
-        shop_slug_id: &SlugId<0>,
-        product_slug_id: &SlugId<6>,
+        shop_slug_id: &ShopSlugId,
+        product_slug_id: &ProductSlugId,
         languages: &[Language],
         currency: &Currency,
     ) -> Result<LocalizedProductView, GetProductError>;
@@ -157,8 +158,8 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
 
     async fn find_product_by_slug(
         &self,
-        shop_slug_id: &SlugId<0>,
-        product_slug_id: &SlugId<6>,
+        shop_slug_id: &ShopSlugId,
+        product_slug_id: &ProductSlugId,
     ) -> Result<Product, GetProductError> {
         let product_key_opt = self
             .repository
@@ -199,8 +200,8 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
 
     async fn view_product_by_slug(
         &self,
-        shop_slug_id: &SlugId<0>,
-        product_slug_id: &SlugId<6>,
+        shop_slug_id: &ShopSlugId,
+        product_slug_id: &ProductSlugId,
         languages: &[Language],
         currency: &Currency,
     ) -> Result<LocalizedProductView, GetProductError> {

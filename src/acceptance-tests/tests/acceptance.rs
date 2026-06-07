@@ -6120,13 +6120,13 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
 
     let shopify_domain = common::domain::Domain::try_from(SHOPIFY_ACCEPTANCE_DOMAIN).unwrap();
     let shop_id = common::shop_id::ShopId::new();
-    let slug = common::slug_id::SlugId::raw("shopify-acc-test-shop");
+    let slug = common::slug_id::SlugId::raw("shopify-acc-test-shop").unwrap();
 
     let record = ShopRecord {
         pk: shop::dynamodb::shop_record::mk_pk(&shop_id),
         sk: shop::dynamodb::shop_record::mk_sk().to_owned(),
         shop_id,
-        shop_slug_id: slug.clone(),
+        shop_slug_id: slug.clone().into(),
         name: common::shop_name::ShopName::from("Shopify Acceptance Shop"),
         shop_type: shop::dynamodb::shop_type_record::ShopTypeRecord::Marketplace,
         shop_partner_status: ShopPartnerStatusRecord::Partnered,
@@ -6150,7 +6150,7 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         geo_address_lon: None,
         phone: None,
         email: None,
-        gsi2_pk: Some(shop::dynamodb::shop_record::mk_gsi2_pk(&slug)),
+        gsi2_pk: Some(shop::dynamodb::shop_record::mk_gsi2_pk(&slug.into())),
         gsi2_sk: Some(shop::dynamodb::shop_record::mk_gsi2_sk().to_owned()),
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),
         gsi3_sk: Some(shop::dynamodb::shop_record::mk_gsi3_sk().to_owned()),

@@ -5,8 +5,9 @@ use common::dynamodb_update::DynamoDbUpdate;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::record::ResourceStateRecord;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_name::ShopName;
-use common::slug_id::SlugId;
+use common::shop_slug_id::ShopSlugId;
 use common::{currency::record::CurrencyRecord, language::record::LanguageRecord};
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
@@ -39,13 +40,13 @@ pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude_seller_name_query: Option<HashSet<ShopName>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub shop_slug_id_query: Option<HashSet<ShopSlugId>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exclude_shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub exclude_shop_slug_id_query: Option<HashSet<ShopSlugId>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seller_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub seller_slug_id_query: Option<HashSet<SellerSlugId>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exclude_seller_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub exclude_seller_slug_id_query: Option<HashSet<SellerSlugId>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_type_query: Option<HashSet<ShopTypeRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

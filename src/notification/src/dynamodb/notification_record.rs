@@ -24,11 +24,12 @@ use common::{
         record::PriceRecord,
     },
     product_id::ProductId,
+    product_slug_id::ProductSlugId,
     product_state::domain::ProductState,
     shop_id::ShopId,
     shop_name::ShopName,
+    shop_slug_id::ShopSlugId,
     shops_product_id::ShopsProductId,
-    slug_id::SlugId,
     user_id::UserId,
 };
 use field::field;
@@ -69,9 +70,9 @@ pub struct NotificationRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub product_id: Option<ProductId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub product_slug_id: Option<SlugId<6>>,
+    pub product_slug_id: Option<ProductSlugId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub shop_slug_id: Option<SlugId<0>>,
+    pub shop_slug_id: Option<ShopSlugId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shop_id: Option<ShopId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

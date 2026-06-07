@@ -1,4 +1,4 @@
-use common::{shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -9,7 +9,7 @@ pub struct RawShopNameRecord {
     pub raw_name: ShopName,
 
     pub shop_id: ShopId,
-    pub shop_slug_id: SlugId<0>,
+    pub shop_slug_id: ShopSlugId,
     pub name: ShopName,
 
     #[serde(with = "time::serde::rfc3339")]
@@ -36,7 +36,7 @@ mod faker {
             let raw_name = config.fake_with_rng::<ShopName, _>(rng);
             let shop_id = config.fake_with_rng::<ShopId, _>(rng);
             let name = config.fake_with_rng::<ShopName, _>(rng);
-            let shop_slug_id = SlugId::from(name.as_ref());
+            let shop_slug_id = ShopSlugId::from(name.as_ref());
             let pk = mk_pk(&raw_name);
             let sk = mk_sk().to_owned();
             RawShopNameRecord {

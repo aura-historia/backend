@@ -14,9 +14,9 @@ use common::logging::{
 use common::{
     actor::{RequestContext, domain::Actor},
     query::text_query::TextQuery,
+    seller_slug_id::SellerSlugId,
     shop_id::ShopId,
     shop_name::ShopName,
-    slug_id::SlugId,
 };
 use llm::{LLMProvider, chat::ChatMessage};
 use std::time::Instant;
@@ -62,17 +62,17 @@ pub trait SellerService {
     async fn find_seller_shop_details(
         &self,
         raw_shop_name: &ShopName,
-    ) -> Result<Option<(ShopId, SlugId<0>, ShopName)>, SellerServiceError>;
+    ) -> Result<Option<(ShopId, SellerSlugId, ShopName)>, SellerServiceError>;
 
     async fn create_seller_shop_details(
         &self,
         raw_shop_name: &ShopName,
-    ) -> Result<Option<(ShopId, SlugId<0>, ShopName)>, SellerServiceError>;
+    ) -> Result<Option<(ShopId, SellerSlugId, ShopName)>, SellerServiceError>;
 
     async fn get_seller_shop_details(
         &self,
         raw_shop_name: &ShopName,
-    ) -> Result<(ShopId, SlugId<0>, ShopName), SellerServiceError>;
+    ) -> Result<(ShopId, SellerSlugId, ShopName), SellerServiceError>;
 }
 
 pub struct SellerServiceImpl<'a> {
@@ -183,18 +183,18 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
     async fn find_seller_shop_details(
         &self,
         raw_shop_name: &ShopName,
-    ) -> Result<Option<(ShopId, SlugId<0>, ShopName)>, SellerServiceError> {
+    ) -> Result<Option<(ShopId, SellerSlugId, ShopName)>, SellerServiceError> {
         let record = self
             .repository
             .get_raw_shop_name_record(raw_shop_name)
             .await?;
-        Ok(record.map(|r| (r.shop_id, r.shop_slug_id, r.name)))
+        Ok(record.map(|r| (r.shop_id, r.shop_slug_id.into(), r.name)))
     }
 
     async fn create_seller_shop_details(
         &self,
         raw_shop_name: &ShopName,
-    ) -> Result<Option<(ShopId, SlugId<0>, ShopName)>, SellerServiceError> {
+    ) -> Result<Option<(ShopId, SellerSlugId, ShopName)>, SellerServiceError> {
         let search = ShopSearch {
             shop_name_query: Some(
                 TextQuery::try_from(raw_shop_name.as_ref())
@@ -292,13 +292,13 @@ impl<'a> SellerService for SellerServiceImpl<'a> {
         };
         let _ = self.repository.put_raw_shop_name_record(record).await?;
 
-        Ok(Some((shop.shop_id, shop.shop_slug_id, shop.name)))
+        Ok(Some((shop.shop_id, shop.shop_slug_id.into(), shop.name)))
     }
 
     async fn get_seller_shop_details(
         &self,
         raw_shop_name: &ShopName,
-    ) -> Result<(ShopId, SlugId<0>, ShopName), SellerServiceError> {
+    ) -> Result<(ShopId, SellerSlugId, ShopName), SellerServiceError> {
         if let Some(details) = self.find_seller_shop_details(raw_shop_name).await? {
             return Ok(details);
         }
@@ -483,7 +483,7 @@ mod tests {
         assert!(result.is_some());
         let (shop_id, slug, name) = result.unwrap();
         assert_eq!(expected_shop_id, shop_id);
-        assert_eq!(expected_slug, slug);
+        assert_eq!(expected_slug, common::shop_slug_id::ShopSlugId::from(slug));
         assert_eq!(expected_name, name);
     }
 
@@ -610,7 +610,7 @@ mod tests {
         assert!(result.is_some());
         let (shop_id, slug, name) = result.unwrap();
         assert_eq!(expected_shop_id, shop_id);
-        assert_eq!(expected_slug, slug);
+        assert_eq!(expected_slug, common::shop_slug_id::ShopSlugId::from(slug));
         assert_eq!(expected_name, name);
     }
 
@@ -662,7 +662,7 @@ mod tests {
         assert!(result.is_some());
         let (shop_id, slug, name) = result.unwrap();
         assert_eq!(expected_shop_id, shop_id);
-        assert_eq!(expected_slug, slug);
+        assert_eq!(expected_slug, common::shop_slug_id::ShopSlugId::from(slug));
         assert_eq!(expected_name, name);
     }
 
@@ -915,7 +915,10 @@ mod tests {
         let result = service.get_seller_shop_details(&raw_name).await.unwrap();
 
         assert_eq!(expected_shop_id, result.0);
-        assert_eq!(expected_slug, result.1);
+        assert_eq!(
+            expected_slug,
+            common::shop_slug_id::ShopSlugId::from(result.1)
+        );
         assert_eq!(expected_name, result.2);
     }
 

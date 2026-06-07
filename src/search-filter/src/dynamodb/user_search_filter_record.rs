@@ -5,8 +5,9 @@ use common::distance::data::GeoDistanceQueryData;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::record::ResourceStateRecord;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_name::ShopName;
-use common::slug_id::SlugId;
+use common::shop_slug_id::ShopSlugId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
     currency::record::CurrencyRecord, language::record::LanguageRecord,
@@ -48,13 +49,13 @@ pub struct UserSearchFilterRecord {
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub exclude_seller_name_query: HashSet<ShopName>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub shop_slug_id_query: HashSet<SlugId<0>>,
+    pub shop_slug_id_query: HashSet<ShopSlugId>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub exclude_shop_slug_id_query: HashSet<SlugId<0>>,
+    pub exclude_shop_slug_id_query: HashSet<ShopSlugId>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub seller_slug_id_query: HashSet<SlugId<0>>,
+    pub seller_slug_id_query: HashSet<SellerSlugId>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
-    pub exclude_seller_slug_id_query: HashSet<SlugId<0>>,
+    pub exclude_seller_slug_id_query: HashSet<SellerSlugId>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_type_query: HashSet<ShopTypeRecord>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]

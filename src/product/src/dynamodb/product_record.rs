@@ -15,9 +15,11 @@ use common::localized::Localized;
 use common::price::domain::Price;
 use common::price::record::PriceRecord;
 use common::product_id::{ProductId, ProductKey};
+use common::product_slug_id::ProductSlugId;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use field::field;
 use geo::dynamodb::{geo_address_from_record, structured_address_from_record};
 use indexmap::IndexSet;
@@ -38,9 +40,9 @@ pub struct ProductRecord {
     pub gsi2_sk: String,
 
     pub product_id: ProductId,
-    pub product_slug_id: SlugId<6>,
-    pub shop_slug_id: SlugId<0>,
-    pub seller_slug_id: SlugId<0>,
+    pub product_slug_id: ProductSlugId,
+    pub shop_slug_id: ShopSlugId,
+    pub seller_slug_id: SellerSlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub seller_id: ShopId,
@@ -235,7 +237,7 @@ pub fn mk_sk() -> &'static str {
     "product#materialized"
 }
 
-pub fn mk_gsi2_pk(shop_slug_id: &SlugId<0>, product_slug_id: &SlugId<6>) -> String {
+pub fn mk_gsi2_pk(shop_slug_id: &ShopSlugId, product_slug_id: &ProductSlugId) -> String {
     format!("shop_slug_id#{shop_slug_id}#product_slug_id#{product_slug_id}")
 }
 
@@ -646,9 +648,9 @@ mod faker {
             );
             let shop_name = config.fake_with_rng(rng);
             let seller_name = config.fake_with_rng(rng);
-            let shop_slug_id = SlugId::from(&shop_name);
-            let seller_slug_id = SlugId::from(&seller_name);
-            let product_slug_id = SlugId::from(&title_native.text);
+            let shop_slug_id = ShopSlugId::from(&shop_name);
+            let seller_slug_id = SellerSlugId::from(&seller_name);
+            let product_slug_id = ProductSlugId::from(&title_native.text);
             ProductRecord {
                 pk: mk_pk(&shop_id, &shops_product_id),
                 sk: mk_sk().to_string(),

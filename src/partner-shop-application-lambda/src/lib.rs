@@ -1083,7 +1083,7 @@ mod tests {
             Box::pin(async {
                 Err(CommandShopError::ShopSlugExistsAlready(
                     ShopName::from("Failing Shop"),
-                    common::slug_id::SlugId::from("failing-shop"),
+                    common::shop_slug_id::ShopSlugId::from("failing-shop"),
                 ))
             })
         });

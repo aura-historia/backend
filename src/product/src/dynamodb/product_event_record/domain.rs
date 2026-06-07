@@ -21,11 +21,13 @@ use common::localized::Localized;
 use common::price::domain::Price;
 use common::price::record::PriceRecord;
 use common::product_id::{ProductId, ProductKey};
+use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use field::field;
 use geo::dynamodb::{geo_address_from_record, structured_address_from_record};
 use indexmap::IndexSet;
@@ -45,11 +47,11 @@ pub struct ProductDomainEventRecord {
     pub product_id: ProductId,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub product_slug_id: Option<SlugId<6>>,
+    pub product_slug_id: Option<ProductSlugId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub shop_slug_id: Option<SlugId<0>>,
+    pub shop_slug_id: Option<ShopSlugId>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub seller_slug_id: Option<SlugId<0>>,
+    pub seller_slug_id: Option<SellerSlugId>,
     pub event_id: EventId,
     pub event_type: ProductDomainEventTypeRecord,
     pub event_type_schema_version: u8,

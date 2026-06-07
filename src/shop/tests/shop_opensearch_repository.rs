@@ -1,7 +1,7 @@
 use common::domain::Domain;
 use common::pagination::cursor::Cursor;
 use common::shop_name::ShopName;
-use common::slug_id::SlugId;
+use common::shop_slug_id::ShopSlugId;
 use common::sort::SortOrder;
 use common::{query::range_query::RangeQuery, sort::Sort};
 use fake::{Fake, Faker};
@@ -182,7 +182,7 @@ async fn should_update_shop_document_for_index() {
     let name: ShopName = "Hansi hans and the Hanses".into();
     let updated_expected = ShopDocument {
         shop_id: created.shop_id,
-        shop_slug_id: SlugId::from(name.as_ref()),
+        shop_slug_id: ShopSlugId::from(name.as_ref()),
         name,
         shop_type: Faker.fake(),
         domains: HashSet::from_iter([

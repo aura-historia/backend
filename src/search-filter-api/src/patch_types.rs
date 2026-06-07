@@ -3,8 +3,9 @@ use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::data::PatchResourceStateData;
 use common::resource_state::domain::ResourceState;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_name::ShopName;
-use common::slug_id::SlugId;
+use common::shop_slug_id::ShopSlugId;
 use common::{
     currency::{data::CurrencyData, domain::Currency},
     language::{data::LanguageData, domain::Language},
@@ -86,28 +87,28 @@ pub struct PatchProductSearchData {
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub shop_slug_id_query: Option<HashSet<ShopSlugId>>,
 
     #[serde(
         rename = "excludeShopSlugId",
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub exclude_shop_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub exclude_shop_slug_id_query: Option<HashSet<ShopSlugId>>,
 
     #[serde(
         rename = "sellerSlugId",
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub seller_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub seller_slug_id_query: Option<HashSet<SellerSlugId>>,
 
     #[serde(
         rename = "excludeSellerSlugId",
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub exclude_seller_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub exclude_seller_slug_id_query: Option<HashSet<SellerSlugId>>,
 
     #[serde(rename = "shopType", skip_serializing_if = "Option::is_none", default)]
     pub shop_type_query: Option<HashSet<ShopTypeData>>,
@@ -291,7 +292,7 @@ mod tests {
     use crate::patch_types::{PatchProductSearchData, PatchUserSearchFilterData};
     use common::query::range_query::RangeQuery;
     use common::shop_name::ShopName;
-    use common::slug_id::SlugId;
+    use common::shop_slug_id::ShopSlugId;
     use common::{currency::data::CurrencyData, language::data::LanguageData};
     use product::data::product_state_data::ProductStateData;
     use serde_json::json;
@@ -338,7 +339,7 @@ mod tests {
             exclude_shop_name_query: None,
             seller_name_query: None,
             exclude_seller_name_query: None,
-            shop_slug_id_query: Some(HashSet::from_iter([SlugId::from("imperial-antiques")])),
+            shop_slug_id_query: Some(HashSet::from_iter([ShopSlugId::from("imperial-antiques")])),
             exclude_shop_slug_id_query: None,
             seller_slug_id_query: None,
             exclude_seller_slug_id_query: None,
@@ -422,7 +423,9 @@ mod tests {
                 exclude_shop_name_query: None,
                 seller_name_query: None,
                 exclude_seller_name_query: None,
-                shop_slug_id_query: Some(HashSet::from_iter([SlugId::from("imperial-antiques")])),
+                shop_slug_id_query: Some(HashSet::from_iter([ShopSlugId::from(
+                    "imperial-antiques",
+                )])),
                 exclude_shop_slug_id_query: None,
                 seller_slug_id_query: None,
                 exclude_seller_slug_id_query: None,

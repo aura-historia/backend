@@ -9,7 +9,7 @@ use crate::{
 use common::actor::data::ActorData;
 use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use std::collections::HashSet;
@@ -20,7 +20,7 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct GetShopData {
     pub shop_id: ShopId,
-    pub shop_slug_id: SlugId<0>,
+    pub shop_slug_id: ShopSlugId,
     pub name: ShopName,
     pub shop_type: ShopTypeData,
     pub domains: HashSet<Domain>,
