@@ -17,6 +17,9 @@
 //! |------------------|--------------------------------------|--------------------------------------------------|
 //! | `GEMINI_API_KEY` | API key for the Gemini backend       | *(required)*                                     |
 //! | `GEMINI_MODEL`   | Model to use for LLM calls           | `gemini-3.1-pro-preview`                        |
+//! | `GEMINI_CHEAP_MODEL` | Default cheaper model for low-risk LLM calls | `gemini-3.1-flash-lite`                 |
+//! | `GEMINI_STATE_MAPPING_MODEL` | Optional override for state mapping calls | `GEMINI_CHEAP_MODEL`                 |
+//! | `GEMINI_URL_CLASSIFICATION_MODEL` | Optional override for URL classification calls | `GEMINI_CHEAP_MODEL`       |
 //! | `GEMINI_FLEX`    | Enable Gemini Flex inference         | unset / `false`                                  |
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL                | `postgres://postgres:postgres@localhost:5432/crawler_demo` |
 //! | `CRAWLER_REVIEW_REQUIRED` | Block generated patterns/schemas until approved | unset / `false`                       |
@@ -38,6 +41,7 @@ use common::logging::GeminiServiceTier;
 use common::shop_id::ShopId;
 use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+    state_mapping_gemini_model, url_classification_gemini_model,
 };
 use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
 use crawler::review::repository::CrawlerReviewRepository;
@@ -84,13 +88,13 @@ impl ShopRegistrationSource for DemoShopSource {
 }
 
 fn crawler_review_required() -> bool {
-    std::env::var("CRAWLER_REVIEW_REQUIRED")
+    env::var("CRAWLER_REVIEW_REQUIRED")
         .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
         .unwrap_or(false)
 }
 
 fn crawler_review_url_pattern_required() -> bool {
-    std::env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
+    env::var("CRAWLER_REVIEW_URL_PATTERN_REQUIRED")
         .map(|value| matches!(value.as_str(), "true" | "TRUE" | "1" | "yes" | "YES"))
         .unwrap_or(false)
 }
@@ -101,24 +105,24 @@ fn demo_shops() -> Vec<RegisteredShop> {
     vec![
         RegisteredShop {
             shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000001").unwrap(),
-            shop_name: "Weitze".to_string(),
-            shop_slug: "weitze".to_string(),
+            shop_name: "Livinta".to_string(),
+            shop_slug: "livinta".to_string(),
             shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("weitze.net").unwrap()]),
+            domains: HashSet::from([Domain::try_from("livinta.com").unwrap()]),
         },
         RegisteredShop {
             shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000002").unwrap(),
-            shop_name: "20th Century Militaria".to_string(),
-            shop_slug: "20thcenturymilitaria".to_string(),
+            shop_name: "Antixx".to_string(),
+            shop_slug: "antixx".to_string(),
             shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("20thcenturymilitaria.com").unwrap()]),
+            domains: HashSet::from([Domain::try_from("antixx.de").unwrap()]),
         },
         RegisteredShop {
             shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000003").unwrap(),
-            shop_name: "Antichita Daziano".to_string(),
-            shop_slug: "Antichita Daziano".to_string(),
+            shop_name: "Antik Storys".to_string(),
+            shop_slug: "antik-storys".to_string(),
             shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("antichitadaziano.com").unwrap()]),
+            domains: HashSet::from([Domain::try_from("antikstorys.com").unwrap()]),
         },
     ]
 }
@@ -141,8 +145,10 @@ async fn main() {
             }
         };
 
-        let model = std::env::var("GEMINI_MODEL")
-            .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+        let model =
+            std::env::var("GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
+        let state_model = state_mapping_gemini_model();
+        let classification_model = url_classification_gemini_model();
         unsafe {
             std::env::set_var("GEMINI_MODEL", &model);
         }
@@ -161,14 +167,14 @@ async fn main() {
             scraper_batch_size: 10000,
             spider_concurrency: 5,
             scraper_concurrency: 5,
-            spider_classify_threshold: 200,
+            spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             ..Default::default()
         };
 
         let db_url = demo_db_url();
         if let Err(error) = bootstrap_local_database(DEMO_DB_NAME).await {
-            error!(error = %error, "Failed to bootstrap local Postgres database");
+            error!(error = ?error, "Failed to bootstrap local Postgres database");
             return;
         }
 
@@ -182,7 +188,7 @@ async fn main() {
         };
 
         if let Err(error) = sqlx::migrate!("./migrations").run(&pool).await {
-            error!(error = %error, "Failed to apply database migrations");
+            error!(error = ?error, "Failed to apply database migrations");
             return;
         }
         info!("Database migrations applied successfully");
@@ -195,6 +201,8 @@ async fn main() {
 
         info!(
             gemini_model = %model,
+            gemini_state_mapping_model = %state_model,
+            gemini_url_classification_model = %classification_model,
             gemini_service_tier,
             review_required,
             url_pattern_review_required,
@@ -204,7 +212,7 @@ async fn main() {
         let gemini_rate_limiter =
             Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
 
-        let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let state_llm_builder = google_llm_builder(&api_key, &state_model, gemini_flex);
 
         let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
             Box::new(pool.clone()),
@@ -219,14 +227,12 @@ async fn main() {
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
         let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
-        let schema_evaluator_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc = ProductSchemaServiceImpl::new_with_evaluator(
+        let schema_svc = ProductSchemaServiceImpl::new(
             schema_llm_builder,
-            schema_evaluator_llm_builder,
             llm_service_tier,
             schema_repo,
             Some(Arc::clone(&gemini_rate_limiter)),
@@ -252,7 +258,6 @@ async fn main() {
                         config.scraper_max_llm_calls_per_shop,
                     ),
                 ),
-                3,
                 config.scraper_schema_seed_pages,
                 config.scraper_max_llm_calls_per_shop,
             )
@@ -262,7 +267,7 @@ async fn main() {
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
         let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
 
-        let class_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let class_llm_builder = google_llm_builder(&api_key, &classification_model, gemini_flex);
         let class_svc = Box::new(
             UrlClassificationServiceImpl::new(
                 class_llm_builder,
@@ -310,6 +315,8 @@ async fn main() {
         info!(
             shop_count = demo_shops().len(),
             gemini_model = %model,
+            gemini_state_mapping_model = %state_model,
+            gemini_url_classification_model = %classification_model,
             gemini_service_tier,
             review_required,
             url_pattern_review_required,

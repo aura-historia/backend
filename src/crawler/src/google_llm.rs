@@ -13,6 +13,7 @@ const GEMINI_CHAT_MAX_ATTEMPTS: usize = 3;
 const GEMINI_RATE_LIMIT_DELAY: Duration = Duration::from_secs(30);
 const GEMINI_SERVICE_UNAVAILABLE_DELAY: Duration = Duration::from_secs(10 * 60);
 const GEMINI_TRANSIENT_ERROR_DELAY: Duration = Duration::from_secs(1);
+const DEFAULT_CHEAP_GEMINI_MODEL: &str = "gemini-3.1-flash-lite";
 #[cfg(test)]
 const GEMINI_TEST_RETRY_DELAY: Duration = Duration::from_millis(1);
 
@@ -37,6 +38,18 @@ pub fn gemini_flex_enabled() -> bool {
     std::env::var("GEMINI_FLEX")
         .ok()
         .is_some_and(|raw| parse_gemini_flex(&raw))
+}
+
+pub fn cheap_gemini_model() -> String {
+    std::env::var("GEMINI_CHEAP_MODEL").unwrap_or_else(|_| DEFAULT_CHEAP_GEMINI_MODEL.to_string())
+}
+
+pub fn state_mapping_gemini_model() -> String {
+    std::env::var("GEMINI_STATE_MAPPING_MODEL").unwrap_or_else(|_| cheap_gemini_model())
+}
+
+pub fn url_classification_gemini_model() -> String {
+    std::env::var("GEMINI_URL_CLASSIFICATION_MODEL").unwrap_or_else(|_| cheap_gemini_model())
 }
 
 fn parse_gemini_flex(raw: &str) -> bool {
@@ -166,7 +179,7 @@ pub(crate) async fn run_with_gemini_rate_limiter(
                     attempt,
                     max_attempts = GEMINI_CHAT_MAX_ATTEMPTS,
                     delay_ms = delay.as_millis(),
-                    error = %error,
+                    error = ?error,
                     "Retrying Gemini chat request after retryable provider error"
                 );
                 sleep(delay).await;
@@ -270,6 +283,44 @@ mod tests {
     #[test]
     fn should_ignore_surrounding_whitespace() {
         assert!(parse_gemini_flex(" true "));
+    }
+
+    #[test]
+    fn should_use_default_cheap_model_when_env_missing() {
+        let env_lock = lock_env();
+        unsafe {
+            std::env::remove_var("GEMINI_CHEAP_MODEL");
+            std::env::remove_var("GEMINI_STATE_MAPPING_MODEL");
+            std::env::remove_var("GEMINI_URL_CLASSIFICATION_MODEL");
+        }
+
+        assert_eq!(cheap_gemini_model(), DEFAULT_CHEAP_GEMINI_MODEL);
+        assert_eq!(state_mapping_gemini_model(), DEFAULT_CHEAP_GEMINI_MODEL);
+        assert_eq!(
+            url_classification_gemini_model(),
+            DEFAULT_CHEAP_GEMINI_MODEL
+        );
+        drop(env_lock);
+    }
+
+    #[test]
+    fn should_allow_operation_specific_cheap_model_overrides() {
+        let env_lock = lock_env();
+        unsafe {
+            std::env::set_var("GEMINI_CHEAP_MODEL", "cheap-default");
+            std::env::set_var("GEMINI_STATE_MAPPING_MODEL", "state-model");
+            std::env::set_var("GEMINI_URL_CLASSIFICATION_MODEL", "url-model");
+        }
+
+        assert_eq!(cheap_gemini_model(), "cheap-default");
+        assert_eq!(state_mapping_gemini_model(), "state-model");
+        assert_eq!(url_classification_gemini_model(), "url-model");
+        unsafe {
+            std::env::remove_var("GEMINI_CHEAP_MODEL");
+            std::env::remove_var("GEMINI_STATE_MAPPING_MODEL");
+            std::env::remove_var("GEMINI_URL_CLASSIFICATION_MODEL");
+        }
+        drop(env_lock);
     }
 
     #[test]

@@ -41,7 +41,7 @@ impl ScraperServiceImpl {
             Ok(urls) => urls,
             Err(err) => {
                 warn!(
-                    error = %err,
+                    error = ?err,
                     "Failed to load random schema-seed URLs; falling back to current page only"
                 );
                 return pages;
@@ -69,7 +69,7 @@ impl ScraperServiceImpl {
                 }),
                 Err(err) => {
                     warn!(
-                        error = %err,
+                        error = ?err,
                         sample_url = %sample_url,
                         "Failed to fetch sampled schema-seed page; continuing with available samples"
                     );

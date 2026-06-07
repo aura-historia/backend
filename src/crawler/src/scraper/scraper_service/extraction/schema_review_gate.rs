@@ -2,19 +2,17 @@ use crate::review::model::SchemaMatrix;
 use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
 use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
-    evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage,
+    evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
 };
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
-    ProductSchemaServiceError, SchemaLlmEvaluation, SchemaLlmEvaluationPage,
-    SchemaLlmEvaluationRequest, clean_html_for_schema_generation,
+    ProductSchemaServiceError, SchemaLlmEvaluation,
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
 use serde_json::{Value, json};
-use tracing::{info, warn};
-use url::Url;
+use tracing::info;
 
 pub(crate) enum GeneratedSchemaReviewOutcome {
     Persisted(ShopsProductSchema),
@@ -25,9 +23,9 @@ impl ScraperServiceImpl {
     pub(crate) async fn handle_generated_schema_review(
         &self,
         shop_id: &ShopId,
-        url: &Url,
         reason: &str,
         schemas: Vec<ProductCssSelectorSchema>,
+        evaluation: SchemaLlmEvaluation,
         pages: Vec<SchemaReviewPageInput>,
         validation_summary: Value,
     ) -> Result<GeneratedSchemaReviewOutcome, ScraperError> {
@@ -50,61 +48,22 @@ impl ScraperServiceImpl {
         let deterministic_approval_ok = schema_matrix_has_required_coverage(&matrix);
         let mut validation_summary =
             with_schema_matrix_summary(validation_summary, &matrix, deterministic_approval_ok);
-        let mut approved_by_llm = false;
-        if self.schema_llm_review_mode.should_evaluate() {
-            let request = SchemaLlmEvaluationRequest {
-                reason: reason.to_string(),
-                schemas: schemas.clone(),
-                pages: pages
-                    .iter()
-                    .map(|page| SchemaLlmEvaluationPage {
-                        url: page.url.clone(),
-                        role: page.role.clone(),
-                        cleaned_html: clean_html_for_schema_generation(&page.raw_html),
-                    })
-                    .collect(),
-                matrix,
-                deterministic_approval_ok,
-            };
+        let approved_by_llm = should_auto_approve_generated_schema(
+            self.schema_llm_review_mode,
+            deterministic_approval_ok,
+            &evaluation,
+        );
+        let evaluation = evaluation.with_approved_by_llm(approved_by_llm);
+        validation_summary = with_auto_schema_evaluation(validation_summary, &evaluation);
 
-            let evaluation = match self.consume_llm_budget_or_err(shop_id, url).await {
-                Ok(()) => match self.schema_service.evaluate_product_schemas(&request).await {
-                    Ok(evaluation) => evaluation,
-                    Err(err) => {
-                        warn!(
-                            error = %err,
-                            "Schema evaluator failed; falling back to human review"
-                        );
-                        SchemaLlmEvaluation::unavailable(format!("Schema evaluator failed: {err}"))
-                    }
-                },
-                Err(err @ ScraperError::LlmBudgetExceeded { .. }) => {
-                    warn!(
-                        error = %err,
-                        "Schema evaluator skipped because LLM budget is exhausted"
-                    );
-                    SchemaLlmEvaluation::unavailable(format!(
-                        "Schema evaluator skipped because LLM budget is exhausted: {err}"
-                    ))
-                }
-                Err(err) => return Err(err),
-            };
-
-            approved_by_llm = self.schema_llm_review_mode.allows_auto_approval()
-                && deterministic_approval_ok
-                && evaluation.is_high_confidence_approval();
-            let evaluation = evaluation.with_approved_by_llm(approved_by_llm);
-            validation_summary = with_auto_schema_evaluation(validation_summary, &evaluation);
-
-            info!(
-                mode = self.schema_llm_review_mode.as_str(),
-                decision = ?evaluation.decision,
-                confidence = ?evaluation.confidence,
-                approved_by_llm,
-                deterministic_approval_ok,
-                "Schema LLM evaluation completed"
-            );
-        }
+        info!(
+            mode = self.schema_llm_review_mode.as_str(),
+            decision = ?evaluation.decision,
+            confidence = ?evaluation.confidence,
+            approved_by_llm,
+            deterministic_approval_ok,
+            "Schema generation confidence evaluated"
+        );
 
         if approved_by_llm {
             let saved = self
@@ -119,7 +78,7 @@ impl ScraperServiceImpl {
                     pages,
                     validation_summary,
                     status: STATUS_APPROVED,
-                    notes: Some("Auto-approved by LLM schema evaluator"),
+                    notes: Some("Auto-approved by LLM schema generation confidence"),
                 })
                 .await
                 .map_err(review_error_to_schema_service_error)?;
@@ -164,15 +123,18 @@ fn with_schema_matrix_summary(
     let matrix_summary = json!({
         "deterministic_approval_ok": deterministic_approval_ok,
         "schema_candidate_count": matrix.candidates.len(),
+        "unused_schema_indices": unused_schema_indices(matrix),
         "present_but_missing_rule_failures": failed_fields,
     });
 
     if let Some(object) = validation_summary.as_object_mut() {
+        object.insert("schema_matrix".to_string(), json!(matrix));
         object.insert("schema_matrix_summary".to_string(), matrix_summary);
         validation_summary
     } else {
         json!({
             "summary": validation_summary,
+            "schema_matrix": matrix,
             "schema_matrix_summary": matrix_summary,
         })
     }
@@ -193,6 +155,16 @@ fn with_auto_schema_evaluation(
             "auto_schema_evaluation": evaluation,
         })
     }
+}
+
+fn should_auto_approve_generated_schema(
+    mode: crate::scraper::scraper_service::service::SchemaLlmReviewMode,
+    deterministic_approval_ok: bool,
+    evaluation: &SchemaLlmEvaluation,
+) -> bool {
+    mode.allows_auto_approval()
+        && deterministic_approval_ok
+        && evaluation.is_high_confidence_approval()
 }
 
 fn review_error_to_schema_service_error(
@@ -248,5 +220,44 @@ mod tests {
             summary["schema_matrix_summary"]["present_but_missing_rule_failures"][0]["present_but_missing_rule"],
             true
         );
+    }
+
+    #[test]
+    fn should_auto_approve_only_high_confidence_generation_when_mode_allows_it() {
+        let high = SchemaLlmEvaluation {
+            decision: crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationDecision::Approve,
+            confidence: crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationConfidence::High,
+            approved_by_llm: false,
+            summary: "good".to_string(),
+            risks: Vec::new(),
+        };
+        let medium = SchemaLlmEvaluation {
+            decision: crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationDecision::NeedsHumanReview,
+            confidence: crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationConfidence::Medium,
+            approved_by_llm: false,
+            summary: "uncertain".to_string(),
+            risks: Vec::new(),
+        };
+
+        assert!(should_auto_approve_generated_schema(
+            crate::scraper::scraper_service::service::SchemaLlmReviewMode::AutoApproveHighConfidence,
+            true,
+            &high,
+        ));
+        assert!(!should_auto_approve_generated_schema(
+            crate::scraper::scraper_service::service::SchemaLlmReviewMode::AutoApproveHighConfidence,
+            true,
+            &medium,
+        ));
+        assert!(!should_auto_approve_generated_schema(
+            crate::scraper::scraper_service::service::SchemaLlmReviewMode::AutoApproveHighConfidence,
+            false,
+            &high,
+        ));
+        assert!(!should_auto_approve_generated_schema(
+            crate::scraper::scraper_service::service::SchemaLlmReviewMode::ReportOnly,
+            true,
+            &high,
+        ));
     }
 }

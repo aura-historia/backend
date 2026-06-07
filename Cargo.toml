@@ -227,11 +227,12 @@ crawler = { path = "src/crawler" }
 spider = { version = "2", default-features = false, features = ["sync", "reqwest_rustls_tls"] }
 scraper = "0.27.0"
 schemars = "1.2.1"
-llm = { git = "https://github.com/bruderj15/llm", rev = "3f2b5b4a4ca54f981b254857b9bf601f666ac5bf", default-features = false, features = ["rustls-tls"] }
+llm = { git = "https://github.com/bruderj15/llm", rev = "bc562d0f6547857c4af5171c8c5aea3671f2b771", default-features = false, features = ["rustls-tls"] }
 kuchiki = "0.8.1"
 lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic"] }
 dotenvy = "0.15"
 url-normalize = "0.1.1"
+yaml_serde = "0.10"
 prefixed-api-key = { version = "0.3.0" }
 partner-shop-application = { path = "src/partner-shop-application" }
 partner-shop-application-api = { path = "src/partner-shop-application-api" }

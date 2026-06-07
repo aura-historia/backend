@@ -1,24 +1,36 @@
 use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
 use crate::logging::llm_metrics;
-use crate::review::model::SchemaMatrix;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
 };
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
 use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::shop_id::ShopId;
-use kuchiki::traits::*;
-use kuchiki::{NodeRef, parse_html};
 use llm::{
     chat::{ChatMessage, ChatProvider},
     error::LLMError,
 };
-use schemars::{JsonSchema, schema_for};
-use serde::{Deserialize, Serialize};
+use prompt::{build_append_schema_instruction, build_create_schemas_instruction};
+use response::{parse_product_schemas_response, product_schema_generation_response_schema_json};
+use schemars::schema_for;
 use std::sync::Arc;
 use std::time::Instant;
 use time::OffsetDateTime;
 use tracing::{debug, info};
+
+#[path = "schema_generation/projection.rs"]
+mod projection;
+#[path = "schema_generation/prompt.rs"]
+mod prompt;
+#[path = "schema_generation/response.rs"]
+mod response;
+
+pub use projection::{clean_html_for_schema_generation, html_to_schema_prompt_dsl};
+pub use prompt::SchemaPromptSource;
+pub use response::{
+    GeneratedProductSchemas, SchemaLlmEvaluation, SchemaLlmEvaluationConfidence,
+    SchemaLlmEvaluationDecision, strip_markdown_json_embedding,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductSchemaServiceError {
@@ -35,82 +47,6 @@ pub enum ProductSchemaServiceError {
     DatabaseError(#[from] sqlx::Error),
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct SchemaLlmEvaluationRequest {
-    pub reason: String,
-    pub schemas: Vec<ProductCssSelectorSchema>,
-    pub pages: Vec<SchemaLlmEvaluationPage>,
-    pub matrix: SchemaMatrix,
-    pub deterministic_approval_ok: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SchemaLlmEvaluationPage {
-    pub url: String,
-    pub role: String,
-    pub cleaned_html: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum SchemaLlmEvaluationDecision {
-    Approve,
-    NeedsHumanReview,
-    Reject,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum SchemaLlmEvaluationConfidence {
-    High,
-    Medium,
-    Low,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct SchemaLlmPageFinding {
-    pub role: String,
-    pub schema_index: Option<usize>,
-    pub finding: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct SchemaLlmEvaluation {
-    pub decision: SchemaLlmEvaluationDecision,
-    pub confidence: SchemaLlmEvaluationConfidence,
-    #[serde(default)]
-    pub approved_by_llm: bool,
-    pub summary: String,
-    #[serde(default)]
-    pub risks: Vec<String>,
-    #[serde(default)]
-    pub page_findings: Vec<SchemaLlmPageFinding>,
-}
-
-impl SchemaLlmEvaluation {
-    pub fn unavailable(reason: impl Into<String>) -> Self {
-        let reason = reason.into();
-        Self {
-            decision: SchemaLlmEvaluationDecision::NeedsHumanReview,
-            confidence: SchemaLlmEvaluationConfidence::Low,
-            approved_by_llm: false,
-            summary: reason.clone(),
-            risks: vec![reason],
-            page_findings: Vec::new(),
-        }
-    }
-
-    pub fn is_high_confidence_approval(&self) -> bool {
-        self.decision == SchemaLlmEvaluationDecision::Approve
-            && self.confidence == SchemaLlmEvaluationConfidence::High
-    }
-
-    pub fn with_approved_by_llm(mut self, approved_by_llm: bool) -> Self {
-        self.approved_by_llm = approved_by_llm;
-        self
-    }
-}
-
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait ProductSchemaService {
@@ -122,7 +58,13 @@ pub trait ProductSchemaService {
     async fn create_product_schemas(
         &self,
         html_pages: &[String],
-    ) -> Result<Vec<ProductCssSelectorSchema>, ProductSchemaServiceError>;
+    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
+
+    async fn create_product_schemas_with_source(
+        &self,
+        html_pages: &[String],
+        prompt_source: SchemaPromptSource,
+    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
 
     /// Generate a single schema from a single HTML page and append it to the
     /// cached schema set. Used when a runtime schema-variant match fails to
@@ -130,14 +72,10 @@ pub trait ProductSchemaService {
     async fn append_single_schema(
         &self,
         html: &str,
+        prompt_source: SchemaPromptSource,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
-    ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError>;
-
-    async fn evaluate_product_schemas(
-        &self,
-        request: &SchemaLlmEvaluationRequest,
-    ) -> Result<SchemaLlmEvaluation, ProductSchemaServiceError>;
+    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
 
     async fn find_product_schema(
         &self,
@@ -165,7 +103,6 @@ pub trait ProductSchemaService {
 
 pub struct ProductSchemaServiceImpl {
     llm: Box<dyn ChatProvider>,
-    evaluator_llm: Option<Box<dyn ChatProvider>>,
     rate_limiter: Option<Arc<GeminiRateLimiter>>,
     service_tier: Option<GeminiServiceTier>,
     repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
@@ -181,25 +118,6 @@ impl ProductSchemaServiceImpl {
         let llm = build_schema_generation_llm(llm)?;
         Ok(Self {
             llm,
-            evaluator_llm: None,
-            rate_limiter,
-            service_tier,
-            repository,
-        })
-    }
-
-    pub fn new_with_evaluator(
-        llm: llm::builder::LLMBuilder,
-        evaluator_llm: llm::builder::LLMBuilder,
-        service_tier: Option<GeminiServiceTier>,
-        repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
-        rate_limiter: Option<Arc<GeminiRateLimiter>>,
-    ) -> Result<Self, LLMError> {
-        let llm = build_schema_generation_llm(llm)?;
-        let evaluator_llm = build_schema_evaluator_llm(evaluator_llm)?;
-        Ok(Self {
-            llm,
-            evaluator_llm: Some(evaluator_llm),
             rate_limiter,
             service_tier,
             repository,
@@ -212,11 +130,15 @@ fn build_schema_generation_llm(
 ) -> Result<Box<dyn ChatProvider>, LLMError> {
     let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
+    let response_schema = product_schema_generation_response_schema_json();
     let system_prompt = format!(
         "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
-            Return only JSON. If there is one product-page template, return one ProductCssSelectorSchema object. If there are multiple product-page templates, return an array of ProductCssSelectorSchema objects.
-            When given multiple HTML samples, infer the distinct product-page templates and return one schema for each template.
-            Schema:\n\n {schema}",
+            Return only JSON matching ProductSchemaGenerationResponse.
+            The response must include schemas plus confidence LOW, MEDIUM, or HIGH.
+            HIGH means the selectors are product-specific, deterministic, and safe to auto-approve when local validation passes.
+            MEDIUM means the schema is plausible but needs human review. LOW means uncertain or weak selectors and needs human review.
+            ProductCssSelectorSchema schema:\n\n {schema}\n\n
+            ProductSchemaGenerationResponse schema:\n\n {response_schema}",
     );
     let llm = llm
         .system(system_prompt)
@@ -234,63 +156,14 @@ fn build_schema_generation_llm(
     Ok(llm)
 }
 
-fn build_schema_evaluator_llm(
-    llm: llm::builder::LLMBuilder,
-) -> Result<Box<dyn ChatProvider>, LLMError> {
-    let schema = serde_json::to_string_pretty(&schema_for!(SchemaLlmEvaluation))
-        .unwrap_or_else(|_| "Failed to generate evaluator schema".to_string());
-    let system_prompt = format!(
-        "You are a strict e-commerce scraper schema reviewer. Judge whether CSS selector schemas correctly extract product data from the provided product-page evidence.
-        Return only JSON matching this schema:\n\n{schema}\n\n
-        Use decision APPROVE only when the schemas are safe to run without a human.
-        Use confidence HIGH only when the extraction evidence is internally consistent and every required field is clearly product-specific.
-        Set approved_by_llm to true only when decision is APPROVE and confidence is HIGH.
-        If there is any doubt, use NEEDS_HUMAN_REVIEW."
-    );
-    let llm = llm
-        .system(system_prompt)
-        .openai_enable_web_search(false)
-        .reasoning(true)
-        .timeout_seconds(180)
-        .validator(|res| {
-            parse_schema_llm_evaluation_response(strip_markdown_json_embedding(res))
-                .map(|_| ())
-                .map_err(|err| err.to_string())
-        })
-        .validator_attempts(3)
-        .build()?;
-    let llm: Box<dyn ChatProvider> = llm;
-    Ok(llm)
-}
-
-fn parse_product_schemas_response(
-    raw: &str,
-) -> Result<Vec<ProductCssSelectorSchema>, serde_json::Error> {
-    match serde_json::from_str::<Vec<ProductCssSelectorSchema>>(raw) {
-        Ok(schemas) if !schemas.is_empty() => Ok(schemas),
-        Ok(_) => serde_json::from_str::<ProductCssSelectorSchema>(raw).map(|schema| vec![schema]),
-        Err(_) => serde_json::from_str::<ProductCssSelectorSchema>(raw).map(|schema| vec![schema]),
-    }
-}
-
-fn parse_product_schema_response(raw: &str) -> Result<ProductCssSelectorSchema, serde_json::Error> {
-    serde_json::from_str::<ProductCssSelectorSchema>(raw)
-}
-
-fn parse_schema_llm_evaluation_response(
-    raw: &str,
-) -> Result<SchemaLlmEvaluation, serde_json::Error> {
-    serde_json::from_str::<SchemaLlmEvaluation>(raw)
-}
-
 #[async_trait::async_trait]
 impl ProductSchemaService for ProductSchemaServiceImpl {
     async fn create_product_schema(
         &self,
         html_pages: &[String],
     ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
-        let schemas = self.create_product_schemas(html_pages).await?;
-        schemas.first().cloned().ok_or_else(|| {
+        let generated = self.create_product_schemas(html_pages).await?;
+        generated.schemas.first().cloned().ok_or_else(|| {
             ProductSchemaServiceError::NoTextResponse("LLM produced zero schemas".to_string())
         })
     }
@@ -299,8 +172,21 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
     async fn create_product_schemas(
         &self,
         html_pages: &[String],
-    ) -> Result<Vec<ProductCssSelectorSchema>, ProductSchemaServiceError> {
-        let instruction = build_create_schemas_instruction(html_pages);
+    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
+        self.create_product_schemas_with_source(html_pages, SchemaPromptSource::YamlProjection)
+            .await
+    }
+
+    #[tracing::instrument(
+        skip(self, html_pages),
+        fields(html_pages = html_pages.len(), prompt_source = prompt_source.as_str())
+    )]
+    async fn create_product_schemas_with_source(
+        &self,
+        html_pages: &[String],
+        prompt_source: SchemaPromptSource,
+    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
+        let instruction = build_create_schemas_instruction(html_pages, prompt_source);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -320,34 +206,38 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         })?;
 
         let parsed = strip_markdown_json_embedding(&res);
-        let schemas = parse_product_schemas_response(parsed)
+        let generated = parse_product_schemas_response(parsed)
             .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
-        if schemas.is_empty() {
+        if generated.schemas.is_empty() {
             return Err(ProductSchemaServiceError::NoTextResponse(
                 "LLM produced zero schemas".to_string(),
             ));
         }
 
         debug!(
-            schemas_count = schemas.len(),
+            schemas_count = generated.schemas.len(),
             html_pages = html_pages.len(),
+            confidence = ?generated.evaluation.confidence,
+            prompt_source = prompt_source.as_str(),
             "LLM created product CSS selector schemas"
         );
-        Ok(schemas)
+        Ok(generated)
     }
 
     #[tracing::instrument(
         name = "scraper_append_single_schema",
-        skip(self, html, failed_schema, last_error)
+        skip(self, html, failed_schema, last_error),
+        fields(prompt_source = prompt_source.as_str())
     )]
     async fn append_single_schema(
         &self,
         html: &str,
+        prompt_source: SchemaPromptSource,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
-    ) -> Result<ProductCssSelectorSchema, ProductSchemaServiceError> {
-        // Generate single schema for this HTML page
-        let instruction = build_append_schema_instruction(html, failed_schema, last_error);
+    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
+        let instruction =
+            build_append_schema_instruction(html, prompt_source, failed_schema, last_error);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -367,66 +257,27 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         })?;
 
         let parsed = strip_markdown_json_embedding(&res);
-        let schema = parse_product_schema_response(parsed)
+        let generated = parse_product_schemas_response(parsed)
             .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
-
-        debug!("Generated single schema for append-and-retry");
-        Ok(schema)
-    }
-
-    #[tracing::instrument(
-        name = "scraper_evaluate_product_schemas",
-        skip(self, request),
-        fields(
-            schema_count = request.schemas.len(),
-            page_count = request.pages.len(),
-            deterministic_approval_ok = request.deterministic_approval_ok
-        )
-    )]
-    async fn evaluate_product_schemas(
-        &self,
-        request: &SchemaLlmEvaluationRequest,
-    ) -> Result<SchemaLlmEvaluation, ProductSchemaServiceError> {
-        let Some(evaluator_llm) = self.evaluator_llm.as_deref() else {
+        if generated.schemas.is_empty() {
             return Err(ProductSchemaServiceError::NoTextResponse(
-                "Schema evaluator LLM is not configured".to_string(),
+                "LLM produced zero schemas".to_string(),
             ));
-        };
-
-        let instruction = build_schema_evaluation_instruction(request);
-        let message = ChatMessage::user().content(instruction).build();
-        let messages = vec![message];
-
-        let started_at = Instant::now();
-        let response =
-            run_with_gemini_rate_limiter(evaluator_llm, self.rate_limiter.as_deref(), &messages)
-                .await?;
-        log_llm_invocation(
-            LlmOperation::CrawlerProductSchemaEvaluation,
-            LlmProvider::Google,
-            LlmModel::Configured,
-            started_at.elapsed(),
-            llm_metrics(
-                response.usage(),
-                Some(request.pages.len()),
-                self.service_tier,
-            ),
-        );
-        let res = response.text().ok_or_else(|| {
-            ProductSchemaServiceError::NoTextResponse("Expected text response".to_string())
-        })?;
-
-        let parsed = strip_markdown_json_embedding(&res);
-        let evaluation = parse_schema_llm_evaluation_response(parsed)
-            .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
+        }
+        if generated.schemas.len() != 1 {
+            return Err(ProductSchemaServiceError::NoTextResponse(format!(
+                "Expected exactly one schema for append generation, got {}",
+                generated.schemas.len()
+            )));
+        }
 
         info!(
-            decision = ?evaluation.decision,
-            confidence = ?evaluation.confidence,
-            approved_by_llm = evaluation.approved_by_llm,
-            "LLM evaluated product CSS selector schemas"
+            schema_count = generated.schemas.len(),
+            confidence = ?generated.evaluation.confidence,
+            prompt_source = prompt_source.as_str(),
+            "Generated schema response for append-and-retry"
         );
-        Ok(evaluation)
+        Ok(generated)
     }
 
     async fn find_product_schema(
@@ -506,195 +357,15 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         }
 
         info!("No product schema found for shop, creating via LLM");
-        let product_schemas = self.create_product_schemas(html_pages).await?;
-        self.save_product_schemas(shop_id, product_schemas).await
-    }
-}
-
-fn build_create_schemas_instruction(html_pages: &[String]) -> String {
-    let cleaned_pages: Vec<String> = if html_pages.is_empty() {
-        Vec::new()
-    } else {
-        html_pages
-            .iter()
-            .map(|html| clean_html_for_schema_generation(html))
-            .collect()
-    };
-
-    if cleaned_pages.is_empty() {
-        return String::from(
-            "Generate robust Extraction-Schemas for the given HTML product pages. Return ONLY JSON: one ProductCssSelectorSchema object for one template, or an array ordered from most complete schema to least complete schema for multiple templates.",
-        );
-    }
-
-    let mut samples = String::new();
-    for (idx, cleaned) in cleaned_pages.iter().enumerate() {
-        let _ = std::fmt::Write::write_fmt(
-            &mut samples,
-            format_args!(
-                "\n--- SAMPLE {sample_idx} ---\n{html}\n",
-                sample_idx = idx + 1,
-                html = cleaned
-            ),
-        );
-    }
-
-    let template_instruction = if cleaned_pages.len() > 1 {
-        "Infer the distinct product-page templates represented by these samples. Return one schema per distinct template, not one schema per page. If all samples clearly share the same template, return one schema; otherwise return multiple schemas so every template has precise selectors.\n"
-    } else {
-        "Return one schema for the single observed product-page template.\n"
-    };
-
-    format!(
-        "Generate robust Extraction-Schemas that together cover these product page HTML samples from the same shop.\n\
-         {template_instruction}\
-         Shops often have multiple templates/layouts. Do not collapse different templates into one overly broad schema just because fields share names.\n\
-         A schema may target only the subset of samples where its selectors are precise and product-specific.\n\
-         A schema applies to a sample only when every non-null extraction rule in that schema exists in that sample HTML and extracts successfully.\n\
-         Optional fields are optional only when the field is null for that schema because the field is not applicable to that schema's own product template.\n\
-         Never omit an applicable field from one product template just to make one broad schema also work for another template.\n\
-         If an applicable field differs by template, availability state, layout, DOM presence, or selector, split the samples into multiple schemas and preserve the applicable rules in each schema.\n\
-         One schema is valid only when all applicable fields and every non-null selector apply across all samples that schema covers.\n\
-         Return schemas ordered by specificity and completeness: first the schema with the most non-null extraction rules, then fallback templates with fewer applicable rules. When rule counts tie, put the schema with more specific product-focused selectors first.\n\
-         Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
-         Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
-         Return ONLY JSON. If there is one product template, return one ProductCssSelectorSchema object. If there are multiple product templates, return an array of ProductCssSelectorSchema objects ordered as described above.\n\
-         Here are the cleaned HTML samples:{samples}"
-    )
-}
-
-fn build_append_schema_instruction(
-    html: &str,
-    failed_schema: Option<&ProductCssSelectorSchema>,
-    last_error: Option<&ApplySchemaError>,
-) -> String {
-    let cleaned = clean_html_for_schema_generation(html);
-    let failure_context = match (failed_schema, last_error) {
-        (Some(schema), Some(error)) => {
-            let schema_json = serde_json::to_string_pretty(schema)
-                .unwrap_or_else(|_| "<failed to serialize previous schema>".to_string());
-            format!(
-                "\nPrevious attempt failed. Here is the schema that just failed:\n{schema_json}\n\
-                 Extraction failure observed:\n{error}\n\
-                 Improve/fix the failed schema for this page instead of repeating the same selectors."
-            )
-        }
-        _ => String::new(),
-    };
-
-    format!(
-        "Generate a single robust Extraction-Schema for the following product page HTML.\n\
-          This schema will be appended to a set of existing schemas from the same shop.\n\
-          Focus on this specific layout and make the selectors resilient.\n\
-          Return ONLY JSON as a single ProductCssSelectorSchema object (not an array).\n\
-          Optional fields may remain null if not confidently present.\n\
-          {failure_context}\n\
-          Here is the cleaned HTML:\n\
-          {cleaned}"
-    )
-}
-
-fn build_schema_evaluation_instruction(request: &SchemaLlmEvaluationRequest) -> String {
-    let payload = serde_json::json!({
-        "reason": request.reason,
-        "deterministic_approval_ok": request.deterministic_approval_ok,
-        "schemas": request.schemas,
-        "pages": request.pages,
-        "matrix": request.matrix,
-    });
-    let payload = serde_json::to_string_pretty(&payload)
-        .unwrap_or_else(|_| "{\"error\":\"failed to serialize evaluation request\"}".to_string());
-
-    format!(
-        "Evaluate these generated ProductCssSelectorSchema candidates for unattended scraping.\n\
-         Required fields are shops_product_id, title, state, and images.\n\
-         Prefer human review if a selector appears to target layout, navigation, recommendations, legal text, or non-product content.\n\
-         The deterministic_approval_ok flag is computed by applying the schemas; you must not approve if it is false.\n\
-         Return ONLY the SchemaLlmEvaluation JSON object.\n\
-         Evidence:\n{payload}"
-    )
-}
-
-pub fn strip_markdown_json_embedding(s: &str) -> &str {
-    s.trim()
-        .strip_prefix("```json")
-        .unwrap_or(s)
-        .strip_suffix("```")
-        .unwrap_or(s)
-}
-
-pub fn clean_html_for_schema_generation(input: &str) -> String {
-    let document = parse_html().one(input);
-
-    // Tags to remove entirely
-    let remove_selectors = [
-        "script", "style", "noscript", "svg", "canvas", "header", "footer", "nav", "aside",
-    ];
-
-    for selector in &remove_selectors {
-        if let Ok(nodes) = document.select(selector) {
-            for node in nodes {
-                node.as_node().detach();
-            }
-        }
-    }
-
-    remove_comments(&document);
-    strip_attributes(&document);
-    let mut cleaned = Vec::new();
-    document.serialize(&mut cleaned).unwrap();
-    String::from_utf8(cleaned).unwrap_or_default()
-}
-
-fn remove_comments(node: &NodeRef) {
-    for child in node.children() {
-        if child.as_comment().is_some() {
-            child.detach();
-        } else {
-            remove_comments(&child);
-        }
-    }
-}
-
-fn strip_attributes(document: &NodeRef) {
-    let deny_prefixes = ["on"]; // onclick, onload, etc.
-
-    let deny_exact = [
-        "style",
-        "integrity",
-        "crossorigin",
-        "referrerpolicy",
-        "nonce",
-        "tabindex",
-        "width",
-        "height",
-        "loading",
-        "decoding",
-    ];
-
-    for css_match in document.select("*").unwrap() {
-        let mut attributes = css_match.attributes.borrow_mut();
-
-        attributes.map.retain(|key, _| {
-            let name = key.local.as_ref();
-
-            // Remove JS event handlers
-            if deny_prefixes.iter().any(|prefix| name.starts_with(prefix)) {
-                return false;
-            }
-
-            // Remove known useless attributes
-            if deny_exact.contains(&name) {
-                return false;
-            }
-
-            true
-        });
+        let generated = self.create_product_schemas(html_pages).await?;
+        self.save_product_schemas(shop_id, generated.schemas).await
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::prompt::{build_append_schema_instruction, build_create_schemas_instruction};
+    use super::response::parse_product_schemas_response;
     use super::*;
     use crate::scraper::css_selector::product_schema_repository::MockShopsProductSchemaRepository;
     use crate::scraper::css_selector::rule::{
@@ -750,6 +421,112 @@ mod tests {
         }
     }
 
+    fn generated_response_json(schemas: Vec<ProductCssSelectorSchema>) -> String {
+        serde_json::to_string(&serde_json::json!({
+            "schemas": schemas,
+            "confidence": "HIGH",
+            "summary": "Selectors are product-specific.",
+            "risks": [],
+        }))
+        .expect("generated response should serialize")
+    }
+
+    #[test]
+    fn should_project_extensionless_image_like_href_but_not_product_href() {
+        let html = r#"
+            <main>
+              <a class="full-image" href="/photos/51996"><img src="/thumbs/51996"></a>
+              <a href="/products/foo">Product</a>
+            </main>
+        "#;
+
+        let dsl = html_to_schema_prompt_dsl(html);
+
+        assert!(dsl.contains("href: /photos/51996"));
+        assert!(!dsl.contains("href: /products/foo"));
+    }
+
+    #[test]
+    fn should_not_project_product_json_ld_scripts() {
+        let html = r#"
+            <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "Product",
+              "sku": "SKU-42",
+              "name": "Biedermeier Chair",
+              "image": ["https://cdn.example.com/image/abc123"],
+              "brand": {"@type": "Brand", "name": "Antique House"},
+              "offers": {
+                "@type": "Offer",
+                "price": "1200",
+                "priceCurrency": "EUR",
+                "availability": "https://schema.org/InStock",
+                "seller": {"name": "Dealer"}
+              }
+            }
+            </script>
+            <script>window.noise = true;</script>
+        "#;
+
+        let dsl = html_to_schema_prompt_dsl(html);
+
+        assert!(!dsl.contains("tag: json_ld_product"));
+        assert!(!dsl.contains("SKU-42"));
+        assert!(!dsl.contains("Biedermeier Chair"));
+        assert!(!dsl.contains("offers"));
+        assert!(!dsl.contains("window.noise"));
+        assert!(!dsl.contains("tag: script"));
+    }
+
+    #[test]
+    fn should_preserve_product_specific_class_only_wrapper_context() {
+        let html = r#"
+            <main>
+              <div class="product-info"><span class="price">EUR 42</span></div>
+              <div class="layout-row"><span class="state">Available</span></div>
+            </main>
+        "#;
+
+        let dsl = html_to_schema_prompt_dsl(html);
+
+        assert!(dsl.contains("class: product-info"));
+        assert!(!dsl.contains("class: layout-row"));
+        assert!(dsl.contains("class: price"));
+        assert!(dsl.contains("class: state"));
+    }
+
+    #[test]
+    fn should_project_additional_ecommerce_data_attributes() {
+        let html = r#"
+            <div itemscope itemtype="https://schema.org/Product"
+                 data-id="42"
+                 data-variant-id="v1"
+                 data-product="payload"
+                 data-srcset="/image/abc 1200w"
+                 data-gallery="main"
+                 data-lightbox="product"
+                 data-fancybox="gallery">
+            </div>
+        "#;
+
+        let dsl = html_to_schema_prompt_dsl(html);
+
+        for needle in [
+            "itemscope:",
+            "itemtype: https://schema.org/Product",
+            "data-id: '42'",
+            "data-variant-id: v1",
+            "data-product: payload",
+            "data-srcset: /image/abc 1200w",
+            "data-gallery: main",
+            "data-lightbox: product",
+            "data-fancybox: gallery",
+        ] {
+            assert!(dsl.contains(needle), "DSL missing {needle}");
+        }
+    }
+
     // -----------------------------------------------------------------------
     // find_product_schema
     // -----------------------------------------------------------------------
@@ -768,7 +545,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -792,7 +568,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -813,7 +588,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -849,7 +623,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -883,7 +656,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -908,7 +680,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -937,7 +708,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -971,7 +741,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -1013,7 +782,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProviderReturning(css_schema)),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -1038,7 +806,6 @@ mod tests {
 
         let service = ProductSchemaServiceImpl {
             llm: Box::new(MockLlmProvider),
-            evaluator_llm: None,
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -1059,111 +826,167 @@ mod tests {
             "<html><body><h1>A</h1></body></html>".to_string(),
             "<html><body><h1>B</h1></body></html>".to_string(),
         ];
-        let instruction = build_create_schemas_instruction(&html_pages);
-        assert!(instruction.contains("--- SAMPLE 1 ---"));
-        assert!(instruction.contains("--- SAMPLE 2 ---"));
+        let instruction =
+            build_create_schemas_instruction(&html_pages, SchemaPromptSource::YamlProjection);
+        assert!(instruction.contains("--- SAMPLE 1 YAML ---"));
+        assert!(instruction.contains("--- SAMPLE 2 YAML ---"));
+        assert!(instruction.contains("page YAML samples"));
+        assert!(instruction.contains("Derive CSS selectors"));
         assert!(instruction.contains("Return one schema per distinct template"));
         assert!(instruction.contains("not one schema per page"));
-        assert!(instruction.contains("If there is one product template"));
-        assert!(instruction.contains("If there are multiple product templates"));
+        assert!(instruction.contains("The schemas field contains one ProductCssSelectorSchema"));
+        assert!(instruction.contains("multiple schemas ordered as described"));
     }
 
     #[test]
-    fn should_explain_non_null_rules_are_required_for_covered_templates() {
-        let html_pages = vec![
-            "<html><body><h1>A</h1><span class=\"price\">10 EUR</span></body></html>".to_string(),
-            "<html><body><h1>B</h1></body></html>".to_string(),
-        ];
+    fn should_build_cleaned_html_fallback_create_instruction() {
+        let html_pages =
+            vec!["<html><body><script>noise</script><h1>A</h1></body></html>".to_string()];
 
-        let instruction = build_create_schemas_instruction(&html_pages);
+        let instruction =
+            build_create_schemas_instruction(&html_pages, SchemaPromptSource::CleanedHtmlFallback);
 
-        assert!(instruction.contains("every non-null extraction rule"));
-        assert!(instruction.contains("exists in that sample HTML"));
-        assert!(instruction.contains("extracts successfully"));
+        assert!(instruction.contains("--- SAMPLE 1 CLEANED HTML ---"));
+        assert!(instruction.contains("cleaned HTML from the original pages"));
+        assert!(instruction.contains("<h1>A</h1>"));
+        assert!(!instruction.contains("noise"));
     }
 
     #[test]
-    fn should_require_splitting_instead_of_omitting_applicable_fields() {
-        let html_pages = vec![
-            "<html><body><h1>A</h1><span class=\"price\">10 EUR</span></body></html>".to_string(),
-            "<html><body><h1>B</h1></body></html>".to_string(),
-        ];
+    fn should_build_cleaned_html_fallback_append_instruction() {
+        let html = "<html><body><script>noise</script><h1>A</h1></body></html>";
 
-        let instruction = build_create_schemas_instruction(&html_pages);
+        let instruction = build_append_schema_instruction(
+            html,
+            SchemaPromptSource::CleanedHtmlFallback,
+            None,
+            None,
+        );
 
-        assert!(instruction.contains("Never omit an applicable field"));
-        assert!(instruction.contains("split the samples into multiple schemas"));
-        assert!(instruction.contains("template A has price"));
-        assert!(instruction.contains("generate two schemas"));
+        assert!(instruction.contains("page CLEANED HTML"));
+        assert!(instruction.contains("cleaned HTML from the original pages"));
+        assert!(instruction.contains("<h1>A</h1>"));
+        assert!(!instruction.contains("page_dsl"));
+        assert!(!instruction.contains("noise"));
     }
 
     #[test]
-    fn should_require_schema_order_from_most_complete_to_least_complete() {
-        let html_pages = vec![
-            "<html><body><h1>A</h1><span class=\"price\">10 EUR</span></body></html>".to_string(),
-            "<html><body><h1>B</h1></body></html>".to_string(),
-        ];
+    fn should_build_schema_prompt_dsl_with_generic_tree_nodes() {
+        let html = r#"
+            <html>
+              <head>
+                <meta property="og:title" content="Example: Vase">
+                <script>window.noisy = true;</script>
+              </head>
+              <body>
+                <nav><a href="/noise">Noise</a></nav>
+                <input id="ProductId" name="ProductId" type="hidden" value="SKU-42">
+                <section class="product">
+                  <h1 class="title">Example "Vase"</h1>
+                  <a class="full-image" href="/large-link.jpg" rel="gallery">
+                    <img src="/image.jpg" data-large_image="/large.jpg">
+                  </a>
+                  <button role="button" aria-label="Add to basket" data-product-id="SKU-42" data-price="10.00" data-currency="EUR" data-availability="available">Buy</button>
+                </section>
+              </body>
+            </html>
+        "#;
 
-        let instruction = build_create_schemas_instruction(&html_pages);
+        let dsl = html_to_schema_prompt_dsl(html);
 
-        assert!(instruction.contains("ordered by specificity and completeness"));
-        assert!(instruction.contains("most non-null extraction rules"));
-        assert!(instruction.contains("fallback templates with fewer applicable rules"));
+        assert!(dsl.contains("tag: meta"));
+        assert!(dsl.contains("property: og:title"));
+        assert!(dsl.contains("content: 'Example: Vase'"));
+        assert!(dsl.contains("tag: input"));
+        assert!(dsl.contains("id: ProductId"));
+        assert!(dsl.contains("value: SKU-42"));
+        assert!(dsl.contains("tag: h1"));
+        assert!(dsl.contains("class: title"));
+        assert!(dsl.contains("tag: img"));
+        assert!(dsl.contains("href: /large-link.jpg"));
+        assert!(dsl.contains("rel: gallery"));
+        assert!(dsl.contains("role: button"));
+        assert!(dsl.contains("aria-label: Add to basket"));
+        assert!(dsl.contains("src: /image.jpg"));
+        assert!(dsl.contains("data-large_image: /large.jpg"));
+        assert!(dsl.contains("data-product-id: SKU-42"));
+        assert!(dsl.contains("data-price: '10.00'"));
+        assert!(dsl.contains("data-currency: EUR"));
+        assert!(dsl.contains("data-availability: available"));
+        assert!(dsl.contains("Example \"Vase\""));
+        assert!(!dsl.contains("<script"));
+        assert!(!dsl.contains("<nav"));
     }
 
     #[test]
-    fn should_parse_array_of_schemas_response() {
-        let payload = format!("[{}]", serde_json::to_string(&sample_css_schema()).unwrap());
+    fn should_build_schema_prompt_dsl_deterministically() {
+        let html = r#"
+            <html><body>
+              <div class="product"><span class="price">10 EUR</span></div>
+              <input id="State" value="available">
+            </body></html>
+        "#;
+
+        assert_eq!(
+            html_to_schema_prompt_dsl(html),
+            html_to_schema_prompt_dsl(html)
+        );
+    }
+
+    #[test]
+    fn should_parse_generated_schemas_response() {
+        let payload = generated_response_json(vec![sample_css_schema()]);
         let parsed = parse_product_schemas_response(&payload).unwrap();
-        assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0], sample_css_schema());
+        assert_eq!(parsed.schemas.len(), 1);
+        assert_eq!(parsed.schemas[0], sample_css_schema());
+        assert_eq!(
+            parsed.evaluation.confidence,
+            SchemaLlmEvaluationConfidence::High
+        );
+        assert!(parsed.evaluation.is_high_confidence_approval());
     }
 
     #[test]
-    fn should_parse_single_schema_response_for_initial_generation() {
+    fn should_reject_legacy_single_schema_response_without_confidence() {
         let payload = serde_json::to_string(&sample_css_schema()).unwrap();
-        let parsed = parse_product_schemas_response(&payload).unwrap();
-        assert_eq!(parsed, vec![sample_css_schema()]);
-    }
-
-    #[test]
-    fn should_reject_empty_initial_schema_array() {
-        let parsed = parse_product_schemas_response("[]");
+        let parsed = parse_product_schemas_response(&payload);
         assert!(parsed.is_err());
     }
 
     #[test]
-    fn should_parse_single_schema_response_for_append_generation() {
-        let payload = serde_json::to_string(&sample_css_schema()).unwrap();
-        let parsed = parse_product_schema_response(&payload).unwrap();
-        assert_eq!(parsed, sample_css_schema());
-    }
-
-    #[test]
-    fn should_reject_array_response_for_append_generation() {
-        let payload = format!("[{}]", serde_json::to_string(&sample_css_schema()).unwrap());
-        let parsed = parse_product_schema_response(&payload);
+    fn should_reject_empty_generated_schema_array() {
+        let payload = generated_response_json(Vec::new());
+        let parsed = parse_product_schemas_response(&payload);
         assert!(parsed.is_err());
     }
 
     #[test]
-    fn should_parse_high_confidence_schema_evaluation() {
-        let payload = r#"{
-            "decision": "APPROVE",
+    fn should_reject_generated_response_without_confidence() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "schemas": [sample_css_schema()],
+            "summary": "missing confidence"
+        }))
+        .unwrap();
+        let parsed = parse_product_schemas_response(&payload);
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn should_parse_high_confidence_generation_response() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "schemas": [sample_css_schema()],
             "confidence": "HIGH",
-            "approved_by_llm": true,
             "summary": "Selectors are product-specific.",
             "risks": [],
-            "page_findings": [
-                {"role": "PRIMARY", "schema_index": 0, "finding": "Required fields are present."}
-            ]
-        }"#;
+        }))
+        .unwrap();
 
-        let evaluation = parse_schema_llm_evaluation_response(payload).unwrap();
+        let generated = parse_product_schemas_response(&payload).unwrap();
+        let evaluation = generated.evaluation;
 
         assert!(evaluation.is_high_confidence_approval());
-        assert!(evaluation.approved_by_llm);
-        assert_eq!(evaluation.page_findings.len(), 1);
+        assert!(!evaluation.approved_by_llm);
+        assert_eq!(evaluation.summary, "Selectors are product-specific.");
     }
 
     #[test]
@@ -1231,8 +1054,7 @@ mod tests {
             _messages: &[ChatMessage],
             _tools: Option<&[llm::chat::Tool]>,
         ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
-            let json =
-                serde_json::to_string(&vec![self.0.clone()]).expect("schema should serialize");
+            let json = generated_response_json(vec![self.0.clone()]);
             Ok(Box::new(FakeChatResponse(Some(json))))
         }
     }

@@ -42,6 +42,14 @@ const schemaHighlightColors = {
 
 applyTheme(theme);
 
+function schemaLabel(index) {
+    return `Schema ${index}`;
+}
+
+function schemaLabelWithTotal(index, total) {
+    return `${schemaLabel(index)} (${total} total)`;
+}
+
 function applyTheme(nextTheme) {
     theme = nextTheme === 'dark' ? 'dark' : 'light';
     document.documentElement.dataset.theme = theme;
@@ -164,11 +172,11 @@ async function selectReview(id) {
     await loadSelectedReview(true);
 }
 
-async function loadSelectedReview(resetSelection) {
+async function loadSelectedReview(resetSelection, refreshMatrix = false) {
     if (!selectedId) return;
     const detail = await api(`/api/reviews/${selectedId}`);
     const matrix = detail.review.artifact_type === 'PRODUCT_SCHEMA'
-        ? await api(`/api/reviews/${selectedId}/matrix`)
+        ? await api(`/api/reviews/${selectedId}/matrix${refreshMatrix ? '?refresh=true' : ''}`)
         : null;
     selectedDetail = detail;
     selectedMatrix = matrix;
@@ -209,21 +217,6 @@ function renderDetail(detail, matrix) {
         ${renderApprovalPanel(review)}
       </div>
       ${renderAutoSchemaEvaluation(review)}
-      <div class="review-card command-card">
-        <div class="panel-head">
-          <div class="panel-title">
-            <strong>Review Controls</strong>
-            <span class="muted">Manual actions for this shop</span>
-          </div>
-          <div class="actions">
-            <button onclick="refreshSelectedReview()">Refresh review</button>
-            <button onclick="triggerAction('trigger-crawl')">Trigger crawl</button>
-            <button onclick="triggerAction('trigger-scrape')">Trigger scrape</button>
-            <button onclick="triggerAction('regenerate-schema')">Regenerate schema</button>
-            <button onclick="triggerAction('regenerate-pattern')">Regenerate pattern</button>
-          </div>
-        </div>
-      </div>
       ${matrix ? renderSchemaWorkbench(detail, matrix) : renderNonSchemaReview(review, urls)}
     </div>`;
     if (matrix) postHighlightSoon();
@@ -361,7 +354,7 @@ function renderSelectorPanel(schemas) {
       <div class="field-grid">
         <label>Schema
           <select onchange="selectedSchemaIndex=Number(this.value); normalizeSchemaSelection(); rerenderWorkbench()">
-            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>Schema ${i + 1} / ${schemas.length}</option>`).join('')}
+            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>${schemaLabelWithTotal(i, schemas.length)}</option>`).join('')}
           </select>
         </label>
         <label>Field
@@ -430,7 +423,7 @@ function renderSchemaOrderControls(schemas) {
         <div class="muted">Approval writes schemas in this order for the shop.</div>
       </div>
       <div class="schema-order-list">
-        ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">Schema ${i + 1}</button>`).join('')}
+        ${schemas.map((_, i) => `<button class="schema-chip ${i === selectedSchemaIndex ? 'active' : ''}" onclick="selectedSchemaIndex=${i}; normalizeSchemaSelection(); rerenderWorkbench()">${schemaLabel(i)}</button>`).join('')}
       </div>
       <div class="schema-order-actions">
         <button ${selectedSchemaIndex === 0 ? 'disabled' : ''} onclick="moveCurrentSchema(-1)">Move up</button>
@@ -484,12 +477,12 @@ function renderDiffPanel(schemas) {
       <div class="field-grid">
         <label>Current schema
           <select onchange="selectedSchemaIndex=Number(this.value); normalizeSchemaSelection(); rerenderWorkbench()">
-            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>Schema ${i + 1}</option>`).join('')}
+            ${schemas.map((_, i) => `<option value="${i}" ${i === selectedSchemaIndex ? 'selected' : ''}>${schemaLabel(i)}</option>`).join('')}
           </select>
         </label>
         <label>Compare with
           <select onchange="compareSchemaIndex=Number(this.value); rerenderWorkbench()">
-            ${schemas.map((_, i) => `<option value="${i}" ${i === compareSchemaIndex ? 'selected' : ''} ${i === selectedSchemaIndex ? 'disabled' : ''}>Schema ${i + 1}</option>`).join('')}
+            ${schemas.map((_, i) => `<option value="${i}" ${i === compareSchemaIndex ? 'selected' : ''} ${i === selectedSchemaIndex ? 'disabled' : ''}>${schemaLabel(i)}</option>`).join('')}
           </select>
         </label>
       </div>
@@ -688,7 +681,7 @@ function rerenderWorkbench() {
 
 async function reloadMatrix() {
     dirty = false;
-    await loadSelectedReview(false);
+    await loadSelectedReview(false, true);
     await loadReviews();
 }
 
@@ -846,7 +839,7 @@ async function saveCurrentField() {
         body: JSON.stringify({schema_index: selectedSchemaIndex, field: selectedField, rule})
     });
     dirty = false;
-    await loadSelectedReview(false);
+    await loadSelectedReview(false, true);
     await loadReviews();
 }
 
@@ -857,7 +850,7 @@ async function deleteCurrentRule() {
         body: JSON.stringify({schema_index: selectedSchemaIndex, field: selectedField, rule: null})
     });
     dirty = false;
-    await loadSelectedReview(false);
+    await loadSelectedReview(false, true);
     await loadReviews();
 }
 
@@ -933,7 +926,7 @@ async function saveCandidate() {
 async function saveCandidatePayload(payload) {
     await api(`/api/reviews/${selectedId}/candidate`, {method: 'POST', body: JSON.stringify(payload)});
     dirty = false;
-    await loadSelectedReview(false);
+    await loadSelectedReview(false, true);
     await loadReviews();
 }
 
@@ -968,7 +961,7 @@ async function deleteCurrentSchema() {
     const payload = schemasPayload();
     const schemas = payload.schemas || [];
     if (schemas.length <= 1) return;
-    if (!confirm(`Delete schema ${selectedSchemaIndex + 1}?`)) return;
+    if (!confirm(`Delete ${schemaLabel(selectedSchemaIndex)}?`)) return;
     schemas.splice(selectedSchemaIndex, 1);
     payload.schemas = schemas;
     selectedSchemaIndex = Math.min(selectedSchemaIndex, schemas.length - 1);
@@ -983,14 +976,6 @@ async function deleteCurrentSchema() {
 async function discardEdits() {
     dirty = false;
     await loadSelectedReview(false);
-}
-
-async function triggerAction(action) {
-    const detail = await api(`/api/reviews/${selectedId}`);
-    const shopId = detail.review.shop_id;
-    const result = await api(`/api/shops/${shopId}/${action}`, {method: 'POST', body: '{}'});
-    await loadReviews();
-    alert(`${displayName(action)}: ${result.affected} rows affected`);
 }
 
 function markDirty() {

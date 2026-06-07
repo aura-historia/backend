@@ -397,7 +397,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
                 Err(err) => {
                     warn!(
                         pattern = %mapping.raw,
-                        error = %err,
+                        error = ?err,
                         "Skipping invalid regex pattern in product_state_mapping table."
                     );
                 }

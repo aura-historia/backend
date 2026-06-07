@@ -183,7 +183,7 @@ async fn probe_image_dimensions(client: &reqwest::Client, url: &Url) -> ImageVal
             tracing::debug!(
                 url = %url,
                 kind = ?classify_reqwest_error(&err),
-                error = %err,
+                error = ?err,
                 "Image dimension probe failed"
             );
             return ImageValidation::Unknown;
@@ -196,7 +196,7 @@ async fn probe_image_dimensions(client: &reqwest::Client, url: &Url) -> ImageVal
             tracing::debug!(
                 url = %url,
                 kind = ?classify_reqwest_error(&err),
-                error = %err,
+                error = ?err,
                 "Image dimension probe returned non-success status"
             );
             return ImageValidation::Unknown;
@@ -209,7 +209,7 @@ async fn probe_image_dimensions(client: &reqwest::Client, url: &Url) -> ImageVal
             tracing::debug!(
                 url = %url,
                 kind = ?classify_reqwest_error(&err),
-                error = %err,
+                error = ?err,
                 "Image dimension probe body read failed"
             );
             return ImageValidation::Unknown;

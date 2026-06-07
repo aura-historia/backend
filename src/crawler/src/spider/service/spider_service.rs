@@ -313,7 +313,7 @@ impl SpiderServiceImpl {
             .mark_as_crawled(shop_id, shop_url)
             .await
         {
-            warn!(error = %error, "Failed to mark shop as crawled");
+            warn!(error = ?error, "Failed to mark shop as crawled");
         }
     }
 

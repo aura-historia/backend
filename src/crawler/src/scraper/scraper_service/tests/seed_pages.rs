@@ -64,9 +64,14 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
     schema_svc
         .expect_append_single_schema()
         .once()
-        .returning(move |_, _, _| {
+        .returning(move |_, _, _, _| {
             let s = final_schema_for_append.clone();
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move {
+                Ok(generated_schemas(
+                    vec![s],
+                    SchemaLlmEvaluationConfidence::High,
+                ))
+            })
         });
     let schema_for_persist = schema.clone();
     schema_svc
@@ -96,7 +101,6 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         3,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -133,7 +137,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     schema_svc
         .expect_save_product_schemas()
@@ -166,7 +170,6 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         3,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -215,7 +218,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     schema_svc
         .expect_save_product_schemas()
@@ -253,7 +256,6 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
-        3,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
@@ -286,7 +288,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         .withf(|html_pages| html_pages.len() == 1 && html_pages[0] == sample_html())
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     schema_svc
         .expect_save_product_schemas()
@@ -315,7 +317,6 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );

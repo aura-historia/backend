@@ -20,7 +20,7 @@ impl ScraperServiceImpl {
             .set_state(shop_id, url, UrlState::Removed)
             .await
         {
-            warn!(error = %err, "Failed to mark product as REMOVED");
+            warn!(error = ?err, "Failed to mark product as REMOVED");
         }
     }
 
@@ -32,7 +32,7 @@ impl ScraperServiceImpl {
         state: UrlState,
     ) {
         if let Err(err) = self.candidate_service.set_state(shop_id, url, state).await {
-            warn!(error = %err, "Failed to persist scraped URL state");
+            warn!(error = ?err, "Failed to persist scraped URL state");
         }
     }
 }
@@ -115,7 +115,7 @@ impl ScraperService for ScraperServiceImpl {
                     warn!(
                         domain,
                         schemas = shops_product_schema.product_schemas.len(),
-                        error = %err,
+                        error = ?err,
                         "No cached schema applied; generating new schema candidates"
                     );
                     self.append_and_reapply_with_retry(

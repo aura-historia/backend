@@ -228,11 +228,11 @@ fn image_url_candidates_for_element(element: &scraper::ElementRef<'_>) -> Vec<St
         &mut candidates,
         element,
         "href",
-        ImageCandidateSource::GenericLink,
+        image_link_source_for_element(element, element.value().attr("href")),
     );
 
-    if let Some(href) = nearest_anchor_href(element) {
-        candidates.push(href, ImageCandidateSource::GenericLink);
+    if let Some((href, source)) = nearest_anchor_href(element) {
+        candidates.push(href, source);
     }
 
     for srcset in picture_source_srcsets(element) {
@@ -257,6 +257,7 @@ fn image_url_candidates_for_element(element: &scraper::ElementRef<'_>) -> Vec<St
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ImageCandidateSource {
     ImageSpecific,
+    ImageLikeLink,
     GenericLink,
 }
 
@@ -300,16 +301,78 @@ fn push_attr_candidate(
     }
 }
 
-fn nearest_anchor_href(element: &scraper::ElementRef<'_>) -> Option<String> {
+fn nearest_anchor_href(
+    element: &scraper::ElementRef<'_>,
+) -> Option<(String, ImageCandidateSource)> {
     for ancestor in element.ancestors() {
         let Some(ancestor) = scraper::ElementRef::wrap(ancestor) else {
             continue;
         };
         if ancestor.value().name() == "a" {
-            return ancestor.value().attr("href").map(str::to_owned);
+            let href = ancestor.value().attr("href")?;
+            return Some((
+                href.to_owned(),
+                image_link_source_for_element(&ancestor, Some(href)),
+            ));
         }
     }
     None
+}
+
+fn image_link_source_for_element(
+    element: &scraper::ElementRef<'_>,
+    href: Option<&str>,
+) -> ImageCandidateSource {
+    if href.is_some_and(path_has_image_context) || element_attrs_have_image_context(element) {
+        ImageCandidateSource::ImageLikeLink
+    } else {
+        ImageCandidateSource::GenericLink
+    }
+}
+
+fn element_attrs_have_image_context(element: &scraper::ElementRef<'_>) -> bool {
+    const IMAGE_CONTEXT_TERMS: &[&str] = &[
+        "image",
+        "images",
+        "img",
+        "photo",
+        "photos",
+        "gallery",
+        "thumbnail",
+        "thumb",
+        "zoom",
+        "lightbox",
+        "fancybox",
+        "prettyphoto",
+        "full",
+    ];
+
+    let attr_text = [
+        element.value().attr("class"),
+        element.value().attr("id"),
+        element.value().attr("rel"),
+        element.value().attr("data-gallery"),
+        element.value().attr("data-lightbox"),
+        element.value().attr("data-fancybox"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ")
+    .to_ascii_lowercase();
+
+    IMAGE_CONTEXT_TERMS
+        .iter()
+        .any(|term| attr_text.contains(term))
+}
+
+fn path_has_image_context(href: &str) -> bool {
+    let lower = href.to_ascii_lowercase();
+    [
+        "/photo", "/photos", "/image", "/images", "/media", "/uploads", "/cdn/", "cdn.",
+    ]
+    .iter()
+    .any(|term| lower.contains(term))
 }
 
 fn picture_source_srcsets<'a>(element: &scraper::ElementRef<'a>) -> Vec<&'a str> {
@@ -353,6 +416,7 @@ fn largest_srcset_candidate(srcset: Option<&str>) -> Option<(String, usize)> {
 fn is_probably_image_url(url: &str, source: ImageCandidateSource) -> bool {
     match source {
         ImageCandidateSource::ImageSpecific => is_url_like(url) || has_known_image_extension(url),
+        ImageCandidateSource::ImageLikeLink => is_url_like(url) || has_known_image_extension(url),
         ImageCandidateSource::GenericLink => has_known_image_extension(url),
     }
 }
@@ -369,6 +433,7 @@ fn has_known_image_extension(url: &str) -> bool {
         || lower.contains(".png")
         || lower.contains(".webp")
         || lower.contains(".gif")
+        || lower.contains(".avif")
 }
 
 #[cfg(test)]
@@ -1115,6 +1180,56 @@ mod tests {
             image_candidates(&result[0]),
             vec!["https://cdn.example.com/images/product/abc123"]
         );
+    }
+
+    #[test]
+    fn should_accept_extensionless_current_href_with_image_context_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <a class="full-image" href="/photos/51996">Photo</a>
+            </body></html>
+            "#,
+        );
+
+        let r = rule("a.full-image", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(image_candidates(&result[0]), vec!["/photos/51996"]);
+    }
+
+    #[test]
+    fn should_accept_extensionless_parent_href_with_image_path_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <a href="/photos/51996">
+                    <img class="product" src="/thumbs/51996">
+                </a>
+            </body></html>
+            "#,
+        );
+
+        let r = rule("img.product", image_url_kind(), ExtractionCardinality::All);
+        let result = r.apply(&doc).unwrap();
+        assert_eq!(
+            image_candidates(&result[0]),
+            vec!["/photos/51996", "/thumbs/51996"]
+        );
+    }
+
+    #[test]
+    fn should_reject_extensionless_product_href_for_image_url_extraction() {
+        let doc = Html::parse_document(
+            r#"
+            <html><body>
+                <a class="product" href="/products/foo">Product detail</a>
+            </body></html>
+            "#,
+        );
+
+        let r = rule("a.product", image_url_kind(), ExtractionCardinality::All);
+        let err = r.apply(&doc).unwrap_err();
+        assert!(matches!(err, ExtractionError::MissingAttribute { .. }));
     }
 
     #[test]

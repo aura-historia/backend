@@ -94,13 +94,13 @@ pub struct ProductCssSelectorSchema {
     pub images: ExtractionRule,
 
     #[schemars(
-        description = "Auction start date/time for this product. Prefer machine-readable datetime-bearing nodes such as time[datetime], structured data, or clearly labeled auction metadata. Avoid generic date text unless it clearly refers to the auction start timestamp for this product."
+        description = "Auction start date/time for this product. Prefer machine-readable DOM nodes such as time[datetime], meta tags, or clearly labeled auction metadata. Avoid generic date text unless it clearly refers to the auction start timestamp for this product."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub auction_start: Option<ExtractionRule>,
 
     #[schemars(
-        description = "Auction end date/time for this product. Prefer machine-readable datetime-bearing nodes such as time[datetime], structured data, or clearly labeled auction metadata. Avoid generic date text unless it clearly refers to the auction end timestamp for this product."
+        description = "Auction end date/time for this product. Prefer machine-readable DOM nodes such as time[datetime], meta tags, or clearly labeled auction metadata. Avoid generic date text unless it clearly refers to the auction end timestamp for this product."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub auction_end: Option<ExtractionRule>,
@@ -112,7 +112,7 @@ pub struct ProductCssSelectorSchema {
         Set this when the price elements on the page do not include a currency symbol or code \
         themselves — for example when the currency appears in a sibling element \
         (e.g. <span class=\"currency\">EUR</span>), a page-level label \
-        (\"Auction currency: EUR\"), a <meta> tag, or structured data (JSON-LD / microdata). \
+        (\"Auction currency: EUR\"), a <meta> tag, or another DOM node with currency metadata. \
         Leave null only if the currency is always embedded in every price string."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]

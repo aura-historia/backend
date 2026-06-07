@@ -24,7 +24,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         .once()
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     schema_svc
         .expect_save_product_schemas()
@@ -53,7 +53,6 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -91,7 +90,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
         .once()
         .returning(move |_| {
             let s = vec![schema_for_create.clone()];
-            Box::pin(async move { Ok(s) })
+            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     schema_svc
         .expect_save_product_schemas()
@@ -118,7 +117,6 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -184,7 +182,6 @@ async fn should_filter_invalid_thumbnail_images_before_normalization() {
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );

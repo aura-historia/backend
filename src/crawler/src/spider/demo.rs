@@ -15,6 +15,8 @@
 //! | `LOCAL_DB_URL`   | Hardcoded local DB URL | `.../crawler_demo_spider`      |
 //! | `GEMINI_API_KEY` | API key for Gemini      | *(required)*                    |
 //! | `GEMINI_MODEL`   | Model name to use       | `gemini-3.1-flash-lite-preview` |
+//! | `GEMINI_CHEAP_MODEL` | Default cheaper model for low-risk LLM calls | `gemini-2.5-flash-lite` |
+//! | `GEMINI_URL_CLASSIFICATION_MODEL` | Optional override for URL classification calls | `GEMINI_CHEAP_MODEL` |
 //! | `GEMINI_FLEX`    | Enable Gemini Flex inference | unset / `false`             |
 //! | `LOG_LEVEL`      | Log level for this demo | `info`                          |
 //!
@@ -35,6 +37,7 @@ use common::logging::GeminiServiceTier;
 use common::shop_id::ShopId;
 use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+    url_classification_gemini_model,
 };
 use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
 use crawler::spider::SpiderRunResult;
@@ -91,7 +94,7 @@ async fn main() {
         let api_key = match read_api_key() {
             Ok(api_key) => api_key,
             Err(error) => {
-                error!(error = %error, "Failed to load configuration");
+                error!(error = ?error, "Failed to load configuration");
                 return;
             }
         };
@@ -99,7 +102,7 @@ async fn main() {
         let pool = match connect_and_migrate().await {
             Ok(p) => p,
             Err(error) => {
-                error!(error = %error, "Failed to connect to Postgres");
+                error!(error = ?error, "Failed to connect to Postgres");
                 return;
             }
         };
@@ -109,6 +112,7 @@ async fn main() {
 
         let model = env::var("GEMINI_MODEL")
             .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+        let classification_model = url_classification_gemini_model();
         unsafe {
             env::set_var("GEMINI_MODEL", &model);
         }
@@ -121,12 +125,13 @@ async fn main() {
         });
         info!(
             gemini_model = %model,
+            gemini_url_classification_model = %classification_model,
             gemini_service_tier,
             "Crawler spider demo Gemini configuration resolved"
         );
         let gemini_rate_limiter =
             Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
-        let llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let llm_builder = google_llm_builder(&api_key, &classification_model, gemini_flex);
         let classification_service = Box::new(
             UrlClassificationServiceImpl::new(
                 llm_builder,
@@ -158,7 +163,7 @@ async fn main() {
         let demo_domain_id = match insert_demo_shop(&pool, &shop_id, &demo_domain).await {
             Ok(id) => id,
             Err(error) => {
-                error!(error = %error, "Failed to insert demo shop rows into DB");
+                error!(error = ?error, "Failed to insert demo shop rows into DB");
                 return;
             }
         };
@@ -179,13 +184,13 @@ async fn main() {
                     "Spider run finished successfully"
                 );
                 if let Err(error) = write_output(&result) {
-                    error!(error = %error, "Failed to write demo output file");
+                    error!(error = ?error, "Failed to write demo output file");
                 } else {
                     info!("Output written to 'spider_output.json'");
                 }
             }
             Err(error) => {
-                error!(error = %error, "Spider run failed");
+                error!(error = ?error, "Spider run failed");
             }
         }
     }
@@ -313,7 +318,8 @@ fn init_logging() {
         .init();
 }
 
-#[tracing::instrument(skip(result), fields(total_links = result.total_links, product_urls_count = result.product_urls_count))]
+#[tracing::instrument(skip(result), fields(total_links = result.total_links, product_urls_count = result.product_urls_count
+))]
 fn write_output(result: &SpiderRunResult) -> Result<(), std::io::Error> {
     let file = File::create("spider_output.json")?;
     let writer = BufWriter::new(file);

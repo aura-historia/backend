@@ -274,9 +274,9 @@ scrape(shop_id, url, last_scraped_hash)
  ├── try cached schema variants in order
  │    ├── first applicable variant → RawExtractedProduct
  │    └── none applies → [append-and-retry loop]
- │         ├── repeat up to N attempts (`max_schema_fix_attempts` config slot)
- │         │    ├── attempt 1: LLM generates ONE schema from current page HTML only
- │         │    ├── attempt 2+: LLM gets previous failed generated schema + extraction error as repair context
+	 │         ├── fixed prompt-source attempts: YAML projection, then cleaned HTML fallback
+	 │         │    ├── attempt 1: LLM generates ONE schema from the current page YAML projection
+	 │         │    ├── attempt 2: LLM gets cleaned HTML plus previous failed schema + extraction error
  │         │    ├── in-memory candidate = existing schemas + generated schema
  │         │    ├── re-apply only schemas not already known to fail in this loop
  │         │    ├── if one applies → dedupe schema set, persist, continue
@@ -336,15 +336,15 @@ review's candidate payload for audit readability, and appends a `manual_schema_e
 ```
 [append-on-miss flow]
  ├── ProductSchemaService::append_single_schema(domain, html, failed_schema?, last_error?)
- │    ├── attempt 1: LLM generates a single schema from HTML only
- │    ├── attempt 2+: LLM receives previous failed generated schema + extraction error and proposes a targeted fix
+	 │    ├── attempt 1: LLM generates a single schema from the YAML projection
+	 │    ├── attempt 2: LLM receives cleaned HTML plus previous failed generated schema + extraction error
  │    │        Prompt emphasizes: "single schema for one page, for append/retry"
  │    ├── append to existing variant set in memory
  │    └── return expanded ShopsProductSchema candidate
  │
  ├── retry only newly appended schemas (exclude known failed by content)
  │    ├── matches now? → persist expanded set and continue
- │    └── still no match → discard generated schema and retry generation (up to N)
+	 │    └── still no match → discard generated schema and try the next prompt source
 ```
 
 This enables heterogeneous shops (with multiple page layouts) to dynamically accumulate schema variants without full
@@ -355,10 +355,13 @@ persistence, schemas are deduplicated.
 synchronous helper that parses the HTML, applies the schema, and returns — ensuring no `Html` value is live when any
 `.await` point is reached.
 
-**Attempt budget and observability**: `max_schema_fix_attempts` is reused as the regeneration-attempt budget for the
-append-and-retry loop. When exhausted, scraping returns `SchemaRegenerationExhausted`, cron persists the failure and
+**Attempt budget and observability**: the append-and-retry loop uses the fixed YAML projection then cleaned HTML
+fallback
+sequence. When both attempts are exhausted, scraping returns `SchemaRegenerationExhausted`, cron persists the failure
+and
 writes a cooldown (`next_retry_at`) so the URL is skipped for a backoff window. Every schema-generation LLM call
-increments `shops.llm_calls_count`.
+increments
+`shops.llm_calls_count`.
 
 **Hard LLM budget stop**: shop-scoped LLM calls are tracked in `shops.llm_calls_count` (URL pattern classification +
 schema generation/repair/evaluation + state-mapping LLM fallback). All crawler LLM call types share a single combined

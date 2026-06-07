@@ -53,11 +53,6 @@ pub(crate) fn normalization_error_to_schema_hint(
                 selector: "state".to_string(),
             }))
         }
-        NormalizationError::NoValidImages { .. } => Some(ApplySchemaError::Images(
-            ExtractionError::NoElementMatched {
-                selector: "images".to_string(),
-            },
-        )),
         _ => None,
     }
 }

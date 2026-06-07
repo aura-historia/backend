@@ -17,6 +17,9 @@
 //! | `LOCAL_DB_URL`                  | Hardcoded local Postgres URL (`crawler_server`)                |
 //! | `GEMINI_API_KEY`                | API key for the Gemini LLM backend                             |
 //! | `GEMINI_MODEL`                  | Gemini model name (default: `gemini-3.1-flash-lite-preview`)   |
+//! | `GEMINI_CHEAP_MODEL`            | Default cheaper model for low-risk crawler LLM tasks           |
+//! | `GEMINI_STATE_MAPPING_MODEL`    | Optional override for product state mapping LLM calls          |
+//! | `GEMINI_URL_CLASSIFICATION_MODEL` | Optional override for URL classification LLM calls            |
 //! | `GEMINI_FLEX`                   | Enable Gemini Flex inference when set to `true`                |
 //! | `GEMINI_MAX_CONCURRENT_REQUESTS`| Max in-flight crawler Gemini calls (default: `1`)              |
 //! | `GEMINI_MIN_REQUEST_INTERVAL_MS`| Minimum delay between crawler Gemini request starts (default: `2000`) |
@@ -46,6 +49,7 @@ use common::pagination::cursor::Cursor;
 use common::shop_id::ShopId;
 use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
+    state_mapping_gemini_model, url_classification_gemini_model,
 };
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
 use crawler::logging::{
@@ -395,6 +399,8 @@ async fn main() {
         let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
         let model = std::env::var("GEMINI_MODEL")
             .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+        let state_model = state_mapping_gemini_model();
+        let classification_model = url_classification_gemini_model();
         unsafe {
             std::env::set_var("GEMINI_MODEL", &model);
         }
@@ -410,13 +416,15 @@ async fn main() {
 
         info!(
             gemini_model = %model,
+            gemini_state_mapping_model = %state_model,
+            gemini_url_classification_model = %classification_model,
             gemini_service_tier,
             gemini_max_concurrent_requests = gemini_rate_limit_config.max_concurrent_requests,
             gemini_min_request_interval_ms = gemini_rate_limit_config.min_request_interval.as_millis(),
             "Gemini crawler rate limiter configured"
         );
 
-        let state_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let state_llm_builder = google_llm_builder(&api_key, &state_model, gemini_flex);
 
         let state_mapping_repo = Box::new(ProductStateMappingRepositoryImpl::new(Box::leak(
             Box::new(pool.clone()),
@@ -432,14 +440,12 @@ async fn main() {
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
         let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
-        let schema_evaluator_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
-        let schema_svc = ProductSchemaServiceImpl::new_with_evaluator(
+        let schema_svc = ProductSchemaServiceImpl::new(
             schema_llm_builder,
-            schema_evaluator_llm_builder,
             llm_service_tier,
             schema_repo,
             Some(Arc::clone(&gemini_rate_limiter)),
@@ -465,7 +471,6 @@ async fn main() {
                         config.scraper_max_llm_calls_per_shop,
                     ),
                 ),
-                3,
                 config.scraper_schema_seed_pages,
                 config.scraper_max_llm_calls_per_shop,
             )
@@ -475,7 +480,7 @@ async fn main() {
         let url_metadata_repo = Arc::new(UrlMetadataRepositoryImpl::new(pool.clone()));
         let url_pattern_repo = Box::new(ShopUrlPatternRepositoryImpl::new(pool.clone()));
 
-        let class_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let class_llm_builder = google_llm_builder(&api_key, &classification_model, gemini_flex);
         let class_svc = Box::new(
             UrlClassificationServiceImpl::new(
                 class_llm_builder,
@@ -565,6 +570,8 @@ async fn main() {
             db_max_connections,
             scraper_max_llm_calls_per_shop,
             gemini_model = %model,
+            gemini_state_mapping_model = %state_model,
+            gemini_url_classification_model = %classification_model,
             gemini_service_tier,
             review_required,
             url_pattern_review_required,

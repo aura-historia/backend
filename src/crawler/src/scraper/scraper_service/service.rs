@@ -176,9 +176,6 @@ pub struct ScraperServiceImpl {
     pub(crate) schema_service: Box<dyn ProductSchemaService + Send + Sync>,
     pub(crate) normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
     pub(crate) candidate_service: Arc<dyn ScraperCandidateService>,
-    /// Maximum number of regenerate-and-retry attempts when no cached schema
-    /// variant applies.
-    pub(crate) max_schema_fix_attempts: u32,
     /// Number of HTML pages to seed first-time schema generation with.
     /// `1` means current page only; values >1 trigger best-effort sampling/fetch.
     pub(crate) schema_seed_pages: usize,
@@ -218,10 +215,6 @@ impl SchemaLlmReviewMode {
         }
     }
 
-    pub(crate) fn should_evaluate(self) -> bool {
-        !matches!(self, Self::HumanOnly)
-    }
-
     pub(crate) fn allows_auto_approval(self) -> bool {
         matches!(self, Self::AutoApproveHighConfidence)
     }
@@ -241,14 +234,12 @@ impl ScraperServiceImpl {
         schema_service: Box<dyn ProductSchemaService + Send + Sync>,
         normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
         candidate_service: Arc<dyn ScraperCandidateService>,
-        max_schema_fix_attempts: u32,
     ) -> Self {
         Self::new_with_schema_seed_pages(
             html_fetcher,
             schema_service,
             normalization_service,
             candidate_service,
-            max_schema_fix_attempts,
             DEFAULT_SCHEMA_SEED_PAGES,
             DEFAULT_MAX_LLM_CALLS_PER_SHOP,
         )
@@ -259,7 +250,6 @@ impl ScraperServiceImpl {
         schema_service: Box<dyn ProductSchemaService + Send + Sync>,
         normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
         candidate_service: Arc<dyn ScraperCandidateService>,
-        max_schema_fix_attempts: u32,
         schema_seed_pages: usize,
         max_llm_calls_per_shop: i64,
     ) -> Self {
@@ -269,7 +259,6 @@ impl ScraperServiceImpl {
             schema_service,
             normalization_service,
             candidate_service,
-            max_schema_fix_attempts,
             schema_seed_pages: schema_seed_pages.max(1),
             max_llm_calls_per_shop,
             review_repository: None,
@@ -336,10 +325,7 @@ mod tests {
 
     #[test]
     fn auto_approval_is_only_allowed_for_high_confidence_mode() {
-        assert!(!SchemaLlmReviewMode::HumanOnly.should_evaluate());
-        assert!(SchemaLlmReviewMode::ReportOnly.should_evaluate());
         assert!(!SchemaLlmReviewMode::ReportOnly.allows_auto_approval());
-        assert!(SchemaLlmReviewMode::AutoApproveHighConfidence.should_evaluate());
         assert!(SchemaLlmReviewMode::AutoApproveHighConfidence.allows_auto_approval());
     }
 }

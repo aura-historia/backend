@@ -3,6 +3,8 @@ mod budget;
 mod happy_path;
 mod hash_skip;
 mod normalization_fix;
+mod schema_fallback;
+mod schema_retry;
 mod seed_pages;
 
 // ---------------------------------------------------------------------------
@@ -11,7 +13,10 @@ mod seed_pages;
 
 use crate::scraper::candidate_service::MockScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
-use crate::scraper::css_selector::product_schema_service::MockProductSchemaService;
+use crate::scraper::css_selector::product_schema_service::{
+    GeneratedProductSchemas, MockProductSchemaService, SchemaLlmEvaluation,
+    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision, SchemaPromptSource,
+};
 use crate::scraper::css_selector::rule::{
     CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
 };
@@ -92,6 +97,26 @@ pub(super) fn shops_product_schema(shop_id: ShopId) -> ShopsProductSchema {
         product_schemas: vec![schema],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),
+    }
+}
+
+pub(super) fn generated_schemas(
+    schemas: Vec<ProductCssSelectorSchema>,
+    confidence: SchemaLlmEvaluationConfidence,
+) -> GeneratedProductSchemas {
+    GeneratedProductSchemas {
+        schemas,
+        evaluation: SchemaLlmEvaluation {
+            decision: if confidence == SchemaLlmEvaluationConfidence::High {
+                SchemaLlmEvaluationDecision::Approve
+            } else {
+                SchemaLlmEvaluationDecision::NeedsHumanReview
+            },
+            confidence,
+            approved_by_llm: false,
+            summary: "Selectors are product-specific.".to_string(),
+            risks: Vec::new(),
+        },
     }
 }
 
