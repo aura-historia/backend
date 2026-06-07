@@ -31,7 +31,6 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -105,7 +104,6 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -184,7 +182,6 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );

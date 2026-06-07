@@ -112,7 +112,6 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -164,7 +163,6 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -219,7 +217,6 @@ async fn should_not_regenerate_schema_when_image_policy_rejects_all_candidates()
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -329,7 +326,6 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        2,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -376,7 +372,7 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    // `append_single_schema` is called on each fix attempt (max_schema_fix_attempts=2).
+    // `append_single_schema` is called once for YAML and once for cleaned HTML.
     schema_svc
         .expect_append_single_schema()
         .times(2)
@@ -407,7 +403,6 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        2, // max_schema_fix_attempts
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );

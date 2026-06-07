@@ -102,7 +102,6 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
-        3,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
@@ -171,7 +170,6 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         3,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -258,7 +256,6 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         Box::new(norm_svc),
         Arc::new(cand_svc),
         3,
-        3,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
@@ -320,7 +317,6 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );

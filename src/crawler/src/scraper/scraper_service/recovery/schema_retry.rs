@@ -46,16 +46,11 @@ impl ScraperServiceImpl {
             SchemaPromptSource::YamlProjection,
             SchemaPromptSource::CleanedHtmlFallback,
         ];
-        let attempts = usize::min(
-            self.max_schema_fix_attempts.max(1) as usize,
-            prompt_sources.len(),
-        );
+        let attempts = prompt_sources.len();
         let mut last_error: Option<ApplySchemaError> = None;
         let mut last_generated_schema: Option<ProductCssSelectorSchema> = None;
 
-        for (attempt_idx, prompt_source) in
-            prompt_sources.iter().copied().take(attempts).enumerate()
-        {
+        for (attempt_idx, prompt_source) in prompt_sources.iter().copied().enumerate() {
             let attempt = attempt_idx + 1;
             if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
                 return Err(ScraperError::PendingSchemaReview {

@@ -63,7 +63,6 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );

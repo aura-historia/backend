@@ -258,7 +258,6 @@ async fn main() {
                         config.scraper_max_llm_calls_per_shop,
                     ),
                 ),
-                3,
                 config.scraper_schema_seed_pages,
                 config.scraper_max_llm_calls_per_shop,
             )

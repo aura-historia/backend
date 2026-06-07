@@ -92,7 +92,6 @@ async fn should_use_yaml_only_when_append_schema_applies() {
         Box::new(schema_svc),
         Box::new(normalizer_with_success(url.clone())),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -170,7 +169,6 @@ async fn should_use_cleaned_html_fallback_when_yaml_append_does_not_apply() {
         Box::new(schema_svc),
         Box::new(normalizer_with_success(url.clone())),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -214,7 +212,6 @@ async fn should_exhaust_append_repair_after_yaml_and_cleaned_html_fail() {
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -279,7 +276,6 @@ async fn should_not_call_cleaned_html_fallback_when_budget_is_exhausted_before_f
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );

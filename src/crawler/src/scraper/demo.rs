@@ -338,7 +338,6 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         Box::new(normalization_svc),
         candidate_service,
         3,
-        3,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     )
 }

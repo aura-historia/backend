@@ -41,7 +41,6 @@ async fn scrape_with_schema_service(
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
@@ -255,7 +254,6 @@ async fn should_return_budget_error_in_no_review_mode_when_fallback_budget_is_ex
         Box::new(schema_svc),
         Box::new(norm_svc),
         Arc::new(cand_svc),
-        3,
         1,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
