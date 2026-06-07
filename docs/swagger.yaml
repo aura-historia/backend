@@ -1,11 +1,66 @@
 openapi: 3.0.0
 info:
-  title: Aura-Historia Backend API
+  title: Aura Historia API Reference
   description: |
-    REST API for the Aura-Historia backend.
+    ## Overview
 
-    The backend is written in Rust and utilizes event-driven architecture with CQRS and Event-Sourcing,
-    hosted entirely on AWS using services like API Gateway, OpenSearch, DynamoDB, SQS, and Lambda.
+    The Aura Historia API powers the Aura Historia antiques platform and its partner-facing integrations.
+    It exposes product discovery, shop discovery, personalization, partner onboarding, and integration
+    workflows on top of Aura Historia's serverless AWS platform.
+
+    This reference is designed for two audiences:
+    - **Internal developers** building Aura Historia products, operational tooling, and backoffice workflows
+    - **External partners and integrators** synchronizing inventory, consuming platform data, or
+      integrating with delegated access
+
+    ## Core API domains
+
+    - **Products and shops** — search, retrieve, and explore products, related products, product
+      history, and shop data
+    - **Personalization** — manage watchlists, saved search filters, and user notifications
+    - **Partner workflows** — submit partner applications, maintain partner shops, ingest catalog data
+      in batches, and receive WooCommerce webhooks
+    - **Identity and access** — manage user accounts, Aura Historia access tokens, and OAuth 2.0
+      clients and token flows
+    - **Billing** — create Stripe checkout, billing-portal, and subscription-management sessions
+
+    ## Authentication model
+
+    The API uses more than one authentication scheme depending on the route:
+
+    - **`BearerAuth`** — Cognito JWT bearer tokens for authenticated user, admin, and partner-user
+      workflows
+    - **`AccessTokenAuth`** — Aura Historia opaque bearer access tokens created via
+      `/api/v1/me/access-tokens` or OAuth 2.0, primarily intended for partner automations and server-to-server
+      ingestion scenarios.
+
+    When a route lists multiple security schemes, any one of the listed schemes may be accepted.
+    Some read endpoints can also be called without authentication, while a valid user token may enrich
+    the response with personalized state such as watchlist, notification, or search-filter metadata.
+
+    ## Data and response conventions
+
+    - Localized resources frequently require **`language`** and **`currency`** parameters so the backend
+      can return localized text and normalized pricing
+    - Errors are returned as **`application/problem+json`** using a consistent RFC 9457-style structure
+      with `status`, `title`, `error`, optional `source`, and optional `detail`
+    - Many list and search endpoints use **cursor-based pagination** via `searchAfter`
+    - Several partner ingestion endpoints are **asynchronous** and respond with **`202 Accepted`** after
+      work has been queued rather than fully processed
+
+    ## Environment endpoints
+
+    - **Development:** `https://api.dev.aura-historia.com`
+    - **Production:** `https://api.aura-historia.com`
+
+    ## Notes for integrators
+
+    - Treat Aura Historia identifiers such as `shopId`, `productId`, `eventId`, `userSearchFilterId`,
+      and `partnerApplicationId` as opaque values
+    - For partner product ingestion, `shopsProductId` is the partner-controlled identifier and should
+      remain stable within a shop
+    - Endpoints marked `deprecated` or `x-disabled` are retained for reference only and should not be
+      used for new integrations
   version: 1.0.0
   contact:
     name: Aura-Historia Team
@@ -16,9 +71,9 @@ info:
 
 servers:
   - url: https://api.dev.aura-historia.com
-    description: Development
+    description: Development environment
   - url: https://api.aura-historia.com
-    description: Production
+    description: Production environment
 
 paths:
   /api/v1/shops/{shopId}/products:
@@ -15477,20 +15532,50 @@ components:
         decision:
           $ref: "#/components/schemas/PartnerShopApplicationDecisionData"
 
+x-tagGroups:
+  - name: Discovery
+    tags:
+      - Products
+      - Shops
+  - name: User Experience
+    tags:
+      - Search Filters
+      - Watchlist
+      - Notifications
+      - User Account
+      - Billing
+      - Newsletter
+  - name: Partner & Platform Integrations
+    tags:
+      - Partner Applications
+      - OAuth
+  - name: Legacy / Disabled
+    tags:
+      - Categories
+      - Periods
+
 tags:
   - name: Products
-    description: Operations related to product retrieval and search
-  - name: Notifications
-    description: Operations for managing user notifications
-  - name: Search Filters
-    description: Operations for managing user search filters
+    description: Product retrieval, product history, similar-product discovery, product search, and partner catalog ingestion workflows.
   - name: Shops
-    description: Operations related to shop retrieval and search
-  - name: Newsletter
-    description: Operations for creating or updating newsletter subscriptions
-  - name: User Account
-    description: Operations for managing user account information
+    description: Shop retrieval, shop search, partner-facing shop maintenance, and admin shop management workflows.
+  - name: Search Filters
+    description: Saved search creation, maintenance, live previews, stored matches, and match-feedback workflows.
   - name: Watchlist
-    description: Operations for managing user's product watchlist
+    description: Watchlist membership, notification preferences, and watchlist-specific product state for authenticated users.
+  - name: Notifications
+    description: In-app notification retrieval, bulk updates, single-notification updates, and notification cleanup workflows.
+  - name: User Account
+    description: Authenticated user profile management, admin user management, access-token lifecycle management, and partner-shop listing.
+  - name: Billing
+    description: Stripe checkout, billing-portal, and subscription-management session creation for authenticated users.
+  - name: Newsletter
+    description: Newsletter subscription upsert workflows for website or product-surface sign-up flows.
   - name: Partner Applications
-    description: Operations for managing partner shop applications
+    description: Partner shop application submission, review tracking, and administrator review and decision workflows.
+  - name: OAuth
+    description: OAuth 2.0 authorization, token, revocation, introspection, and OAuth client metadata management.
+  - name: Categories
+    description: Legacy category endpoints retained for backward compatibility and reference. These endpoints are deprecated and disabled for new integrations.
+  - name: Periods
+    description: Legacy period endpoints retained for backward compatibility and reference. These endpoints are deprecated and disabled for new integrations.
