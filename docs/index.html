@@ -9,6 +9,15 @@
     <body>
         <div id="app"></div>
 
-        <h1>Scalar API Reference Test</h1>
+        <!-- Load the Script -->
+        <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+
+        <!-- Initialize the Scalar API Reference -->
+        <script>
+            Scalar.createApiReference("#app", {
+                // The URL of the OpenAPI/Swagger document
+                url: "https://docs.api.aura-historia.com/swagger.yaml",
+            });
+        </script>
     </body>
 </html>
