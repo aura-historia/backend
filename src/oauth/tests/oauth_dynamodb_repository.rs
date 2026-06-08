@@ -19,12 +19,12 @@ fn now() -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(OffsetDateTime::now_utc().unix_timestamp()).unwrap()
 }
 
-fn oauth_client() -> OAuthClient {
+fn oauth_client(secret: &RawOAuthClientSecret) -> OAuthClient {
     let now = now();
     let user_id = common::user_id::UserId::new();
     OAuthClient {
         client_id: OAuthClientId::new(),
-        hashed_client_secret: RawOAuthClientSecret::new().into(),
+        hashed_client_secret: secret.clone().into(),
         name: OAuthClientName::from("Test client"),
         redirect_uris: HashSet::from([url::Url::parse("https://client.example/callback").unwrap()]),
         tos_uri: Url::parse("https://client.example/tos").unwrap(),
@@ -76,10 +76,11 @@ async fn repository() -> OAuthDynamoDbRepositoryImpl<'static> {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_put_and_get_client_record() {
     let repository = repository().await;
-    let client = oauth_client();
+    let secret = RawOAuthClientSecret::new();
+    let client = oauth_client(&secret);
 
     repository
-        .put_client_record(OAuthClientRecord::from(client.clone()))
+        .put_client_record(OAuthClientRecord::from((client.clone(), secret)))
         .await
         .unwrap();
 
@@ -95,9 +96,10 @@ async fn should_put_and_get_client_record() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_query_client_records() {
     let repository = repository().await;
-    let client = oauth_client();
+    let secret = RawOAuthClientSecret::new();
+    let client = oauth_client(&secret);
     repository
-        .put_client_record(OAuthClientRecord::from(client.clone()))
+        .put_client_record(OAuthClientRecord::from((client.clone(), secret)))
         .await
         .unwrap();
 
@@ -115,9 +117,10 @@ async fn should_query_client_records() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_update_client_record() {
     let repository = repository().await;
-    let client = oauth_client();
+    let secret = RawOAuthClientSecret::new();
+    let client = oauth_client(&secret);
     repository
-        .put_client_record(OAuthClientRecord::from(client.clone()))
+        .put_client_record(OAuthClientRecord::from((client.clone(), secret)))
         .await
         .unwrap();
 
@@ -171,9 +174,10 @@ async fn should_update_client_record() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_delete_client_record() {
     let repository = repository().await;
-    let client = oauth_client();
+    let secret = RawOAuthClientSecret::new();
+    let client = oauth_client(&secret);
     repository
-        .put_client_record(OAuthClientRecord::from(client.clone()))
+        .put_client_record(OAuthClientRecord::from((client.clone(), secret)))
         .await
         .unwrap();
 
@@ -194,7 +198,8 @@ async fn should_delete_client_record() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_put_and_get_authorization_code_record() {
     let repository = repository().await;
-    let client = oauth_client();
+    let secret = RawOAuthClientSecret::new();
+    let client = oauth_client(&secret);
     let code = authorization_code(&client);
 
     repository
@@ -214,7 +219,8 @@ async fn should_put_and_get_authorization_code_record() {
 #[localstack_test(services = [DynamoDB()])]
 async fn should_delete_authorization_code_record() {
     let repository = repository().await;
-    let client = oauth_client();
+    let secret = RawOAuthClientSecret::new();
+    let client = oauth_client(&secret);
     let code = authorization_code(&client);
     repository
         .put_authorization_code_record(AuthorizationCodeRecord::from(code.clone()))

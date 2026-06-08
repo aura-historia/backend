@@ -1979,21 +1979,24 @@ async fn should_complete_oauth_authorization_code_flow() {
     let oauth_repository =
         OAuthDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
     oauth_repository
-        .put_client_record(OAuthClientRecord::from(OAuthClient {
-            client_id,
-            hashed_client_secret: client_secret.clone().into(),
-            name: OAuthClientName::from("Acceptance OAuth client"),
-            tos_uri: url::Url::parse("https://client.example/tos").unwrap(),
-            policy_uri: url::Url::parse("https://client.example/policy").unwrap(),
-            client_uri: url::Url::parse("https://client.example").unwrap(),
-            logo_uri: url::Url::parse("https://client.example/logo.png").unwrap(),
-            redirect_uris: HashSet::from([redirect_uri.clone()]),
-            scopes: HashSet::from([Scope::ProductsWrite]),
-            created_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
-            updated_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
-            created: now,
-            updated: now,
-        }))
+        .put_client_record(OAuthClientRecord::from((
+            OAuthClient {
+                client_id,
+                hashed_client_secret: client_secret.clone().into(),
+                name: OAuthClientName::from("Acceptance OAuth client"),
+                tos_uri: url::Url::parse("https://client.example/tos").unwrap(),
+                policy_uri: url::Url::parse("https://client.example/policy").unwrap(),
+                client_uri: url::Url::parse("https://client.example").unwrap(),
+                logo_uri: url::Url::parse("https://client.example/logo.png").unwrap(),
+                redirect_uris: HashSet::from([redirect_uri.clone()]),
+                scopes: HashSet::from([Scope::ProductsWrite]),
+                created_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
+                updated_by: common::actor::domain::Actor::User(UserId::from(user.sub)),
+                created: now,
+                updated: now,
+            },
+            client_secret.clone(),
+        )))
         .await
         .unwrap();
 

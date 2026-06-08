@@ -372,7 +372,10 @@ impl OAuthService for OAuthServiceImpl<'_> {
             updated: now,
         };
         self.repository
-            .put_client_record(OAuthClientRecord::from(client.clone()))
+            .put_client_record(OAuthClientRecord::from((
+                client.clone(),
+                raw_secret.clone(),
+            )))
             .await?;
         info!(
             actor = %ctx.actor,
@@ -723,7 +726,7 @@ mod tests {
     async fn should_create_authorization_code() {
         let secret = RawOAuthClientSecret::new();
         let client = oauth_client(&secret);
-        let client_record = OAuthClientRecord::from(client.clone());
+        let client_record = OAuthClientRecord::from((client.clone(), secret.clone()));
         let mut repository = MockOAuthRepository::default();
         repository
             .expect_get_client_record()
@@ -766,7 +769,7 @@ mod tests {
     #[tokio::test]
     async fn should_reject_invalid_client_secret() {
         let secret = RawOAuthClientSecret::new();
-        let client_record = OAuthClientRecord::from(oauth_client(&secret));
+        let client_record = OAuthClientRecord::from((oauth_client(&secret), secret.clone()));
         let mut repository = MockOAuthRepository::default();
         repository
             .expect_get_client_record()
@@ -881,7 +884,7 @@ mod tests {
         repository
             .expect_query_client_records()
             .return_once(move || {
-                Box::pin(async move { Ok(vec![OAuthClientRecord::from(client)]) })
+                Box::pin(async move { Ok(vec![OAuthClientRecord::from((client, secret))]) })
             });
         let user_service = MockUserService::default();
         let service = OAuthServiceImpl::new(&repository, &user_service);
@@ -916,7 +919,7 @@ mod tests {
                 assert_eq!(&client.client_id, actual_client_id);
                 client.name = update.name.unwrap();
                 client.tos_uri = update.tos_uri.unwrap();
-                Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+                Box::pin(async move { Ok(Some(OAuthClientRecord::from((client, secret)))) })
             });
         let user_service = MockUserService::default();
         let service = OAuthServiceImpl::new(&repository, &user_service);
@@ -1006,7 +1009,7 @@ mod tests {
         let client = oauth_client(&secret);
         let mut repository = MockOAuthRepository::default();
         repository.expect_get_client_record().return_once(move |_| {
-            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+            Box::pin(async move { Ok(Some(OAuthClientRecord::from((client, secret)))) })
         });
         let user_service = MockUserService::default();
         let service = OAuthServiceImpl::new(&repository, &user_service);
@@ -1036,7 +1039,7 @@ mod tests {
         let client = oauth_client(&secret);
         let mut repository = MockOAuthRepository::default();
         repository.expect_get_client_record().return_once(move |_| {
-            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+            Box::pin(async move { Ok(Some(OAuthClientRecord::from((client, secret)))) })
         });
         let user_service = MockUserService::default();
         let service = OAuthServiceImpl::new(&repository, &user_service);
@@ -1078,7 +1081,7 @@ mod tests {
             created: now,
         };
         let code_record = AuthorizationCodeRecord::from(code.clone());
-        let client_record = OAuthClientRecord::from(client.clone());
+        let client_record = OAuthClientRecord::from((client.clone(), secret.clone()));
         let mut repository = MockOAuthRepository::default();
         repository
             .expect_get_client_record()
@@ -1329,9 +1332,15 @@ mod tests {
             expires: now - time::Duration::minutes(1),
             created: now,
         };
+        let client_record_secret = secret.clone();
         let mut repository = MockOAuthRepository::default();
         repository.expect_get_client_record().return_once(move |_| {
-            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+            Box::pin(async move {
+                Ok(Some(OAuthClientRecord::from((
+                    client,
+                    client_record_secret,
+                ))))
+            })
         });
         repository
             .expect_get_authorization_code_record()
@@ -1370,9 +1379,15 @@ mod tests {
     async fn should_revoke_oauth_access_token() {
         let secret = RawOAuthClientSecret::new();
         let client = oauth_client(&secret);
+        let client_record_secret = secret.clone();
         let mut repository = MockOAuthRepository::default();
         repository.expect_get_client_record().return_once(move |_| {
-            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+            Box::pin(async move {
+                Ok(Some(OAuthClientRecord::from((
+                    client,
+                    client_record_secret,
+                ))))
+            })
         });
         let mut user_service = MockUserService::default();
         user_service
@@ -1417,9 +1432,15 @@ mod tests {
             created: now,
             updated: now,
         };
+        let client_record_secret = secret.clone();
         let mut repository = MockOAuthRepository::default();
         repository.expect_get_client_record().return_once(move |_| {
-            Box::pin(async move { Ok(Some(OAuthClientRecord::from(client))) })
+            Box::pin(async move {
+                Ok(Some(OAuthClientRecord::from((
+                    client,
+                    client_record_secret,
+                ))))
+            })
         });
         let mut user_service = MockUserService::default();
         user_service
