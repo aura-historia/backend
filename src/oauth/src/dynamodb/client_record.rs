@@ -6,7 +6,7 @@ use serde_fields::SerdeField;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
-use user::core::access_token::HashedRawOAuthClientSecret;
+use user::core::access_token::{HashedRawOAuthClientSecret, RawOAuthClientSecret};
 use user::dynamodb::access_token_record::ScopeRecord;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
@@ -24,6 +24,7 @@ pub struct OAuthClientRecord {
     pub secret_prefix: String,
     pub secret_short: String,
     pub secret_hash: String,
+    pub secret: String,
     pub created_by: ActorRecord,
     pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
@@ -40,8 +41,8 @@ pub fn mk_sk(client_id: &OAuthClientId) -> String {
     format!("oauth_client#{client_id}")
 }
 
-impl From<OAuthClient> for OAuthClientRecord {
-    fn from(client: OAuthClient) -> Self {
+impl From<(OAuthClient, RawOAuthClientSecret)> for OAuthClientRecord {
+    fn from((client, raw_secret): (OAuthClient, RawOAuthClientSecret)) -> Self {
         Self {
             pk: mk_pk().to_owned(),
             sk: mk_sk(&client.client_id),
@@ -56,6 +57,7 @@ impl From<OAuthClient> for OAuthClientRecord {
             secret_prefix: client.hashed_client_secret.prefix().to_owned(),
             secret_short: client.hashed_client_secret.short_token().to_owned(),
             secret_hash: client.hashed_client_secret.long_token_hash().to_owned(),
+            secret: raw_secret.into(),
             created_by: client.created_by.into(),
             updated_by: client.updated_by.into(),
             created: client.created,
