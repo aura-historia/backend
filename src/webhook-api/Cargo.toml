@@ -11,7 +11,6 @@ aws_lambda_events = { workspace = true, features = ["apigw"] }
 base64 = { workspace = true }
 common = { workspace = true, features = ["api", "opensearch"] }
 geo = { workspace = true }
-html2text = { workspace = true }
 lambda_runtime = { workspace = true }
 llm = { workspace = true, features = ["google"] }
 opensearch = { workspace = true }
@@ -28,6 +27,7 @@ tracing = { workspace = true }
 url = { workspace = true }
 cognito = { workspace = true }
 user = { workspace = true, features = ["dynamodb", "service", "data", "authenticator"] }
+html-to-markdown-rs = { workspace = true }
 
 [dev-dependencies]
 common = { workspace = true, features = ["test-data"] }

@@ -3,7 +3,7 @@ mod types;
 pub use types::{
     ShopifyEventDetail, ShopifyEventMetadata, ShopifyImagePayload, ShopifyProductEvent,
     ShopifyProductEventError, ShopifyProductEventKind, ShopifyProductPayload,
-    ShopifyVariantPayload, html_to_text, parse_price, product_state,
+    ShopifyVariantPayload, fallbacked_html_to_markdown, parse_price, product_state,
 };
 
 use aws_lambda_events::eventbridge::EventBridgeEvent;

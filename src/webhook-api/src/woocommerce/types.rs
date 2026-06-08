@@ -85,7 +85,7 @@ impl TryFrom<WoocommerceProductEvent> for AsyncProductCommandData {
                     .description
                     .as_deref()
                     .or(event.payload.short_description.as_deref())
-                    .map(html_to_text)
+                    .map(fallbacked_html_to_markdown)
                     .filter(|description| !description.is_empty());
                 let language = event
                     .shop
@@ -153,11 +153,11 @@ impl TryFrom<WoocommerceProductEvent> for AsyncProductCommandData {
     }
 }
 
-pub fn html_to_text(html: &str) -> String {
-    html2text::from_read(html.as_bytes(), 120)
-        .unwrap_or_else(|_| String::new())
-        .trim()
-        .to_owned()
+pub fn fallbacked_html_to_markdown(html: &str) -> String {
+    html_to_markdown_rs::convert(html, None)
+        .map(|conversion_result| conversion_result.content)
+        .unwrap_or_else(|_| Some(html.to_owned()))
+        .unwrap_or_else(|| html.to_owned())
 }
 
 pub fn product_state(payload: &WoocommerceProductPayload) -> ProductState {

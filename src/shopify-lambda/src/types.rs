@@ -109,7 +109,7 @@ impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
             .payload
             .body_html
             .as_deref()
-            .map(html_to_text)
+            .map(fallbacked_html_to_markdown)
             .filter(|description| !description.is_empty());
         let language = event
             .language
@@ -165,11 +165,11 @@ impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
     }
 }
 
-pub fn html_to_text(html: &str) -> String {
-    html2text::from_read(html.as_bytes(), 120)
-        .unwrap_or_else(|_| String::new())
-        .trim()
-        .to_owned()
+pub fn fallbacked_html_to_markdown(html: &str) -> String {
+    html_to_markdown_rs::convert(html, None)
+        .map(|conversion_result| conversion_result.content)
+        .unwrap_or_else(|_| Some(html.to_owned()))
+        .unwrap_or_else(|| html.to_owned())
 }
 
 pub fn product_state(payload: &ShopifyProductPayload) -> ProductState {
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn should_convert_html_description_to_text_when_html_is_malformed_for_html_to_text() {
-        let actual = html_to_text("<p>Hello <strong>World");
+        let actual = fallbacked_html_to_markdown("<p>Hello <strong>World");
 
         assert!(actual.contains("Hello"));
         assert!(actual.contains("World"));
