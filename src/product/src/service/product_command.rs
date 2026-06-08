@@ -363,7 +363,7 @@ mod faker {
                 seller_name_raw: config.fake_with_rng(rng),
                 structured_address: config.fake_with_rng(rng),
                 geo_address: config.fake_with_rng(rng),
-                native_title: config.fake_with_rng(rng),
+                native_title: Some(config.fake_with_rng(rng)),
                 native_description: config.fake_with_rng(rng),
                 native_price: config.fake_with_rng(rng),
                 native_price_estimate_min: config.fake_with_rng(rng),

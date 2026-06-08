@@ -221,8 +221,12 @@ mod faker {
             config: &Faker,
             rng: &mut R,
         ) -> Self {
-            let random_string: String = config.fake_with_rng(rng);
-            SlugId::from(random_string)
+            let random_string: String = fake::vec![char; 7].iter().collect();
+            SlugId::from(format!(
+                "{}{}",
+                random_string,
+                config.fake_with_rng::<String, _>(rng)
+            ))
         }
     }
 }
