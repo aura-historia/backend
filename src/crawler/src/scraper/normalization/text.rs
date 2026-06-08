@@ -147,13 +147,13 @@ mod tests {
     #[test]
     fn should_normalize_shops_product_id_when_plain_string_provided() {
         let result = normalize_shops_product_id("PROD-001").unwrap();
-        assert_eq!(result.to_string(), "PROD-001");
+        assert_eq!(result.to_string(), "prod-001");
     }
 
     #[test]
     fn should_trim_whitespace_when_normalizing_shops_product_id() {
         let result = normalize_shops_product_id("  PROD-001  ").unwrap();
-        assert_eq!(result.to_string(), "PROD-001");
+        assert_eq!(result.to_string(), "prod-001");
     }
 
     #[test]
@@ -176,14 +176,14 @@ mod tests {
     fn should_use_extracted_id_when_shops_product_id_with_sha_fallback_is_non_empty() {
         let url = Url::parse("https://example.com/products/123").unwrap();
         let result = normalize_shops_product_id_with_url_sha_fallback("PROD-001", &url);
-        assert_eq!(result.to_string(), "PROD-001");
+        assert_eq!(result.to_string(), "prod-001");
     }
 
     #[test]
     fn should_trim_and_use_extracted_id_when_shops_product_id_with_sha_fallback_has_whitespace() {
         let url = Url::parse("https://example.com/products/123").unwrap();
         let result = normalize_shops_product_id_with_url_sha_fallback("  PROD-001  ", &url);
-        assert_eq!(result.to_string(), "PROD-001");
+        assert_eq!(result.to_string(), "prod-001");
     }
 
     #[test]

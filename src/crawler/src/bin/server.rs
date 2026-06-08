@@ -605,9 +605,8 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::should_sync_shop;
-    use common::{
-        actor::domain::Actor, domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId,
-    };
+    use common::shop_slug_id::ShopSlugId;
+    use common::{actor::domain::Actor, domain::Domain, shop_id::ShopId, shop_name::ShopName};
     use shop::core::shop_type::ShopType;
     use shop::core::{partner_status::ShopPartnerStatus, shop::Shop};
     use time::OffsetDateTime;
@@ -615,7 +614,7 @@ mod tests {
     fn mk_shop(partner_status: ShopPartnerStatus, domain: &str) -> Shop {
         Shop {
             shop_id: ShopId::new(),
-            shop_slug_id: SlugId::from("test-shop"),
+            shop_slug_id: ShopSlugId::from("test-shop"),
             name: ShopName::from("Test Shop"),
             shop_type: ShopType::CommercialDealer,
             domains: [Domain::try_from(domain).unwrap()].into(),

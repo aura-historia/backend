@@ -29,11 +29,13 @@ use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{FxRate, MonetaryAmount, Price};
 use common::product_id::{ProductId, ProductKey};
+use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use shop::core::shop_type::ShopType;
@@ -45,9 +47,9 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Product {
     pub product_id: ProductId,
-    pub product_slug_id: SlugId<6>,
-    pub shop_slug_id: SlugId<0>,
-    pub seller_slug_id: SlugId<0>,
+    pub product_slug_id: ProductSlugId,
+    pub shop_slug_id: ShopSlugId,
+    pub seller_slug_id: SellerSlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub seller_id: ShopId,
@@ -117,9 +119,9 @@ impl Product {
             })
             .collect();
         let payload = ProductCreatedDomainEventPayload {
-            product_slug_id: SlugId::from(native_title.payload.as_ref()),
-            shop_slug_id: SlugId::from(shop_name.as_ref()),
-            seller_slug_id: SlugId::from(seller_name.as_ref()),
+            product_slug_id: ProductSlugId::from(native_title.payload.as_ref()),
+            shop_slug_id: ShopSlugId::from(shop_name.as_ref()),
+            seller_slug_id: SellerSlugId::from(seller_name.as_ref()),
             shop_id,
             seller_id,
             shops_product_id,
@@ -762,9 +764,9 @@ impl HasKey for Product {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalizedProductView {
     pub product_id: ProductId,
-    pub product_slug_id: SlugId<6>,
-    pub shop_slug_id: SlugId<0>,
-    pub seller_slug_id: SlugId<0>,
+    pub product_slug_id: ProductSlugId,
+    pub shop_slug_id: ShopSlugId,
+    pub seller_slug_id: SellerSlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub seller_id: ShopId,
@@ -825,9 +827,9 @@ mod faker {
             let seller_name: ShopName = config.fake_with_rng(rng);
             Product {
                 product_id: config.fake_with_rng(rng),
-                product_slug_id: SlugId::from(native_title.payload.as_ref()),
-                shop_slug_id: SlugId::from(shop_name.as_ref()),
-                seller_slug_id: SlugId::from(seller_name.as_ref()),
+                product_slug_id: ProductSlugId::from(native_title.payload.as_ref()),
+                shop_slug_id: ShopSlugId::from(shop_name.as_ref()),
+                seller_slug_id: SellerSlugId::from(seller_name.as_ref()),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 seller_id: config.fake_with_rng(rng),

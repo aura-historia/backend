@@ -4500,9 +4500,13 @@ async fn prepare_woocommerce_partner_shop() -> (ShopRecord, RawAccessToken) {
     (shop_record, api_key)
 }
 
-async fn post_woocommerce_webhook(topic: &str, body: &str) {
-    let (shop_record, api_key) = prepare_woocommerce_partner_shop().await;
-    let api_key: String = api_key.into();
+async fn send_woocommerce_webhook(
+    shop_record: &ShopRecord,
+    api_key: &RawAccessToken,
+    topic: &str,
+    body: &str,
+) {
+    let api_key: String = api_key.clone().into();
     let url = format!(
         "{}/api/v1/webhooks/woocommerce/{}",
         get_cfn_output().api_gateway_endpoint_url,
@@ -4521,7 +4525,19 @@ async fn post_woocommerce_webhook(topic: &str, body: &str) {
         .unwrap();
     assert_eq!(202, response.status());
     assert_eq!(0, response.bytes().await.unwrap().len());
-    let product = wait_for_partner_product_record(shop_record.shop_id, "17".into()).await;
+}
+
+async fn assert_woocommerce_product(topic: &str, shop_id: common::shop_id::ShopId) {
+    if topic == "product.deleted" {
+        wait_for_partner_product_state(
+            shop_id,
+            "17".into(),
+            product::dynamodb::product_state_record::ProductStateRecord::Removed,
+        )
+        .await;
+    }
+
+    let product = wait_for_partner_product_record(shop_id, "17".into()).await;
     assert_eq!(product.shops_product_id.to_string(), "17");
     match topic {
         "product.created" => {
@@ -4551,6 +4567,12 @@ async fn post_woocommerce_webhook(topic: &str, body: &str) {
     }
 }
 
+async fn post_woocommerce_webhook(topic: &str, body: &str) {
+    let (shop_record, api_key) = prepare_woocommerce_partner_shop().await;
+    send_woocommerce_webhook(&shop_record, &api_key, topic, body).await;
+    assert_woocommerce_product(topic, shop_record.shop_id).await;
+}
+
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_woocommerce_created_webhook() {
     post_woocommerce_webhook("product.created", WOOCOMMERCE_CREATED_BODY).await;
@@ -4563,7 +4585,25 @@ async fn should_respond_200_for_woocommerce_updated_webhook() {
 
 #[localstack_test(services = [Cloudformation()])]
 async fn should_respond_200_for_woocommerce_deleted_webhook() {
-    post_woocommerce_webhook("product.deleted", WOOCOMMERCE_DELETED_BODY).await;
+    let (shop_record, api_key) = prepare_woocommerce_partner_shop().await;
+
+    send_woocommerce_webhook(
+        &shop_record,
+        &api_key,
+        "product.created",
+        WOOCOMMERCE_CREATED_BODY,
+    )
+    .await;
+    assert_woocommerce_product("product.created", shop_record.shop_id).await;
+
+    send_woocommerce_webhook(
+        &shop_record,
+        &api_key,
+        "product.deleted",
+        WOOCOMMERCE_DELETED_BODY,
+    )
+    .await;
+    assert_woocommerce_product("product.deleted", shop_record.shop_id).await;
 }
 
 #[localstack_test(services = [Cloudformation()])]
@@ -6120,13 +6160,13 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
 
     let shopify_domain = common::domain::Domain::try_from(SHOPIFY_ACCEPTANCE_DOMAIN).unwrap();
     let shop_id = common::shop_id::ShopId::new();
-    let slug = common::slug_id::SlugId::raw("shopify-acc-test-shop");
+    let slug = common::slug_id::SlugId::raw("shopify-acc-test-shop").unwrap();
 
     let record = ShopRecord {
         pk: shop::dynamodb::shop_record::mk_pk(&shop_id),
         sk: shop::dynamodb::shop_record::mk_sk().to_owned(),
         shop_id,
-        shop_slug_id: slug.clone(),
+        shop_slug_id: slug.clone().into(),
         name: common::shop_name::ShopName::from("Shopify Acceptance Shop"),
         shop_type: shop::dynamodb::shop_type_record::ShopTypeRecord::Marketplace,
         shop_partner_status: ShopPartnerStatusRecord::Partnered,
@@ -6150,7 +6190,7 @@ async fn seed_shopify_acceptance_shop() -> ShopRecord {
         geo_address_lon: None,
         phone: None,
         email: None,
-        gsi2_pk: Some(shop::dynamodb::shop_record::mk_gsi2_pk(&slug)),
+        gsi2_pk: Some(shop::dynamodb::shop_record::mk_gsi2_pk(&slug.into())),
         gsi2_sk: Some(shop::dynamodb::shop_record::mk_gsi2_sk().to_owned()),
         gsi3_pk: Some(shop::dynamodb::shop_record::mk_gsi3_pk(&shopify_domain)),
         gsi3_sk: Some(shop::dynamodb::shop_record::mk_gsi3_sk().to_owned()),

@@ -21,9 +21,10 @@ use common::batch::dynamodb::BatchGetItemResult;
 use common::dynamodb_update::DynamoDbUpdate;
 use common::event_id::EventId;
 use common::product_id::{ProductId, ProductKey};
+use common::product_slug_id::ProductSlugId;
 use common::shop_id::ShopId;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use std::collections::HashMap;
 use tracing::{error, warn};
 
@@ -98,8 +99,8 @@ pub trait ProductDynamoDbRepository {
 
     async fn query_product_key(
         &self,
-        shop_slug_id: &SlugId<0>,
-        product_slug_id: &SlugId<6>,
+        shop_slug_id: &ShopSlugId,
+        product_slug_id: &ProductSlugId,
     ) -> Result<Option<ProductKey>, SdkError<QueryError, HttpResponse>>;
 
     async fn transact_write_product_create(
@@ -595,8 +596,8 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
 
     async fn query_product_key(
         &self,
-        shop_slug_id: &SlugId<0>,
-        product_slug_id: &SlugId<6>,
+        shop_slug_id: &ShopSlugId,
+        product_slug_id: &ProductSlugId,
     ) -> Result<Option<ProductKey>, SdkError<QueryError, HttpResponse>> {
         let maybe_item = self
             .client

@@ -6,7 +6,7 @@ use crate::{
 use async_trait::async_trait;
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
-use common::{batch::Batch, domain::Domain, shop_id::ShopId, slug_id::SlugId};
+use common::{batch::Batch, domain::Domain, shop_id::ShopId, shop_slug_id::ShopSlugId};
 
 #[derive(thiserror::Error, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -15,7 +15,7 @@ pub enum GetShopError {
     ShopNotFound(ShopId),
 
     #[error("Shop with SlugId '{0}' not found")]
-    ShopSlugIdNotFound(SlugId<0>),
+    ShopSlugIdNotFound(ShopSlugId),
 
     #[error("Shop with Shopify domain '{0}' not found")]
     ShopifyDomainNotFound(Domain),
@@ -107,7 +107,7 @@ pub mod api {
 pub trait GetShopService {
     async fn find_shop(&self, shop_id: &ShopId) -> Result<Shop, GetShopError>;
 
-    async fn find_shop_by_slug(&self, shop_slug_id: &SlugId<0>) -> Result<Shop, GetShopError>;
+    async fn find_shop_by_slug(&self, shop_slug_id: &ShopSlugId) -> Result<Shop, GetShopError>;
 
     async fn find_shops(&self, shop_ids: Vec<ShopId>) -> Result<Vec<Shop>, GetShopError>;
 
@@ -144,7 +144,7 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
         Ok(shop_record.into())
     }
 
-    async fn find_shop_by_slug(&self, shop_slug_id: &SlugId<0>) -> Result<Shop, GetShopError> {
+    async fn find_shop_by_slug(&self, shop_slug_id: &ShopSlugId) -> Result<Shop, GetShopError> {
         let shop_id_opt = self.repository.query_shop_id(shop_slug_id).await?;
         match shop_id_opt {
             Some(shop_id) => self.find_shop(&shop_id).await,

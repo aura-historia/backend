@@ -12,7 +12,7 @@ use crate::{
 };
 use common::{
     actor::document::ActorDocument, domain::Domain, shop_id::ShopId, shop_name::ShopName,
-    slug_id::SlugId,
+    shop_slug_id::ShopSlugId,
 };
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct ShopDocument {
     pub shop_id: ShopId,
-    pub shop_slug_id: SlugId<0>,
+    pub shop_slug_id: ShopSlugId,
     pub name: ShopName,
     pub shop_type: ShopTypeDocument,
     pub domains: HashSet<Domain>,

@@ -12,9 +12,11 @@ use common::language::document::TextDocument;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::product_id::{ProductId, ProductKey};
+use common::product_slug_id::ProductSlugId;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use common::{event_id::EventId, has_key::HasKey};
 use field::field;
 use geo::core::continent::Continent;
@@ -37,9 +39,9 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct ProductDocument {
     pub product_id: ProductId,
-    pub product_slug_id: SlugId<6>,
-    pub shop_slug_id: SlugId<0>,
-    pub seller_slug_id: SlugId<0>,
+    pub product_slug_id: ProductSlugId,
+    pub shop_slug_id: ShopSlugId,
+    pub seller_slug_id: SellerSlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub seller_id: ShopId,
@@ -1089,9 +1091,9 @@ mod faker {
             let seller_name: String = config.fake_with_rng(rng);
             ProductDocument {
                 product_id: config.fake_with_rng(rng),
-                product_slug_id: SlugId::from(&title_native.text),
-                shop_slug_id: SlugId::from(&shop_name),
-                seller_slug_id: SlugId::from(&seller_name),
+                product_slug_id: ProductSlugId::from(&title_native.text),
+                shop_slug_id: ShopSlugId::from(&shop_name),
+                seller_slug_id: SellerSlugId::from(&seller_name),
                 event_id: config.fake_with_rng(rng),
                 shop_id: config.fake_with_rng(rng),
                 seller_id: config.fake_with_rng(rng),

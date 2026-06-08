@@ -22,7 +22,7 @@ use common::{
     dynamodb_update::DynamoDbUpdate,
     shop_id::ShopId,
     shop_name::ShopName,
-    slug_id::SlugId,
+    shop_slug_id::ShopSlugId,
 };
 use std::collections::HashMap;
 use tracing::error;
@@ -48,7 +48,7 @@ pub trait ShopDynamoDbRepository {
 
     async fn query_shop_id(
         &self,
-        shop_slug_id: &SlugId<0>,
+        shop_slug_id: &ShopSlugId,
     ) -> Result<Option<ShopId>, SdkError<QueryError, HttpResponse>>;
 
     async fn get_shop_records(
@@ -166,7 +166,7 @@ impl<'a> ShopDynamoDbRepository for ShopDynamoDbRepositoryImpl<'a> {
 
     async fn query_shop_id(
         &self,
-        shop_slug_id: &SlugId<0>,
+        shop_slug_id: &ShopSlugId,
     ) -> Result<Option<ShopId>, SdkError<QueryError, HttpResponse>> {
         let maybe_item = self
             .client

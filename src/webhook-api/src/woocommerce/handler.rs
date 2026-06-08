@@ -15,10 +15,7 @@ use openssl::hash::MessageDigest;
 use openssl::memcmp;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
-use product::service::product_command::UpsertProductCommand;
-use product_lambda_ingest_partner_products::{
-    AsyncProductCommandData, AsyncProductCommandService, UpsertAsyncProductCommandData,
-};
+use product_lambda_ingest_partner_products::{AsyncProductCommandData, AsyncProductCommandService};
 use shop::core::partner_shop::PartnerShop;
 use shop::service::get_service::GetShopService;
 use user::service::authenticator_service::{AuthenticatedPrincipal, AuthenticatorService};
@@ -70,18 +67,14 @@ pub async fn handle_woocommerce(
         ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)).with_detail(msg)
     })?;
 
-    let command = UpsertProductCommand::try_from(WoocommerceProductEvent {
+    let command = AsyncProductCommandData::try_from(WoocommerceProductEvent {
         shop: partner_shop,
         kind,
         payload,
     })
     .map_err(|err| ApiError::bad_request(BAD_BODY_VALUE, Box::new(err)))?;
 
-    let failures = async_product_command_service
-        .send(vec![AsyncProductCommandData::Upsert(
-            UpsertAsyncProductCommandData::from(command),
-        )])
-        .await;
+    let failures = async_product_command_service.send(vec![command]).await;
     if let Some(failure) = failures.first() {
         return Err(ApiError::service_unavailable(
             SERVICE_UNAVAILABLE,
@@ -341,9 +334,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_upsert_removed_product_when_deleted_webhook_is_valid() {
+    async fn should_update_removed_product_when_deleted_webhook_is_valid() {
         let shop_id = ShopId::new();
-        let shop = partner_shop(shop_id);
+        let mut shop = partner_shop(shop_id);
+        shop.woocommerce_language = None;
         let body = serde_json::json!({ "id": 17 }).to_string();
         let lambda_event = event(
             &shop,
@@ -363,11 +357,12 @@ mod tests {
         let mut product_service = MockAsyncProductCommandService::default();
         product_service.expect_send().return_once(move |cmds| {
             Box::pin(async move {
-                let AsyncProductCommandData::Upsert(cmd) = &cmds[0] else {
-                    panic!("Expected upsert command")
+                let AsyncProductCommandData::Update(cmd) = &cmds[0] else {
+                    panic!("Expected update command")
                 };
                 assert_eq!(cmd.state, Some(ProductState::Removed.into()));
-                assert!(cmd.title.is_none());
+                assert!(cmd.url.is_none());
+                assert!(cmd.images.is_none());
                 vec![]
             })
         });

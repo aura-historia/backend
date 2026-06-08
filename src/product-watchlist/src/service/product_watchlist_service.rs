@@ -21,7 +21,9 @@ use common::{
     sort::{Sort, SortOrder},
     user_id::UserId,
 };
-use common::{resource_state::domain::ResourceState, slug_id::SlugId};
+use common::{
+    product_slug_id::ProductSlugId, resource_state::domain::ResourceState, shop_slug_id::ShopSlugId,
+};
 use product::dynamodb::repository::ProductDynamoDbRepository;
 use time::OffsetDateTime;
 use tracing::info;
@@ -37,7 +39,7 @@ pub enum WatchProductError {
     ProductNotFound(ShopId, ShopsProductId),
 
     #[error("Product with ShopSlugId '{0}' and ProductSlugId '{1}' not found.")]
-    ProductSlugNotFound(SlugId<0>, SlugId<6>),
+    ProductSlugNotFound(ShopSlugId, ProductSlugId),
 
     #[error("There exists no User with id '{0}'.")]
     UserNotFound(UserId),

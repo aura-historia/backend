@@ -1,51 +1,16 @@
-use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ShopsProductId(String);
+crate::slug_id_newtype!(ShopsProductId, 0);
 
 impl ShopsProductId {
     pub fn new() -> Self {
-        Self(Uuid::new_v4().to_string())
+        Self::from(Uuid::new_v4().to_string())
     }
 }
 
 impl Default for ShopsProductId {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl Display for ShopsProductId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<ShopsProductId> for String {
-    fn from(id: ShopsProductId) -> Self {
-        id.0
-    }
-}
-
-impl From<String> for ShopsProductId {
-    fn from(value: String) -> Self {
-        ShopsProductId(value)
-    }
-}
-
-impl From<&String> for ShopsProductId {
-    fn from(value: &String) -> Self {
-        ShopsProductId(value.to_owned())
-    }
-}
-
-impl From<&str> for ShopsProductId {
-    fn from(value: &str) -> Self {
-        ShopsProductId(value.to_owned())
     }
 }
 
@@ -63,8 +28,15 @@ pub mod api {
     ) -> Result<ShopsProductId, ApiError> {
         path_params
             .get("shopsProductId")
-            .filter(|str| !str.is_empty())
-            .map(ShopsProductId::from)
+            .filter(|value| !value.is_empty())
+            .map(ShopsProductId::raw)
+            .transpose()
+            .map_err(|err| {
+                let msg = err.to_string();
+                ApiError::bad_request(BAD_PATH_PARAMETER_VALUE, Box::new(err))
+                    .with_path_field("shopsProductId")
+                    .with_detail(msg)
+            })?
             .ok_or(
                 ApiError::bad_request(
                     BAD_PATH_PARAMETER_VALUE,

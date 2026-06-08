@@ -8,9 +8,10 @@ use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::product_id::{ProductId, ProductKey};
+use common::product_slug_id::ProductSlugId;
 use common::shop_id::ShopId;
+use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::slug_id::SlugId;
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 use shop::data::shop_type_data::ShopTypeData;
@@ -21,8 +22,8 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub struct GetProductSummaryData {
     pub product_id: ProductId,
-    pub product_slug_id: SlugId<6>,
-    pub shop_slug_id: SlugId<0>,
+    pub product_slug_id: ProductSlugId,
+    pub shop_slug_id: ShopSlugId,
     pub event_id: EventId,
     pub shop_id: ShopId,
     pub shops_product_id: ShopsProductId,
@@ -138,9 +139,9 @@ mod tests {
         language::data::{LanguageData, LocalizedTextData},
         price::data::PriceData,
         product_id::ProductId,
+        product_slug_id::ProductSlugId,
         shop_id::ShopId,
         shops_product_id::ShopsProductId,
-        slug_id::SlugId,
     };
     use serde_json::json;
     use shop::data::shop_type_data::ShopTypeData;
@@ -155,7 +156,7 @@ mod tests {
         let shops_product_id = ShopsProductId::new();
         let dto = GetProductSummaryData {
             product_id,
-            product_slug_id: SlugId::raw("beedel-beep-bap-fa87c45d"),
+            product_slug_id: ProductSlugId::raw("beedel-beep-bap-fa87c4").unwrap(),
             shop_slug_id: "my-shop".into(),
             event_id,
             shop_id,
@@ -195,7 +196,7 @@ mod tests {
 
         let expected = json!({
             "productId": product_id,
-            "productSlugId": "beedel-beep-bap-fa87c45d",
+            "productSlugId": "beedel-beep-bap-fa87c4",
             "shopSlugId": "my-shop",
             "eventId": event_id,
             "shopId": shop_id,

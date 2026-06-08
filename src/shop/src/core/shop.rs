@@ -9,7 +9,8 @@ use crate::core::{
 use common::currency::domain::Currency;
 use common::language::domain::Language;
 use common::{
-    actor::domain::Actor, domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId,
+    actor::domain::Actor, domain::Domain, shop_id::ShopId, shop_name::ShopName,
+    shop_slug_id::ShopSlugId,
 };
 use serde_email::Email;
 use std::collections::HashSet;
@@ -19,7 +20,7 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shop {
     pub shop_id: ShopId,
-    pub shop_slug_id: SlugId<0>,
+    pub shop_slug_id: ShopSlugId,
     pub name: ShopName,
     pub shop_type: ShopType,
     pub domains: HashSet<Domain>,
@@ -93,7 +94,7 @@ mod faker {
             });
             Shop {
                 shop_id: config.fake_with_rng(rng),
-                shop_slug_id: SlugId::from(name.as_ref()),
+                shop_slug_id: ShopSlugId::from(name.as_ref()),
                 name,
                 shop_type: config.fake_with_rng(rng),
                 domains: [Faker.fake()].into(),

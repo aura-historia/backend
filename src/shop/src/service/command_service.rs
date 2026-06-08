@@ -8,7 +8,8 @@ use crate::{
 };
 use aws_sdk_dynamodb::error::SdkError;
 use common::{
-    actor::RequestContext, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId, user_id::UserId,
+    actor::RequestContext, shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
+    user_id::UserId,
 };
 use time::OffsetDateTime;
 use tracing::info;
@@ -22,7 +23,7 @@ pub enum CommandShopError {
     ShopNotFound(ShopId),
 
     #[error("Shop with name '{0}' exists already - the shop-slug '{1}' is already registered.")]
-    ShopSlugExistsAlready(ShopName, SlugId<0>),
+    ShopSlugExistsAlready(ShopName, ShopSlugId),
 
     #[error("Shop '{0}' is not a partner shop")]
     NotAPartnerShop(ShopId),
@@ -135,7 +136,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
         ctx: &RequestContext,
         command: CreateShopCommand,
     ) -> Result<Shop, CommandShopError> {
-        let shop_slug_id = SlugId::from(command.name.as_ref());
+        let shop_slug_id = ShopSlugId::from(command.name.as_ref());
         let existing_shop_opt = self.repository.query_shop_id(&shop_slug_id).await?;
         if existing_shop_opt.is_some() {
             return Err(CommandShopError::ShopSlugExistsAlready(
@@ -158,7 +159,7 @@ impl<'a> CommandShopService for CommandShopServiceImpl<'a> {
         });
         let shop = Shop {
             shop_id: ShopId::new(),
-            shop_slug_id: SlugId::from(command.name.as_ref()),
+            shop_slug_id: ShopSlugId::from(command.name.as_ref()),
             name: command.name,
             shop_type: command.shop_type,
             domains: command.domains,

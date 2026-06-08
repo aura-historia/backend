@@ -1264,7 +1264,7 @@ mod tests {
         use super::*;
         use crate::dynamodb::product_record::ProductRecord;
         use common::batch::dynamodb::BatchGetItemResult;
-        use common::slug_id::SlugId;
+        use common::seller_slug_id::SellerSlugId;
 
         async fn service_for_shop_information<'a>(
             repository: &'a (dyn ProductDynamoDbRepository + Sync),
@@ -1306,7 +1306,7 @@ mod tests {
                     Box::pin(async move {
                         Ok((
                             resolved_seller_id,
-                            SlugId::from("resolved-seller"),
+                            SellerSlugId::from("resolved-seller"),
                             expected_seller_name,
                         ))
                     })

@@ -1,8 +1,8 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
-use common::slug_id::SlugId;
 use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
 use fxrate::service::FxRateServiceImpl;
 use lambda_runtime::tracing::debug;
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Error> {
                 Box::pin(async {
                     Ok((
                         ShopId::new(),
-                        SlugId::raw("hans-im-glueck"),
+                        SellerSlugId::raw("hans-im-glueck").unwrap(),
                         ShopName::from("Hans im Glück"),
                     ))
                 })

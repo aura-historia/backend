@@ -14,7 +14,7 @@ use crate::{
 use common::actor::record::ActorRecord;
 use common::currency::record::CurrencyRecord;
 use common::language::record::LanguageRecord;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, slug_id::SlugId};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -35,7 +35,7 @@ pub struct ShopRecord {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub gsi3_sk: Option<String>,
     pub shop_id: ShopId,
-    pub shop_slug_id: SlugId<0>,
+    pub shop_slug_id: ShopSlugId,
     pub name: ShopName,
     pub shop_type: ShopTypeRecord,
     pub shop_partner_status: ShopPartnerStatusRecord,
@@ -107,7 +107,7 @@ pub fn mk_sk() -> &'static str {
     "shop#details"
 }
 
-pub fn mk_gsi2_pk(shop_slug_id: &SlugId<0>) -> String {
+pub fn mk_gsi2_pk(shop_slug_id: &ShopSlugId) -> String {
     format!("shop_slug_id#{shop_slug_id}")
 }
 

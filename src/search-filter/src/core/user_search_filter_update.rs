@@ -8,8 +8,9 @@ use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::domain::ResourceState;
 use common::resource_state::record::ResourceStateRecord;
+use common::seller_slug_id::SellerSlugId;
 use common::shop_name::ShopName;
-use common::slug_id::SlugId;
+use common::shop_slug_id::ShopSlugId;
 use common::{
     currency::{domain::Currency, record::CurrencyRecord},
     language::{domain::Language, record::LanguageRecord},
@@ -36,10 +37,10 @@ pub struct UserSearchFilterUpdate {
     pub exclude_shop_name_query: Option<HashSet<ShopName>>,
     pub seller_name_query: Option<HashSet<ShopName>>,
     pub exclude_seller_name_query: Option<HashSet<ShopName>>,
-    pub shop_slug_id_query: Option<HashSet<SlugId<0>>>,
-    pub exclude_shop_slug_id_query: Option<HashSet<SlugId<0>>>,
-    pub seller_slug_id_query: Option<HashSet<SlugId<0>>>,
-    pub exclude_seller_slug_id_query: Option<HashSet<SlugId<0>>>,
+    pub shop_slug_id_query: Option<HashSet<ShopSlugId>>,
+    pub exclude_shop_slug_id_query: Option<HashSet<ShopSlugId>>,
+    pub seller_slug_id_query: Option<HashSet<SellerSlugId>>,
+    pub exclude_seller_slug_id_query: Option<HashSet<SellerSlugId>>,
     pub shop_type_query: Option<AnyOfQuery<ShopType>>,
     pub country_query: Option<AnyOfQuery<CountryCode>>,
     pub continent_query: Option<AnyOfQuery<Continent>>,
