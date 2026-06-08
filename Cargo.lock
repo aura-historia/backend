@@ -135,6 +135,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "astral-tl"
+version = "0.7.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d90933ffb0f97e2fc2e0de21da9d3f20597b804012d199843a6fe7c2810d28f3"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "async-compression"
 version = "0.4.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -576,7 +585,7 @@ dependencies = [
  "http 0.2.12",
  "http 1.4.1",
  "http-body 1.0.1",
- "lru",
+ "lru 0.16.3",
  "percent-encoding",
  "regex-lite",
  "sha2 0.11.0",
@@ -2998,6 +3007,11 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash 0.2.0",
+]
 
 [[package]]
 name = "hashlink"
@@ -3072,15 +3086,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "html2text"
-version = "0.17.1"
+name = "html-to-markdown-rs"
+version = "3.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1c97eea9d3e6524d8d2a4643ce0e3135500c4c7ca1d02393a485f871bef69d8"
+checksum = "6cbbfb183e8634cb956309c6bbd781d9ddae068d376fb9eb1451ac49cf4cbba7"
 dependencies = [
+ "ahash",
+ "astral-tl",
+ "base64 0.22.1",
+ "html-escape",
  "html5ever 0.39.0",
- "tendril 0.5.0",
+ "lru 0.18.0",
+ "memchr",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
- "unicode-width",
 ]
 
 [[package]]
@@ -4085,6 +4107,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1dc47f592c06f33f8e3aea9591776ec7c9f9e4124778ff8a3c3b87159f7e593"
 dependencies = [
  "hashbrown 0.16.1",
+]
+
+[[package]]
+name = "lru"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a860605968fce16869fd239cf4237a82f3ac470723415db603b0e8b6c8d4fb9"
+dependencies = [
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -5539,7 +5570,7 @@ dependencies = [
  "fxrate",
  "google-cloud-auth",
  "lambda_runtime",
- "lru",
+ "lru 0.16.3",
  "mockall",
  "product",
  "reqwest 0.12.28",
@@ -7117,7 +7148,7 @@ dependencies = [
  "common",
  "fake",
  "fxrate",
- "html2text",
+ "html-to-markdown-rs",
  "lambda_runtime",
  "llm",
  "opensearch",
@@ -9008,7 +9039,7 @@ dependencies = [
  "fake",
  "fxrate",
  "geo",
- "html2text",
+ "html-to-markdown-rs",
  "http 1.4.1",
  "lambda_runtime",
  "llm",

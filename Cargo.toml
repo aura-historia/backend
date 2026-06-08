@@ -211,7 +211,6 @@ cognito = { path = "src/cognito" }
 cognito-post-confirmation = { path = "src/cognito-post-confirmation" }
 serde-email = "3.2.0"
 handlebars = "6.4.1"
-html2text = "0.17.1"
 once_cell = "1.21.4"
 openssl = { version = "0.10.80", default-features = false }
 jsonwebtokens = "1.2.0"
@@ -239,3 +238,4 @@ partner-shop-application-api = { path = "src/partner-shop-application-api" }
 partner-shop-application-lambda = { path = "src/partner-shop-application-lambda" }
 shopify-lambda = { path = "src/shopify-lambda" }
 webhook-api = { path = "src/webhook-api" }
+html-to-markdown-rs = "3.5.7"
