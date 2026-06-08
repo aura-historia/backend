@@ -1,12 +1,14 @@
-use common::localized::Localized;
+use common::language::data::LocalizedTextData;
+use common::price::data::PriceData;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_state::domain::ProductState;
 use common::shops_product_id::ShopsProductId;
 use product::core::description::Description;
-use product::core::product_image::ProductImage;
-use product::core::prohibited_content::ProhibitedContent;
 use product::core::title::Title;
-use product::service::product_command::UpsertProductCommand;
+use product::data::product_state_data::ProductStateData;
+use product_lambda_ingest_partner_products::{
+    AsyncProductCommandData, UpdateAsyncProductCommandData, UpsertAsyncProductCommandData,
+};
 use serde::Deserialize;
 use shop::core::partner_shop::PartnerShop;
 use tracing::warn;
@@ -66,81 +68,88 @@ pub enum WoocommerceProductEventError {
     MissingLanguage,
 }
 
-impl TryFrom<WoocommerceProductEvent> for UpsertProductCommand {
+impl TryFrom<WoocommerceProductEvent> for AsyncProductCommandData {
     type Error = WoocommerceProductEventError;
 
     fn try_from(event: WoocommerceProductEvent) -> Result<Self, Self::Error> {
-        let title = event
-            .payload
-            .name
-            .as_deref()
-            .filter(|title| !title.trim().is_empty());
-        let description = event
-            .payload
-            .description
-            .as_deref()
-            .or(event.payload.short_description.as_deref())
-            .map(html_to_text)
-            .filter(|description| !description.is_empty());
-        let language = event
-            .shop
-            .woocommerce_language
-            .ok_or(WoocommerceProductEventError::MissingLanguage)?;
-        let state = match event.kind {
-            WoocommerceProductEventKind::Delete => ProductState::Removed,
+        let async_command_data = match event.kind {
             WoocommerceProductEventKind::Create | WoocommerceProductEventKind::Update => {
-                product_state(&event.payload)
-            }
-        };
-        let native_title = match event.kind {
-            WoocommerceProductEventKind::Delete => {
-                title.map(|title| Localized::new(language, Title::from(title)))
-            }
-            _ => Some(Localized::new(
-                language,
-                Title::from(title.ok_or(WoocommerceProductEventError::MissingTitle)?),
-            )),
-        };
-        let url = match event.kind {
-            WoocommerceProductEventKind::Delete => event.payload.permalink,
-            _ => Some(
-                event
+                let title = event
+                    .payload
+                    .name
+                    .as_deref()
+                    .filter(|title| !title.trim().is_empty())
+                    .ok_or(WoocommerceProductEventError::MissingTitle)?;
+                let description = event
+                    .payload
+                    .description
+                    .as_deref()
+                    .or(event.payload.short_description.as_deref())
+                    .map(html_to_text)
+                    .filter(|description| !description.is_empty());
+                let language = event
+                    .shop
+                    .woocommerce_language
+                    .ok_or(WoocommerceProductEventError::MissingLanguage)?;
+                let state = product_state(&event.payload);
+                let url = event
                     .payload
                     .permalink
-                    .ok_or(WoocommerceProductEventError::MissingUrl)?,
-            ),
+                    .ok_or(WoocommerceProductEventError::MissingUrl)?;
+                let images = if event.payload.images.is_empty() {
+                    None
+                } else {
+                    Some(
+                        event
+                            .payload
+                            .images
+                            .into_iter()
+                            .map(|image| image.src)
+                            .collect(),
+                    )
+                };
+
+                AsyncProductCommandData::Upsert(UpsertAsyncProductCommandData {
+                    shop_id: event.shop.shop_id,
+                    shops_product_id: ShopsProductId::from(event.payload.id.to_string()),
+                    seller_name: None,
+                    structured_address: None,
+                    geo_address: None,
+                    title: Some(LocalizedTextData::new(Title::from(title), language.into())),
+                    description: description
+                        .map(Description::from)
+                        .map(|description| LocalizedTextData::new(description, language.into())),
+                    price: parse_price(
+                        event.payload.price.as_deref(),
+                        event.shop.woocommerce_currency,
+                    )?
+                    .map(PriceData::from),
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    state: Some(state.into()),
+                    url: Some(url),
+                    images,
+                    auction_start: None,
+                    auction_end: None,
+                })
+            }
+            WoocommerceProductEventKind::Delete => {
+                AsyncProductCommandData::Update(UpdateAsyncProductCommandData {
+                    shop_id: event.shop.shop_id,
+                    shops_product_id: ShopsProductId::from(event.payload.id.to_string()),
+                    price: None,
+                    state: Some(ProductStateData::Removed),
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    url: None,
+                    images: None,
+                    auction_start: None,
+                    auction_end: None,
+                })
+            }
         };
 
-        Ok(UpsertProductCommand {
-            shop_id: event.shop.shop_id,
-            shops_product_id: ShopsProductId::from(event.payload.id.to_string()),
-            seller_name_raw: None,
-            structured_address: None,
-            geo_address: None,
-            native_title,
-            native_description: description
-                .map(Description::from)
-                .map(|description| Localized::new(language, description)),
-            native_price: parse_price(
-                event.payload.price.as_deref(),
-                event.shop.woocommerce_currency,
-            )?,
-            native_price_estimate_min: None,
-            native_price_estimate_max: None,
-            state: Some(state),
-            url,
-            images: event
-                .payload
-                .images
-                .into_iter()
-                .map(|image| ProductImage {
-                    url: image.src,
-                    prohibited_content: ProhibitedContent::Unknown,
-                })
-                .collect(),
-            auction_start: None,
-            auction_end: None,
-        })
+        Ok(async_command_data)
     }
 }
 
