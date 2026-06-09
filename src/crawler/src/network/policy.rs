@@ -69,6 +69,10 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
     }
 }
 
+pub fn is_retryable_network_failure(kind: NetworkErrorKind) -> bool {
+    action_for(kind) == NetworkAction::Retry
+}
+
 pub fn backoff_delay(policy: RetryPolicy, attempt: u32) -> Duration {
     if attempt == 0 {
         return Duration::ZERO;
@@ -148,6 +152,33 @@ mod tests {
     #[test]
     fn should_retry_timeout() {
         assert_eq!(action_for(NetworkErrorKind::Timeout), NetworkAction::Retry);
+    }
+
+    #[test]
+    fn should_identify_retryable_network_failures() {
+        assert!(is_retryable_network_failure(NetworkErrorKind::Timeout));
+        assert!(is_retryable_network_failure(NetworkErrorKind::Connect));
+        assert!(is_retryable_network_failure(NetworkErrorKind::Request));
+        assert!(is_retryable_network_failure(NetworkErrorKind::HttpStatus(
+            429
+        )));
+        assert!(is_retryable_network_failure(NetworkErrorKind::HttpStatus(
+            503
+        )));
+    }
+
+    #[test]
+    fn should_not_identify_terminal_network_failures_as_retryable() {
+        assert!(!is_retryable_network_failure(NetworkErrorKind::HttpStatus(
+            404
+        )));
+        assert!(!is_retryable_network_failure(NetworkErrorKind::HttpStatus(
+            410
+        )));
+        assert!(!is_retryable_network_failure(NetworkErrorKind::HttpStatus(
+            418
+        )));
+        assert!(!is_retryable_network_failure(NetworkErrorKind::Unknown));
     }
 
     #[test]
