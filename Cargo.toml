@@ -134,7 +134,7 @@ oauth = { path = "src/oauth" }
 oauth-api = { path = "src/oauth-api" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
-http = "1.4.1"
+http = "1.4.2"
 httpdate = "1.0.3"
 product = { path = "src/product" }
 product-api = { path = "src/product-api" }
