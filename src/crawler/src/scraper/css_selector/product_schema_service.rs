@@ -319,14 +319,14 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
         match existing {
             Some(_) => {
-                info!("Updating existing product schema");
+                debug!("Updating existing product schema");
                 self.repository
                     .update_product_schema(shop_id, &product_schemas)
                     .await
                     .map_err(ProductSchemaServiceError::DatabaseError)
             }
             None => {
-                info!("Inserting new product schema");
+                debug!("Inserting new product schema");
                 let now = OffsetDateTime::now_utc();
                 let schema = ShopsProductSchema {
                     shop_id: *shop_id,

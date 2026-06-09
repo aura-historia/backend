@@ -11,7 +11,7 @@ use crate::spider::service::crawl_run_state::CrawlRunState;
 use crate::spider::service::product_pattern::ProductPattern;
 use crate::spider::utils::url::CrawledUrl;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use url::Url;
 
 use crate::spider::classification::url_metadata::UrlClass;
@@ -340,7 +340,7 @@ impl SpiderServiceImpl {
         let mut state = CrawlRunState::new(initial_pattern);
 
         if state.pattern_loaded_from_store {
-            info!("Loaded persisted product URL pattern");
+            debug!("Loaded persisted product URL pattern");
         }
 
         while let Some(page) = crawl_rx.recv().await {
