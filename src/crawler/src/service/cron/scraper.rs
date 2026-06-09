@@ -46,8 +46,15 @@ struct ScrapeCandidateOutcome {
         CandidateMeta,
     )>,
     errored: bool,
+    requested: bool,
     skipped: bool,
     retryable_network_error: Option<NetworkErrorKind>,
+}
+
+impl ScrapeCandidateOutcome {
+    fn counts_toward_domain_recovery(&self) -> bool {
+        self.requested && !self.errored
+    }
 }
 
 struct ScrapeDomainOutcome {
@@ -102,16 +109,14 @@ async fn flush_batch(
 
 #[tracing::instrument(
     name = "crawler_scrape_candidate",
-    skip(candidate, domain, ctx),
+    skip(candidate, ctx),
     fields(
         shop_id = %candidate.shop_id,
-        domain = %domain,
         url = %candidate.url
     )
 )]
 async fn scrape_candidate(
     candidate: ScraperCandidate,
-    domain: String,
     ctx: &ScrapeDomainContext,
 ) -> ScrapeCandidateOutcome {
     // Skip URLs from shops with already-exhausted budgets
@@ -122,6 +127,7 @@ async fn scrape_candidate(
             return ScrapeCandidateOutcome {
                 command: None,
                 errored: false,
+                requested: false,
                 skipped: true,
                 retryable_network_error: None,
             };
@@ -135,6 +141,7 @@ async fn scrape_candidate(
             return ScrapeCandidateOutcome {
                 command: None,
                 errored: false,
+                requested: false,
                 skipped: true,
                 retryable_network_error: None,
             };
@@ -146,6 +153,7 @@ async fn scrape_candidate(
         return ScrapeCandidateOutcome {
             command: None,
             errored: false,
+            requested: false,
             skipped: true,
             retryable_network_error: None,
         };
@@ -156,6 +164,7 @@ async fn scrape_candidate(
         return ScrapeCandidateOutcome {
             command: None,
             errored: false,
+            requested: false,
             skipped: true,
             retryable_network_error: None,
         };
@@ -180,6 +189,7 @@ async fn scrape_candidate(
             ScrapeCandidateOutcome {
                 command: normalize_to_upsert(scraped.product, &candidate).map(|cmd| (cmd, meta)),
                 errored: false,
+                requested: true,
                 skipped: false,
                 retryable_network_error: None,
             }
@@ -187,6 +197,7 @@ async fn scrape_candidate(
         Ok(None) => ScrapeCandidateOutcome {
             command: None,
             errored: false,
+            requested: true,
             skipped: true,
             retryable_network_error: None,
         },
@@ -307,6 +318,7 @@ async fn scrape_candidate(
             ScrapeCandidateOutcome {
                 command: None,
                 errored: true,
+                requested: true,
                 skipped: false,
                 retryable_network_error,
             }
@@ -354,7 +366,8 @@ async fn scrape_domain_candidates(
     let len = candidates.len();
     for (idx, candidate) in candidates.into_iter().enumerate() {
         let url = candidate.url.clone();
-        let candidate_outcome = scrape_candidate(candidate, domain.clone(), &ctx).await;
+        let candidate_outcome = scrape_candidate(candidate, &ctx).await;
+        let counts_toward_domain_recovery = candidate_outcome.counts_toward_domain_recovery();
 
         if candidate_outcome.errored {
             outcome.failed += 1;
@@ -381,7 +394,7 @@ async fn scrape_domain_candidates(
                 new_delay_ms = new_delay.as_millis(),
                 "Increased scraper domain delay after retryable network failure"
             );
-        } else if !candidate_outcome.errored
+        } else if counts_toward_domain_recovery
             && let Some((previous_delay, new_delay)) = domain_backoff.record_clean_outcome()
         {
             info!(
@@ -598,6 +611,36 @@ mod tests {
     use common::shop_id::ShopId;
     use shop::core::shop_type::ShopType;
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn should_count_only_requested_clean_outcomes_toward_domain_recovery() {
+        let pre_request_skip = ScrapeCandidateOutcome {
+            command: None,
+            errored: false,
+            requested: false,
+            skipped: true,
+            retryable_network_error: None,
+        };
+        assert!(!pre_request_skip.counts_toward_domain_recovery());
+
+        let clean_request_without_product_change = ScrapeCandidateOutcome {
+            command: None,
+            errored: false,
+            requested: true,
+            skipped: true,
+            retryable_network_error: None,
+        };
+        assert!(clean_request_without_product_change.counts_toward_domain_recovery());
+
+        let failed_request = ScrapeCandidateOutcome {
+            command: None,
+            errored: true,
+            requested: true,
+            skipped: false,
+            retryable_network_error: Some(crate::network::policy::NetworkErrorKind::Timeout),
+        };
+        assert!(!failed_request.counts_toward_domain_recovery());
+    }
 
     #[tokio::test]
     async fn should_run_scraper_candidates_and_push_products() {

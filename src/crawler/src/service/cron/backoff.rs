@@ -2,8 +2,13 @@ use std::time::Duration;
 
 pub(super) const MAX_ADAPTIVE_DOMAIN_DELAY: Duration = Duration::from_secs(60);
 pub(super) const ADAPTIVE_DOMAIN_SUCCESSES_BEFORE_DECAY: usize = 5;
+const MIN_ADAPTIVE_DOMAIN_DELAY: Duration = Duration::from_secs(1);
 
 fn next_adaptive_domain_delay(current: Duration) -> Duration {
+    if current.is_zero() {
+        return MIN_ADAPTIVE_DOMAIN_DELAY;
+    }
+
     current.saturating_mul(2).min(MAX_ADAPTIVE_DOMAIN_DELAY)
 }
 
@@ -71,6 +76,16 @@ mod tests {
         assert_eq!(
             backoff.record_retryable_failure(),
             (Duration::from_secs(45), MAX_ADAPTIVE_DOMAIN_DELAY)
+        );
+    }
+
+    #[test]
+    fn should_start_adaptive_domain_delay_from_minimum_when_base_is_zero() {
+        let mut backoff = AdaptiveDomainBackoff::new(Duration::ZERO);
+
+        assert_eq!(
+            backoff.record_retryable_failure(),
+            (Duration::ZERO, MIN_ADAPTIVE_DOMAIN_DELAY)
         );
     }
 

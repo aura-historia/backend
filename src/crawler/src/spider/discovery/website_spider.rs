@@ -4,7 +4,7 @@ use spider::tokio;
 use spider::website::Website;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use url::Url;
 
 use crate::spider::utils::url::CrawledUrl;
