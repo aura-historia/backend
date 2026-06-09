@@ -9830,7 +9830,7 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
+                    error: "OAUTH_INVALID_SCOPE"
                     source:
                       field: "scope"
                       sourceType: "query"
@@ -9840,7 +9840,7 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
+                    error: "OAUTH_INVALID_REDIRECT_URI"
                     source:
                       field: "redirect_uri"
                       sourceType: "query"
@@ -9883,7 +9883,7 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "OAUTH_CLIENT_NOT_FOUND"
                     detail: "OAuth client not found."
         "500":
           description: Internal server error.
@@ -9907,7 +9907,10 @@ paths:
         endpoint.
 
         The issued access token is non-expiring by default (same lifetime as tokens created via
-        `POST /api/v1/me/access-tokens`).
+        `POST /api/v1/me/access-tokens`). Successful responses also include a short-lived
+        `third_party_exchange_code` that can be redeemed once via
+        `GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`. The exchange code expires
+        after 60 seconds and is deleted on first use.
       operationId: oauthToken
       tags:
         - OAuth
@@ -9971,6 +9974,7 @@ paths:
                 token_type: "BEARER"
                 expires_in: null
                 scope: "products:write"
+                third_party_exchange_code: "01970f22-2bf0-7000-8000-000000000099"
         "400":
           description: Bad request — a required form field is missing, `client_id` is not a valid UUID, `redirect_uri` is malformed, or an authorization code error occurred (code not found, expired, mismatched client or redirect URI, or invalid PKCE verifier).
           content:
@@ -10003,21 +10007,35 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
+                    error: "OAUTH_AUTHORIZATION_CODE_NOT_FOUND"
                     detail: "Authorization code not found."
                 code_expired:
                   summary: Authorization code expired
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
+                    error: "OAUTH_AUTHORIZATION_CODE_EXPIRED"
                     detail: "Authorization code expired."
+                code_client_mismatch:
+                  summary: Authorization code belongs to a different OAuth client
+                  value:
+                    status: 400
+                    title: "Bad Request"
+                    error: "OAUTH_AUTHORIZATION_CODE_CLIENT_MISMATCH"
+                    detail: "Authorization code does not belong to client."
+                redirect_uri_mismatch:
+                  summary: Redirect URI does not match the authorization request
+                  value:
+                    status: 400
+                    title: "Bad Request"
+                    error: "OAUTH_AUTHORIZATION_REDIRECT_URI_MISMATCH"
+                    detail: "Authorization code redirect_uri mismatch."
                 invalid_code_verifier:
                   summary: PKCE code verifier does not match
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
+                    error: "OAUTH_INVALID_CODE_VERIFIER"
                     detail: "PKCE code_verifier did not match code_challenge."
                 malformed_redirect_uri:
                   summary: Redirect URI is not a valid absolute URI
@@ -10040,19 +10058,121 @@ paths:
                       sourceType: "body"
                     detail: "invalid character in UUID"
         "401":
-          description: Unauthorized — invalid OAuth client credentials.
+          description: Unauthorized — invalid OAuth client credentials or unknown OAuth client.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                invalid_client:
-                  summary: Invalid client secret or client not found
+                invalid_client_secret:
+                  summary: Invalid client secret
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "INVALID_OAUTH_CLIENT_SECRET"
                     detail: "Invalid OAuth client secret."
+                client_not_found:
+                  summary: OAuth client not found
+                  value:
+                    status: 401
+                    title: "Unauthorized"
+                    error: "OAUTH_CLIENT_NOT_FOUND"
+                    detail: "OAuth client not found."
+        "500":
+          description: Internal server error.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: "Internal Server Error"
+                error: "INTERNAL_SERVER_ERROR"
+
+  /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}:
+    get:
+      summary: Exchange OAuth token by third-party code
+      description: |
+        Exchanges a one-time `third_party_exchange_code` returned by `POST /api/v1/oauth/token`
+        for the same Aura Historia access token. No client credentials or bearer token are required.
+
+        The exchange code expires after 60 seconds and is deleted whether the exchange succeeds or
+        fails due to expiry.
+      operationId: oauthTokenByThirdPartyCode
+      tags:
+        - OAuth
+      parameters:
+        - name: thirdPartyCode
+          in: path
+          required: true
+          description: UUIDv7 one-time exchange code returned by the OAuth token endpoint.
+          schema:
+            type: string
+            format: uuid
+          example: "01970f22-2bf0-7000-8000-000000000099"
+      responses:
+        "200":
+          description: Access token returned successfully for a valid third-party exchange code.
+          headers:
+            Cache-Control:
+              description: Always set to `no-store`.
+              schema:
+                type: string
+              example: "no-store"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthTokenResponseData"
+              example:
+                access_token: "aurahistoria_abcdefghijk_verylongtokenvalue"
+                token_type: "BEARER"
+                expires_in: null
+                scope: "products:write"
+        "400":
+          description: |
+            Bad request — the path parameter is missing/invalid, or the exchange code was not found
+            or already expired. The backend currently uses the same
+            `OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND` error code for both unknown and expired
+            exchange codes; the `detail` text distinguishes the two cases.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                missing_third_party_code:
+                  summary: Missing third-party exchange code path parameter
+                  value:
+                    status: 400
+                    title: "Bad Request"
+                    error: "BAD_PATH_PARAMETER_VALUE"
+                    source:
+                      field: "thirdPartyCode"
+                      sourceType: "path"
+                    detail: "Missing path parameter thirdPartyCode"
+                invalid_third_party_code:
+                  summary: Invalid third-party exchange code
+                  value:
+                    status: 400
+                    title: "Bad Request"
+                    error: "INVALID_UUID"
+                    source:
+                      field: "thirdPartyCode"
+                      sourceType: "path"
+                    detail: "invalid character in UUID"
+                exchange_code_not_found:
+                  summary: Third-party exchange code not found
+                  value:
+                    status: 400
+                    title: "Bad Request"
+                    error: "OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND"
+                    detail: "Third-party exchange code not found."
+                exchange_code_expired:
+                  summary: Third-party exchange code expired
+                  value:
+                    status: 400
+                    title: "Bad Request"
+                    error: "OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND"
+                    detail: "Third-party exchange code expired."
         "500":
           description: Internal server error.
           content:
@@ -10139,19 +10259,26 @@ paths:
                       sourceType: "body"
                     detail: "invalid character in UUID"
         "401":
-          description: Unauthorized — invalid OAuth client credentials.
+          description: Unauthorized — invalid OAuth client credentials or unknown OAuth client.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                invalid_client:
-                  summary: Invalid client secret or client not found
+                invalid_client_secret:
+                  summary: Invalid client secret
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "INVALID_OAUTH_CLIENT_SECRET"
                     detail: "Invalid OAuth client secret."
+                client_not_found:
+                  summary: OAuth client not found
+                  value:
+                    status: 401
+                    title: "Unauthorized"
+                    error: "OAUTH_CLIENT_NOT_FOUND"
+                    detail: "OAuth client not found."
         "500":
           description: Internal server error.
           content:
@@ -10257,19 +10384,26 @@ paths:
                       sourceType: "body"
                     detail: "invalid character in UUID"
         "401":
-          description: Unauthorized — invalid OAuth client credentials.
+          description: Unauthorized — invalid OAuth client credentials or unknown OAuth client.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                invalid_client:
-                  summary: Invalid client secret or client not found
+                invalid_client_secret:
+                  summary: Invalid client secret
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "INVALID_OAUTH_CLIENT_SECRET"
                     detail: "Invalid OAuth client secret."
+                client_not_found:
+                  summary: OAuth client not found
+                  value:
+                    status: 401
+                    title: "Unauthorized"
+                    error: "OAUTH_CLIENT_NOT_FOUND"
+                    detail: "OAuth client not found."
         "500":
           description: Internal server error.
           content:
@@ -10362,14 +10496,14 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
+                    error: "OAUTH_INVALID_CLIENT_METADATA"
                     detail: "OAuth client metadata is invalid: redirect_uris cannot be empty"
                 insecure_redirect_uri:
                   summary: Redirect URI must use HTTPS
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
+                    error: "OAUTH_INVALID_CLIENT_METADATA"
                     detail: "OAuth client metadata is invalid: redirect_uri 'http://client.example/callback' must use https"
         "401":
           description: Unauthorized — invalid or missing JWT token.
@@ -10560,7 +10694,7 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "OAUTH_CLIENT_NOT_FOUND"
                     detail: "OAuth client not found."
         "500":
           description: Internal server error.
@@ -10675,7 +10809,7 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
+                    error: "OAUTH_INVALID_CLIENT_METADATA"
                     detail: "OAuth client metadata is invalid: redirect_uri 'http://client.example/updated' must use https"
         "401":
           description: Unauthorized — invalid or missing JWT token, or the OAuth client does not exist.
@@ -10695,7 +10829,7 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "OAUTH_CLIENT_NOT_FOUND"
                     detail: "OAuth client not found."
         "403":
           description: Forbidden — the authenticated user is not an admin.
@@ -10785,7 +10919,7 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "OAUTH_CLIENT_NOT_FOUND"
                     detail: "OAuth client not found."
         "403":
           description: Forbidden — the authenticated user is not an admin.
@@ -13549,9 +13683,11 @@ components:
     OAuthTokenResponseData:
       type: object
       description: |
-        Token response returned by `POST /api/v1/oauth/token` after a successful authorization code
-        exchange (RFC 6749 §5.1). The `access_token` is an Aura Historia bearer access token.
-        `expires_in` is omitted (`null`) for non-expiring tokens.
+        Token response returned by `POST /api/v1/oauth/token` and
+        `GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`.
+        The `access_token` is an Aura Historia bearer access token. `expires_in` is omitted
+        (`null`) for non-expiring tokens. `third_party_exchange_code` is only present on the
+        direct token exchange response.
       required:
         - access_token
         - token_type
@@ -13574,6 +13710,14 @@ components:
           type: string
           description: Space-separated list of scopes granted to the access token.
           example: "products:write"
+        third_party_exchange_code:
+          type: string
+          format: uuid
+          description: |
+            Optional one-time exchange code returned by `POST /api/v1/oauth/token`.
+            It can be redeemed once via `GET /api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`
+            within 60 seconds to obtain the same access token.
+          example: "01970f22-2bf0-7000-8000-000000000099"
 
     OAuthIntrospectionResponseData:
       type: object
