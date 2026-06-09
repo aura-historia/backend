@@ -1,14 +1,19 @@
 use crate::{
     core::{
         command::{
-            CreatePartnerShopApplicationCommand, PartnerShopApplicationDecision,
-            UpdatePartnerShopApplicationCommand,
+            CreatePartnerShopApplicationCommand, CreatePartnerShopApplicationPayload,
+            PartnerShopApplicationDecision, UpdatePartnerShopApplicationCommand,
         },
-        partner_shop_application::PartnerShopApplication,
+        partner_shop_application::{
+            CreateShopCommand, PartnerShopApplication, PartnerShopApplicationPayload,
+        },
         partner_shop_application_id::PartnerShopApplicationId,
     },
     dynamodb::{
-        partner_shop_application_record::PartnerShopApplicationRecord,
+        partner_shop_application_payload_type_record::PartnerShopApplicationPayloadTypeRecord,
+        partner_shop_application_record::{
+            PartnerShopApplicationRecord, structured_address_from_flat,
+        },
         partner_shop_application_record_update::PartnerShopApplicationRecordUpdate,
         repository::PartnerShopApplicationDynamoDbRepository,
     },
@@ -16,6 +21,8 @@ use crate::{
 use aws_sdk_dynamodb::config::http::HttpResponse;
 use aws_sdk_dynamodb::error::SdkError;
 use common::{actor::RequestContext, user_id::UserId};
+use shop::core::partner_status::ShopPartnerStatus;
+use shop::service::get_service::{GetShopError, GetShopService};
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -61,6 +68,9 @@ pub enum PartnerShopApplicationError {
 
     #[error("Missing task token for application '{0}'.")]
     MissingTaskToken(PartnerShopApplicationId),
+
+    #[error("Failed hydrating existing shop payload: {0}")]
+    GetShopError(#[from] GetShopError),
 }
 
 #[cfg(feature = "data")]
@@ -97,6 +107,7 @@ pub mod api {
                 PartnerShopApplicationError::MissingTaskToken(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
+                PartnerShopApplicationError::GetShopError(get_shop_error) => get_shop_error.into(),
             }
         }
     }
@@ -171,6 +182,7 @@ pub trait PartnerShopApplicationService {
 
 pub struct PartnerShopApplicationServiceImpl<'a> {
     repository: &'a (dyn PartnerShopApplicationDynamoDbRepository + Sync),
+    shop_service: &'a (dyn GetShopService + Sync),
     sfn_adapter: &'a (dyn crate::service::sfn_adapter::SfnAdapter + Send + Sync),
     state_machine_arn: &'a str,
 }
@@ -178,11 +190,13 @@ pub struct PartnerShopApplicationServiceImpl<'a> {
 impl<'a> PartnerShopApplicationServiceImpl<'a> {
     pub fn new(
         repository: &'a (dyn PartnerShopApplicationDynamoDbRepository + Sync),
+        shop_service: &'a (dyn GetShopService + Sync),
         sfn_adapter: &'a (dyn crate::service::sfn_adapter::SfnAdapter + Send + Sync),
         state_machine_arn: &'a str,
     ) -> Self {
         Self {
             repository,
+            shop_service,
             sfn_adapter,
             state_machine_arn,
         }
@@ -203,7 +217,16 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
                 crate::core::partner_shop_application_state::PartnerShopApplicationState::Submitted,
             execution_state: common::execution_state::ExecutionState::Processing,
             applicant_user_id: cmd.applicant_user_id,
-            payload: cmd.payload,
+            payload: match cmd.payload {
+                CreatePartnerShopApplicationPayload::Existing(shop_id) => {
+                    PartnerShopApplicationPayload::Existing(
+                        self.shop_service.find_shop(&shop_id).await?,
+                    )
+                }
+                CreatePartnerShopApplicationPayload::New(cmd) => {
+                    PartnerShopApplicationPayload::New(cmd)
+                }
+            },
             created_by: ctx.actor,
             updated_by: ctx.actor,
             created: now,
@@ -243,7 +266,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .await?
             .ok_or(PartnerShopApplicationError::NotFound(*user_id, *id))?;
 
-        Ok(record.try_into()?)
+        self.hydrate_record(record).await
     }
 
     async fn update_partner_shop_application(
@@ -260,7 +283,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .ok_or(PartnerShopApplicationError::NotFound(*user_id, *id))?;
 
         if update.is_empty() {
-            return Ok(existing_record.try_into()?);
+            return self.hydrate_record(existing_record).await;
         }
 
         let record_update = PartnerShopApplicationRecordUpdate {
@@ -319,7 +342,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             "PartnerShopApplication updated."
         );
 
-        Ok(updated_record.try_into()?)
+        self.hydrate_record(updated_record).await
     }
 
     async fn delete_partner_shop_application(
@@ -357,7 +380,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
         let mut applications = Vec::with_capacity(records.len());
         for record in records {
-            applications.push(record.try_into()?);
+            applications.push(self.hydrate_record(record).await?);
         }
 
         Ok(applications)
@@ -373,7 +396,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .await?
             .ok_or(PartnerShopApplicationError::NotFoundById(*id))?;
 
-        Ok(record.try_into()?)
+        self.hydrate_record(record).await
     }
 
     async fn update_partner_shop_application_by_id(
@@ -389,7 +412,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .ok_or(PartnerShopApplicationError::NotFoundById(*id))?;
 
         if update.is_empty() {
-            return Ok(existing_record.try_into()?);
+            return self.hydrate_record(existing_record).await;
         }
 
         let user_id = existing_record.applicant_user_id;
@@ -450,7 +473,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             "PartnerShopApplication updated by admin."
         );
 
-        Ok(updated_record.try_into()?)
+        self.hydrate_record(updated_record).await
     }
 
     async fn submit_decision(
@@ -497,7 +520,7 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 
         let mut applications = Vec::with_capacity(records.len());
         for record in records {
-            applications.push(record.try_into()?);
+            applications.push(self.hydrate_record(record).await?);
         }
 
         Ok(applications)
@@ -505,6 +528,68 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 }
 
 impl<'a> PartnerShopApplicationServiceImpl<'a> {
+    async fn hydrate_record(
+        &self,
+        record: PartnerShopApplicationRecord,
+    ) -> Result<PartnerShopApplication, PartnerShopApplicationError> {
+        let payload = match record.payload_type {
+            PartnerShopApplicationPayloadTypeRecord::Existing => {
+                let shop_id = record.existing_shop_id.ok_or_else(|| {
+                    common::error::missing_field::MissingPersistenceField::new("existing_shop_id")
+                })?;
+                PartnerShopApplicationPayload::Existing(
+                    self.shop_service.find_shop(&shop_id).await?,
+                )
+            }
+            PartnerShopApplicationPayloadTypeRecord::New => {
+                let name = record.shop_name.ok_or_else(|| {
+                    common::error::missing_field::MissingPersistenceField::new("shop_name")
+                })?;
+                let shop_type_record = record.shop_type.ok_or_else(|| {
+                    common::error::missing_field::MissingPersistenceField::new("shop_type")
+                })?;
+
+                PartnerShopApplicationPayload::New(CreateShopCommand {
+                    name,
+                    shop_type: shop_type_record.into(),
+                    shop_partner_status: ShopPartnerStatus::Partnered,
+                    domains: record.shop_domains.unwrap_or_default(),
+                    shopify_domain: None,
+                    shopify_currency: None,
+                    shopify_language: None,
+                    woocommerce_webhook_secret: None,
+                    woocommerce_currency: None,
+                    woocommerce_language: None,
+                    url: record.shop_url,
+                    image: record.shop_image,
+                    structured_address: structured_address_from_flat(
+                        record.shop_structured_address_addressline,
+                        record.shop_structured_address_addressline_extra,
+                        record.shop_structured_address_locality,
+                        record.shop_structured_address_region,
+                        record.shop_structured_address_postal_code,
+                        record.shop_structured_address_country,
+                    ),
+                    phone: record.shop_phone,
+                    email: record.shop_email,
+                    affiliate_configuration: None,
+                })
+            }
+        };
+
+        Ok(PartnerShopApplication {
+            id: record.id,
+            business_state: record.business_state.into(),
+            execution_state: record.execution_state.into(),
+            applicant_user_id: record.applicant_user_id,
+            payload,
+            created_by: record.created_by.into(),
+            updated_by: record.updated_by.into(),
+            created: record.created,
+            updated: record.updated,
+        })
+    }
+
     async fn resume_step_function(
         &self,
         ctx: &RequestContext,
@@ -580,7 +665,7 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
             "Step function resumed with decision, execution_state set to Processing."
         );
 
-        Ok(updated_record.try_into()?)
+        self.hydrate_record(updated_record).await
     }
 }
 
@@ -589,6 +674,7 @@ mod tests {
     use super::*;
     use crate::{
         core::{
+            command::CreatePartnerShopApplicationPayload,
             partner_shop_application::PartnerShopApplicationPayload,
             partner_shop_application_state::PartnerShopApplicationState,
         },
@@ -602,13 +688,20 @@ mod tests {
     };
     use common::{execution_state::ExecutionState, shop_id::ShopId, user_id::UserId};
     use fake::{Fake, Faker};
+    use shop::service::get_service::MockGetShopService;
 
     fn make_service<'a>(
         repository: &'a MockPartnerShopApplicationDynamoDbRepository,
         sfn_adapter: &'a crate::service::sfn_adapter::MockSfnAdapter,
     ) -> PartnerShopApplicationServiceImpl<'a> {
+        let mut shop_service = MockGetShopService::default();
+        shop_service
+            .expect_find_shop()
+            .returning(|_| Box::pin(async { Ok(Faker.fake()) }));
+        let shop_service = Box::leak(Box::new(shop_service));
         PartnerShopApplicationServiceImpl::new(
             repository,
+            shop_service,
             sfn_adapter,
             "arn:aws:states:us-east-1:123456789:stateMachine:test",
         )
@@ -637,7 +730,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
             let cmd = CreatePartnerShopApplicationCommand {
                 applicant_user_id: UserId::new(),
-                payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
+                payload: CreatePartnerShopApplicationPayload::Existing(ShopId::new()),
             };
 
             let actual = service
@@ -646,7 +739,10 @@ mod tests {
                 .unwrap();
 
             assert_eq!(actual.applicant_user_id, cmd.applicant_user_id);
-            assert_eq!(actual.payload, cmd.payload);
+            assert!(matches!(
+                actual.payload,
+                PartnerShopApplicationPayload::Existing(_)
+            ));
             assert_eq!(
                 actual.business_state,
                 PartnerShopApplicationState::Submitted
@@ -718,6 +814,48 @@ mod tests {
             assert_eq!(expected.business_state, actual.business_state);
             assert_eq!(expected.execution_state, actual.execution_state);
             assert_eq!(expected.applicant_user_id, actual.applicant_user_id);
+        }
+
+        #[tokio::test]
+        async fn should_hydrate_existing_shop_payload_when_finding_partner_shop_application() {
+            let mut repository = MockPartnerShopApplicationDynamoDbRepository::default();
+            let expected_shop: shop::core::shop::Shop = Faker.fake();
+            let mut record: PartnerShopApplicationRecord = Faker.fake();
+            record.payload_type = crate::dynamodb::partner_shop_application_payload_type_record::PartnerShopApplicationPayloadTypeRecord::Existing;
+            record.existing_shop_id = Some(expected_shop.shop_id);
+            record.shop_name = None;
+            record.shop_type = None;
+            record.shop_domains = None;
+
+            repository
+                .expect_get_partner_shop_application_record()
+                .return_once(move |_, _| Box::pin(async move { Ok(Some(record)) }));
+
+            let mut shop_service = MockGetShopService::default();
+            let expected_shop_for_match = expected_shop.clone();
+            let expected_shop_for_assertion = expected_shop.clone();
+            shop_service
+                .expect_find_shop()
+                .withf(move |shop_id| *shop_id == expected_shop_for_match.shop_id)
+                .return_once(move |_| Box::pin(async move { Ok(expected_shop) }));
+
+            let sfn_adapter = crate::service::sfn_adapter::MockSfnAdapter::default();
+            let service = PartnerShopApplicationServiceImpl::new(
+                &repository,
+                &shop_service,
+                &sfn_adapter,
+                "arn:aws:states:us-east-1:123456789:stateMachine:test",
+            );
+
+            let actual = service
+                .find_partner_shop_application(&UserId::new(), &PartnerShopApplicationId::new())
+                .await
+                .unwrap();
+
+            assert!(matches!(
+                actual.payload,
+                PartnerShopApplicationPayload::Existing(shop) if shop == expected_shop_for_assertion
+            ));
         }
 
         #[tokio::test]
@@ -1130,7 +1268,7 @@ mod tests {
             let service = make_service(&repository, &sfn_adapter);
             let cmd = CreatePartnerShopApplicationCommand {
                 applicant_user_id: UserId::new(),
-                payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
+                payload: CreatePartnerShopApplicationPayload::Existing(ShopId::new()),
             };
 
             let actual = service

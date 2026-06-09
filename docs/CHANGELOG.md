@@ -6,6 +6,16 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-06-09 - Hydrate Existing Partner Shop Applications
+
+### Changed
+
+- **Partner shop application responses**
+  - `GetPartnerShopApplicationPayloadData` for `type: "EXISTING"` now returns
+    `shop: GetShopData` instead of only `shopId`.
+  - Create requests for existing shops still submit `shopId` via
+    `PostPartnerShopApplicationPayloadData`.
+
 ## 2026-05-31 - Shop Lookup by Domain and OpenAPI Drift Repair
 
 This update realigns the internal OpenAPI spec with the backend's current shop lookup, saved-search, and notification contracts. It adds the missing domain-based shop lookup endpoint, documents cache behavior for slug-based shop lookups, and corrects request/response schema details for saved-search creation, saved-search match feedback, and notification pagination metadata.

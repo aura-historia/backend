@@ -5,8 +5,9 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
-use partner_shop_application::core::command::CreatePartnerShopApplicationCommand;
-use partner_shop_application::core::partner_shop_application::PartnerShopApplicationPayload;
+use partner_shop_application::core::command::{
+    CreatePartnerShopApplicationCommand, CreatePartnerShopApplicationPayload,
+};
 use partner_shop_application::data::get_partner_shop_application_data::GetPartnerShopApplicationData;
 use partner_shop_application::data::post_partner_shop_application_data::PostPartnerShopApplicationPayloadData;
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationService;
@@ -36,7 +37,7 @@ pub async fn handle(
 
     let payload = match post_data {
         PostPartnerShopApplicationPayloadData::Existing { shop_id } => {
-            PartnerShopApplicationPayload::Existing(shop_id)
+            CreatePartnerShopApplicationPayload::Existing(shop_id)
         }
         PostPartnerShopApplicationPayloadData::New {
             shop_name,
@@ -47,7 +48,7 @@ pub async fn handle(
             shop_structured_address,
             shop_phone,
             shop_email,
-        } => PartnerShopApplicationPayload::New(CreateShopCommand {
+        } => CreatePartnerShopApplicationPayload::New(CreateShopCommand {
             name: shop_name,
             shop_type: shop_type.into(),
             shop_partner_status: ShopPartnerStatus::Partnered,

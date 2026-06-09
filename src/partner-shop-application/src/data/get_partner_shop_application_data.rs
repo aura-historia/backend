@@ -7,10 +7,11 @@ use crate::{
 };
 use common::actor::data::ActorData;
 use common::execution_state::data::ExecutionStateData;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use common::{domain::Domain, shop_name::ShopName, user_id::UserId};
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use shop::data::address_data::StructuredAddressData;
+use shop::data::get_shop_data::GetShopData;
 use shop::data::shop_type_data::ShopTypeData;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -42,7 +43,7 @@ pub struct GetPartnerShopApplicationData {
 )]
 pub enum GetPartnerShopApplicationPayloadData {
     #[serde(rename = "EXISTING")]
-    Existing { shop_id: ShopId },
+    Existing { shop: GetShopData },
     #[serde(rename = "NEW")]
     New {
         shop_name: ShopName,
@@ -64,8 +65,8 @@ pub enum GetPartnerShopApplicationPayloadData {
 impl From<PartnerShopApplication> for GetPartnerShopApplicationData {
     fn from(application: PartnerShopApplication) -> Self {
         let payload = match application.payload {
-            PartnerShopApplicationPayload::Existing(shop_id) => {
-                GetPartnerShopApplicationPayloadData::Existing { shop_id }
+            PartnerShopApplicationPayload::Existing(shop) => {
+                GetPartnerShopApplicationPayloadData::Existing { shop: shop.into() }
             }
             PartnerShopApplicationPayload::New(cmd) => GetPartnerShopApplicationPayloadData::New {
                 shop_name: cmd.name,
@@ -120,7 +121,18 @@ mod tests {
     fn should_roundtrip_existing_payload_when_using_camel_case_for_partner_shop_application_get() {
         let json = json!({
             "type": "EXISTING",
-            "shopId": "f6f6c303-f70f-4f6e-bdc5-20b0d22f41a1",
+            "shop": {
+                "shopId": "f6f6c303-f70f-4f6e-bdc5-20b0d22f41a1",
+                "shopSlugId": "test-shop",
+                "name": "Test Shop",
+                "shopType": "COMMERCIAL_DEALER",
+                "domains": ["test.example"],
+                "partnerStatus": "PARTNERED",
+                "createdBy": "SYSTEM",
+                "updatedBy": "SYSTEM",
+                "created": "2026-04-22T00:00:00Z",
+                "updated": "2026-04-22T01:00:00Z"
+            }
         });
 
         let data: GetPartnerShopApplicationPayloadData =

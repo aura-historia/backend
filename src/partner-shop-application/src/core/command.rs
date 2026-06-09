@@ -1,7 +1,5 @@
-use crate::core::partner_shop_application::{
-    PartnerShopApplicationPayload, PartnerShopApplicationPayloadInfo,
-};
-use common::{domain::Domain, shop_name::ShopName, user_id::UserId};
+use crate::core::partner_shop_application::{CreateShopCommand, PartnerShopApplicationPayloadInfo};
+use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use serde_email::Email;
 use shop::core::{address::StructuredAddress, shop_type::ShopType};
 use std::collections::HashSet;
@@ -10,7 +8,14 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreatePartnerShopApplicationCommand {
     pub applicant_user_id: UserId,
-    pub payload: PartnerShopApplicationPayload,
+    pub payload: CreatePartnerShopApplicationPayload,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum CreatePartnerShopApplicationPayload {
+    Existing(ShopId),
+    New(CreateShopCommand),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -82,6 +87,12 @@ mod faker {
                 applicant_user_id: config.fake_with_rng(rng),
                 payload: config.fake_with_rng(rng),
             }
+        }
+    }
+
+    impl Dummy<Faker> for CreatePartnerShopApplicationPayload {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            CreatePartnerShopApplicationPayload::New(config.fake_with_rng(rng))
         }
     }
 

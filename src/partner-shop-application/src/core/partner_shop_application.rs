@@ -3,11 +3,11 @@ use crate::core::{
     partner_shop_application_state::PartnerShopApplicationState,
 };
 use common::{
-    actor::domain::Actor, domain::Domain, execution_state::ExecutionState, shop_id::ShopId,
-    shop_name::ShopName, user_id::UserId,
+    actor::domain::Actor, domain::Domain, execution_state::ExecutionState, shop_name::ShopName,
+    user_id::UserId,
 };
 use serde_email::Email;
-use shop::core::{address::StructuredAddress, shop_type::ShopType};
+use shop::core::{address::StructuredAddress, shop::Shop, shop_type::ShopType};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -30,7 +30,7 @@ pub struct PartnerShopApplication {
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum PartnerShopApplicationPayload {
-    Existing(ShopId),
+    Existing(Shop),
     New(CreateShopCommand),
 }
 
