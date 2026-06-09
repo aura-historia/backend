@@ -324,35 +324,36 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
 
     let (must_not, filter) = build_filter_clauses(search)?;
 
-    // When there are no scoring clauses (no text query), a plain `bool` filter-only query
-    // produces a relevance score of 0.0 in OpenSearch. This falls below the percolation
-    // min_score threshold used in the search-filter percolator, which means filter-only
-    // search alerts (e.g. "state = Listed") would never trigger any matches.
-    //
-    // Wrapping in `constant_score` gives every matching document a fixed boost above the
-    // percolation min_score threshold (currently 3.1) so filter-only queries are returned
-    // correctly while text queries continue to use real BM25 relevance scoring.
-    if must.is_empty() {
-        Ok(json!({
-            "constant_score": {
-                "filter": {
-                    "bool": {
-                        "must_not": must_not,
-                        "filter": filter
-                    }
-                },
-                "boost": 4.0
-            }
-        }))
-    } else {
-        Ok(json!({
-            "bool": {
-                "must": must,
-                "must_not": must_not,
-                "filter": filter
-            }
-        }))
+    Ok(json!({
+        "bool": {
+            "must": must,
+            "must_not": must_not,
+            "filter": filter
+        }
+    }))
+}
+
+pub fn build_percolator_query(
+    search: &ProductSearch,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let mut must = Vec::with_capacity(1);
+
+    if let Some(product_query) = search.product_query.as_ref() {
+        must.push(build_percolator_text_match_clause(
+            product_query.as_ref(),
+            title_fields(&search.language),
+        ));
     }
+
+    let (must_not, filter) = build_filter_clauses(search)?;
+
+    Ok(json!({
+        "bool": {
+            "must": must,
+            "must_not": must_not,
+            "filter": filter
+        }
+    }))
 }
 
 fn title_fields(language: &Language) -> ProductDocumentSerdeField {
@@ -448,8 +449,23 @@ fn build_text_match_clause(
     })
 }
 
-/// Builds the `(must_not, filter)` clauses derived from `search` (everything except the
-/// BM25 text-match part). Reused by both BM25 and kNN search builders to keep the filter
+fn build_percolator_text_match_clause(
+    product_query: &str,
+    title_field: ProductDocumentSerdeField,
+) -> serde_json::Value {
+    json!({
+        "multi_match": {
+            "query": product_query,
+            "fields": [title_field.as_str(), "titleNative.text"],
+            "type": "best_fields",
+            "operator": "or",
+            "minimum_should_match": "4<80%"
+        }
+    })
+}
+
+/// Builds the structural `(must_not, filter)` clauses derived from `search`.
+/// Reused by live BM25, hybrid kNN, and percolator builders to keep the filter
 /// surface in lockstep.
 pub fn build_filter_clauses(
     search: &ProductSearch,
@@ -746,5 +762,58 @@ fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
     let values: Vec<&str> = query.iter().map(to_str).collect();
     if !values.is_empty() && values.len() != T::COUNT {
         filter.push(json!({ "terms": { field.as_str(): values } }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::product_state::domain::ProductState;
+
+    fn search_with_product_query(product_query: &str) -> ProductSearch {
+        ProductSearch::new(Language::En, Currency::Eur)
+            .with_product_query(product_query.try_into().unwrap())
+    }
+
+    #[test]
+    fn should_build_live_search_query_without_percolator_score_workaround() {
+        let mut search = ProductSearch::new(Language::En, Currency::Eur);
+        search.state_query = [ProductState::Listed].into_iter().collect();
+
+        let actual = build_search_query(&search).unwrap();
+
+        assert!(actual.get("constant_score").is_none());
+        assert_eq!(
+            actual.pointer("/bool/filter/0/terms/state"),
+            Some(&json!(["LISTED"]))
+        );
+    }
+
+    #[test]
+    fn should_build_percolator_text_query_with_minimum_should_match() {
+        let search = search_with_product_query("Ming dynasty blue white porcelain vase");
+
+        let actual = build_percolator_query(&search).unwrap();
+
+        assert_eq!(
+            actual.pointer("/bool/must/0/multi_match/minimum_should_match"),
+            Some(&json!("4<80%"))
+        );
+        assert_eq!(
+            actual.pointer("/bool/must/0/multi_match/operator"),
+            Some(&json!("or"))
+        );
+    }
+
+    #[test]
+    fn should_preserve_full_user_query_when_building_percolator_text_query() {
+        let search = search_with_product_query("Antique art Ming porcelain vase");
+
+        let actual = build_percolator_query(&search).unwrap();
+
+        assert_eq!(
+            actual.pointer("/bool/must/0/multi_match/query"),
+            Some(&json!("Antique art Ming porcelain vase"))
+        );
     }
 }

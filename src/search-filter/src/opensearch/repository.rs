@@ -12,7 +12,25 @@ use serde::ser::Error;
 use serde_json::json;
 
 const INDEX_NAME: &str = "user_search_filters";
-const PERCOLATE_MIN_SCORE: f64 = 3.1;
+
+fn build_percolate_request_body(
+    product_document: &ProductDocument,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let document_value = serde_json::to_value(product_document).map_err(|err| {
+        serde_json::Error::custom(format!(
+            "Failed serializing ProductDocument with error '{err}'."
+        ))
+    })?;
+
+    Ok(json!({
+        "query": {
+            "percolate": {
+                "field": "query",
+                "document": document_value
+            }
+        }
+    }))
+}
 
 #[async_trait::async_trait]
 #[mockall::automock]
@@ -100,20 +118,7 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
         &self,
         product_document: &ProductDocument,
     ) -> Result<Vec<UserSearchFilterDocument>, opensearch::Error> {
-        let document_value = serde_json::to_value(product_document).map_err(|err| {
-            serde_json::Error::custom(format!(
-                "Failed serializing ProductDocument with error '{err}'."
-            ))
-        })?;
-        let body = json!({
-            "min_score": PERCOLATE_MIN_SCORE,
-            "query": {
-                "percolate": {
-                    "field": "query",
-                    "document": document_value
-                }
-            }
-        });
+        let body = build_percolate_request_body(product_document)?;
 
         let response = self
             .client
@@ -188,5 +193,25 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
             ))
             .into()
         })
+    }
+}
+
+#[cfg(all(test, feature = "test-data"))]
+mod tests {
+    use super::*;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn should_build_percolate_request_without_min_score() {
+        let product_document: ProductDocument = Faker.fake();
+
+        let actual = build_percolate_request_body(&product_document).unwrap();
+
+        assert!(actual.get("min_score").is_none());
+        assert_eq!(
+            actual.pointer("/query/percolate/field"),
+            Some(&json!("query"))
+        );
+        assert!(actual.pointer("/query/percolate/document").is_some());
     }
 }
