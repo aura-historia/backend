@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-pub(super) const MAX_ADAPTIVE_DOMAIN_DELAY: Duration = Duration::from_secs(60);
+pub(super) const MAX_ADAPTIVE_DOMAIN_DELAY: Duration = Duration::from_secs(10);
 pub(super) const ADAPTIVE_DOMAIN_SUCCESSES_BEFORE_DECAY: usize = 5;
 const MIN_ADAPTIVE_DOMAIN_DELAY: Duration = Duration::from_secs(1);
 
@@ -70,12 +70,12 @@ mod tests {
 
         let mut backoff = AdaptiveDomainBackoff {
             base_delay: Duration::from_secs(1),
-            current_delay: Duration::from_secs(45),
+            current_delay: Duration::from_secs(8),
             consecutive_successes: 0,
         };
         assert_eq!(
             backoff.record_retryable_failure(),
-            (Duration::from_secs(45), MAX_ADAPTIVE_DOMAIN_DELAY)
+            (Duration::from_secs(8), MAX_ADAPTIVE_DOMAIN_DELAY)
         );
     }
 

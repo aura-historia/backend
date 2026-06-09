@@ -250,11 +250,29 @@ The scraper now persists network-failure metadata on each URL row:
 - `next_retry_at` — earliest timestamp when the URL is eligible again.
 
 On each successful scrape (`mark_as_scraped`) these fields are reset. On retryable HTTP failures, the cron worker
-records a cooldown (`mark_fetch_failure`) so the URL is skipped until `next_retry_at`. The same cooldown path is used
-for `SchemaRegenerationExhausted` to prevent repeated LLM-call bursts on a single problematic URL.
+records a cooldown (`mark_fetch_failure`) so the URL is skipped until `next_retry_at`. This retry scheduling is
+URL-level: one failing product page does not block other URLs from the same domain. The same cooldown path is used for
+`SchemaRegenerationExhausted` to prevent repeated LLM-call bursts on a single problematic URL.
 The same cooldown path is also used for `LlmBudgetExceeded`: when the per-shop schema-generation budget is exhausted
 during an in-flight scrape, a retry cooldown is written for observability. In steady state, hard-stop is enforced
 earlier by candidate selection (`shops.llm_calls_count < cap`).
+
+The scraper also has a lightweight in-batch domain politeness layer. Retryable URL failures and adaptive domain delay
+are intentionally separate decisions:
+
+- `is_retryable_network_failure(...)` controls whether the failed URL gets `next_retry_at`.
+- `should_adapt_domain_delay(...)` controls whether the current domain worker slows down before processing the next URL
+  from that same domain.
+
+Domain delay adapts only for signals that suggest domain-wide pressure or availability trouble: HTTP `408`, `429`,
+`503`, `504`, request `Timeout`, and `Connect` failures. It does not adapt for retryable failures that are more likely
+to be URL/request-scoped, such as HTTP `500`, `502`, `425`, or generic `Request` failures. For example, a `500` writes
+`next_retry_at` for that URL and the same-domain batch continues at the normal pace; a `429` writes URL retry metadata
+and increases the in-memory delay between remaining same-domain URLs.
+
+Adaptive domain delay is process-local and batch-local. It starts from `scraper_domain_delay`, doubles after each
+domain-delay signal, is capped at 10 seconds, and decays after five clean requested outcomes. It is deliberately not
+persisted to `shop_domains`, so it is a short-lived politeness mechanism rather than a domain-wide scheduling lock.
 
 ### Scrape execution — `ScraperServiceImpl`
 

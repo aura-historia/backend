@@ -73,6 +73,18 @@ pub fn is_retryable_network_failure(kind: NetworkErrorKind) -> bool {
     action_for(kind) == NetworkAction::Retry
 }
 
+pub fn should_adapt_domain_delay(kind: NetworkErrorKind) -> bool {
+    matches!(
+        kind,
+        NetworkErrorKind::HttpStatus(408)
+            | NetworkErrorKind::HttpStatus(429)
+            | NetworkErrorKind::HttpStatus(503)
+            | NetworkErrorKind::HttpStatus(504)
+            | NetworkErrorKind::Timeout
+            | NetworkErrorKind::Connect
+    )
+}
+
 pub fn backoff_delay(policy: RetryPolicy, attempt: u32) -> Duration {
     if attempt == 0 {
         return Duration::ZERO;
@@ -163,7 +175,34 @@ mod tests {
             429
         )));
         assert!(is_retryable_network_failure(NetworkErrorKind::HttpStatus(
+            500
+        )));
+        assert!(is_retryable_network_failure(NetworkErrorKind::HttpStatus(
             503
+        )));
+    }
+
+    #[test]
+    fn should_adapt_domain_delay_for_domain_health_signals() {
+        assert!(should_adapt_domain_delay(NetworkErrorKind::Timeout));
+        assert!(should_adapt_domain_delay(NetworkErrorKind::Connect));
+        assert!(should_adapt_domain_delay(NetworkErrorKind::HttpStatus(408)));
+        assert!(should_adapt_domain_delay(NetworkErrorKind::HttpStatus(429)));
+        assert!(should_adapt_domain_delay(NetworkErrorKind::HttpStatus(503)));
+        assert!(should_adapt_domain_delay(NetworkErrorKind::HttpStatus(504)));
+    }
+
+    #[test]
+    fn should_not_adapt_domain_delay_for_url_scoped_retryable_failures() {
+        assert!(!should_adapt_domain_delay(NetworkErrorKind::Request));
+        assert!(!should_adapt_domain_delay(NetworkErrorKind::HttpStatus(
+            425
+        )));
+        assert!(!should_adapt_domain_delay(NetworkErrorKind::HttpStatus(
+            500
+        )));
+        assert!(!should_adapt_domain_delay(NetworkErrorKind::HttpStatus(
+            502
         )));
     }
 

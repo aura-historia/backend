@@ -1,6 +1,8 @@
 use super::backoff::{ADAPTIVE_DOMAIN_SUCCESSES_BEFORE_DECAY, AdaptiveDomainBackoff};
 use super::job::CrawlerCronJob;
-use crate::network::policy::{NetworkErrorKind, is_retryable_network_failure, retry_cooldown_for};
+use crate::network::policy::{
+    NetworkErrorKind, is_retryable_network_failure, retry_cooldown_for, should_adapt_domain_delay,
+};
 use crate::scraper::candidate_service::{
     ProductSnapshot, ScraperCandidate, ScraperCandidateService,
 };
@@ -48,7 +50,7 @@ struct ScrapeCandidateOutcome {
     errored: bool,
     requested: bool,
     skipped: bool,
-    retryable_network_error: Option<NetworkErrorKind>,
+    adaptive_domain_delay_error: Option<NetworkErrorKind>,
 }
 
 impl ScrapeCandidateOutcome {
@@ -129,7 +131,7 @@ async fn scrape_candidate(
                 errored: false,
                 requested: false,
                 skipped: true,
-                retryable_network_error: None,
+                adaptive_domain_delay_error: None,
             };
         }
     }
@@ -143,7 +145,7 @@ async fn scrape_candidate(
                 errored: false,
                 requested: false,
                 skipped: true,
-                retryable_network_error: None,
+                adaptive_domain_delay_error: None,
             };
         }
     }
@@ -155,7 +157,7 @@ async fn scrape_candidate(
             errored: false,
             requested: false,
             skipped: true,
-            retryable_network_error: None,
+            adaptive_domain_delay_error: None,
         };
     };
 
@@ -166,7 +168,7 @@ async fn scrape_candidate(
             errored: false,
             requested: false,
             skipped: true,
-            retryable_network_error: None,
+            adaptive_domain_delay_error: None,
         };
     };
 
@@ -191,7 +193,7 @@ async fn scrape_candidate(
                 errored: false,
                 requested: true,
                 skipped: false,
-                retryable_network_error: None,
+                adaptive_domain_delay_error: None,
             }
         }
         Ok(None) => ScrapeCandidateOutcome {
@@ -199,14 +201,16 @@ async fn scrape_candidate(
             errored: false,
             requested: true,
             skipped: true,
-            retryable_network_error: None,
+            adaptive_domain_delay_error: None,
         },
         Err(e) => {
             let error_message = e.to_string();
             let is_llm_budget_exceeded = matches!(&e, ScraperError::LlmBudgetExceeded { .. });
             let is_pending_schema_review = matches!(&e, ScraperError::PendingSchemaReview { .. });
-            let retryable_network_error = match &e {
-                ScraperError::HttpError { kind, .. } if is_retryable_network_failure(*kind) => {
+            let adaptive_domain_delay_error = match &e {
+                ScraperError::HttpError { kind, .. }
+                    if is_retryable_network_failure(*kind) && should_adapt_domain_delay(*kind) =>
+                {
                     Some(*kind)
                 }
                 _ => None,
@@ -320,7 +324,7 @@ async fn scrape_candidate(
                 errored: true,
                 requested: true,
                 skipped: false,
-                retryable_network_error,
+                adaptive_domain_delay_error,
             }
         }
     }
@@ -384,7 +388,7 @@ async fn scrape_domain_candidates(
             outcome.succeeded += 1;
         }
 
-        if let Some(kind) = candidate_outcome.retryable_network_error {
+        if let Some(kind) = candidate_outcome.adaptive_domain_delay_error {
             let (previous_delay, new_delay) = domain_backoff.record_retryable_failure();
             info!(
                 domain = %domain,
@@ -612,6 +616,57 @@ mod tests {
     use shop::core::shop_type::ShopType;
     use std::sync::atomic::Ordering;
 
+    fn empty_spider_dependencies() -> (MockSpiderCandidateService, MockSpiderService) {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        (spider_candidates, MockSpiderService::new())
+    }
+
+    fn no_push_service() -> Box<MockProductPushService> {
+        let mut push_service = MockProductPushService::new();
+        push_service.expect_push().times(0);
+        Box::new(push_service)
+    }
+
+    fn scraper_job(
+        config: CrawlerCronConfig,
+        scraper_candidates: MockScraperCandidateService,
+        scraper_service: MockScraperService,
+    ) -> CrawlerCronJob {
+        let (spider_candidates, spider_service) = empty_spider_dependencies();
+
+        CrawlerCronJob::new(
+            config,
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            no_push_service(),
+        )
+    }
+
+    fn scrape_candidate_context(
+        scraper_candidates: MockScraperCandidateService,
+        scraper_service: MockScraperService,
+    ) -> ScrapeDomainContext {
+        let (command_tx, _command_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        ScrapeDomainContext {
+            scraper: Arc::new(scraper_service),
+            scraper_candidates: Arc::new(scraper_candidates),
+            lock_manager: Arc::new(LocalLockManager::new()),
+            domain_delay: Duration::from_millis(1),
+            command_tx,
+            budget_exhausted_shops: Arc::new(Mutex::new(HashSet::new())),
+            schema_pending_shops: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
     #[test]
     fn should_count_only_requested_clean_outcomes_toward_domain_recovery() {
         let pre_request_skip = ScrapeCandidateOutcome {
@@ -619,7 +674,7 @@ mod tests {
             errored: false,
             requested: false,
             skipped: true,
-            retryable_network_error: None,
+            adaptive_domain_delay_error: None,
         };
         assert!(!pre_request_skip.counts_toward_domain_recovery());
 
@@ -628,7 +683,7 @@ mod tests {
             errored: false,
             requested: true,
             skipped: true,
-            retryable_network_error: None,
+            adaptive_domain_delay_error: None,
         };
         assert!(clean_request_without_product_change.counts_toward_domain_recovery());
 
@@ -637,20 +692,13 @@ mod tests {
             errored: true,
             requested: true,
             skipped: false,
-            retryable_network_error: Some(crate::network::policy::NetworkErrorKind::Timeout),
+            adaptive_domain_delay_error: Some(NetworkErrorKind::Timeout),
         };
         assert!(!failed_request.counts_toward_domain_recovery());
     }
 
     #[tokio::test]
     async fn should_run_scraper_candidates_and_push_products() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-
-        let spider_service = MockSpiderService::new();
-
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
@@ -667,18 +715,10 @@ mod tests {
             .expect_scrape()
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
-        let job = CrawlerCronJob::new(
+        let job = scraper_job(
             CrawlerCronConfig::default(),
-            Arc::new(LocalLockManager::new()),
-            Box::new(spider_candidates),
-            Box::new(spider_service),
-            Box::new(scraper_candidates),
-            Box::new(scraper_service),
-            noop_shop_registration(),
-            Box::new(push_service),
+            scraper_candidates,
+            scraper_service,
         );
 
         job.run_scraper_once().await;
@@ -686,12 +726,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_mark_fetch_failure_for_retryable_scraper_http_error() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        let spider_service = MockSpiderService::new();
-
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
@@ -719,31 +753,168 @@ mod tests {
             })
         });
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
-        let job = CrawlerCronJob::new(
+        let job = scraper_job(
             CrawlerCronConfig::default(),
-            Arc::new(LocalLockManager::new()),
-            Box::new(spider_candidates),
-            Box::new(spider_service),
-            Box::new(scraper_candidates),
-            Box::new(scraper_service),
-            noop_shop_registration(),
-            Box::new(push_service),
+            scraper_candidates,
+            scraper_service,
         );
 
         job.run_scraper_once().await;
     }
 
     #[tokio::test]
-    async fn should_continue_same_domain_after_retryable_network_failure() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        let spider_service = MockSpiderService::new();
+    async fn should_not_adapt_domain_delay_for_same_domain_500_failure() {
+        let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
+        let candidate = scraper_candidate("Shop", ShopType::CommercialDealer, url.clone());
+        let shop_id = candidate.shop_id;
 
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(
+                move |received_shop_id, received_url, _, _, status_code, _| {
+                    *received_shop_id == shop_id
+                        && received_url == &url
+                        && *status_code == Some(500)
+                },
+            )
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(|_, url, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    Err(ScraperError::HttpError {
+                        url,
+                        kind: NetworkErrorKind::HttpStatus(500),
+                        details: "internal server error".to_string(),
+                    })
+                })
+            });
+
+        let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+
+        let outcome = scrape_candidate(candidate, &ctx).await;
+
+        assert!(outcome.errored);
+        assert_eq!(outcome.adaptive_domain_delay_error, None);
+    }
+
+    #[tokio::test]
+    async fn should_adapt_domain_delay_for_same_domain_429_failure() {
+        let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
+        let candidate = scraper_candidate("Shop", ShopType::CommercialDealer, url.clone());
+        let shop_id = candidate.shop_id;
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(
+                move |received_shop_id, received_url, _, _, status_code, _| {
+                    *received_shop_id == shop_id
+                        && received_url == &url
+                        && *status_code == Some(429)
+                },
+            )
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(|_, url, _| {
+                let url = url.clone();
+                Box::pin(async move {
+                    Err(ScraperError::HttpError {
+                        url,
+                        kind: NetworkErrorKind::HttpStatus(429),
+                        details: "too many requests".to_string(),
+                    })
+                })
+            });
+
+        let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+
+        let outcome = scrape_candidate(candidate, &ctx).await;
+
+        assert!(outcome.errored);
+        assert_eq!(
+            outcome.adaptive_domain_delay_error,
+            Some(crate::network::policy::NetworkErrorKind::HttpStatus(429))
+        );
+    }
+
+    #[tokio::test]
+    async fn should_continue_same_domain_after_500_without_domain_delay_adaptation() {
+        let first_url = url::Url::parse("https://same-domain.com/product/1").unwrap();
+        let second_url = url::Url::parse("https://same-domain.com/product/2").unwrap();
+        let first_candidate_url = first_url.clone();
+        let second_candidate_url = second_url.clone();
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                let first_candidate_url = first_candidate_url.clone();
+                let second_candidate_url = second_candidate_url.clone();
+                Box::pin(async move {
+                    Ok(vec![
+                        scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
+                        scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
+                    ])
+                })
+            });
+        scraper_candidates
+            .expect_mark_fetch_failure()
+            .once()
+            .withf(move |_, received_url, _, _, status_code, _| {
+                received_url == &first_url && *status_code == Some(500)
+            })
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
+
+        let scrape_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let scrape_count_for_mock = Arc::clone(&scrape_count);
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .times(2)
+            .returning(move |_, url, _| {
+                let url = url.clone();
+                let attempt = scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if attempt == 0 {
+                        Err(ScraperError::HttpError {
+                            url,
+                            kind: crate::network::policy::NetworkErrorKind::HttpStatus(500),
+                            details: "internal server error".to_string(),
+                        })
+                    } else {
+                        Ok(None)
+                    }
+                })
+            });
+
+        let job = scraper_job(
+            CrawlerCronConfig {
+                scraper_domain_delay: Duration::ZERO,
+                ..CrawlerCronConfig::default()
+            },
+            scraper_candidates,
+            scraper_service,
+        );
+
+        job.run_scraper_once().await;
+
+        assert_eq!(scrape_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn should_continue_same_domain_after_retryable_network_failure() {
         let first_url = url::Url::parse("https://same-domain.com/product/1").unwrap();
         let second_url = url::Url::parse("https://same-domain.com/product/2").unwrap();
         let first_candidate_url = first_url.clone();
@@ -792,21 +963,13 @@ mod tests {
                 })
             });
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
-        let job = CrawlerCronJob::new(
+        let job = scraper_job(
             CrawlerCronConfig {
                 scraper_domain_delay: Duration::from_millis(1),
                 ..CrawlerCronConfig::default()
             },
-            Arc::new(LocalLockManager::new()),
-            Box::new(spider_candidates),
-            Box::new(spider_service),
-            Box::new(scraper_candidates),
-            Box::new(scraper_service),
-            noop_shop_registration(),
-            Box::new(push_service),
+            scraper_candidates,
+            scraper_service,
         );
 
         job.run_scraper_once().await;
@@ -815,12 +978,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_mark_fetch_failure_for_llm_budget_exceeded_error() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        let spider_service = MockSpiderService::new();
-
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
@@ -851,18 +1008,10 @@ mod tests {
                 })
             });
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
-        let job = CrawlerCronJob::new(
+        let job = scraper_job(
             CrawlerCronConfig::default(),
-            Arc::new(LocalLockManager::new()),
-            Box::new(spider_candidates),
-            Box::new(spider_service),
-            Box::new(scraper_candidates),
-            Box::new(scraper_service),
-            noop_shop_registration(),
-            Box::new(push_service),
+            scraper_candidates,
+            scraper_service,
         );
 
         job.run_scraper_once().await;
@@ -870,12 +1019,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_skip_remaining_shop_candidates_when_schema_review_is_pending() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        let spider_service = MockSpiderService::new();
-
         let shop_id = ShopId::new();
         let first_url = url::Url::parse("https://example.com/product/1").unwrap();
         let second_url = url::Url::parse("https://example.com/product/2").unwrap();
@@ -925,18 +1068,10 @@ mod tests {
                 })
             });
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
-        let job = CrawlerCronJob::new(
+        let job = scraper_job(
             CrawlerCronConfig::default(),
-            Arc::new(LocalLockManager::new()),
-            Box::new(spider_candidates),
-            Box::new(spider_service),
-            Box::new(scraper_candidates),
-            Box::new(scraper_service),
-            noop_shop_registration(),
-            Box::new(push_service),
+            scraper_candidates,
+            scraper_service,
         );
 
         job.run_scraper_once().await;
@@ -947,12 +1082,6 @@ mod tests {
     /// so the URL is held back until the backoff window expires.
     #[tokio::test]
     async fn should_mark_fetch_failure_for_normalization_fix_exhausted_error() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        let spider_service = MockSpiderService::new();
-
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
@@ -982,18 +1111,10 @@ mod tests {
                 })
             });
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
-        let job = CrawlerCronJob::new(
+        let job = scraper_job(
             CrawlerCronConfig::default(),
-            Arc::new(LocalLockManager::new()),
-            Box::new(spider_candidates),
-            Box::new(spider_service),
-            Box::new(scraper_candidates),
-            Box::new(scraper_service),
-            noop_shop_registration(),
-            Box::new(push_service),
+            scraper_candidates,
+            scraper_service,
         );
 
         job.run_scraper_once().await;
@@ -1001,12 +1122,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_scrape_candidates_from_multiple_domains() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        let spider_service = MockSpiderService::new();
-
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
@@ -1031,18 +1146,10 @@ mod tests {
             .times(2)
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
-        let job = CrawlerCronJob::new(
+        let job = scraper_job(
             CrawlerCronConfig::default(),
-            Arc::new(LocalLockManager::new()),
-            Box::new(spider_candidates),
-            Box::new(spider_service),
-            Box::new(scraper_candidates),
-            Box::new(scraper_service),
-            noop_shop_registration(),
-            Box::new(push_service),
+            scraper_candidates,
+            scraper_service,
         );
 
         job.run_scraper_once().await;
@@ -1050,12 +1157,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_skip_same_shop_candidate_already_scraping_on_another_domain() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        let spider_service = MockSpiderService::new();
-
         let shop_id = ShopId::new();
         let first_url = url::Url::parse("https://domain-a.com/product/1").unwrap();
         let second_url = url::Url::parse("https://domain-b.com/product/2").unwrap();
@@ -1081,22 +1182,14 @@ mod tests {
             })
         });
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
-        let job = CrawlerCronJob::new(
+        let job = scraper_job(
             CrawlerCronConfig {
                 scraper_concurrency: 2,
                 scraper_domain_delay: Duration::ZERO,
                 ..CrawlerCronConfig::default()
             },
-            Arc::new(LocalLockManager::new()),
-            Box::new(spider_candidates),
-            Box::new(spider_service),
-            Box::new(scraper_candidates),
-            Box::new(scraper_service),
-            noop_shop_registration(),
-            Box::new(push_service),
+            scraper_candidates,
+            scraper_service,
         );
 
         job.run_scraper_once().await;
@@ -1104,12 +1197,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_skip_scraper_candidate_when_url_lock_is_already_held() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        let spider_service = MockSpiderService::new();
-
         let locked_url = url::Url::parse("https://domain-a.com/product/1").unwrap();
         let open_url = url::Url::parse("https://domain-a.com/product/2").unwrap();
 
@@ -1133,12 +1220,10 @@ mod tests {
             .times(1)
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
         let lock_manager = Arc::new(LocalLockManager::new());
         let prelocked = url::Url::parse("https://domain-a.com/product/1").unwrap();
         let _prelock = UrlLock::try_acquire(&lock_manager, &prelocked).unwrap();
+        let (spider_candidates, spider_service) = empty_spider_dependencies();
 
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),
@@ -1148,7 +1233,7 @@ mod tests {
             Box::new(scraper_candidates),
             Box::new(scraper_service),
             noop_shop_registration(),
-            Box::new(push_service),
+            no_push_service(),
         );
 
         job.run_scraper_once().await;
@@ -1156,12 +1241,6 @@ mod tests {
 
     #[tokio::test]
     async fn should_scrape_all_urls_from_same_domain() {
-        let mut spider_candidates = MockSpiderCandidateService::new();
-        spider_candidates
-            .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-        let spider_service = MockSpiderService::new();
-
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates.expect_get_candidates().returning(|_| {
             Box::pin(async {
@@ -1191,18 +1270,10 @@ mod tests {
             .times(3)
             .returning(|_, _, _| Box::pin(async { Ok(None) }));
 
-        let mut push_service = MockProductPushService::new();
-        push_service.expect_push().times(0);
-
-        let job = CrawlerCronJob::new(
+        let job = scraper_job(
             CrawlerCronConfig::default(),
-            Arc::new(LocalLockManager::new()),
-            Box::new(spider_candidates),
-            Box::new(spider_service),
-            Box::new(scraper_candidates),
-            Box::new(scraper_service),
-            noop_shop_registration(),
-            Box::new(push_service),
+            scraper_candidates,
+            scraper_service,
         );
 
         job.run_scraper_once().await;

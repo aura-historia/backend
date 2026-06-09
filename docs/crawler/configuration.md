@@ -68,7 +68,9 @@ Controls per-run behavior of the spider.
 - **`scraper_batch_size` + `scraper_concurrency` + `scraper_domain_delay`**: The scraper tick selects up to
   `scraper_concurrency * scraper_batch_size` URLs, groups them by domain, and runs one worker task per domain (bounded
   by `scraper_concurrency`). Each domain worker processes its URLs sequentially and sleeps `scraper_domain_delay`
-  between URLs for that domain.
+  between URLs for that domain. During a batch, the worker may temporarily increase this delay up to 10 seconds after
+  domain-health signals (`408`, `429`, `503`, `504`, timeout, connect failure). Retryable URL-scoped failures such as
+  `500` and `502` still write URL-level `next_retry_at`, but do not slow the rest of the same-domain batch.
 
 - **`lock_timeout`**: Prevents a crashed spider run from blocking a shop indefinitely via the `shop_domains.locked_at`
   optimistic lock. If `locked_at` is older than `lock_timeout`, the lock is treated as expired and can be acquired by
