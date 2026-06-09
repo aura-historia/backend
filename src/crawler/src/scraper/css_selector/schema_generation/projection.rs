@@ -8,7 +8,7 @@ pub fn clean_html_for_schema_generation(input: &str) -> String {
 
     // Tags to remove entirely
     let remove_selectors = [
-        "script", "style", "noscript", "svg", "canvas", "header", "footer", "nav", "aside",
+        "script", "style", "svg", "canvas", "header", "footer", "nav", "aside",
     ];
 
     for selector in &remove_selectors {
