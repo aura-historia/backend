@@ -52,6 +52,16 @@ pub enum SpiderServiceError {
     },
 
     #[error(
+        "Cannot classify product URL pattern for shop URL '{shop_url}' at stage '{stage}' because the inference sample has {sample_size} URL(s), minimum is {min_sample_size}"
+    )]
+    InsufficientInferenceSample {
+        shop_url: String,
+        stage: &'static str,
+        sample_size: usize,
+        min_sample_size: usize,
+    },
+
+    #[error(
         "Cannot classify product URL pattern for shop URL '{shop_url}' at stage '{stage}' because the inference sample is empty"
     )]
     EmptyClassificationSample {
@@ -169,15 +179,14 @@ impl SpiderServiceImpl {
         shop_id: &ShopId,
         shop_url: &str,
         stage: &'static str,
-    ) -> Result<bool, SpiderServiceError> {
+    ) -> Result<(), SpiderServiceError> {
         if state.inference_sample.len() < self.config.min_inference_sample_urls {
-            warn!(
+            return Err(SpiderServiceError::InsufficientInferenceSample {
+                shop_url: shop_url.to_string(),
                 stage,
-                sample_size = state.inference_sample.len(),
-                min_sample_size = self.config.min_inference_sample_urls,
-                "Skipping product URL pattern inference because the crawl sample is too small"
-            );
-            return Ok(false);
+                sample_size: state.inference_sample.len(),
+                min_sample_size: self.config.min_inference_sample_urls,
+            });
         }
 
         state.pattern = self
@@ -194,7 +203,7 @@ impl SpiderServiceImpl {
             warn!(stage, "Found no product URL pattern");
         }
 
-        Ok(true)
+        Ok(())
     }
 
     #[tracing::instrument(
@@ -215,13 +224,11 @@ impl SpiderServiceImpl {
                 "Threshold reached, requesting product URL pattern"
             );
 
-            if self
-                .classify_and_save_for_stage(state, shop_id, shop_url, "threshold")
-                .await?
-            {
-                state.classification_done = true;
-                state.pattern_loaded_from_store = false;
-            }
+            self.classify_and_save_for_stage(state, shop_id, shop_url, "threshold")
+                .await?;
+
+            state.classification_done = true;
+            state.pattern_loaded_from_store = false;
         }
 
         Ok(())
@@ -269,12 +276,10 @@ impl SpiderServiceImpl {
                 "Threshold not reached, classifying collected URLs"
             );
 
-            if self
-                .classify_and_save_for_stage(state, shop_id, shop_url, "end_of_crawl")
-                .await?
-            {
-                state.classification_done = true;
-            }
+            self.classify_and_save_for_stage(state, shop_id, shop_url, "end_of_crawl")
+                .await?;
+
+            state.classification_done = true;
         }
         Ok(())
     }
@@ -375,8 +380,6 @@ impl SpiderServiceImpl {
             self.log_progress(&state);
         }
 
-        info!(total_crawled = state.total_crawled, "Crawl complete");
-
         if state.total_crawled == 0 {
             return Err(SpiderServiceError::EmptyCrawl {
                 shop_url: shop_url.to_string(),
@@ -401,12 +404,15 @@ impl SpiderServiceImpl {
             .as_regex()
             .map(|regex| regex.as_str().to_string());
 
-        info!(
-            confirmed_product_count = state.products_found,
-            "Collected confirmed product URLs"
-        );
-
         self.mark_as_crawled_best_effort(shop_id, shop_url).await;
+
+        info!(
+            total_crawled = state.total_crawled,
+            product_urls_count = state.products_found,
+            product_pattern_known = product_pattern.is_some(),
+            classification_done = state.classification_done,
+            "Crawl completed successfully"
+        );
 
         Ok(SpiderRunResult {
             total_links: state.total_crawled,
@@ -435,7 +441,7 @@ impl SpiderService for SpiderServiceImpl {
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
-        info!("Starting crawl");
+        debug!("Starting crawl");
 
         self.run_locked(shop_id, domain_id, shop_url, classify_threshold)
             .await
@@ -772,7 +778,7 @@ mod service_tests {
     }
 
     #[tokio::test]
-    async fn should_skip_inference_for_two_url_crawl_and_complete_successfully() {
+    async fn should_return_insufficient_inference_sample_error_for_two_url_crawl() {
         let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
@@ -788,9 +794,8 @@ mod service_tests {
             .times(1)
             .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_classify_and_save().times(0);
-        setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
-
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo.expect_upsert_links_batch().times(0);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -801,15 +806,19 @@ mod service_tests {
 
         let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
 
-        assert!(result.is_ok());
-        let run_result = result.unwrap();
-        assert_eq!(run_result.total_links, 2);
-        assert_eq!(run_result.product_urls_count, 0);
-        assert_eq!(run_result.product_pattern, None);
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::InsufficientInferenceSample {
+                shop_url: url,
+                stage: "end_of_crawl",
+                sample_size: 2,
+                min_sample_size: 20,
+            }) if url == shop_url
+        ));
     }
 
     #[tokio::test]
-    async fn should_skip_refresh_when_persisted_pattern_fails_with_tiny_inference_sample() {
+    async fn should_return_insufficient_inference_sample_error_for_refresh_with_small_sample() {
         let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
@@ -825,9 +834,8 @@ mod service_tests {
             .times(1)
             .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
         mock_pattern_service.expect_classify_and_save().times(0);
-        setup_mock_mark_as_crawled(&mut mock_pattern_service, shop_url);
-
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo.expect_upsert_links_batch().times(0);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -838,10 +846,14 @@ mod service_tests {
 
         let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
 
-        assert!(result.is_ok());
-        let run_result = result.unwrap();
-        assert_eq!(run_result.total_links, 2);
-        assert_eq!(run_result.product_urls_count, 0);
-        assert_eq!(run_result.product_pattern, Some(r"/product/".to_string()));
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::InsufficientInferenceSample {
+                shop_url: url,
+                stage: "refresh",
+                sample_size: 2,
+                min_sample_size: 20,
+            }) if url == shop_url
+        ));
     }
 }

@@ -102,6 +102,12 @@ impl CrawlerCronJob {
                                             ..
                                         },
                                     ) => "PendingUrlPatternReview",
+                                    crate::spider::service::SpiderServiceError::TinyCrawl {
+                                        ..
+                                    } => "TinyCrawl",
+                                    crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
+                                        ..
+                                    } => "InsufficientInferenceSample",
                                     _ => "spider_run_error",
                                 };
                                 if let Err(err) = spider_candidates
@@ -118,7 +124,45 @@ impl CrawlerCronJob {
                                         "Failed to persist crawl failure metadata"
                                     );
                                 }
-                                warn!(domain = %candidate.shop_domain, error = %e, "Spider run failed");
+                                match &e {
+                                    crate::spider::service::SpiderServiceError::TinyCrawl {
+                                        total_links,
+                                        ..
+                                    } => warn!(
+                                        domain = %candidate.shop_domain,
+                                        error = %e,
+                                        error_kind,
+                                        total_crawled = *total_links,
+                                        min_required_links = 2,
+                                        next_crawl_at = %next_crawl_at,
+                                        cooldown_seconds = cooldown.as_secs(),
+                                        "Spider run failed"
+                                    ),
+                                    crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
+                                        stage,
+                                        sample_size,
+                                        min_sample_size,
+                                        ..
+                                    } => warn!(
+                                        domain = %candidate.shop_domain,
+                                        error = %e,
+                                        error_kind,
+                                        stage,
+                                        sample_size = *sample_size,
+                                        min_sample_size = *min_sample_size,
+                                        next_crawl_at = %next_crawl_at,
+                                        cooldown_seconds = cooldown.as_secs(),
+                                        "Spider run failed"
+                                    ),
+                                    _ => warn!(
+                                        domain = %candidate.shop_domain,
+                                        error = %e,
+                                        error_kind,
+                                        next_crawl_at = %next_crawl_at,
+                                        cooldown_seconds = cooldown.as_secs(),
+                                        "Spider run failed"
+                                    ),
+                                }
                                 false
                             }
                         }
@@ -236,7 +280,9 @@ mod tests {
             });
         spider_candidates
             .expect_mark_crawl_failure()
-            .withf(move |domain_id, _, _| *domain_id == expected_domain_id)
+            .withf(move |domain_id, error_kind, _| {
+                *domain_id == expected_domain_id && error_kind == "spider_run_error"
+            })
             .returning(|_, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
@@ -245,6 +291,118 @@ mod tests {
                 Err(crate::spider::service::SpiderServiceError::Database(
                     sqlx::Error::RowNotFound,
                 ))
+            })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            noop_product_push(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_mark_tiny_crawl_failure_with_specific_error_kind() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                Box::pin(async move {
+                    Ok(vec![SpiderCandidate {
+                        shop_id: ShopId::new(),
+                        domain_id: expected_domain_id,
+                        shop_domain: "example.com".to_string(),
+                    }])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, _| {
+                *domain_id == expected_domain_id && error_kind == "TinyCrawl"
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().returning(|_, _, shop_url, _| {
+            let shop_url = shop_url.to_string();
+            Box::pin(async move {
+                Err(crate::spider::service::SpiderServiceError::TinyCrawl {
+                    shop_url,
+                    total_links: 1,
+                })
+            })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            noop_product_push(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_mark_insufficient_inference_sample_failure_with_specific_error_kind() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                Box::pin(async move {
+                    Ok(vec![SpiderCandidate {
+                        shop_id: ShopId::new(),
+                        domain_id: expected_domain_id,
+                        shop_domain: "example.com".to_string(),
+                    }])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, _| {
+                *domain_id == expected_domain_id && error_kind == "InsufficientInferenceSample"
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().returning(|_, _, shop_url, _| {
+            let shop_url = shop_url.to_string();
+            Box::pin(async move {
+                Err(
+                    crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
+                        shop_url,
+                        stage: "end_of_crawl",
+                        sample_size: 16,
+                        min_sample_size: 20,
+                    },
+                )
             })
         });
 
