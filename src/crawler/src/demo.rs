@@ -26,7 +26,8 @@
 //! | `CRAWLER_REVIEW_URL_PATTERN_REQUIRED` | Block generated URL patterns until approved | unset / `false`            |
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
 //! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API | unset                               |
-//! | `LOG_LEVEL`      | Log level                            | `info`                                           |
+//! | `LOG_LEVEL`      | Global log level                     | `info`                                           |
+//! | `CRAWLER_LOG_LEVEL` | Crawler-internal log level        | `info`                                           |
 //!
 //! Scraped products are written to `scraped_products.json` instead of being forwarded to DynamoDB.
 
@@ -102,29 +103,169 @@ fn crawler_review_url_pattern_required() -> bool {
 fn demo_shops() -> Vec<RegisteredShop> {
     // UUIDs are stable across runs so the upsert-on-conflict keeps the same rows
     // rather than creating a new shop row every time the demo starts.
-    vec![
-        RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000001").unwrap(),
-            shop_name: "Livinta".to_string(),
-            shop_slug: "livinta".to_string(),
-            shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("livinta.com").unwrap()]),
-        },
-        RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000002").unwrap(),
-            shop_name: "Antixx".to_string(),
-            shop_slug: "antixx".to_string(),
-            shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("antixx.de").unwrap()]),
-        },
-        RegisteredShop {
-            shop_id: ShopId::try_from("a1000000-0000-0000-0000-000000000003").unwrap(),
-            shop_name: "Antik Storys".to_string(),
-            shop_slug: "antik-storys".to_string(),
-            shop_type: ShopType::CommercialDealer,
-            domains: HashSet::from([Domain::try_from("antikstorys.com").unwrap()]),
-        },
+    [
+        (
+            1,
+            "All The Decor",
+            "all-the-decor",
+            "allthedecor.com",
+            ShopType::Marketplace,
+        ),
+        (
+            2,
+            "Good Find Stores",
+            "good-find-stores",
+            "goodfindstores.com",
+            ShopType::Marketplace,
+        ),
+        (
+            3,
+            "Hand and Soul Decor",
+            "hand-and-soul-decor",
+            "handandsouldecor.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            4,
+            "Dusty Treasures",
+            "dusty-treasures",
+            "dustytrove.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            5,
+            "The Collective Charm",
+            "the-collective-charm",
+            "collectivecharmantiques.com",
+            ShopType::Marketplace,
+        ),
+        (
+            6,
+            "Past Life Vintage",
+            "past-life-vintage",
+            "pastlifevintage.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            7,
+            "Toadstool Farm Vintage",
+            "toadstool-farm-vintage",
+            "toadstoolfarmvintage.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            8,
+            "Penn Antique",
+            "penn-antique",
+            "pennantique.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            9,
+            "Aged Interiors",
+            "aged-interiors",
+            "agedinteriors.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            10,
+            "Edit 1134",
+            "edit-1134",
+            "edit1134.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            11,
+            "Keepers Finds",
+            "keepers-finds",
+            "keepersfinds.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            12,
+            "Swan Collection",
+            "swan-collection",
+            "swancollection.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            13,
+            "Antique Gown",
+            "antique-gown",
+            "antique-gown.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            14,
+            "Alpha and Omega Jewelry",
+            "alpha-and-omega-jewelry",
+            "alphaomegajewelry.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            15,
+            "Livinta",
+            "livinta",
+            "livinta.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            16,
+            "Historic House Salvage",
+            "historic-house-salvage",
+            "historichousesalvage.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            17,
+            "Platt Boutique Jewelry",
+            "platt-boutique-jewelry",
+            "plattboutiquejewelry.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            18,
+            "Jewelerette and Co",
+            "jewelerette-and-co",
+            "jeweleretteandco.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            19,
+            "MTZ Jewelry",
+            "mtz-jewelry",
+            "mtzjewelry.com",
+            ShopType::CommercialDealer,
+        ),
+        (
+            20,
+            "Saltaire Antiques",
+            "saltaire-antiques",
+            "saltairecompany.com",
+            ShopType::CommercialDealer,
+        ),
     ]
+    .into_iter()
+    .map(|(index, shop_name, shop_slug, domain, shop_type)| {
+        demo_shop(index, shop_name, shop_slug, domain, shop_type)
+    })
+    .collect()
+}
+
+fn demo_shop(
+    index: u8,
+    shop_name: &str,
+    shop_slug: &str,
+    domain: &str,
+    shop_type: ShopType,
+) -> RegisteredShop {
+    RegisteredShop {
+        shop_id: ShopId::try_from(format!("a1000000-0000-0000-0000-{index:012}")).unwrap(),
+        shop_name: shop_name.to_string(),
+        shop_slug: shop_slug.to_string(),
+        shop_type,
+        domains: HashSet::from([Domain::try_from(domain).unwrap()]),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -163,10 +304,10 @@ async fn main() {
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),
             scraper_interval: Duration::from_secs(30),
-            spider_batch_size: 5,
-            scraper_batch_size: 10000,
-            spider_concurrency: 5,
-            scraper_concurrency: 5,
+            spider_batch_size: 10,
+            scraper_batch_size: 1000,
+            spider_concurrency: 10,
+            scraper_concurrency: 10,
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             ..Default::default()
@@ -402,9 +543,9 @@ async fn connect_with_retry(
 
 fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    let crawler_level = env::var("CRAWLER_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let filter = tracing_subscriber::EnvFilter::new(format!(
-        "{},spider=warn,sqlx::postgres::notice=warn",
-        raw_level
+        "{raw_level},crawler={crawler_level},common::logging=info,spider=warn,sqlx::postgres::notice=warn"
     ));
     tracing_subscriber::fmt()
         .json()
