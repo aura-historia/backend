@@ -107,7 +107,11 @@ pub mod api {
                 PartnerShopApplicationError::MissingTaskToken(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
-                PartnerShopApplicationError::GetShopError(get_shop_error) => get_shop_error.into(),
+                PartnerShopApplicationError::GetShopError(get_shop_error) => {
+                    let msg = get_shop_error.to_string();
+                    ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(get_shop_error))
+                        .with_detail(msg)
+                }
             }
         }
     }
