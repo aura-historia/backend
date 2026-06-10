@@ -30,14 +30,15 @@ Controls the three background tasks spawned by `CrawlerCronJob`.
 
 Controls per-run behavior of the spider.
 
-| Field                | Type       | Default | Description                                                                                                                              |
-|----------------------|------------|---------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `classify_threshold` | `usize`    | 200     | Number of URLs buffered before triggering mid-run LLM URL classification. Populated from `CrawlerCronConfig::spider_classify_threshold`. |
-| `db_batch_size`      | `usize`    | 100     | Number of `shop_urls` rows flushed per UNNEST batch upsert                                                                               |
-| `max_sample_urls`    | `usize`    | 500     | Max URLs sent to the URL classification LLM                                                                                              |
-| `lock_timeout`       | `Duration` | 30 min  | How long a `shop_domains.locked_at` lock is considered valid before it can be overridden (spider-service-level optimistic lock)          |
-| `bloom_capacity`     | `usize`    | 100_000 | Bloom filter capacity (max unique URLs tracked for dedup per crawl run)                                                                  |
-| `bloom_fp_rate`      | `f64`      | 0.001   | Bloom filter false-positive rate                                                                                                         |
+| Field                       | Type       | Default | Description                                                                                                                              |
+|-----------------------------|------------|---------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `classify_threshold`        | `usize`    | 200     | Number of URLs buffered before triggering mid-run LLM URL classification. Populated from `CrawlerCronConfig::spider_classify_threshold`. |
+| `db_batch_size`             | `usize`    | 100     | Number of `shop_urls` rows flushed per UNNEST batch upsert                                                                               |
+| `max_sample_urls`           | `usize`    | 500     | Max URLs sent to the URL classification LLM                                                                                              |
+| `min_inference_sample_urls` | `usize`    | 20      | Minimum crawled URL sample required before URL pattern inference or refresh can spend an LLM call                                        |
+| `lock_timeout`              | `Duration` | 30 min  | How long a `shop_domains.locked_at` lock is considered valid before it can be overridden (spider-service-level optimistic lock)          |
+| `bloom_capacity`            | `usize`    | 100_000 | Bloom filter capacity (max unique URLs tracked for dedup per crawl run)                                                                  |
+| `bloom_fp_rate`             | `f64`      | 0.001   | Bloom filter false-positive rate                                                                                                         |
 
 ---
 
@@ -60,6 +61,10 @@ Controls per-run behavior of the spider.
   buffered (for DB persistence) but only the first `max_sample_urls` are included in the LLM prompt.
   `spider_classify_threshold` in `CrawlerCronConfig` is passed directly to `SpiderServiceConfig::classify_threshold` at
   construction time.
+
+- **`min_inference_sample_urls`**: URL pattern inference is skipped when the crawl sample has fewer than this many URLs,
+  preventing low-confidence LLM calls on tiny crawls. Crawls with one URL or less are treated as failed crawls; crawls
+  with 2-19 URLs complete without URL pattern inference and persist metadata with the current or unknown pattern.
 
 - **`spider_batch_size` + `spider_concurrency`**: At each tick, up to `spider_batch_size` shops are selected and up to
   `spider_concurrency` are crawled concurrently. If a domain's in-memory lock (`DomainLock`) is held by another task the
