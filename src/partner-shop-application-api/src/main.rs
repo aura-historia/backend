@@ -6,6 +6,8 @@ use partner_shop_application::dynamodb::repository::PartnerShopApplicationDynamo
 use partner_shop_application::service::partner_shop_application_service::PartnerShopApplicationServiceImpl;
 use partner_shop_application::service::sfn_adapter::SfnAdapterImpl;
 use partner_shop_application_api::handler;
+use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
+use shop::service::get_service::GetShopServiceImpl;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
@@ -27,9 +29,15 @@ async fn main() -> Result<(), Error> {
 
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
+    let shop_service = GetShopServiceImpl::new(&shop_repository);
     let sfn_adapter = SfnAdapterImpl::new(&sfn_client);
-    let service =
-        PartnerShopApplicationServiceImpl::new(&repository, &sfn_adapter, &state_machine_arn);
+    let service = PartnerShopApplicationServiceImpl::new(
+        &repository,
+        &shop_service,
+        &sfn_adapter,
+        &state_machine_arn,
+    );
 
     let user_repository = UserDynamoDbRepositoryImpl::new(&dynamodb_client, &table_name);
     let user_service = UserServiceImpl::new(&user_repository);

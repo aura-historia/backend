@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 common = { workspace = true, features = ["api"] }
 partner-shop-application = { workspace = true, features = ["data", "service"] }
-shop = { workspace = true, features = ["data"] }
+shop = { workspace = true, features = ["data", "service", "dynamodb"] }
 user = { workspace = true, features = ["data", "service"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -1,7 +1,5 @@
 use crate::core::{
-    partner_shop_application::{
-        CreateShopCommand, PartnerShopApplication, PartnerShopApplicationPayload,
-    },
+    partner_shop_application::{PartnerShopApplication, PartnerShopApplicationPayload},
     partner_shop_application_id::PartnerShopApplicationId,
 };
 use crate::dynamodb::{
@@ -15,8 +13,8 @@ use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use serde_fields::SerdeField;
+use shop::core::address::StructuredAddress;
 use shop::core::continent::Continent;
-use shop::core::{address::StructuredAddress, partner_status::ShopPartnerStatus};
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -115,9 +113,9 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
             shop_phone,
             shop_email,
         ) = match application.payload {
-            PartnerShopApplicationPayload::Existing(shop_id) => (
+            PartnerShopApplicationPayload::Existing(shop) => (
                 PartnerShopApplicationPayloadTypeRecord::Existing,
-                Some(shop_id),
+                Some(shop.shop_id),
                 None,
                 None,
                 None,
@@ -194,70 +192,7 @@ impl From<PartnerShopApplication> for PartnerShopApplicationRecord {
     }
 }
 
-impl TryFrom<PartnerShopApplicationRecord> for PartnerShopApplication {
-    type Error = common::error::missing_field::MissingPersistenceField;
-
-    fn try_from(record: PartnerShopApplicationRecord) -> Result<Self, Self::Error> {
-        let payload = match record.payload_type {
-            PartnerShopApplicationPayloadTypeRecord::Existing => {
-                let shop_id = record.existing_shop_id.ok_or_else(|| {
-                    common::error::missing_field::MissingPersistenceField::new("existing_shop_id")
-                })?;
-                PartnerShopApplicationPayload::Existing(shop_id)
-            }
-            PartnerShopApplicationPayloadTypeRecord::New => {
-                let name = record.shop_name.ok_or_else(|| {
-                    common::error::missing_field::MissingPersistenceField::new("shop_name")
-                })?;
-                let shop_type_record = record.shop_type.ok_or_else(|| {
-                    common::error::missing_field::MissingPersistenceField::new("shop_type")
-                })?;
-                let domains = record.shop_domains.unwrap_or_default();
-                let image = record.shop_image;
-
-                PartnerShopApplicationPayload::New(CreateShopCommand {
-                    name,
-                    shop_type: shop_type_record.into(),
-                    shop_partner_status: ShopPartnerStatus::Partnered,
-                    domains,
-                    shopify_domain: None,
-                    shopify_currency: None,
-                    shopify_language: None,
-                    woocommerce_webhook_secret: None,
-                    woocommerce_currency: None,
-                    woocommerce_language: None,
-                    url: record.shop_url,
-                    image,
-                    structured_address: structured_address_from_flat(
-                        record.shop_structured_address_addressline,
-                        record.shop_structured_address_addressline_extra,
-                        record.shop_structured_address_locality,
-                        record.shop_structured_address_region,
-                        record.shop_structured_address_postal_code,
-                        record.shop_structured_address_country,
-                    ),
-                    phone: record.shop_phone,
-                    email: record.shop_email,
-                    affiliate_configuration: None,
-                })
-            }
-        };
-
-        Ok(PartnerShopApplication {
-            id: record.id,
-            business_state: record.business_state.into(),
-            execution_state: record.execution_state.into(),
-            applicant_user_id: record.applicant_user_id,
-            payload,
-            created_by: record.created_by.into(),
-            updated_by: record.updated_by.into(),
-            created: record.created,
-            updated: record.updated,
-        })
-    }
-}
-
-fn structured_address_from_flat(
+pub(crate) fn structured_address_from_flat(
     addressline: Option<String>,
     addressline_extra: Option<String>,
     locality: Option<String>,
@@ -303,33 +238,44 @@ mod faker {
         }
 
         #[test]
-        fn should_convert_domain_to_record_and_back_for_existing_payload() {
+        fn should_convert_domain_to_record_for_existing_payload() {
             let application = PartnerShopApplication {
                 id: PartnerShopApplicationId::new(),
                 business_state: crate::core::partner_shop_application_state::PartnerShopApplicationState::Submitted,
                 execution_state: common::execution_state::ExecutionState::Processing,
                 applicant_user_id: UserId::new(),
-                payload: PartnerShopApplicationPayload::Existing(ShopId::new()),
+                payload: PartnerShopApplicationPayload::Existing(Faker.fake()),
                 created_by: Actor::System,
                 updated_by: Actor::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             };
 
-            let record = PartnerShopApplicationRecord::from(application.clone());
-            let converted: PartnerShopApplication = record.try_into().unwrap();
+            let expected_shop_id = match application.payload.clone() {
+                PartnerShopApplicationPayload::Existing(shop) => shop.shop_id,
+                PartnerShopApplicationPayload::New(_) => unreachable!(),
+            };
 
-            assert_eq!(application.id, converted.id);
-            assert_eq!(application.business_state, converted.business_state);
-            assert_eq!(application.execution_state, converted.execution_state);
-            assert_eq!(application.applicant_user_id, converted.applicant_user_id);
-            assert_eq!(application.payload, converted.payload);
+            let record = PartnerShopApplicationRecord::from(application.clone());
+
+            assert_eq!(application.id, record.id);
+            assert_eq!(application.applicant_user_id, record.applicant_user_id);
+            assert_eq!(
+                PartnerShopApplicationPayloadTypeRecord::Existing,
+                record.payload_type
+            );
+            assert_eq!(Some(expected_shop_id), record.existing_shop_id);
+            assert!(record.shop_name.is_none());
+            assert!(record.shop_type.is_none());
+            assert!(record.shop_domains.is_none());
         }
 
         #[test]
-        fn should_convert_domain_to_record_and_back_for_new_payload() {
+        fn should_convert_domain_to_record_for_new_payload() {
             use common::domain::Domain;
-            use shop::core::shop_type::ShopType;
+            use shop::core::{partner_status::ShopPartnerStatus, shop_type::ShopType};
+
+            use crate::core::partner_shop_application::CreateShopCommand;
 
             let cmd = CreateShopCommand {
                 name: ShopName::from("Test Shop".to_string()),
@@ -362,14 +308,24 @@ mod faker {
                 updated: OffsetDateTime::now_utc(),
             };
 
+            let expected_payload = application.payload.clone();
             let record = PartnerShopApplicationRecord::from(application.clone());
-            let converted: PartnerShopApplication = record.try_into().unwrap();
 
-            assert_eq!(application.id, converted.id);
-            assert_eq!(application.business_state, converted.business_state);
-            assert_eq!(application.execution_state, converted.execution_state);
-            assert_eq!(application.applicant_user_id, converted.applicant_user_id);
-            assert_eq!(application.payload, converted.payload);
+            assert_eq!(application.id, record.id);
+            assert_eq!(application.applicant_user_id, record.applicant_user_id);
+            assert_eq!(
+                PartnerShopApplicationPayloadTypeRecord::New,
+                record.payload_type
+            );
+            assert!(record.existing_shop_id.is_none());
+            match expected_payload {
+                PartnerShopApplicationPayload::New(cmd) => {
+                    assert_eq!(Some(cmd.name), record.shop_name);
+                    assert_eq!(Some(cmd.shop_type.into()), record.shop_type);
+                    assert_eq!(Some(cmd.domains), record.shop_domains);
+                }
+                PartnerShopApplicationPayload::Existing(_) => unreachable!(),
+            }
         }
     }
 }

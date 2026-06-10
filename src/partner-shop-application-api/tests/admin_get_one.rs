@@ -9,6 +9,8 @@ use partner_shop_application::{
     },
 };
 use partner_shop_application_api::handler;
+use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
+use shop::service::get_service::GetShopServiceImpl;
 use test_api::*;
 use user::core::role::UserRole;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -48,8 +50,11 @@ async fn should_200_respond_application_by_id_for_admin() {
     sfn_adapter
         .expect_start_execution()
         .return_once(|_, _| Box::pin(async { Ok("foo".into()) }));
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let shop_service = GetShopServiceImpl::new(&shop_repository);
     let service = PartnerShopApplicationServiceImpl::new(
         &repository,
+        &shop_service,
         &sfn_adapter,
         "arn:aws:states:us-east-1:123456789:stateMachine:test",
     );
