@@ -29,7 +29,7 @@ pub async fn handler(
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
-    info!(count = count, "Handler invoked.");
+    info!(count = count, "Start materialiazing OpenSearch products...");
     let (event_records, mut failed_message_ids) =
         extract_from_dynamodb_stream::<ProductEventRecord>(event.payload.records);
 
@@ -101,7 +101,7 @@ pub async fn handler(
     info!(
         successful = count - failures,
         failures = failures,
-        "Handler finished.",
+        "Finished materialiazing OpenSearch products.",
     );
     let mut sqs_batch_response = SqsBatchResponse::default();
     sqs_batch_response.batch_item_failures = failed_message_ids

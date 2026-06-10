@@ -98,7 +98,7 @@ pub async fn handler(
         step = ?input.step,
         partnerApplicationId = %input.partner_application_id,
         applicantUserId = %input.applicant_user_id,
-        "Step function handler invoked."
+        "Step function partner-shop-application invoked."
     );
 
     match input.step {

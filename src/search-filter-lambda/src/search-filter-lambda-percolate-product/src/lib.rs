@@ -22,7 +22,10 @@ pub async fn handler(
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let records_count = event.payload.records.len();
-    info!(total = records_count, "Handler invoked.");
+    info!(
+        total = records_count,
+        "Start percolating search-filters for product events..."
+    );
 
     let mut failed_message_ids = Vec::new();
     let mut skipped_count = 0;
@@ -151,7 +154,7 @@ pub async fn handler(
         successful = records_count - failure_count - skipped_count,
         failures = failure_count,
         skipped = skipped_count,
-        "Handler finished."
+        "Finished percolating search-filters for product events."
     );
 
     let mut sqs_batch_response = SqsBatchResponse::default();
