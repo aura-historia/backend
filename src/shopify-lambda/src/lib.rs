@@ -141,7 +141,10 @@ pub async fn handler(
     product_service: &(impl CommandProductService + Sync),
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
-    info!(count = count, "Handler invoked.");
+    info!(
+        count = count,
+        "Start synchronizing Shopify product events..."
+    );
 
     let mut failed_message_ids: Vec<String> = Vec::new();
     // Tracks the SQS message ID for each resolved command so that failed
@@ -207,7 +210,7 @@ pub async fn handler(
     info!(
         successful = count - failures,
         failures = failures,
-        "Handler finished.",
+        "Finished synchronizing Shopify product events.",
     );
 
     let mut response = SqsBatchResponse::default();
