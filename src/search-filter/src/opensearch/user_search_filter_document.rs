@@ -87,7 +87,7 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
     fn try_from(user_search_filter_record: UserSearchFilterRecord) -> Result<Self, Self::Error> {
         let user_search_filter = UserSearchFilter::from(user_search_filter_record);
         let query =
-            product::opensearch::repository::build_search_query(&user_search_filter.search)?;
+            product::opensearch::repository::build_percolator_query(&user_search_filter.search)?;
         let user_search_filter_doc = UserSearchFilterDocument {
             user_search_filter_id: user_search_filter.user_search_filter_id,
             user_id: user_search_filter.user_id,
