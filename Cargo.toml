@@ -195,7 +195,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 typed-builder = "0.23.2"
 percent-encoding = "2.3.2"
 url = { version = "2.5.8", features = ["serde"] }
-uuid = { version = "1.23.2", features = ["serde"] }
+uuid = { version = "1.23.3", features = ["serde"] }
 walkdir = "2.5.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 futures-util = "0.3.32"
@@ -217,7 +217,7 @@ jsonwebtokens = "1.2.0"
 jsonwebtokens-cognito = "0.1.1"
 aws-sdk-cognitoidentityprovider = "1.120.0"
 html-escape = "0.2.13"
-regex = "1.12.3"
+regex = "1.12.4"
 indexmap = { version = "2.14.0", features = ["serde"] }
 fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }

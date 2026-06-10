@@ -9,6 +9,8 @@ use partner_shop_application::{
     service::partner_shop_application_service::PartnerShopApplicationServiceImpl,
 };
 use partner_shop_application_api::handler;
+use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
+use shop::service::get_service::GetShopServiceImpl;
 use test_api::*;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
@@ -21,8 +23,11 @@ async fn should_201_when_creating_application() {
     sfn_adapter
         .expect_start_execution()
         .returning(|_, _| Box::pin(async { Ok("foo".into()) }));
+    let shop_repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let shop_service = GetShopServiceImpl::new(&shop_repository);
     let service = PartnerShopApplicationServiceImpl::new(
         &repository,
+        &shop_service,
         &sfn_adapter,
         "arn:aws:states:us-east-1:123456789:stateMachine:test",
     );

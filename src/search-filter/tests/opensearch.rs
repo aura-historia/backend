@@ -1066,8 +1066,8 @@ fn silver_tea_set_product_document() -> ProductDocument {
 
 /// Every query uses words that appear literally in the language-specific title of
 /// the silver tea service; because both the percolator-stored query and the
-/// percolated document run through the same language analyzer, their stems are
-/// identical and the AND-operator `must` clause is always satisfied.
+/// percolated document run through the same language analyzer, the text relevance
+/// clause can satisfy its `minimum_should_match` requirement.
 #[rstest::rstest]
 #[case::en_full_phrase("Victorian sterling silver tea service", LanguageRecord::En)]
 #[case::de_hyphen_split_compound(
@@ -1105,7 +1105,7 @@ async fn should_percolate_victorian_silver_tea_set_when_query_matches(
 
 /// Queries about entirely different antiques — Chinese porcelain, Renaissance
 /// woodwork, Rococo seating — share no title tokens with the silver tea service,
-/// so the AND-operator `must` clause is never satisfied.
+/// so the text relevance clause cannot satisfy its `minimum_should_match` requirement.
 #[rstest::rstest]
 #[case::en_chinese_ceramic("Ming dynasty blue white porcelain vase", LanguageRecord::En)]
 #[case::de_chinese_ceramic("Blau-Weiß-Porzellan Ming Drachen", LanguageRecord::De)]
@@ -1272,8 +1272,30 @@ async fn should_percolate_ming_dynasty_vase_when_query_matches(
     assert_eq!(vec![expected], actual);
 }
 
+#[localstack_test(services = [OpenSearch()])]
+async fn should_percolate_ming_dynasty_vase_when_long_query_misses_one_detail() {
+    let client = get_opensearch_client().await;
+    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
+
+    let mut record = base_query_record();
+    record.product_query = Some(
+        "Ming dynasty blue white porcelain vase dragon mark"
+            .try_into()
+            .unwrap(),
+    );
+    record.language = LanguageRecord::En;
+
+    let expected = index_document(&repository, record).await;
+    let actual = repository
+        .percolate(&ming_vase_product_document())
+        .await
+        .unwrap();
+
+    assert_eq!(vec![expected], actual);
+}
+
 /// Queries about Victorian silverware, Rococo seating, and Baroque metalwork
-/// contain no terms present in the Ming vase title, so the must clause fails.
+/// contain no terms present in the Ming vase title, so the text relevance clause fails.
 #[rstest::rstest]
 #[case::en_silver_tea("Victorian sterling silver tea service", LanguageRecord::En)]
 #[case::de_silver_tea("Sterling Silber Teeservice viktorianisch", LanguageRecord::De)]

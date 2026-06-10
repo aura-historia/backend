@@ -3736,6 +3736,19 @@ async fn should_get_patch_delete_notifications() {
     assert_eq!(0, after_delete_all.total.unwrap_or(0));
 }
 
+fn valid_new_partner_application_payload(name: &str) -> PostPartnerShopApplicationPayloadData {
+    PostPartnerShopApplicationPayloadData::New {
+        shop_name: common::shop_name::ShopName::from(name.to_string()),
+        shop_type: shop::data::shop_type_data::ShopTypeData::CommercialDealer,
+        shop_domains: std::collections::HashSet::new(),
+        shop_url: None,
+        shop_image: None,
+        shop_structured_address: None,
+        shop_phone: None,
+        shop_email: None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // API: Partner Shop Application CRUD
 // Verifies API Gateway routing and Lambda execution for the partner shop
@@ -3773,9 +3786,7 @@ async fn should_respond_201_for_partner_application_post() {
         get_cfn_output().api_gateway_endpoint_url,
     );
 
-    let post_data = PostPartnerShopApplicationPayloadData::Existing {
-        shop_id: Faker.fake(),
-    };
+    let post_data = valid_new_partner_application_payload("Acceptance Partner Application Post");
     let response = reqwest::Client::new()
         .post(&url)
         .bearer_auth(&user.access_token)
@@ -3804,9 +3815,7 @@ async fn should_respond_200_for_partner_application_get_one() {
     );
 
     // Create first
-    let post_data = PostPartnerShopApplicationPayloadData::Existing {
-        shop_id: Faker.fake(),
-    };
+    let post_data = valid_new_partner_application_payload("Acceptance Partner Application Get One");
     let create_response = reqwest::Client::new()
         .post(&base_url)
         .bearer_auth(&user.access_token)
@@ -3845,9 +3854,7 @@ async fn should_respond_200_for_partner_application_patch() {
     );
 
     // Create first
-    let post_data = PostPartnerShopApplicationPayloadData::Existing {
-        shop_id: Faker.fake(),
-    };
+    let post_data = valid_new_partner_application_payload("Acceptance Partner Application Patch");
     let create_response = reqwest::Client::new()
         .post(&base_url)
         .bearer_auth(&user.access_token)
@@ -3899,9 +3906,7 @@ async fn should_respond_204_for_partner_application_delete() {
     );
 
     // Create first
-    let post_data = PostPartnerShopApplicationPayloadData::Existing {
-        shop_id: Faker.fake(),
-    };
+    let post_data = valid_new_partner_application_payload("Acceptance Partner Application Delete");
     let create_response = reqwest::Client::new()
         .post(&base_url)
         .bearer_auth(&user.access_token)
@@ -3970,9 +3975,8 @@ async fn should_respond_200_for_admin_partner_application_get_all() {
         "{}/api/v1/me/partner-applications",
         get_cfn_output().api_gateway_endpoint_url,
     );
-    let post_data = PostPartnerShopApplicationPayloadData::Existing {
-        shop_id: Faker.fake(),
-    };
+    let post_data =
+        valid_new_partner_application_payload("Acceptance Admin Partner Application Get All");
     let create_response = reqwest::Client::new()
         .post(&user_url)
         .bearer_auth(&user.access_token)
@@ -4012,9 +4016,8 @@ async fn should_respond_200_for_admin_partner_application_get_one() {
         "{}/api/v1/me/partner-applications",
         get_cfn_output().api_gateway_endpoint_url,
     );
-    let post_data = PostPartnerShopApplicationPayloadData::Existing {
-        shop_id: Faker.fake(),
-    };
+    let post_data =
+        valid_new_partner_application_payload("Acceptance Admin Partner Application Get One");
     let create_response = reqwest::Client::new()
         .post(&user_url)
         .bearer_auth(&user.access_token)
@@ -4059,9 +4062,8 @@ async fn should_respond_200_for_admin_partner_application_patch() {
         "{}/api/v1/me/partner-applications",
         get_cfn_output().api_gateway_endpoint_url,
     );
-    let post_data = PostPartnerShopApplicationPayloadData::Existing {
-        shop_id: Faker.fake(),
-    };
+    let post_data =
+        valid_new_partner_application_payload("Acceptance Admin Partner Application Patch");
     let create_response = reqwest::Client::new()
         .post(&user_url)
         .bearer_auth(&user.access_token)
@@ -4249,9 +4251,7 @@ async fn should_respond_200_for_admin_decision_reject() {
         "{}/api/v1/me/partner-applications",
         get_cfn_output().api_gateway_endpoint_url,
     );
-    let post_data = PostPartnerShopApplicationPayloadData::Existing {
-        shop_id: Faker.fake(),
-    };
+    let post_data = valid_new_partner_application_payload("Acceptance Admin Decision Reject");
     let create_response = reqwest::Client::new()
         .post(&user_url)
         .bearer_auth(&user.access_token)

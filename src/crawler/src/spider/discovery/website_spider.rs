@@ -4,7 +4,7 @@ use spider::tokio;
 use spider::website::Website;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 use url::Url;
 
 use crate::spider::utils::url::CrawledUrl;
@@ -114,7 +114,7 @@ impl SpiderImpl {
         }
 
         if original_url != resolved_url {
-            info!(
+            debug!(
                 original_url = %original_url,
                 resolved_url = %resolved_url,
                 host_normalized = original_url.host_str() != resolved_url.host_str(),

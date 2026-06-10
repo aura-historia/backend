@@ -41,21 +41,15 @@ mod faker {
 
     impl Dummy<Faker> for PostPartnerShopApplicationPayloadData {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            if config.fake_with_rng::<bool, R>(rng) {
-                PostPartnerShopApplicationPayloadData::Existing {
-                    shop_id: config.fake_with_rng(rng),
-                }
-            } else {
-                PostPartnerShopApplicationPayloadData::New {
-                    shop_name: config.fake_with_rng(rng),
-                    shop_type: config.fake_with_rng(rng),
-                    shop_domains: config.fake_with_rng(rng),
-                    shop_url: None,
-                    shop_image: config.fake_with_rng(rng),
-                    shop_structured_address: None,
-                    shop_phone: None,
-                    shop_email: None,
-                }
+            PostPartnerShopApplicationPayloadData::New {
+                shop_name: config.fake_with_rng(rng),
+                shop_type: config.fake_with_rng(rng),
+                shop_domains: config.fake_with_rng(rng),
+                shop_url: None,
+                shop_image: config.fake_with_rng(rng),
+                shop_structured_address: None,
+                shop_phone: None,
+                shop_email: None,
             }
         }
     }
