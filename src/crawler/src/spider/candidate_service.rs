@@ -6,6 +6,8 @@ pub struct SpiderCandidate {
     pub shop_id: ShopId,
     pub domain_id: uuid::Uuid,
     pub shop_domain: String,
+    pub crawl_failure_count: i32,
+    pub last_crawl_error_kind: Option<String>,
 }
 
 #[async_trait]
@@ -16,6 +18,7 @@ pub trait SpiderCandidateService: Send + Sync {
         &self,
         domain_id: &uuid::Uuid,
         error_kind: &str,
+        crawl_failure_count: i32,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error>;
     async fn reset_crawl_failure(&self, domain_id: &uuid::Uuid) -> Result<(), sqlx::Error>;
@@ -36,6 +39,8 @@ struct SpiderCandidateRow {
     shop_id: uuid::Uuid,
     domain_id: uuid::Uuid,
     shop_domain: String,
+    crawl_failure_count: i32,
+    last_crawl_error_kind: Option<String>,
 }
 
 #[async_trait]
@@ -43,7 +48,11 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<SpiderCandidate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, SpiderCandidateRow>(
             r#"
-            SELECT s.shop_id, sd.domain_id, sd.shop_domain
+            SELECT s.shop_id,
+                   sd.domain_id,
+                   sd.shop_domain,
+                   sd.crawl_failure_count,
+                   sd.last_crawl_error_kind
             FROM shops s
             JOIN shop_domains sd ON sd.shop_id = s.shop_id
             WHERE s.active = TRUE
@@ -63,6 +72,8 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                 shop_id: ShopId::from(row.shop_id),
                 domain_id: row.domain_id,
                 shop_domain: row.shop_domain,
+                crawl_failure_count: row.crawl_failure_count,
+                last_crawl_error_kind: row.last_crawl_error_kind,
             })
             .collect())
     }
@@ -71,17 +82,19 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         &self,
         domain_id: &uuid::Uuid,
         error_kind: &str,
+        crawl_failure_count: i32,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE shop_domains
-             SET crawl_failure_count = crawl_failure_count + 1,
+             SET crawl_failure_count = $3,
                  last_crawl_error_kind = $2,
-                 next_crawl_at = $3
+                 next_crawl_at = $4
              WHERE domain_id = $1",
         )
         .bind(domain_id)
         .bind(error_kind)
+        .bind(crawl_failure_count)
         .bind(next_crawl_at)
         .execute(&self.pool)
         .await?;

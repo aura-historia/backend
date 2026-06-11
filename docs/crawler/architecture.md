@@ -414,7 +414,7 @@ Scraper writes back:
 ```
 
 The spider decides *which* URLs are products (by running the LLM-found regex). The scraper only processes URLs the
-spider has already labelled as `url_class = 'product'`. There is no direct function call or shared in-memory state
+spider has already labeled as `url_class = 'product'`. There is no direct function call or shared in-memory state
 between them — just the database row.
 
 Change detection is scraper-local: after fetching HTML, the scraper computes a hash in-memory — SHA-256 of the `<main>`
@@ -429,5 +429,8 @@ The crawler now also tracks crawl-level cooldown metadata on `shop_domains`:
 - `last_crawl_error_kind`
 - `next_crawl_at`
 
-Spider candidate selection excludes domains with `next_crawl_at > NOW()`. On a successful crawl the metadata is reset;
-on failure a cooldown is written to defer the next attempt.
+Spider candidate selection excludes domains with `next_crawl_at > NOW()`. On a successful crawl the metadata is reset.
+On failure, cron compares the new error kind with `last_crawl_error_kind`: matching kinds increment
+`crawl_failure_count`; changed kinds reset it to `1`. `TinyCrawl` and `InsufficientInferenceSample` retry after 6 hours
+for attempts 1-2 and after 30 days from attempt 3 onward. Pending URL-pattern reviews and generic spider failures keep
+the existing short retry cooldown.
