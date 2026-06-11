@@ -64,8 +64,9 @@ Controls per-run behavior of the spider.
 
 - **`min_inference_sample_urls`**: URL pattern inference is not attempted when the crawl sample has fewer than this many
   URLs, preventing low-confidence LLM calls on tiny crawls. Crawls with one URL or less fail as `TinyCrawl`; crawls with
-  2-19 URLs fail as `InsufficientInferenceSample`. Both failure modes use the normal crawl failure retry/cooldown path
-  and do not mark the domain as successfully crawled.
+  2-19 URLs fail as `InsufficientInferenceSample`. Both failure modes avoid LLM calls and do not mark the domain as
+  successfully crawled. They use the bounded small-crawl retry policy: attempts 1-2 retry after 6 hours; attempt 3 and
+  later retry after 30 days.
 
 - **`spider_batch_size` + `spider_concurrency`**: At each tick, up to `spider_batch_size` shops are selected and up to
   `spider_concurrency` are crawled concurrently. If a domain's in-memory lock (`DomainLock`) is held by another task the

@@ -293,6 +293,83 @@ async fn spider_should_return_correct_shop_id_on_candidate() {
 }
 
 // ---------------------------------------------------------------------------
+// get_candidates — failure metadata is included for retry policy decisions
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[localstack_test(services = [RDS])]
+async fn spider_should_return_crawl_failure_metadata_on_candidate() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+
+    let shop_id_uuid = uuid::Uuid::new_v4();
+    let domain_id =
+        insert_shop_with_domain(&pool, shop_id_uuid, "spider-failure-meta.example.com").await;
+
+    sqlx::query(
+        "UPDATE shop_domains
+         SET crawl_failure_count = 2,
+             last_crawl_error_kind = 'InsufficientInferenceSample'
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let candidates = service.get_candidates(10).await.unwrap();
+    let candidate = candidates
+        .iter()
+        .find(|c| c.domain_id == domain_id)
+        .expect("candidate for the inserted domain should be present");
+
+    assert_eq!(candidate.crawl_failure_count, 2);
+    assert_eq!(
+        candidate.last_crawl_error_kind.as_deref(),
+        Some("InsufficientInferenceSample")
+    );
+}
+
+// ---------------------------------------------------------------------------
+// mark_crawl_failure — stores the caller-provided consecutive count and retry
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[localstack_test(services = [RDS])]
+async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+
+    let shop_id_uuid = uuid::Uuid::new_v4();
+    let domain_id =
+        insert_shop_with_domain(&pool, shop_id_uuid, "spider-mark-failure.example.com").await;
+    let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::hours(6);
+
+    service
+        .mark_crawl_failure(&domain_id, "InsufficientInferenceSample", 3, next_crawl_at)
+        .await
+        .unwrap();
+
+    let row: (i32, Option<String>, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT crawl_failure_count, last_crawl_error_kind, next_crawl_at
+         FROM shop_domains
+         WHERE domain_id = $1",
+    )
+    .bind(domain_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row.0, 3);
+    assert_eq!(row.1.as_deref(), Some("InsufficientInferenceSample"));
+    let stored_next_crawl_at = row.2.expect("next_crawl_at should be stored");
+    assert!(
+        (stored_next_crawl_at - next_crawl_at).whole_seconds().abs() <= 1,
+        "next_crawl_at should match the caller-provided timestamp"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // get_candidates — ordering: NULL last_crawled comes before stale domains
 // ---------------------------------------------------------------------------
 

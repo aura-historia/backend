@@ -1,10 +1,40 @@
 use super::job::CrawlerCronJob;
 use crate::network::policy::{NetworkErrorKind, retry_cooldown_for};
 use crate::spider::advisory_lock::DomainLock;
+use crate::spider::candidate_service::SpiderCandidate;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{Instrument, debug, error, info, warn};
+
+const SMALL_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
+const SMALL_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const SMALL_CRAWL_LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
+
+fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
+    if candidate.last_crawl_error_kind.as_deref() == Some(error_kind) {
+        candidate.crawl_failure_count.max(0).saturating_add(1)
+    } else {
+        1
+    }
+}
+
+fn is_small_crawl_error_kind(error_kind: &str) -> bool {
+    matches!(error_kind, "TinyCrawl" | "InsufficientInferenceSample")
+}
+
+fn cooldown_for_spider_failure(error_kind: &str, failure_count: i32) -> Duration {
+    if is_small_crawl_error_kind(error_kind) {
+        if failure_count >= SMALL_CRAWL_LONG_COOLDOWN_FAILURE_COUNT {
+            SMALL_CRAWL_LONG_COOLDOWN
+        } else {
+            SMALL_CRAWL_RETRY_COOLDOWN
+        }
+    } else {
+        retry_cooldown_for(NetworkErrorKind::Unknown)
+    }
+}
 
 impl CrawlerCronJob {
     #[tracing::instrument(name = "crawler_run_spider_once", skip(self))]
@@ -93,9 +123,6 @@ impl CrawlerCronJob {
                                 true
                             }
                             Err(e) => {
-                                let cooldown = retry_cooldown_for(NetworkErrorKind::Unknown);
-                                let next_crawl_at = time::OffsetDateTime::now_utc()
-                                    + time::Duration::seconds(cooldown.as_secs() as i64);
                                 let error_kind = match &e {
                                     crate::spider::service::SpiderServiceError::UrlPattern(
                                         crate::spider::classification::url_pattern_service::UrlPatternServiceError::PendingReview {
@@ -110,10 +137,17 @@ impl CrawlerCronJob {
                                     } => "InsufficientInferenceSample",
                                     _ => "spider_run_error",
                                 };
+                                let failure_count = next_failure_count(&candidate, error_kind);
+                                let cooldown =
+                                    cooldown_for_spider_failure(error_kind, failure_count);
+                                let next_crawl_at = time::OffsetDateTime::now_utc()
+                                    + time::Duration::seconds(cooldown.as_secs() as i64);
+
                                 if let Err(err) = spider_candidates
                                     .mark_crawl_failure(
                                         &candidate.domain_id,
                                         error_kind,
+                                        failure_count,
                                         next_crawl_at,
                                     )
                                     .await
@@ -132,6 +166,7 @@ impl CrawlerCronJob {
                                         domain = %candidate.shop_domain,
                                         error = %e,
                                         error_kind,
+                                        failure_count,
                                         total_crawled = *total_links,
                                         min_required_links = 2,
                                         next_crawl_at = %next_crawl_at,
@@ -147,6 +182,7 @@ impl CrawlerCronJob {
                                         domain = %candidate.shop_domain,
                                         error = %e,
                                         error_kind,
+                                        failure_count,
                                         stage,
                                         sample_size = *sample_size,
                                         min_sample_size = *min_sample_size,
@@ -158,6 +194,7 @@ impl CrawlerCronJob {
                                         domain = %candidate.shop_domain,
                                         error = %e,
                                         error_kind,
+                                        failure_count,
                                         next_crawl_at = %next_crawl_at,
                                         cooldown_seconds = cooldown.as_secs(),
                                         "Spider run failed"
@@ -208,6 +245,46 @@ mod tests {
     use crate::spider::service::{MockSpiderService, SpiderRunResult};
     use common::shop_id::ShopId;
 
+    fn spider_candidate(domain_id: uuid::Uuid) -> SpiderCandidate {
+        SpiderCandidate {
+            shop_id: ShopId::new(),
+            domain_id,
+            shop_domain: "example.com".to_string(),
+            crawl_failure_count: 0,
+            last_crawl_error_kind: None,
+        }
+    }
+
+    fn next_crawl_at_is_about(next_crawl_at: time::OffsetDateTime, cooldown: Duration) -> bool {
+        let seconds = (next_crawl_at - time::OffsetDateTime::now_utc()).whole_seconds();
+        let expected = cooldown.as_secs() as i64;
+        seconds >= expected - 60 && seconds <= expected + 60
+    }
+
+    #[test]
+    fn next_failure_count_increments_for_same_error_kind() {
+        let mut candidate = spider_candidate(uuid::Uuid::new_v4());
+        candidate.crawl_failure_count = 2;
+        candidate.last_crawl_error_kind = Some("InsufficientInferenceSample".to_string());
+
+        assert_eq!(
+            next_failure_count(&candidate, "InsufficientInferenceSample"),
+            3
+        );
+    }
+
+    #[test]
+    fn next_failure_count_resets_for_changed_error_kind() {
+        let mut candidate = spider_candidate(uuid::Uuid::new_v4());
+        candidate.crawl_failure_count = 2;
+        candidate.last_crawl_error_kind = Some("TinyCrawl".to_string());
+
+        assert_eq!(
+            next_failure_count(&candidate, "InsufficientInferenceSample"),
+            1
+        );
+    }
+
     #[tokio::test]
     async fn should_run_spider_candidates() {
         let mut spider_candidates = MockSpiderCandidateService::new();
@@ -215,13 +292,7 @@ mod tests {
         spider_candidates
             .expect_get_candidates()
             .returning(move |_| {
-                Box::pin(async move {
-                    Ok(vec![SpiderCandidate {
-                        shop_id: ShopId::new(),
-                        domain_id: expected_domain_id,
-                        shop_domain: "example.com".to_string(),
-                    }])
-                })
+                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
         spider_candidates
             .expect_reset_crawl_failure()
@@ -270,20 +341,20 @@ mod tests {
         spider_candidates
             .expect_get_candidates()
             .returning(move |_| {
-                Box::pin(async move {
-                    Ok(vec![SpiderCandidate {
-                        shop_id: ShopId::new(),
-                        domain_id: expected_domain_id,
-                        shop_domain: "example.com".to_string(),
-                    }])
-                })
+                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
         spider_candidates
             .expect_mark_crawl_failure()
-            .withf(move |domain_id, error_kind, _| {
-                *domain_id == expected_domain_id && error_kind == "spider_run_error"
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "spider_run_error"
+                    && *failure_count == 1
+                    && next_crawl_at_is_about(
+                        *next_crawl_at,
+                        retry_cooldown_for(NetworkErrorKind::Unknown),
+                    )
             })
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
         spider_service.expect_run().returning(|_, _, _, _| {
@@ -322,20 +393,17 @@ mod tests {
         spider_candidates
             .expect_get_candidates()
             .returning(move |_| {
-                Box::pin(async move {
-                    Ok(vec![SpiderCandidate {
-                        shop_id: ShopId::new(),
-                        domain_id: expected_domain_id,
-                        shop_domain: "example.com".to_string(),
-                    }])
-                })
+                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
         spider_candidates
             .expect_mark_crawl_failure()
-            .withf(move |domain_id, error_kind, _| {
-                *domain_id == expected_domain_id && error_kind == "TinyCrawl"
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "TinyCrawl"
+                    && *failure_count == 1
+                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_RETRY_COOLDOWN)
             })
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
         spider_service.expect_run().returning(|_, _, shop_url, _| {
@@ -376,20 +444,78 @@ mod tests {
         spider_candidates
             .expect_get_candidates()
             .returning(move |_| {
+                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "InsufficientInferenceSample"
+                    && *failure_count == 1
+                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_RETRY_COOLDOWN)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().returning(|_, _, shop_url, _| {
+            let shop_url = shop_url.to_string();
+            Box::pin(async move {
+                Err(
+                    crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
+                        shop_url,
+                        stage: "end_of_crawl",
+                        sample_size: 16,
+                        min_sample_size: 20,
+                    },
+                )
+            })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            noop_product_push(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_use_long_cooldown_after_repeated_insufficient_inference_sample_failures() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
                 Box::pin(async move {
-                    Ok(vec![SpiderCandidate {
-                        shop_id: ShopId::new(),
-                        domain_id: expected_domain_id,
-                        shop_domain: "example.com".to_string(),
-                    }])
+                    let mut candidate = spider_candidate(expected_domain_id);
+                    candidate.crawl_failure_count = 2;
+                    candidate.last_crawl_error_kind =
+                        Some("InsufficientInferenceSample".to_string());
+                    Ok(vec![candidate])
                 })
             });
         spider_candidates
             .expect_mark_crawl_failure()
-            .withf(move |domain_id, error_kind, _| {
-                *domain_id == expected_domain_id && error_kind == "InsufficientInferenceSample"
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "InsufficientInferenceSample"
+                    && *failure_count == 3
+                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_LONG_COOLDOWN)
             })
-            .returning(|_, _, _| Box::pin(async { Ok(()) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut spider_service = MockSpiderService::new();
         spider_service.expect_run().returning(|_, _, shop_url, _| {
@@ -434,13 +560,7 @@ mod tests {
         spider_candidates
             .expect_get_candidates()
             .returning(move |_| {
-                Box::pin(async move {
-                    Ok(vec![SpiderCandidate {
-                        shop_id: ShopId::new(),
-                        domain_id: locked_domain_id,
-                        shop_domain: "example.com".to_string(),
-                    }])
-                })
+                Box::pin(async move { Ok(vec![spider_candidate(locked_domain_id)]) })
             });
 
         let mut spider_service = MockSpiderService::new();
