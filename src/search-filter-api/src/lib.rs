@@ -7,7 +7,6 @@ use lambda_runtime::LambdaEvent;
 use product::service::get_service::GetProductService;
 use product::service::query_service::QueryProductService;
 use product_personalization::service::ProductPersonalizationService;
-use product_pipeline_embed_text::service::MultimodalEmbeddingService;
 use search_filter::service::enhanced_search_match_service::EnhancedSearchMatchService;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 
@@ -28,7 +27,6 @@ pub mod post_types;
         service,
         get_product_service,
         query_product_service,
-        embedding_service,
         enhanced_match_service,
         product_personalization_service,
     ),
@@ -49,7 +47,6 @@ pub async fn handler(
     service: &impl UserSearchFilterService,
     get_product_service: &(impl GetProductService + Sync),
     query_product_service: &(impl QueryProductService + Sync),
-    embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
     enhanced_match_service: Option<&(dyn EnhancedSearchMatchService + Sync + Send)>,
     product_personalization_service: &(impl ProductPersonalizationService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
@@ -58,7 +55,6 @@ pub async fn handler(
         service,
         get_product_service,
         query_product_service,
-        embedding_service,
         enhanced_match_service,
         product_personalization_service,
     )
@@ -78,7 +74,6 @@ pub async fn handle(
     service: &impl UserSearchFilterService,
     get_product_service: &(impl GetProductService + Sync),
     query_product_service: &(impl QueryProductService + Sync),
-    embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
     enhanced_match_service: Option<&(dyn EnhancedSearchMatchService + Sync + Send)>,
     product_personalization_service: &(impl ProductPersonalizationService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
@@ -111,7 +106,6 @@ pub async fn handle(
                 event,
                 service,
                 query_product_service,
-                embedding_service,
                 enhanced_match_service,
                 product_personalization_service,
             )

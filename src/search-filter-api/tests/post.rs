@@ -67,7 +67,6 @@ async fn should_save_search_filter() {
         &get_product_service,
         &query_product_service,
         None,
-        None,
         &personalization_service,
     )
     .await
@@ -136,7 +135,6 @@ async fn should_422_when_search_filter_quota_is_exceeded() {
         &service,
         &get_product_service,
         &query_product_service,
-        None,
         None,
         &personalization_service,
     )

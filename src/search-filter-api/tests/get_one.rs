@@ -73,7 +73,6 @@ async fn should_return_actual_search_filter() {
         &get_product_service,
         &query_product_service,
         None,
-        None,
         &personalization_service,
     )
     .await

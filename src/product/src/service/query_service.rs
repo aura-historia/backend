@@ -53,6 +53,12 @@ pub trait QueryProductService {
         embedding: &[f32],
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError>;
+
+    async fn search_products_with_percolator_query(
+        &self,
+        search: &ProductSearch,
+        size: u64,
+    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError>;
 }
 
 pub struct QueryProductServiceImpl<'a> {
@@ -102,6 +108,22 @@ impl<'a> QueryProductService for QueryProductServiceImpl<'a> {
             .into_non_timed_out("product hybrid search")?;
 
         Ok(map_hybrid_search_response(search, search_response, page))
+    }
+
+    async fn search_products_with_percolator_query(
+        &self,
+        search: &ProductSearch,
+        size: u64,
+    ) -> Result<CursoredResult<LocalizedProductView, serde_json::Value>, SearchProductsError> {
+        let search_response = self
+            .repository
+            .search_product_documents_with_percolator_query(search, size)
+            .await?
+            .into_non_timed_out("product percolator-preview search")?;
+
+        let mut result = map_search_response(search, search_response);
+        result.cursor.search_after = None;
+        Ok(result)
     }
 }
 
