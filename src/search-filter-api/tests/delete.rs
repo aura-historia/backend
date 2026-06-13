@@ -76,7 +76,6 @@ async fn should_delete_search_filter() {
         &get_product_service,
         &query_product_service,
         None,
-        None,
         &personalization_service,
     )
     .await

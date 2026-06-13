@@ -12,7 +12,6 @@ geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
 product-personalization = { workspace = true }
-product-pipeline-embed-text = { workspace = true }
 notification = { workspace = true, features = ["service"] }
 user = { workspace = true, features = ["dynamodb", "service", "data"] }
 tracing = { workspace = true }
@@ -43,7 +42,6 @@ url = { workspace = true }
 serial_test = { workspace = true }
 rstest = { workspace = true }
 search-filter = { workspace = true, features = ["test-data"] }
-product-pipeline-embed-text = { workspace = true }
 
 [features]
 default = []

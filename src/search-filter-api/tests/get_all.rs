@@ -84,7 +84,6 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
         &get_product_service,
         &query_product_service,
         None,
-        None,
         &personalization_service,
     )
     .await
@@ -170,7 +169,6 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
         &service,
         &get_product_service,
         &query_product_service,
-        None,
         None,
         &personalization_service,
     )

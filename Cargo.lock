@@ -6517,7 +6517,6 @@ dependencies = [
  "opensearch",
  "product",
  "product-personalization",
- "product-pipeline-embed-text",
  "product-watchlist",
  "rstest",
  "search-filter",

@@ -712,6 +712,142 @@ async fn should_search_product_documents() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_with_percolator_query() {
+    let expected_product_id = ProductId::new();
+    let expected = ProductDocument {
+        product_id: expected_product_id,
+        product_slug_id: Faker.fake(),
+        shop_slug_id: Faker.fake(),
+        seller_slug_id: Faker.fake(),
+        event_id: Default::default(),
+        shop_id: Default::default(),
+        seller_id: Default::default(),
+        shops_product_id: ShopsProductId::from("percolator-match"),
+        shop_name: "Foo".to_string(),
+        seller_name: "Bar".to_string(),
+        shop_type: ShopTypeDocument::CommercialDealer,
+        structured_address_addressline: None,
+        structured_address_addressline_extra: None,
+        structured_address_locality: None,
+        structured_address_region: None,
+        structured_address_postal_code: None,
+        structured_address_country: None,
+        structured_address_continent: None,
+        geo_address: None,
+        title_native: TextDocument {
+            text: "golden cufflinks antique vintage".to_string(),
+            language: LanguageDocument::En,
+        },
+        title_de: Some("golden cufflinks antique vintage".to_string()),
+        title_en: Some("golden cufflinks antique vintage".to_string()),
+        title_fr: None,
+        title_es: None,
+        title_it: None,
+        price_eur: Some(99),
+        price_usd: None,
+        price_gbp: None,
+        price_aud: None,
+        price_cad: None,
+        price_nzd: None,
+        price_cny: None,
+        price_brl: None,
+        price_pln: None,
+        price_try: None,
+        price_jpy: None,
+        price_czk: None,
+        price_rub: None,
+        price_aed: None,
+        price_sar: None,
+        price_hkd: None,
+        price_sgd: None,
+        price_chf: None,
+        price_estimate_min_eur: None,
+        price_estimate_min_usd: None,
+        price_estimate_min_gbp: None,
+        price_estimate_min_aud: None,
+        price_estimate_min_cad: None,
+        price_estimate_min_nzd: None,
+        price_estimate_min_cny: None,
+        price_estimate_min_brl: None,
+        price_estimate_min_pln: None,
+        price_estimate_min_try: None,
+        price_estimate_min_jpy: None,
+        price_estimate_min_czk: None,
+        price_estimate_min_rub: None,
+        price_estimate_min_aed: None,
+        price_estimate_min_sar: None,
+        price_estimate_min_hkd: None,
+        price_estimate_min_sgd: None,
+        price_estimate_min_chf: None,
+        price_estimate_max_eur: None,
+        price_estimate_max_usd: None,
+        price_estimate_max_gbp: None,
+        price_estimate_max_aud: None,
+        price_estimate_max_cad: None,
+        price_estimate_max_nzd: None,
+        price_estimate_max_cny: None,
+        price_estimate_max_brl: None,
+        price_estimate_max_pln: None,
+        price_estimate_max_try: None,
+        price_estimate_max_jpy: None,
+        price_estimate_max_czk: None,
+        price_estimate_max_rub: None,
+        price_estimate_max_aed: None,
+        price_estimate_max_sar: None,
+        price_estimate_max_hkd: None,
+        price_estimate_max_sgd: None,
+        price_estimate_max_chf: None,
+        state: ProductStateDocument::Available,
+        url: Url::parse("https://foo.com/percolator-match").unwrap(),
+        view_url: Url::parse(
+            "https://foo.com/percolator-match?utm_source=aura_historia&utm_medium=referral",
+        )
+        .unwrap(),
+        images: Default::default(),
+        embedding: None,
+        created_by: common::actor::document::ActorDocument::System,
+        updated_by: common::actor::document::ActorDocument::System,
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+        auction_start: None,
+        auction_end: None,
+    };
+    let mut non_matching = expected.clone();
+    non_matching.product_id = ProductId::new();
+    non_matching.shops_product_id = ShopsProductId::from("percolator-miss");
+    non_matching.title_de = Some("silver tea set".to_string());
+    non_matching.title_en = Some("silver tea set".to_string());
+    non_matching.title_native.text = "silver tea set".to_string();
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(vec![expected.clone(), non_matching])
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search = ProductSearch::new(Language::De, Currency::Eur)
+        .with_product_query("golden cufflinks antique vintage rare".try_into().unwrap());
+    let response = repository
+        .search_product_documents_with_percolator_query(&search, 10)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        vec![expected_product_id],
+        response
+            .hits
+            .hits
+            .into_iter()
+            .map(|hit| hit.source.product_id)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[localstack_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_all_arguments_are_given() {
     let products = fake::vec![ProductDocument; 1000];
     let client = get_opensearch_client().await;

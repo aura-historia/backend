@@ -72,7 +72,6 @@ mod tests {
             &get_product_service,
             &query_product_service,
             None,
-            None,
             &personalization_service,
         )
         .await
@@ -103,7 +102,6 @@ mod tests {
             &service,
             &get_product_service,
             &query_product_service,
-            None,
             None,
             &personalization_service,
         )
@@ -145,7 +143,6 @@ mod tests {
             &get_product_service,
             &query_product_service,
             None,
-            None,
             &personalization_service,
         )
         .await
@@ -186,7 +183,6 @@ mod tests {
             &get_product_service,
             &query_product_service,
             None,
-            None,
             &personalization_service,
         )
         .await
@@ -219,7 +215,6 @@ mod tests {
             &service,
             &get_product_service,
             &query_product_service,
-            None,
             None,
             &personalization_service,
         )

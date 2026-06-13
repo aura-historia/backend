@@ -1,15 +1,24 @@
+use common::currency::domain::Currency;
+use common::language::document::{LanguageDocument, TextDocument};
+use common::language::domain::Language;
 use common::pagination::cursor::api::JsonCursoredData;
 use common::personalized::api::PersonalizedData;
+use common::product_id::ProductId;
+use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
 use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
 use notification::service::notification_service::NotificationServiceImpl;
+use product::core::product_search::ProductSearch;
 use product::data::get_summary_data::GetProductSummaryData;
 use product::data::user_state_data::ProductUserStateData;
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
-use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
+use product::opensearch::product_document::ProductDocument;
+use product::opensearch::repository::{
+    ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl,
+};
 use product::service::get_service::GetProductServiceImpl;
 use product::service::query_service::QueryProductServiceImpl;
 use product_personalization::service::ProductPersonalizationServiceImpl;
@@ -18,6 +27,7 @@ use search_filter::service::user_search_filter_service::{
     UserSearchFilterService, UserSearchFilterServiceImpl,
 };
 use search_filter_api::handle;
+use std::time::Duration;
 use test_api::*;
 use user::core::tier::UserTier;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -87,6 +97,48 @@ fn setup_services(
     )
 }
 
+fn matching_product_document(product_id: ProductId, shops_product_id: &str) -> ProductDocument {
+    let mut product: ProductDocument = Faker.fake();
+    product.product_id = product_id;
+    product.shops_product_id = ShopsProductId::from(shops_product_id);
+    product.title_native = TextDocument {
+        text: "golden cufflinks antique vintage".to_string(),
+        language: LanguageDocument::En,
+    };
+    product.title_de = Some("golden cufflinks antique vintage".to_string());
+    product.title_en = Some("golden cufflinks antique vintage".to_string());
+    product.price_eur = Some(1_000);
+    product.embedding = None;
+    product
+}
+
+fn non_matching_product_document(product_id: ProductId, shops_product_id: &str) -> ProductDocument {
+    let mut product = matching_product_document(product_id, shops_product_id);
+    product.title_native.text = "silver tea set".to_string();
+    product.title_de = Some("silver tea set".to_string());
+    product.title_en = Some("silver tea set".to_string());
+    product
+}
+
+async fn index_products(
+    opensearch: &'static opensearch::OpenSearch,
+    products: Vec<ProductDocument>,
+) {
+    let product_opensearch_repository = ProductOpenSearchRepositoryImpl::new(opensearch);
+    let response = product_opensearch_repository
+        .create_product_documents(products)
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+}
+
+fn percolator_only_search() -> ProductSearch {
+    ProductSearch::new(Language::De, Currency::Eur)
+        .with_product_query("golden cufflinks antique vintage rare".try_into().unwrap())
+}
+
 async fn create_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
     let user_repository = UserDynamoDbRepositoryImpl::new(client, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
@@ -142,7 +194,6 @@ async fn should_200_when_success_without_enhanced_description() {
         &get_product_service,
         &query_product_service,
         None,
-        None,
         &personalization_service,
     )
     .await
@@ -152,6 +203,167 @@ async fn should_200_when_success_without_enhanced_description() {
     let actual: JsonCursoredData<PersonalizedData<GetProductSummaryData, ProductUserStateData>> =
         serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
     assert!(actual.items.is_empty());
+}
+
+#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+async fn should_preview_products_with_percolator_query_semantics() {
+    let client = get_dynamodb_client().await;
+    let opensearch = get_opensearch_client().await;
+    let (service, get_product_service, query_product_service, personalization_service) =
+        setup_services(client, opensearch);
+
+    let expected_product_id = ProductId::new();
+    index_products(
+        opensearch,
+        vec![
+            matching_product_document(expected_product_id, "percolator-match"),
+            non_matching_product_document(ProductId::new(), "percolator-miss"),
+        ],
+    )
+    .await;
+
+    let user_id = create_user(client).await;
+    let search_filter = service
+        .create_user_search_filter(
+            &user_ctx(user_id),
+            &user_id,
+            Faker.fake(),
+            percolator_only_search(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/search-filters/{userSearchFilterId}/products")
+            .jwt_claim("sub", user_id)
+            .path_parameter("userSearchFilterId", search_filter.user_search_filter_id)
+            .query_string_parameter("language", "de")
+            .query_string_parameter("currency", "EUR")
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &query_product_service,
+        None,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let actual: JsonCursoredData<PersonalizedData<GetProductSummaryData, ProductUserStateData>> =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+    assert_eq!(1, actual.items.len());
+    assert_eq!(expected_product_id, actual.items[0].item.product_id);
+    assert_eq!(1, actual.size);
+    assert!(actual.search_after.is_none());
+}
+
+#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+async fn should_return_hardcoded_preview_size_without_pagination() {
+    let client = get_dynamodb_client().await;
+    let opensearch = get_opensearch_client().await;
+    let (service, get_product_service, query_product_service, personalization_service) =
+        setup_services(client, opensearch);
+
+    let products = (0..11)
+        .map(|idx| matching_product_document(ProductId::new(), &format!("percolator-match-{idx}")))
+        .collect();
+    index_products(opensearch, products).await;
+
+    let user_id = create_user(client).await;
+    let search_filter = service
+        .create_user_search_filter(
+            &user_ctx(user_id),
+            &user_id,
+            Faker.fake(),
+            percolator_only_search(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/search-filters/{userSearchFilterId}/products")
+            .jwt_claim("sub", user_id)
+            .path_parameter("userSearchFilterId", search_filter.user_search_filter_id)
+            .query_string_parameter("language", "de")
+            .query_string_parameter("currency", "EUR")
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &query_product_service,
+        None,
+        &personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let actual: JsonCursoredData<PersonalizedData<GetProductSummaryData, ProductUserStateData>> =
+        serde_json::from_value(extract_apigw_response_json_body!(response)).unwrap();
+    assert_eq!(10, actual.items.len());
+    assert_eq!(10, actual.size);
+    assert!(actual.search_after.is_none());
+}
+
+#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+async fn should_400_when_size_provided() {
+    let client = get_dynamodb_client().await;
+    let opensearch = get_opensearch_client().await;
+    let (service, get_product_service, query_product_service, personalization_service) =
+        setup_services(client, opensearch);
+
+    let user_id = create_user(client).await;
+    let search_filter = service
+        .create_user_search_filter(
+            &user_ctx(user_id),
+            &user_id,
+            Faker.fake(),
+            Faker.fake(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::GET)
+            .route_key("GET /api/v1/me/search-filters/{userSearchFilterId}/products")
+            .jwt_claim("sub", user_id)
+            .path_parameter("userSearchFilterId", search_filter.user_search_filter_id)
+            .query_string_parameter("language", "de")
+            .query_string_parameter("currency", "EUR")
+            .query_string_parameter("size", "5")
+            .build(),
+        context: Default::default(),
+    };
+
+    let actual = handle(
+        lambda_event,
+        &service,
+        &get_product_service,
+        &query_product_service,
+        None,
+        &personalization_service,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(400, actual.status);
 }
 
 #[localstack_test(services = [DynamoDB(), OpenSearch()])]
@@ -192,7 +404,6 @@ async fn should_400_when_search_after_provided() {
         &service,
         &get_product_service,
         &query_product_service,
-        None,
         None,
         &personalization_service,
     )

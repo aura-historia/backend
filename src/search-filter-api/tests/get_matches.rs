@@ -211,7 +211,6 @@ async fn should_200_when_sort_created_asc() {
         &get_product_service,
         &query_product_service,
         None,
-        None,
         &personalization_service,
     )
     .await
@@ -297,7 +296,6 @@ async fn should_200_when_sort_created_asc_search_after() {
         &get_product_service,
         &query_product_service,
         None,
-        None,
         &personalization_service,
     )
     .await
@@ -381,7 +379,6 @@ async fn should_200_when_sort_created_desc() {
         &service,
         &get_product_service,
         &query_product_service,
-        None,
         None,
         &personalization_service,
     )
@@ -468,7 +465,6 @@ async fn should_200_when_sort_created_desc_search_after() {
         &get_product_service,
         &query_product_service,
         None,
-        None,
         &personalization_service,
     )
     .await
@@ -530,7 +526,6 @@ async fn should_200_empty_when_no_matches() {
         &service,
         &get_product_service,
         &query_product_service,
-        None,
         None,
         &personalization_service,
     )
@@ -624,7 +619,6 @@ async fn should_only_return_matches_for_specific_filter() {
         &service,
         &get_product_service,
         &query_product_service,
-        None,
         None,
         &personalization_service,
     )
@@ -734,7 +728,6 @@ async fn should_hide_products_when_search_filter_match_quota_exceeded() {
         &service,
         &get_product_service,
         &query_product_service,
-        None,
         None,
         &personalization_service,
     )

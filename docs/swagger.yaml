@@ -2978,29 +2978,28 @@ paths:
 
   /api/v1/me/search-filters/{userSearchFilterId}/products:
     get:
-      summary: Run a live product search for a saved search filter
+      summary: Preview product matches for a saved search filter
       description: |
-        Runs a live product search for the authenticated user's saved search filter using the filter's stored
-        search criteria. The request only controls response localization (`language`, `currency`) and the
-        maximum number of returned products.
+        Previews products that would match the authenticated user's saved search filter using the same
+        percolator-style query semantics used by search-filter product-match processing. The request only
+        controls response localization (`language`, `currency`).
 
-        The backend rejects client-provided `searchAfter` pagination cursors for this endpoint and caps the
-        response size at 10 products.
+        Client-driven pagination is not supported. The endpoint always returns a fixed preview of up to
+        10 products and rejects `size` or `searchAfter` query parameters with `BAD_QUERY_PARAMETER_VALUE`.
 
         When the saved search filter contains an `enhancedSearchDescription` and enhanced matching is available,
-        the backend re-evaluates each returned product for this specific filter and overwrites
-        `userState.searchFilter` with the live result:
-        - `matched`
+        the backend re-evaluates each candidate product for this specific filter. Products rejected by enhanced
+        matching are omitted from the preview; accepted products expose the live result in
+        `userState.searchFilter`:
+        - `matched` (`true`)
         - `hidden` (always `false` in this flow)
         - optional `matchReason`
 
         In that enhanced flow, `userSearchFilterId`, `userSearchFilterName`, and `matchFeedback` are omitted
         from `userState.searchFilter`.
 
-        Without an enhanced description, the endpoint behaves like the normal personalized product search and
-        returns the shared product-search user state unchanged.
         Requires valid Cognito JWT authentication.
-      operationId: getSearchFilterLiveProducts
+      operationId: getSearchFilterPreviewProducts
       tags:
         - Search Filters
       parameters:
@@ -3019,30 +3018,6 @@ paths:
           schema:
             $ref: "#/components/schemas/CurrencyData"
           example: EUR
-        - name: size
-          in: query
-          required: false
-          description: |
-            Maximum number of products to return.
-            Values above `10` are accepted but capped to `10` by the backend.
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 10
-            default: 10
-          example: 10
-        - name: searchAfter
-          in: query
-          required: false
-          description: |
-            Must not be provided for this endpoint.
-            Any non-null cursor value is rejected with `BAD_QUERY_PARAMETER_VALUE` because client-driven pagination
-            is not supported for live search-filter product previews.
-          schema:
-            type: array
-            items: {}
-            nullable: true
-          example: '[0.99, "550e8400-e29b-41d4-a716-446655440000"]'
         - name: language
           in: query
           required: false
@@ -3056,7 +3031,7 @@ paths:
         - BearerAuth: []
       responses:
         "200":
-          description: Live search results retrieved successfully
+          description: Product match preview retrieved successfully
           headers:
             Cache-Control:
               description: Cache control directive — always set to `no-store`
@@ -3121,7 +3096,7 @@ paths:
                 $ref: "#/components/schemas/ApiError"
               examples:
                 search_after_not_supported:
-                  summary: Client pagination is not supported
+                  summary: Client pagination cursor is not supported
                   value:
                     status: 400
                     title: "Bad Request"
@@ -3129,7 +3104,17 @@ paths:
                     source:
                       field: "searchAfter"
                       sourceType: "query"
-                    detail: "Remove the 'searchAfter' parameter; this endpoint does not support pagination."
+                    detail: "Remove pagination parameters; this endpoint always returns a fixed-size preview."
+                size_not_supported:
+                  summary: Client pagination size is not supported
+                  value:
+                    status: 400
+                    title: "Bad Request"
+                    error: "BAD_QUERY_PARAMETER_VALUE"
+                    source:
+                      field: "size"
+                      sourceType: "query"
+                    detail: "Remove pagination parameters; this endpoint always returns a fixed-size preview."
                 missing_search_filter_id:
                   summary: Missing search filter ID
                   value:

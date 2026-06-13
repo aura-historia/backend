@@ -6,35 +6,29 @@ use common::{
     },
     currency::data::api::extract_currency_query,
     language::data::api::extract_language_query,
-    pagination::cursor::{
-        Cursor, CursoredResult,
-        api::{JsonCursoredData, extract_json_cursor_query},
-    },
+    pagination::cursor::{CursoredResult, api::JsonCursoredData},
     personalized::{Personalized, api::PersonalizedData},
     user_id::api::extract_user_id_request_context,
     user_search_filter_id::api::extract_user_search_filter_id_path,
 };
 use lambda_runtime::LambdaEvent;
-use product::core::sort_product_field::SortProductField;
 use product::core::user_state::SearchFilterUserState;
 use product::data::{
     get_summary_data::GetProductSummaryData, user_state_data::ProductUserStateData,
 };
 use product::service::query_service::QueryProductService;
 use product_personalization::service::ProductPersonalizationService;
-use product_pipeline_embed_text::service::MultimodalEmbeddingService;
 use search_filter::service::enhanced_search_match_service::EnhancedSearchMatchService;
 use search_filter::service::user_search_filter_service::UserSearchFilterService;
 use tracing::warn;
 
-const MAX_PAGE_SIZE: u64 = 10;
+const PREVIEW_SIZE: u64 = 10;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl UserSearchFilterService,
     query_service: &(impl QueryProductService + Sync),
-    embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
     enhanced_match_service: Option<&(dyn EnhancedSearchMatchService + Sync + Send)>,
     personalization_service: &(impl ProductPersonalizationService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
@@ -44,24 +38,23 @@ pub async fn handle(
     let language = extract_language_query(&event.payload.query_string_parameters)?;
     let currency = extract_currency_query(&event.payload.query_string_parameters)?;
 
-    // Forbid paging: reject any searchAfter parameter
-    let cursor_from_query = extract_json_cursor_query(&event.payload.query_string_parameters)?;
-    if let Some(ref cursor) = cursor_from_query
-        && cursor.search_after.is_some()
-    {
-        return Err(ApiError::bad_request(
-            BAD_QUERY_PARAMETER_VALUE,
-            "Paging is not supported for this endpoint.".into(),
-        )
-        .with_query_field("searchAfter")
-        .with_detail(
-            "Remove the 'searchAfter' parameter; this endpoint does not support pagination.",
-        ));
+    for paging_parameter in ["searchAfter", "size"] {
+        if event
+            .payload
+            .query_string_parameters
+            .iter()
+            .any(|(key, _)| key == paging_parameter)
+        {
+            return Err(ApiError::bad_request(
+                BAD_QUERY_PARAMETER_VALUE,
+                "Paging is not supported for this endpoint.".into(),
+            )
+            .with_query_field(paging_parameter)
+            .with_detail(
+                "Remove pagination parameters; this endpoint always returns a fixed-size preview.",
+            ));
+        }
     }
-    let size = cursor_from_query
-        .map(|c| c.size)
-        .unwrap_or(MAX_PAGE_SIZE)
-        .min(MAX_PAGE_SIZE);
 
     // Load the user search filter to get search criteria and optional enhanced description
     let search_filter = service
@@ -73,48 +66,9 @@ pub async fn handle(
     product_search.language = language.into();
     product_search.currency = currency.into();
 
-    // OpenSearch-native hybrid retrieval: only when an embedding service is available and the
-    // filter contains a non-empty textual product_query.
-    let sort = None::<common::sort::Sort<SortProductField>>;
-    let use_hybrid = embedding_service.is_some()
-        && product_search
-            .product_query
-            .as_ref()
-            .map(|q| !q.as_ref().trim().is_empty())
-            .unwrap_or(false);
-
-    let cursor = Some(Cursor {
-        size,
-        search_after: None,
-    });
-
-    let search_result = if use_hybrid {
-        let es = embedding_service.expect("guarded above");
-        let query_text = product_search
-            .product_query
-            .as_ref()
-            .map(|q| q.as_ref().to_string())
-            .unwrap_or_default();
-        match es.embed_query(&query_text).await {
-            Ok(embedding) => {
-                query_service
-                    .search_products_hybrid(&product_search, &embedding, &cursor)
-                    .await?
-            }
-            Err(err) => {
-                // Fail-open: log and fall back to BM25 so we never break the search path
-                // because of an embedding-service hiccup.
-                warn!(error = %err, "embed_query failed; falling back to BM25 path");
-                query_service
-                    .search_products(&product_search, &sort, &cursor)
-                    .await?
-            }
-        }
-    } else {
-        query_service
-            .search_products(&product_search, &sort, &cursor)
-            .await?
-    };
+    let search_result = query_service
+        .search_products_with_percolator_query(&product_search, PREVIEW_SIZE)
+        .await?;
 
     // Personalize all products for the authenticated user
     let personalized = personalization_service
@@ -151,11 +105,14 @@ pub async fn handle(
                     )
                     .await
                 {
-                    Ok(result) => SearchFilterUserState {
-                        matched: result.matches,
+                    Ok(result) if result.matches => SearchFilterUserState {
+                        matched: true,
                         match_reason: result.reason,
                         ..Default::default()
                     },
+                    Ok(_) => {
+                        continue;
+                    }
                     Err(err) => {
                         warn!(
                             error = %err,
@@ -189,7 +146,6 @@ pub async fn handle(
             convert_to_summary_response(personalized)
         }
     } else {
-        // No enhanced description: act like the normal product-search endpoint.
         convert_to_summary_response(personalized)
     };
 
@@ -252,7 +208,6 @@ mod tests {
         core::user_search_filter::UserSearchFilter,
         service::user_search_filter_service::MockUserSearchFilterService,
     };
-    use serde_json::json;
     use test_api::ApiGatewayV2httpRequestProxy;
 
     fn filter_without_enhanced_description() -> UserSearchFilter {
@@ -277,8 +232,8 @@ mod tests {
             .return_once(|_, _| Box::pin(async { Ok(filter_without_enhanced_description()) }));
         let mut query_service = MockQueryProductService::default();
         query_service
-            .expect_search_products()
-            .return_once(|_, _, _| {
+            .expect_search_products_with_percolator_query()
+            .return_once(|_, _| {
                 Box::pin(async {
                     Ok(CursoredResult {
                         items: vec![],
@@ -308,7 +263,6 @@ mod tests {
             &service,
             &query_service,
             None,
-            None,
             &personalization_service,
         )
         .await
@@ -330,8 +284,8 @@ mod tests {
 
         let mut query_service = MockQueryProductService::default();
         query_service
-            .expect_search_products()
-            .return_once(|_, _, _| {
+            .expect_search_products_with_percolator_query()
+            .return_once(|_, _| {
                 Box::pin(async {
                     Ok(CursoredResult {
                         items: fake::vec![LocalizedProductView; 2],
@@ -386,7 +340,6 @@ mod tests {
             lambda_event,
             &service,
             &query_service,
-            None,
             Some(&match_service),
             &personalization_service,
         )
@@ -416,7 +369,6 @@ mod tests {
             lambda_event,
             &service,
             &query_service,
-            None,
             None,
             &personalization_service,
         )
@@ -451,6 +403,37 @@ mod tests {
             &service,
             &query_service,
             None,
+            &personalization_service,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(400, actual.status);
+    }
+
+    #[tokio::test]
+    async fn should_400_when_size_provided() {
+        let mut service = MockUserSearchFilterService::default();
+        service.expect_find_user_search_filter().never();
+        let query_service = MockQueryProductService::default();
+        let personalization_service = MockProductPersonalizationService::default();
+
+        let lambda_event = LambdaEvent {
+            payload: ApiGatewayV2httpRequestProxy::builder()
+                .http_method(http::Method::GET)
+                .jwt_claim("sub", UserId::new())
+                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
+                .query_string_parameter("language", "de")
+                .query_string_parameter("currency", "EUR")
+                .query_string_parameter("size", "100")
+                .build(),
+            context: Default::default(),
+        };
+
+        let actual = handle(
+            lambda_event,
+            &service,
+            &query_service,
             None,
             &personalization_service,
         )
@@ -461,25 +444,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_cap_size_at_max_page_size() {
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicU64, Ordering};
-
+    async fn should_use_hardcoded_preview_size_for_percolator_query() {
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_find_user_search_filter()
             .return_once(|_, _| Box::pin(async { Ok(filter_without_enhanced_description()) }));
 
-        let captured_size = Arc::new(AtomicU64::new(0));
-        let captured_size_clone = captured_size.clone();
-
         let mut query_service = MockQueryProductService::default();
         query_service
-            .expect_search_products()
-            .return_once(move |_, _, cursor| {
-                if let Some(c) = cursor {
-                    captured_size_clone.store(c.size, Ordering::SeqCst);
-                }
+            .expect_search_products_with_percolator_query()
+            .withf(|_, size| *size == 10)
+            .return_once(|_, _| {
                 Box::pin(async {
                     Ok(CursoredResult {
                         items: vec![],
@@ -501,7 +476,6 @@ mod tests {
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .query_string_parameter("language", "de")
                 .query_string_parameter("currency", "EUR")
-                .query_string_parameter("size", "100") // request 100, should be capped at 10
                 .build(),
             context: Default::default(),
         };
@@ -511,14 +485,12 @@ mod tests {
             &service,
             &query_service,
             None,
-            None,
             &personalization_service,
         )
         .await
         .unwrap();
 
         assert_eq!(200, response.status_code);
-        assert_eq!(10, captured_size.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
@@ -529,8 +501,8 @@ mod tests {
             .return_once(|_, _| Box::pin(async { Ok(filter_without_enhanced_description()) }));
         let mut query_service = MockQueryProductService::default();
         query_service
-            .expect_search_products()
-            .return_once(|_, _, _| {
+            .expect_search_products_with_percolator_query()
+            .return_once(|_, _| {
                 Box::pin(async {
                     Ok(CursoredResult {
                         items: vec![],
@@ -559,7 +531,6 @@ mod tests {
             lambda_event,
             &service,
             &query_service,
-            None,
             None,
             &personalization_service,
         )
@@ -576,78 +547,5 @@ mod tests {
                 .to_str()
                 .unwrap()
         );
-    }
-
-    #[tokio::test]
-    async fn should_use_hybrid_search_when_embedding_service_available_and_query_present() {
-        use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
-
-        let mut service = MockUserSearchFilterService::default();
-        service
-            .expect_find_user_search_filter()
-            .return_once(|_, _| {
-                Box::pin(async {
-                    use common::query::text_query::TextQuery;
-                    use product::core::product_search::ProductSearch;
-                    let mut filter: UserSearchFilter = Faker.fake();
-                    filter.enhanced_search_description = None;
-                    filter.search = {
-                        let mut search: ProductSearch = Faker.fake();
-                        search.product_query = Some(TextQuery::try_from("antique vase").unwrap());
-                        search
-                    };
-                    Ok(filter)
-                })
-            });
-
-        let mut embedding_service = MockMultimodalEmbeddingService::default();
-        embedding_service
-            .expect_embed_query()
-            .return_once(|_| Box::pin(async { Ok(vec![0.1f32; 768]) }));
-
-        let mut query_service = MockQueryProductService::default();
-        query_service
-            .expect_search_products_hybrid()
-            .return_once(|_, _, _| {
-                Box::pin(async {
-                    Ok(CursoredResult {
-                        items: vec![],
-                        cursor: Cursor {
-                            size: 10,
-                            search_after: Some(json!([0.99])),
-                        },
-                        total: Some(0),
-                    })
-                })
-            });
-
-        let mut personalization_service = MockProductPersonalizationService::default();
-        personalization_service
-            .expect_personalize_all()
-            .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
-
-        let lambda_event = LambdaEvent {
-            payload: ApiGatewayV2httpRequestProxy::builder()
-                .http_method(http::Method::GET)
-                .jwt_claim("sub", UserId::new())
-                .path_parameter("userSearchFilterId", UserSearchFilterId::new())
-                .query_string_parameter("language", "de")
-                .query_string_parameter("currency", "EUR")
-                .build(),
-            context: Default::default(),
-        };
-
-        let response = handle(
-            lambda_event,
-            &service,
-            &query_service,
-            Some(&embedding_service),
-            None,
-            &personalization_service,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(200, response.status_code);
     }
 }

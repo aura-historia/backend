@@ -104,7 +104,6 @@ async fn patch_existing_match(
         &get_product_service,
         &query_product_service,
         None,
-        None,
         &personalization_service,
     )
     .await
@@ -199,7 +198,6 @@ async fn should_404_when_search_filter_product_match_not_found() {
         &service,
         &get_product_service,
         &query_product_service,
-        None,
         None,
         &personalization_service,
     )

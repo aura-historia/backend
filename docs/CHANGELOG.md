@@ -6,6 +6,19 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-06-13 - Search Filter Product Preview Uses Percolator Matching
+
+### Changed
+
+- **`GET /api/v1/me/search-filters/{userSearchFilterId}/products`**
+  - Now uses the same percolator-style product matching query as search-filter
+    product-match processing instead of normal hybrid product search.
+  - No longer supports client pagination. Supplying `size` or `searchAfter`
+    now returns `400 Bad Request` with `BAD_QUERY_PARAMETER_VALUE`.
+  - Always returns a fixed preview of up to 10 products.
+  - For filters with `enhancedSearchDescription`, products rejected by enhanced
+    matching are omitted from the preview.
+
 ## 2026-06-09 - Hydrate Existing Partner Shop Applications
 
 ### Changed

@@ -56,6 +56,12 @@ pub trait ProductOpenSearchRepository {
         page: &Option<Cursor<serde_json::Value>>,
     ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
 
+    async fn search_product_documents_with_percolator_query(
+        &self,
+        search: &ProductSearch,
+        size: u64,
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error>;
+
     async fn get_product_document_by_id(
         &self,
         product_id: &ProductId,
@@ -163,6 +169,27 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .client
             .search(SearchParts::Index(&["products"]))
             .body(build_search_request(search, sort, cursor)?)
+            .send()
+            .await?
+            .error_for_status_code()?;
+        let payload = response.text().await?;
+        let res = serde_json::from_str(&payload).map_err(|err| {
+            serde_json::Error::custom(format!(
+                "Failed deserializing SearchResponse<ProductDocument>: {err}. Payload: {payload}"
+            ))
+        })?;
+        Ok(res)
+    }
+
+    async fn search_product_documents_with_percolator_query(
+        &self,
+        search: &ProductSearch,
+        size: u64,
+    ) -> Result<SearchResponse<ProductDocument>, opensearch::Error> {
+        let response = self
+            .client
+            .search(SearchParts::Index(&["products"]))
+            .body(build_percolator_search_request(search, size)?)
             .send()
             .await?
             .error_for_status_code()?;
@@ -310,6 +337,21 @@ pub fn build_search_request(
     ]);
 
     Ok(body)
+}
+
+pub fn build_percolator_search_request(
+    search: &ProductSearch,
+    size: u64,
+) -> Result<serde_json::Value, serde_json::Error> {
+    Ok(json!({
+        "_source": { "excludes": [ProductDocumentSerdeField::Embedding] },
+        "size": size,
+        "query": build_percolator_query(search)?,
+        "sort": [
+            { "_score": { "order": "desc" } },
+            { ProductDocumentSerdeField::ProductId.as_str(): { "order": "asc" } }
+        ]
+    }))
 }
 
 pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, serde_json::Error> {
@@ -786,6 +828,20 @@ mod tests {
         assert_eq!(
             actual.pointer("/bool/filter/0/terms/state"),
             Some(&json!(["LISTED"]))
+        );
+    }
+
+    #[test]
+    fn should_build_percolator_search_request_without_pagination_cursor() {
+        let search = search_with_product_query("Ming dynasty blue white porcelain vase");
+
+        let actual = build_percolator_search_request(&search, 10).unwrap();
+
+        assert_eq!(actual.pointer("/size"), Some(&json!(10)));
+        assert!(actual.get("search_after").is_none());
+        assert_eq!(
+            actual.pointer("/query/bool/must/0/multi_match/minimum_should_match"),
+            Some(&json!("4<80%"))
         );
     }
 
