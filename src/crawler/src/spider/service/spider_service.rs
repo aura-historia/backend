@@ -6,7 +6,9 @@ use crate::spider::classification::url_metadata_repository::UrlMetadataRepositor
 use crate::spider::classification::url_pattern_service::{
     UrlPatternService, UrlPatternServiceError,
 };
-use crate::spider::discovery::website_spider::{CrawledPage, Spider, SpiderDiscoveryError};
+use crate::spider::discovery::website_spider::{
+    CrawlDiagnostics, CrawlFailureKind, CrawledPage, Spider, SpiderDiscoveryError,
+};
 use crate::spider::service::crawl_run_state::CrawlRunState;
 use crate::spider::service::product_pattern::ProductPattern;
 use crate::spider::utils::url::CrawledUrl;
@@ -49,6 +51,19 @@ pub enum SpiderServiceError {
     TinyCrawl {
         shop_url: String,
         total_links: usize,
+    },
+
+    #[error(
+        "Spider crawl failed for shop URL '{shop_url}' with diagnostic kind '{kind}' after {total_links} page(s)"
+    )]
+    DiagnosticCrawlFailure {
+        shop_url: String,
+        kind: CrawlFailureKind,
+        total_links: usize,
+        http_status: Option<u16>,
+        final_url: Option<String>,
+        redirect_url: Option<String>,
+        diagnostic_reason: Option<String>,
     },
 
     #[error(
@@ -354,7 +369,9 @@ impl SpiderServiceImpl {
         shop_url: &str,
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
-        let mut crawl_rx = self.spider.crawl(shop_url).await?;
+        let crawl = self.spider.crawl(shop_url).await?;
+        let diagnostics = crawl.diagnostics;
+        let mut crawl_rx = crawl.pages;
 
         let initial_pattern = self.pattern_service.load_pattern_for_shop(shop_id).await?;
         let mut state = CrawlRunState::new(initial_pattern);
@@ -378,6 +395,10 @@ impl SpiderServiceImpl {
             self.flush_batch_if_needed(&mut state, shop_id, domain_id)
                 .await?;
             self.log_progress(&state);
+        }
+
+        if let Some(error) = diagnostic_failure_error(shop_url, state.total_crawled, &diagnostics) {
+            return Err(error);
         }
 
         if state.total_crawled == 0 {
@@ -518,7 +539,9 @@ mod service_tests {
     use super::*;
     use crate::spider::classification::url_metadata_repository::MockUrlMetadataRepository;
     use crate::spider::classification::url_pattern_service::MockUrlPatternService;
-    use crate::spider::discovery::website_spider::MockSpider;
+    use crate::spider::discovery::website_spider::{
+        CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
+    };
     use regex::Regex;
     use tokio::sync::mpsc;
 
@@ -548,11 +571,24 @@ mod service_tests {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
+        setup_mock_crawl_with_diagnostics(mock, shop_url, paths, CrawlDiagnostics::default());
+    }
+
+    fn setup_mock_crawl_with_diagnostics<I, S>(
+        mock: &mut MockSpider,
+        shop_url: &'static str,
+        paths: I,
+        diagnostics: CrawlDiagnostics,
+    ) where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
         let paths: Vec<String> = paths.into_iter().map(Into::into).collect();
         mock.expect_crawl()
             .with(mockall::predicate::eq(shop_url))
             .returning(move |_| {
                 let paths = paths.clone();
+                let diagnostics = diagnostics.clone();
                 let (tx, rx) = mpsc::channel(25);
                 tokio::spawn(async move {
                     for path in paths {
@@ -565,7 +601,12 @@ mod service_tests {
                         .unwrap();
                     }
                 });
-                Box::pin(async { Ok(rx) })
+                Box::pin(async {
+                    Ok(SpiderCrawl {
+                        pages: rx,
+                        diagnostics,
+                    })
+                })
             });
     }
 
@@ -711,7 +752,12 @@ mod service_tests {
             .with(mockall::predicate::eq(shop_url))
             .returning(|_| {
                 let (_tx, rx) = mpsc::channel(10);
-                Box::pin(async { Ok(rx) })
+                Box::pin(async {
+                    Ok(SpiderCrawl {
+                        pages: rx,
+                        diagnostics: CrawlDiagnostics::default(),
+                    })
+                })
             });
 
         mock_pattern_service
@@ -818,6 +864,102 @@ mod service_tests {
     }
 
     #[tokio::test]
+    async fn should_return_diagnostic_crawl_failure_for_rate_limited_tiny_crawl() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let domain_id = uuid::Uuid::new_v4();
+        let shop_url = "https://example.com";
+
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            shop_url,
+            vec!["/"],
+            CrawlDiagnostics {
+                failure_kind: Some(CrawlFailureKind::RateLimited),
+                http_status: Some(429),
+                final_url: Some("https://example.com/".to_string()),
+                redirect_url: None,
+                diagnostic_reason: Some("canonical_non_success_status".to_string()),
+            },
+        );
+
+        mock_pattern_service
+            .expect_load_pattern_for_shop()
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(None) }));
+
+        mock_pattern_service.expect_classify_and_save().times(0);
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo.expect_upsert_links_batch().times(0);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::DiagnosticCrawlFailure {
+                kind: CrawlFailureKind::RateLimited,
+                total_links: 1,
+                http_status: Some(429),
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_keep_insufficient_inference_sample_when_diagnostic_has_multiple_urls() {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+
+        let shop_id: ShopId = uuid::Uuid::new_v4().into();
+        let domain_id = uuid::Uuid::new_v4();
+        let shop_url = "https://example.com";
+
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            shop_url,
+            vec!["/collections", "/about"],
+            CrawlDiagnostics {
+                failure_kind: Some(CrawlFailureKind::JavascriptRequired),
+                diagnostic_reason: Some("few_links_and_app_shell_markers".to_string()),
+                ..CrawlDiagnostics::default()
+            },
+        );
+
+        mock_pattern_service
+            .expect_load_pattern_for_shop()
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(None) }));
+        mock_pattern_service.expect_classify_and_save().times(0);
+        mock_pattern_service.expect_mark_as_crawled().times(0);
+        mock_url_repo.expect_upsert_links_batch().times(0);
+
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+        );
+
+        let result = service.run(&shop_id, &domain_id, shop_url, 10).await;
+
+        assert!(matches!(
+            result,
+            Err(SpiderServiceError::InsufficientInferenceSample { sample_size: 2, .. })
+        ));
+    }
+
+    #[tokio::test]
     async fn should_return_insufficient_inference_sample_error_for_refresh_with_small_sample() {
         let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = MockUrlPatternService::new();
@@ -856,4 +998,24 @@ mod service_tests {
             }) if url == shop_url
         ));
     }
+}
+
+fn diagnostic_failure_error(
+    shop_url: &str,
+    total_links: usize,
+    diagnostics: &CrawlDiagnostics,
+) -> Option<SpiderServiceError> {
+    let kind = diagnostics.failure_kind?;
+    if total_links > 1 {
+        return None;
+    }
+    Some(SpiderServiceError::DiagnosticCrawlFailure {
+        shop_url: shop_url.to_string(),
+        kind,
+        total_links,
+        http_status: diagnostics.http_status,
+        final_url: diagnostics.final_url.clone(),
+        redirect_url: diagnostics.redirect_url.clone(),
+        diagnostic_reason: diagnostics.diagnostic_reason.clone(),
+    })
 }

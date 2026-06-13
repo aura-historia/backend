@@ -306,7 +306,7 @@ async fn main() {
             scraper_interval: Duration::from_secs(30),
             spider_batch_size: 10,
             scraper_batch_size: 1000,
-            spider_concurrency: 10,
+            spider_concurrency: 3,
             scraper_concurrency: 10,
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
