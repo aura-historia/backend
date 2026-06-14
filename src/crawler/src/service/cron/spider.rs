@@ -8,9 +8,28 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{Instrument, debug, error, info, warn};
 
-const SMALL_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
-const SMALL_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-const SMALL_CRAWL_LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
+const CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
+const TRANSIENT_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CrawlCooldownProfile {
+    Transient,
+    Recoverable,
+    DurableBlock,
+}
+
+impl CrawlCooldownProfile {
+    fn long_cooldown(self) -> Duration {
+        match self {
+            CrawlCooldownProfile::Transient => TRANSIENT_CRAWL_LONG_COOLDOWN,
+            CrawlCooldownProfile::Recoverable => RECOVERABLE_CRAWL_LONG_COOLDOWN,
+            CrawlCooldownProfile::DurableBlock => DURABLE_BLOCK_CRAWL_LONG_COOLDOWN,
+        }
+    }
+}
 
 fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
     if candidate.last_crawl_error_kind.as_deref() == Some(error_kind) {
@@ -20,28 +39,27 @@ fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
     }
 }
 
-fn is_small_crawl_error_kind(error_kind: &str) -> bool {
-    matches!(
-        error_kind,
-        "EmptyCrawl"
-            | "TinyCrawl"
-            | "InsufficientInferenceSample"
-            | "RateLimited"
-            | "AccessDenied"
-            | "CloudflareChallenge"
-            | "TlsError"
-            | "RobotsBlocked"
-            | "RedirectProblem"
-            | "JavascriptRequired"
-    )
+fn crawl_cooldown_profile(error_kind: &str) -> Option<CrawlCooldownProfile> {
+    match error_kind {
+        "EmptyCrawl" | "TinyCrawl" | "RateLimited" | "CloudflareChallenge" => {
+            Some(CrawlCooldownProfile::Transient)
+        }
+        "InsufficientInferenceSample" | "TlsError" | "RedirectProblem" => {
+            Some(CrawlCooldownProfile::Recoverable)
+        }
+        "AccessDenied" | "RobotsBlocked" | "JavascriptRequired" => {
+            Some(CrawlCooldownProfile::DurableBlock)
+        }
+        _ => None,
+    }
 }
 
 fn cooldown_for_spider_failure(error_kind: &str, failure_count: i32) -> Duration {
-    if is_small_crawl_error_kind(error_kind) {
-        if failure_count >= SMALL_CRAWL_LONG_COOLDOWN_FAILURE_COUNT {
-            SMALL_CRAWL_LONG_COOLDOWN
+    if let Some(profile) = crawl_cooldown_profile(error_kind) {
+        if failure_count >= LONG_COOLDOWN_FAILURE_COUNT {
+            profile.long_cooldown()
         } else {
-            SMALL_CRAWL_RETRY_COOLDOWN
+            CRAWL_RETRY_COOLDOWN
         }
     } else {
         retry_cooldown_for(NetworkErrorKind::Unknown)
@@ -339,6 +357,74 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cooldown_should_use_retry_cooldown_for_first_two_grouped_failures() {
+        for error_kind in [
+            "EmptyCrawl",
+            "TinyCrawl",
+            "RateLimited",
+            "CloudflareChallenge",
+            "InsufficientInferenceSample",
+            "TlsError",
+            "RedirectProblem",
+            "AccessDenied",
+            "RobotsBlocked",
+            "JavascriptRequired",
+        ] {
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, 1),
+                CRAWL_RETRY_COOLDOWN
+            );
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, 2),
+                CRAWL_RETRY_COOLDOWN
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_use_transient_long_cooldown_for_flaky_failures() {
+        for error_kind in [
+            "EmptyCrawl",
+            "TinyCrawl",
+            "RateLimited",
+            "CloudflareChallenge",
+        ] {
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
+                TRANSIENT_CRAWL_LONG_COOLDOWN
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_use_recoverable_long_cooldown_for_site_or_sample_failures() {
+        for error_kind in ["InsufficientInferenceSample", "TlsError", "RedirectProblem"] {
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
+                RECOVERABLE_CRAWL_LONG_COOLDOWN
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_use_durable_block_long_cooldown_for_explicit_blocks() {
+        for error_kind in ["AccessDenied", "RobotsBlocked", "JavascriptRequired"] {
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
+                DURABLE_BLOCK_CRAWL_LONG_COOLDOWN
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_keep_generic_fallback_for_unknown_failures() {
+        assert_eq!(
+            cooldown_for_spider_failure("spider_run_error", LONG_COOLDOWN_FAILURE_COUNT),
+            retry_cooldown_for(NetworkErrorKind::Unknown)
+        );
+    }
+
     #[tokio::test]
     async fn should_run_spider_candidates() {
         let mut spider_candidates = MockSpiderCandidateService::new();
@@ -455,7 +541,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == "TinyCrawl"
                     && *failure_count == 1
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_RETRY_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -506,7 +592,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == "EmptyCrawl"
                     && *failure_count == 1
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_RETRY_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -554,7 +640,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == "InsufficientInferenceSample"
                     && *failure_count == 1
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_RETRY_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -614,7 +700,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == "EmptyCrawl"
                     && *failure_count == 3
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_LONG_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, TRANSIENT_CRAWL_LONG_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -668,7 +754,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == "InsufficientInferenceSample"
                     && *failure_count == 3
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_LONG_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, RECOVERABLE_CRAWL_LONG_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -725,7 +811,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == expected_error_kind
                     && *failure_count == 1
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_RETRY_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -805,7 +891,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == "RateLimited"
                     && *failure_count == 3
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_LONG_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, TRANSIENT_CRAWL_LONG_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 

@@ -65,11 +65,13 @@ Controls per-run behavior of the spider.
 - **`min_inference_sample_urls`**: URL pattern inference is not attempted when the crawl sample has fewer than this many
   URLs, preventing low-confidence LLM calls on tiny crawls. Crawls with zero URLs fail as `EmptyCrawl`, crawls with one
   URL fail as `TinyCrawl`, and crawls with 2-19 URLs fail as `InsufficientInferenceSample`. These failure modes avoid LLM
-  calls and do not mark the domain as successfully crawled. They use the bounded small-crawl retry policy: attempts 1-2
-  retry after 6 hours; attempt 3 and later retry after 30 days.
+  calls and do not mark the domain as successfully crawled. They use the bounded crawl retry policy: attempts 1-2 retry
+  after 6 hours; attempt 3 and later use the failure-kind cooldown group (`EmptyCrawl`/`TinyCrawl` retry after 24 hours,
+  while `InsufficientInferenceSample` retries after 3 days).
   When preflight diagnostics identify a clearer cause for a zero/one-page crawl, the crawler persists that specific
   kind instead, such as `RateLimited`, `AccessDenied`, `CloudflareChallenge`, `TlsError`, `RobotsBlocked`,
-  `RedirectProblem`, or `JavascriptRequired`.
+  `RedirectProblem`, or `JavascriptRequired`. These diagnostics have their own cooldown groups based on whether the
+  likely cause is transient, recoverable, or a durable block.
 
 - **`spider_batch_size` + `spider_concurrency`**: At each tick, up to `spider_batch_size` shops are selected and up to
   `spider_concurrency` are crawled concurrently. If a domain's in-memory lock (`DomainLock`) is held by another task the
