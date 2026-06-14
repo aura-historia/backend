@@ -1081,6 +1081,102 @@ async fn wait_until_document_deleted(user_search_filter_id: impl Into<String>) {
     );
 }
 
+async fn emit_create_log_group_cloudtrail_event(log_group_name: &str) {
+    let detail = serde_json::json!({
+        "eventSource": "logs.amazonaws.com",
+        "eventName": "CreateLogGroup",
+        "requestParameters": {
+            "logGroupName": log_group_name,
+        }
+    });
+
+    let result = get_eventbridge_client()
+        .await
+        .put_events()
+        .entries(
+            aws_sdk_eventbridge::types::PutEventsRequestEntry::builder()
+                .source("aws.logs")
+                .detail_type("AWS API Call via CloudTrail")
+                .detail(detail.to_string())
+                .event_bus_name("default")
+                .build(),
+        )
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(result.failed_entry_count(), 0);
+}
+
+async fn wait_until_log_retention_is_set(
+    client: &aws_sdk_cloudwatchlogs::Client,
+    log_group_name: &str,
+    expected_retention_days: i32,
+) {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let log_groups = client
+            .describe_log_groups()
+            .log_group_name_prefix(log_group_name)
+            .send()
+            .await
+            .unwrap()
+            .log_groups
+            .unwrap_or_default();
+
+        let retention_in_days = log_groups
+            .iter()
+            .find(|log_group| log_group.log_group_name.as_deref() == Some(log_group_name))
+            .and_then(|log_group| log_group.retention_in_days);
+
+        if retention_in_days == Some(expected_retention_days) {
+            return;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Expected log group '{}' to have retention of {} days, but last observed retention was {:?}.",
+                log_group_name, expected_retention_days, retention_in_days
+            );
+        }
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CloudWatch Logs retention
+// Verifies CreateLogGroup events trigger the retention Lambda in LocalStack.
+// ---------------------------------------------------------------------------
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_set_retention_policy_when_cloudwatch_log_group_is_created() {
+    let client = aws_sdk_cloudwatchlogs::Client::new(test_api::localstack::get_aws_config().await);
+    let log_group_name = format!(
+        "acceptance/cloudwatch-log-retention/{}",
+        uuid::Uuid::new_v4()
+    );
+
+    client
+        .create_log_group()
+        .log_group_name(&log_group_name)
+        .send()
+        .await
+        .unwrap();
+
+    // LocalStack does not synthesize CloudTrail management events for Logs API calls,
+    // so publish the same EventBridge event that AWS emits for CreateLogGroup.
+    emit_create_log_group_cloudtrail_event(&log_group_name).await;
+    wait_until_log_retention_is_set(&client, &log_group_name, 30).await;
+
+    client
+        .delete_log_group()
+        .log_group_name(log_group_name)
+        .send()
+        .await
+        .unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // Product ingest: DynamoDB materialization
 // Verifies EventBridge routing and Lambda IAM access for each event type.

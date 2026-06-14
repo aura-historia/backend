@@ -45,6 +45,7 @@ const STAGE: &str = "ephemeral";
 /// Each entry corresponds to a Cargo binary target that produces a Lambda handler.
 const LAMBDA_BINARIES: &[&str] = &[
     "cognito-post-confirmation",
+    "cloudwatch-log-retention-lambda",
     "product-api",
     "product-api-partner",
     "product-watchlist-api",
@@ -118,6 +119,7 @@ impl IntegrationTestService for Cloudformation {
             "cloudfront",
             "lambda",
             "iam",
+            "logs",
             "events",
             "pipes",
             "sqs",

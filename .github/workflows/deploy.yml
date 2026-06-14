@@ -89,6 +89,7 @@ jobs:
           - src/partner-shop-application-api
           - src/partner-shop-application-lambda
           - src/cognito-post-confirmation
+          - src/cloudwatch-log-retention-lambda
           - src/notification-send
           - src/notification-api
           - src/newsletter-api

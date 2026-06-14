@@ -23,6 +23,7 @@ aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 aws-sdk-eventbridge = { workspace = true }
+aws-sdk-cloudwatchlogs = { workspace = true }
 opensearch = { workspace = true }
 openssl = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
