@@ -7,6 +7,7 @@ name = "acceptance-tests"
 version = "0.1.0"
 dependencies = [
  "aws-config",
+ "aws-sdk-cloudwatchlogs",
  "aws-sdk-cognitoidentityprovider",
  "aws-sdk-dynamodb",
  "aws-sdk-eventbridge",
@@ -222,6 +223,7 @@ version = "0.1.0"
 dependencies = [
  "acceptance-tests",
  "aws-tests",
+ "cloudwatch-log-retention-lambda",
  "cognito",
  "cognito-post-confirmation",
  "common",
@@ -1432,6 +1434,23 @@ dependencies = [
  "determinator",
  "guppy",
  "serde_json",
+]
+
+[[package]]
+name = "cloudwatch-log-retention-lambda"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-cloudwatchlogs",
+ "aws_lambda_events",
+ "common",
+ "lambda_runtime",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
