@@ -2,6 +2,8 @@ use super::job::CrawlerCronJob;
 use crate::network::policy::{NetworkErrorKind, retry_cooldown_for};
 use crate::spider::advisory_lock::DomainLock;
 use crate::spider::candidate_service::SpiderCandidate;
+use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
+use crate::spider::service::SpiderServiceError;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -29,6 +31,13 @@ impl CrawlCooldownProfile {
             CrawlCooldownProfile::DurableBlock => DURABLE_BLOCK_CRAWL_LONG_COOLDOWN,
         }
     }
+
+    fn cooldown_for_failure_count(self, failure_count: i32) -> Duration {
+        match failure_count >= LONG_COOLDOWN_FAILURE_COUNT {
+            true => self.long_cooldown(),
+            false => CRAWL_RETRY_COOLDOWN,
+        }
+    }
 }
 
 fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
@@ -41,28 +50,37 @@ fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
 
 fn crawl_cooldown_profile(error_kind: &str) -> Option<CrawlCooldownProfile> {
     match error_kind {
-        "EmptyCrawl" | "TinyCrawl" | "RateLimited" | "CloudflareChallenge" => {
-            Some(CrawlCooldownProfile::Transient)
-        }
-        "InsufficientInferenceSample" | "TlsError" | "RedirectProblem" => {
+        "EmptyCrawl"
+        | "TinyCrawl"
+        | "RateLimited"
+        | "CloudflareChallenge"
+        | "BotProtection"
+        | "ConnectError"
+        | "ServerError" => Some(CrawlCooldownProfile::Transient),
+        "InsufficientInferenceSample" | "TlsError" | "RedirectProblem" | "InvalidUrl" => {
             Some(CrawlCooldownProfile::Recoverable)
         }
-        "AccessDenied" | "RobotsBlocked" | "JavascriptRequired" => {
-            Some(CrawlCooldownProfile::DurableBlock)
-        }
+        "AccessDenied" | "JavascriptRequired" => Some(CrawlCooldownProfile::DurableBlock),
         _ => None,
     }
 }
 
 fn cooldown_for_spider_failure(error_kind: &str, failure_count: i32) -> Duration {
-    if let Some(profile) = crawl_cooldown_profile(error_kind) {
-        if failure_count >= LONG_COOLDOWN_FAILURE_COUNT {
-            profile.long_cooldown()
-        } else {
-            CRAWL_RETRY_COOLDOWN
+    crawl_cooldown_profile(error_kind)
+        .map(|profile| profile.cooldown_for_failure_count(failure_count))
+        .unwrap_or_else(|| retry_cooldown_for(NetworkErrorKind::Unknown))
+}
+
+fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
+    match error {
+        SpiderServiceError::UrlPattern(UrlPatternServiceError::PendingReview { .. }) => {
+            "PendingUrlPatternReview"
         }
-    } else {
-        retry_cooldown_for(NetworkErrorKind::Unknown)
+        SpiderServiceError::TinyCrawl { .. } => "TinyCrawl",
+        SpiderServiceError::EmptyCrawl { .. } => "EmptyCrawl",
+        SpiderServiceError::InsufficientInferenceSample { .. } => "InsufficientInferenceSample",
+        SpiderServiceError::DiagnosticCrawlFailure { kind, .. } => kind.as_str(),
+        _ => "spider_run_error",
     }
 }
 
@@ -153,27 +171,7 @@ impl CrawlerCronJob {
                                 true
                             }
                             Err(e) => {
-                                let error_kind = match &e {
-                                    crate::spider::service::SpiderServiceError::UrlPattern(
-                                        crate::spider::classification::url_pattern_service::UrlPatternServiceError::PendingReview {
-                                            ..
-                                        },
-                                    ) => "PendingUrlPatternReview",
-                                    crate::spider::service::SpiderServiceError::TinyCrawl {
-                                        ..
-                                    } => "TinyCrawl",
-                                    crate::spider::service::SpiderServiceError::EmptyCrawl {
-                                        ..
-                                    } => "EmptyCrawl",
-                                    crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
-                                        ..
-                                    } => "InsufficientInferenceSample",
-                                    crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
-                                        kind,
-                                        ..
-                                    } => kind.as_str(),
-                                    _ => "spider_run_error",
-                                };
+                                let error_kind = error_kind_for_spider_error(&e);
                                 let failure_count = next_failure_count(&candidate, error_kind);
                                 let cooldown =
                                     cooldown_for_spider_failure(error_kind, failure_count);
@@ -364,11 +362,14 @@ mod tests {
             "TinyCrawl",
             "RateLimited",
             "CloudflareChallenge",
+            "BotProtection",
+            "ConnectError",
+            "ServerError",
             "InsufficientInferenceSample",
             "TlsError",
             "RedirectProblem",
+            "InvalidUrl",
             "AccessDenied",
-            "RobotsBlocked",
             "JavascriptRequired",
         ] {
             assert_eq!(
@@ -389,6 +390,9 @@ mod tests {
             "TinyCrawl",
             "RateLimited",
             "CloudflareChallenge",
+            "BotProtection",
+            "ConnectError",
+            "ServerError",
         ] {
             assert_eq!(
                 cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
@@ -399,7 +403,12 @@ mod tests {
 
     #[test]
     fn cooldown_should_use_recoverable_long_cooldown_for_site_or_sample_failures() {
-        for error_kind in ["InsufficientInferenceSample", "TlsError", "RedirectProblem"] {
+        for error_kind in [
+            "InsufficientInferenceSample",
+            "TlsError",
+            "RedirectProblem",
+            "InvalidUrl",
+        ] {
             assert_eq!(
                 cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
                 RECOVERABLE_CRAWL_LONG_COOLDOWN
@@ -409,7 +418,7 @@ mod tests {
 
     #[test]
     fn cooldown_should_use_durable_block_long_cooldown_for_explicit_blocks() {
-        for error_kind in ["AccessDenied", "RobotsBlocked", "JavascriptRequired"] {
+        for error_kind in ["AccessDenied", "JavascriptRequired"] {
             assert_eq!(
                 cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
                 DURABLE_BLOCK_CRAWL_LONG_COOLDOWN
@@ -859,12 +868,16 @@ mod tests {
     #[tokio::test]
     async fn should_persist_diagnostic_failure_kinds_with_small_crawl_cooldown() {
         for (kind, expected_error_kind) in [
+            (CrawlFailureKind::EmptyCrawl, "EmptyCrawl"),
             (CrawlFailureKind::RateLimited, "RateLimited"),
             (CrawlFailureKind::AccessDenied, "AccessDenied"),
             (CrawlFailureKind::CloudflareChallenge, "CloudflareChallenge"),
+            (CrawlFailureKind::BotProtection, "BotProtection"),
             (CrawlFailureKind::TlsError, "TlsError"),
-            (CrawlFailureKind::RobotsBlocked, "RobotsBlocked"),
+            (CrawlFailureKind::ConnectError, "ConnectError"),
+            (CrawlFailureKind::ServerError, "ServerError"),
             (CrawlFailureKind::RedirectProblem, "RedirectProblem"),
+            (CrawlFailureKind::InvalidUrl, "InvalidUrl"),
             (CrawlFailureKind::JavascriptRequired, "JavascriptRequired"),
         ] {
             assert_diagnostic_failure_is_persisted(kind, expected_error_kind).await;

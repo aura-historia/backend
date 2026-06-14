@@ -1,10 +1,10 @@
 use bloomfilter::Bloom;
-use reqwest::redirect::Policy;
+use spider::page::AntiBotTech;
 use spider::tokio;
-use spider::website::Website;
+use spider::utils::auto_throttle::AutoThrottleConfig;
+use spider::website::{CrawlStatus, Website, WebsiteMetaInfo};
 use thiserror::Error;
-use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tokio::sync::{mpsc, oneshot};
 use url::Url;
 
 use crate::spider::utils::url::CrawledUrl;
@@ -19,24 +19,32 @@ pub struct CrawledPage {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlFailureKind {
+    EmptyCrawl,
     RateLimited,
     AccessDenied,
     CloudflareChallenge,
+    BotProtection,
     TlsError,
-    RobotsBlocked,
+    ConnectError,
+    ServerError,
     RedirectProblem,
+    InvalidUrl,
     JavascriptRequired,
 }
 
 impl CrawlFailureKind {
     pub fn as_str(self) -> &'static str {
         match self {
+            CrawlFailureKind::EmptyCrawl => "EmptyCrawl",
             CrawlFailureKind::RateLimited => "RateLimited",
             CrawlFailureKind::AccessDenied => "AccessDenied",
             CrawlFailureKind::CloudflareChallenge => "CloudflareChallenge",
+            CrawlFailureKind::BotProtection => "BotProtection",
             CrawlFailureKind::TlsError => "TlsError",
-            CrawlFailureKind::RobotsBlocked => "RobotsBlocked",
+            CrawlFailureKind::ConnectError => "ConnectError",
+            CrawlFailureKind::ServerError => "ServerError",
             CrawlFailureKind::RedirectProblem => "RedirectProblem",
+            CrawlFailureKind::InvalidUrl => "InvalidUrl",
             CrawlFailureKind::JavascriptRequired => "JavascriptRequired",
         }
     }
@@ -57,10 +65,29 @@ pub struct CrawlDiagnostics {
     pub diagnostic_reason: Option<String>,
 }
 
+impl CrawlDiagnostics {
+    fn apply_signal(&mut self, signal: DiagnosticSignal) {
+        self.failure_kind = Some(signal.kind);
+        self.diagnostic_reason = Some(signal.reason.to_string());
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DiagnosticSignal {
+    kind: CrawlFailureKind,
+    reason: &'static str,
+}
+
+impl DiagnosticSignal {
+    const fn new(kind: CrawlFailureKind, reason: &'static str) -> Self {
+        Self { kind, reason }
+    }
+}
+
 #[derive(Debug)]
 pub struct SpiderCrawl {
     pub pages: mpsc::Receiver<CrawledPage>,
-    pub diagnostics: CrawlDiagnostics,
+    pub diagnostics: oneshot::Receiver<CrawlDiagnostics>,
 }
 
 #[derive(Debug, Error)]
@@ -100,126 +127,9 @@ pub struct SpiderImpl {
     config: CrawlerConfig,
 }
 
-struct CrawlSeedResolution {
-    seed_url: String,
-    diagnostics: CrawlDiagnostics,
-}
-
 impl SpiderImpl {
     pub fn new(config: CrawlerConfig) -> Self {
         Self { config }
-    }
-
-    async fn resolve_crawl_seed_url(&self, shop_url: &str) -> CrawlSeedResolution {
-        let mut diagnostics = CrawlDiagnostics::default();
-
-        let Ok(original_url) = Url::parse(shop_url) else {
-            warn!(
-                shop_url,
-                "Skipping canonical URL resolution for invalid crawl seed"
-            );
-            diagnostics.diagnostic_reason = Some("invalid_crawl_seed".to_string());
-            return CrawlSeedResolution {
-                seed_url: shop_url.to_string(),
-                diagnostics,
-            };
-        };
-
-        let client = match reqwest::Client::builder()
-            .redirect(Policy::limited(10))
-            .user_agent(SPIDER_USER_AGENT)
-            .timeout(std::time::Duration::from_secs(
-                self.config.request_timeout_secs,
-            ))
-            .build()
-        {
-            Ok(client) => client,
-            Err(error) => {
-                warn!(shop_url, error = ?error, "Failed to build canonical URL resolver");
-                diagnostics.diagnostic_reason = Some("canonical_resolver_build_failed".to_string());
-                return CrawlSeedResolution {
-                    seed_url: shop_url.to_string(),
-                    diagnostics,
-                };
-            }
-        };
-
-        populate_robots_diagnostics(&client, &original_url, &mut diagnostics).await;
-
-        let response = match client.get(original_url.clone()).send().await {
-            Ok(response) => response,
-            Err(error) => {
-                if is_tls_error(&error) {
-                    diagnostics.failure_kind = Some(CrawlFailureKind::TlsError);
-                    diagnostics.diagnostic_reason = Some("tls_error".to_string());
-                } else {
-                    diagnostics.diagnostic_reason = Some("canonical_request_failed".to_string());
-                }
-                warn!(shop_url, error = ?error, "Canonical URL resolution failed");
-                return CrawlSeedResolution {
-                    seed_url: shop_url.to_string(),
-                    diagnostics,
-                };
-            }
-        };
-
-        diagnostics.http_status = Some(response.status().as_u16());
-        diagnostics.final_url = Some(response.url().to_string());
-
-        if !response.status().is_success() {
-            diagnostics.failure_kind = failure_kind_for_status(response.status().as_u16());
-            diagnostics.diagnostic_reason = Some("canonical_non_success_status".to_string());
-            warn!(
-                shop_url,
-                status = %response.status(),
-                "Canonical URL resolution returned non-success status"
-            );
-            return CrawlSeedResolution {
-                seed_url: shop_url.to_string(),
-                diagnostics,
-            };
-        }
-
-        let resolved_url = response.url().clone();
-        diagnostics.redirect_url = (original_url != resolved_url).then(|| resolved_url.to_string());
-
-        if !is_same_or_www_host(&original_url, &resolved_url) {
-            diagnostics.failure_kind = Some(CrawlFailureKind::RedirectProblem);
-            diagnostics.diagnostic_reason = Some("redirect_to_unrelated_host".to_string());
-            warn!(
-                original_url = %original_url,
-                resolved_url = %resolved_url,
-                "Ignoring canonical URL redirect to unrelated host"
-            );
-            return CrawlSeedResolution {
-                seed_url: shop_url.to_string(),
-                diagnostics,
-            };
-        }
-
-        if diagnostics.failure_kind.is_none() {
-            match response.text().await {
-                Ok(body) => populate_html_diagnostics(&body, &mut diagnostics),
-                Err(error) => {
-                    diagnostics.diagnostic_reason = Some("homepage_body_read_failed".to_string());
-                    warn!(shop_url, error = ?error, "Failed to read homepage body for diagnostics");
-                }
-            }
-        }
-
-        if original_url != resolved_url {
-            debug!(
-                original_url = %original_url,
-                resolved_url = %resolved_url,
-                host_normalized = original_url.host_str() != resolved_url.host_str(),
-                "Resolved canonical crawl URL"
-            );
-        }
-
-        CrawlSeedResolution {
-            seed_url: resolved_url.to_string(),
-            diagnostics,
-        }
     }
 }
 
@@ -233,11 +143,20 @@ impl Default for SpiderImpl {
 impl Spider for SpiderImpl {
     async fn crawl(&self, shop_url: &str) -> Result<SpiderCrawl, SpiderDiscoveryError> {
         let (tx, rx) = mpsc::channel(self.config.channel_size);
+        let (status_tx, status_rx) = oneshot::channel();
+        let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
 
-        let seed_resolution = self.resolve_crawl_seed_url(shop_url).await;
-        let mut website = Website::new(&seed_resolution.seed_url);
+        let mut website = Website::new(shop_url);
 
         let blacklist_regex = CrawledUrl::blacklist_patterns();
+        let auto_throttle_config = AutoThrottleConfig {
+            min_delay_ms: self.config.delay_millis,
+            max_delay_ms: 60_000,
+            ..AutoThrottleConfig::default()
+        };
+        website
+            .configuration
+            .with_auto_throttle(auto_throttle_config);
 
         website
             .with_blacklist_url(Some(blacklist_regex))
@@ -251,23 +170,38 @@ impl Spider for SpiderImpl {
             )
             .with_caching(false)
             .build()
-            .map_err(|e| SpiderDiscoveryError::Discovery(e.to_string()))?;
+            .map_err(|_| SpiderDiscoveryError::Discovery("Failed to build website".to_string()))?;
 
-        let mut spider_rx = website
-            .subscribe(512)
-            .ok_or_else(|| SpiderDiscoveryError::Discovery("Failed to subscribe".to_string()))?;
+        let mut spider_rx = website.subscribe(512);
 
         tokio::spawn(async move {
             website.crawl().await;
+            let status = *website.get_status();
+            let meta = *website.get_website_meta_info();
             website.unsubscribe();
+            let _ = status_tx.send((status, meta));
         });
 
         let config = self.config.clone();
+        let shop_url = shop_url.to_string();
         tokio::spawn(async move {
             let mut bloom = Bloom::new_for_fp_rate(config.bloom_capacity, config.bloom_fp_rate)
                 .expect("bloom filter init failed");
+            let mut diagnostics = CrawlDiagnostics::default();
+            let mut first_page_seen = false;
 
             while let Ok(page) = spider_rx.recv().await {
+                if !first_page_seen {
+                    diagnostics = diagnostics_from_library_page(
+                        &shop_url,
+                        page.get_url(),
+                        page.status_code.as_u16(),
+                        page.final_redirect_destination.as_deref(),
+                        page.anti_bot_tech,
+                    );
+                    first_page_seen = true;
+                }
+
                 let raw_url = page.get_url();
 
                 let normalized = if let Ok(parsed) = url::Url::parse(raw_url) {
@@ -290,98 +224,17 @@ impl Spider for SpiderImpl {
                     }
                 }
             }
+
+            if let Ok((status, meta)) = status_rx.await {
+                apply_website_status(&mut diagnostics, status, meta);
+            }
+            let _ = diagnostics_tx.send(diagnostics);
         });
 
         Ok(SpiderCrawl {
             pages: rx,
-            diagnostics: seed_resolution.diagnostics,
+            diagnostics: diagnostics_rx,
         })
-    }
-}
-
-fn failure_kind_for_status(status: u16) -> Option<CrawlFailureKind> {
-    match status {
-        429 => Some(CrawlFailureKind::RateLimited),
-        403 => Some(CrawlFailureKind::AccessDenied),
-        _ => None,
-    }
-}
-
-fn is_tls_error(error: &reqwest::Error) -> bool {
-    let text = format!("{error:?}").to_ascii_lowercase();
-    text.contains("certificate")
-        || text.contains("cert")
-        || text.contains("tls")
-        || text.contains("ssl")
-        || text.contains("schannel")
-}
-
-async fn populate_robots_diagnostics(
-    client: &reqwest::Client,
-    original_url: &Url,
-    diagnostics: &mut CrawlDiagnostics,
-) {
-    let Ok(robots_url) = original_url.join("/robots.txt") else {
-        return;
-    };
-    let Ok(response) = client.get(robots_url).send().await else {
-        return;
-    };
-    if !response.status().is_success() {
-        return;
-    }
-    let Ok(body) = response.text().await else {
-        return;
-    };
-    if robots_disallows_root_for_all_agents(&body) {
-        diagnostics.failure_kind = Some(CrawlFailureKind::RobotsBlocked);
-        diagnostics.diagnostic_reason = Some("robots_disallow_root".to_string());
-    }
-}
-
-fn robots_disallows_root_for_all_agents(body: &str) -> bool {
-    let mut applies_to_all = false;
-    for raw_line in body.lines() {
-        let line = raw_line.split('#').next().unwrap_or("").trim();
-        if line.is_empty() {
-            continue;
-        }
-        let Some((name, value)) = line.split_once(':') else {
-            continue;
-        };
-        let name = name.trim().to_ascii_lowercase();
-        let value = value.trim().to_ascii_lowercase();
-        match name.as_str() {
-            "user-agent" => applies_to_all = value == "*",
-            "disallow" if applies_to_all && value == "/" => return true,
-            _ => {}
-        }
-    }
-    false
-}
-
-fn populate_html_diagnostics(body: &str, diagnostics: &mut CrawlDiagnostics) {
-    let lower = body.to_ascii_lowercase();
-    if lower.contains("cf-ray")
-        || lower.contains("cf-chl")
-        || lower.contains("checking your browser")
-        || lower.contains("just a moment")
-    {
-        diagnostics.failure_kind = Some(CrawlFailureKind::CloudflareChallenge);
-        diagnostics.diagnostic_reason = Some("cloudflare_challenge_html".to_string());
-        return;
-    }
-
-    let link_count = lower.matches("href=").count();
-    let looks_app_rendered = lower.contains("__next")
-        || lower.contains("id=\"root\"")
-        || lower.contains("id=\"app\"")
-        || lower.contains("window.__")
-        || lower.contains("data-reactroot");
-
-    if link_count < 2 && looks_app_rendered {
-        diagnostics.failure_kind = Some(CrawlFailureKind::JavascriptRequired);
-        diagnostics.diagnostic_reason = Some("few_links_and_app_shell_markers".to_string());
     }
 }
 
@@ -400,9 +253,142 @@ fn strip_www(host: &str) -> &str {
     host.strip_prefix("www.").unwrap_or(host)
 }
 
+fn diagnostics_from_library_page(
+    shop_url: &str,
+    page_url: &str,
+    status_code: u16,
+    final_redirect_destination: Option<&str>,
+    anti_bot_tech: AntiBotTech,
+) -> CrawlDiagnostics {
+    let final_url = final_redirect_destination.unwrap_or(page_url).to_string();
+    let redirect_url = (final_redirect_destination != Some(page_url)).then(|| final_url.clone());
+    let mut diagnostics = CrawlDiagnostics {
+        http_status: Some(status_code),
+        final_url: Some(final_url.clone()),
+        redirect_url,
+        ..CrawlDiagnostics::default()
+    };
+
+    if let Some(signal) = page_diagnostic_signal(shop_url, &final_url, status_code, anti_bot_tech) {
+        diagnostics.apply_signal(signal);
+    }
+
+    diagnostics
+}
+
+fn page_diagnostic_signal(
+    shop_url: &str,
+    final_url: &str,
+    status_code: u16,
+    anti_bot_tech: AntiBotTech,
+) -> Option<DiagnosticSignal> {
+    anti_bot_signal(anti_bot_tech)
+        .or_else(|| status_code_signal(status_code))
+        .or_else(|| redirect_signal(shop_url, final_url))
+}
+
+fn anti_bot_signal(anti_bot_tech: AntiBotTech) -> Option<DiagnosticSignal> {
+    match anti_bot_tech {
+        AntiBotTech::Cloudflare => Some(DiagnosticSignal::new(
+            CrawlFailureKind::CloudflareChallenge,
+            "library_cloudflare_antibot",
+        )),
+        AntiBotTech::None => None,
+        _ => Some(DiagnosticSignal::new(
+            CrawlFailureKind::BotProtection,
+            "library_bot_protection_antibot",
+        )),
+    }
+}
+
+fn status_code_signal(status_code: u16) -> Option<DiagnosticSignal> {
+    match status_code {
+        526 => Some(DiagnosticSignal::new(
+            CrawlFailureKind::TlsError,
+            "library_permanent_address_or_tls_error",
+        )),
+        525 => Some(DiagnosticSignal::new(
+            CrawlFailureKind::ConnectError,
+            "library_dns_or_connect_error",
+        )),
+        310 => Some(DiagnosticSignal::new(
+            CrawlFailureKind::RedirectProblem,
+            "library_too_many_redirects",
+        )),
+        _ => None,
+    }
+}
+
+fn redirect_signal(shop_url: &str, final_url: &str) -> Option<DiagnosticSignal> {
+    let original = Url::parse(shop_url).ok()?;
+    let resolved = Url::parse(final_url).ok()?;
+
+    (!is_same_or_www_host(&original, &resolved)).then_some(DiagnosticSignal::new(
+        CrawlFailureKind::RedirectProblem,
+        "library_redirect_to_unrelated_host",
+    ))
+}
+
+fn apply_website_status(
+    diagnostics: &mut CrawlDiagnostics,
+    status: CrawlStatus,
+    meta: WebsiteMetaInfo,
+) {
+    if diagnostics.failure_kind.is_some() {
+        return;
+    }
+
+    if let Some(signal) = website_status_signal(status, meta) {
+        diagnostics.apply_signal(signal);
+    }
+}
+
+fn website_status_signal(status: CrawlStatus, meta: WebsiteMetaInfo) -> Option<DiagnosticSignal> {
+    match (status, meta) {
+        (CrawlStatus::RateLimited, _) => Some(DiagnosticSignal::new(
+            CrawlFailureKind::RateLimited,
+            "library_rate_limited_status",
+        )),
+        (CrawlStatus::Blocked, WebsiteMetaInfo::RequiresJavascript) => Some(DiagnosticSignal::new(
+            CrawlFailureKind::JavascriptRequired,
+            "library_requires_javascript",
+        )),
+        (CrawlStatus::Blocked, _) | (CrawlStatus::FirewallBlocked, _) => Some(
+            DiagnosticSignal::new(CrawlFailureKind::AccessDenied, "library_blocked_status"),
+        ),
+        (CrawlStatus::Empty, _) => Some(DiagnosticSignal::new(
+            CrawlFailureKind::EmptyCrawl,
+            "library_empty_status",
+        )),
+        (CrawlStatus::ConnectError, _) => Some(DiagnosticSignal::new(
+            CrawlFailureKind::ConnectError,
+            "library_connect_error_status",
+        )),
+        (CrawlStatus::ServerError, _) => Some(DiagnosticSignal::new(
+            CrawlFailureKind::ServerError,
+            "library_server_error_status",
+        )),
+        (CrawlStatus::Invalid, _) => Some(DiagnosticSignal::new(
+            CrawlFailureKind::InvalidUrl,
+            "library_invalid_url_status",
+        )),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn page_diagnostics(url: &str, status_code: u16) -> CrawlDiagnostics {
+        diagnostics_from_library_page(
+            "https://example.com",
+            url,
+            status_code,
+            None,
+            AntiBotTech::None,
+        )
+    }
 
     #[test]
     fn should_store_url_when_creating_crawled_page_for_product_path() {
@@ -455,60 +441,45 @@ mod tests {
     }
 
     #[test]
-    fn should_classify_429_as_rate_limited() {
+    fn should_map_rate_limited_library_status() {
+        let mut diagnostics = CrawlDiagnostics::default();
+
+        apply_website_status(
+            &mut diagnostics,
+            CrawlStatus::RateLimited,
+            WebsiteMetaInfo::None,
+        );
+
         assert_eq!(
-            failure_kind_for_status(429),
+            diagnostics.failure_kind,
             Some(CrawlFailureKind::RateLimited)
         );
     }
 
     #[test]
-    fn should_classify_403_as_access_denied() {
+    fn should_map_blocked_library_status_to_access_denied() {
+        let mut diagnostics = CrawlDiagnostics::default();
+
+        apply_website_status(
+            &mut diagnostics,
+            CrawlStatus::Blocked,
+            WebsiteMetaInfo::None,
+        );
+
         assert_eq!(
-            failure_kind_for_status(403),
+            diagnostics.failure_kind,
             Some(CrawlFailureKind::AccessDenied)
         );
     }
 
     #[test]
-    fn should_detect_cloudflare_challenge_html() {
+    fn should_map_javascript_required_library_metadata() {
         let mut diagnostics = CrawlDiagnostics::default();
 
-        populate_html_diagnostics(
-            "<html><title>Just a moment...</title><span>cf-ray</span></html>",
+        apply_website_status(
             &mut diagnostics,
-        );
-
-        assert_eq!(
-            diagnostics.failure_kind,
-            Some(CrawlFailureKind::CloudflareChallenge)
-        );
-        assert_eq!(
-            diagnostics.diagnostic_reason.as_deref(),
-            Some("cloudflare_challenge_html")
-        );
-    }
-
-    #[test]
-    fn should_not_detect_cloudflare_challenge_from_word_only() {
-        let mut diagnostics = CrawlDiagnostics::default();
-
-        populate_html_diagnostics(
-            r#"<html><body><a href="//cdnjs.cloudflare.com/ajax/libs/semantic-ui/icon.min.css">Icons</a><p>Cloudflare CDN assets load here.</p></body></html>"#,
-            &mut diagnostics,
-        );
-
-        assert_eq!(diagnostics.failure_kind, None);
-        assert_eq!(diagnostics.diagnostic_reason, None);
-    }
-
-    #[test]
-    fn should_detect_javascript_required_app_shell() {
-        let mut diagnostics = CrawlDiagnostics::default();
-
-        populate_html_diagnostics(
-            r#"<html><body><div id="root"></div><script src="/app.js"></script></body></html>"#,
-            &mut diagnostics,
+            CrawlStatus::Blocked,
+            WebsiteMetaInfo::RequiresJavascript,
         );
 
         assert_eq!(
@@ -518,16 +489,138 @@ mod tests {
     }
 
     #[test]
-    fn should_detect_robots_disallow_root_for_all_agents() {
-        assert!(robots_disallows_root_for_all_agents(
-            "User-agent: *\nDisallow: /\n"
-        ));
+    fn should_map_empty_library_status_to_empty_crawl() {
+        let mut diagnostics = CrawlDiagnostics::default();
+
+        apply_website_status(&mut diagnostics, CrawlStatus::Empty, WebsiteMetaInfo::None);
+
+        assert_eq!(diagnostics.failure_kind, Some(CrawlFailureKind::EmptyCrawl));
     }
 
     #[test]
-    fn should_not_detect_robots_block_when_only_specific_paths_are_disallowed() {
-        assert!(!robots_disallows_root_for_all_agents(
-            "User-agent: *\nDisallow: /cart\nAllow: /\n"
-        ));
+    fn should_map_connect_error_library_status() {
+        let mut diagnostics = CrawlDiagnostics::default();
+
+        apply_website_status(
+            &mut diagnostics,
+            CrawlStatus::ConnectError,
+            WebsiteMetaInfo::None,
+        );
+
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::ConnectError)
+        );
+    }
+
+    #[test]
+    fn should_map_server_error_library_status() {
+        let mut diagnostics = CrawlDiagnostics::default();
+
+        apply_website_status(
+            &mut diagnostics,
+            CrawlStatus::ServerError,
+            WebsiteMetaInfo::None,
+        );
+
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::ServerError)
+        );
+    }
+
+    #[test]
+    fn should_map_invalid_library_status_to_invalid_url() {
+        let mut diagnostics = CrawlDiagnostics::default();
+
+        apply_website_status(
+            &mut diagnostics,
+            CrawlStatus::Invalid,
+            WebsiteMetaInfo::None,
+        );
+
+        assert_eq!(diagnostics.failure_kind, Some(CrawlFailureKind::InvalidUrl));
+    }
+
+    #[test]
+    fn should_map_cloudflare_antibot_page() {
+        let diagnostics = diagnostics_from_library_page(
+            "https://example.com",
+            "https://example.com/",
+            403,
+            None,
+            AntiBotTech::Cloudflare,
+        );
+
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::CloudflareChallenge)
+        );
+    }
+
+    #[test]
+    fn should_map_non_cloudflare_antibot_page_to_bot_protection() {
+        let diagnostics = diagnostics_from_library_page(
+            "https://example.com",
+            "https://example.com/",
+            403,
+            None,
+            AntiBotTech::DataDome,
+        );
+
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::BotProtection)
+        );
+    }
+
+    #[test]
+    fn should_not_map_cloudflare_from_normal_page_without_library_antibot_signal() {
+        let diagnostics = page_diagnostics("https://example.com/cloudflare-cdn", 200);
+
+        assert_eq!(diagnostics.failure_kind, None);
+    }
+
+    #[test]
+    fn should_map_library_final_redirect_to_other_domain() {
+        let diagnostics = diagnostics_from_library_page(
+            "https://example.com",
+            "https://example.com/",
+            200,
+            Some("https://other.com/"),
+            AntiBotTech::None,
+        );
+
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::RedirectProblem)
+        );
+    }
+
+    #[test]
+    fn should_map_library_permanent_address_status_to_tls_error() {
+        let diagnostics = page_diagnostics("https://example.com/", 526);
+
+        assert_eq!(diagnostics.failure_kind, Some(CrawlFailureKind::TlsError));
+    }
+
+    #[test]
+    fn should_map_library_dns_status_to_connect_error() {
+        let diagnostics = page_diagnostics("https://example.com/", 525);
+
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::ConnectError)
+        );
+    }
+
+    #[test]
+    fn should_map_library_too_many_redirects_status_to_redirect_problem() {
+        let diagnostics = page_diagnostics("https://example.com/", 310);
+
+        assert_eq!(
+            diagnostics.failure_kind,
+            Some(CrawlFailureKind::RedirectProblem)
+        );
     }
 }

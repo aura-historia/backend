@@ -370,7 +370,7 @@ impl SpiderServiceImpl {
         classify_threshold: usize,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let crawl = self.spider.crawl(shop_url).await?;
-        let diagnostics = crawl.diagnostics;
+        let diagnostics_rx = crawl.diagnostics;
         let mut crawl_rx = crawl.pages;
 
         let initial_pattern = self.pattern_service.load_pattern_for_shop(shop_id).await?;
@@ -397,20 +397,11 @@ impl SpiderServiceImpl {
             self.log_progress(&state);
         }
 
-        if let Some(error) = diagnostic_failure_error(shop_url, state.total_crawled, &diagnostics) {
+        let diagnostics = diagnostics_rx.await.unwrap_or_default();
+        if let Some(error) = diagnostic_failure_error(shop_url, state.total_crawled, &diagnostics)
+            .or_else(|| crawl_size_failure_error(shop_url, state.total_crawled))
+        {
             return Err(error);
-        }
-
-        if state.total_crawled == 0 {
-            return Err(SpiderServiceError::EmptyCrawl {
-                shop_url: shop_url.to_string(),
-            });
-        }
-        if state.total_crawled <= 1 {
-            return Err(SpiderServiceError::TinyCrawl {
-                shop_url: shop_url.to_string(),
-                total_links: state.total_crawled,
-            });
         }
 
         self.classify_at_end_if_needed(&mut state, shop_id, shop_url)
@@ -543,7 +534,7 @@ mod service_tests {
         CrawlDiagnostics, CrawlFailureKind, MockSpider, SpiderCrawl,
     };
     use regex::Regex;
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, oneshot};
 
     fn setup_mock_url_repo(
         mock: &mut MockUrlMetadataRepository,
@@ -601,10 +592,12 @@ mod service_tests {
                         .unwrap();
                     }
                 });
+                let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+                diagnostics_tx.send(diagnostics).unwrap();
                 Box::pin(async {
                     Ok(SpiderCrawl {
                         pages: rx,
-                        diagnostics,
+                        diagnostics: diagnostics_rx,
                     })
                 })
             });
@@ -752,10 +745,12 @@ mod service_tests {
             .with(mockall::predicate::eq(shop_url))
             .returning(|_| {
                 let (_tx, rx) = mpsc::channel(10);
+                let (diagnostics_tx, diagnostics_rx) = oneshot::channel();
+                diagnostics_tx.send(CrawlDiagnostics::default()).unwrap();
                 Box::pin(async {
                     Ok(SpiderCrawl {
                         pages: rx,
-                        diagnostics: CrawlDiagnostics::default(),
+                        diagnostics: diagnostics_rx,
                     })
                 })
             });
@@ -1018,4 +1013,17 @@ fn diagnostic_failure_error(
         redirect_url: diagnostics.redirect_url.clone(),
         diagnostic_reason: diagnostics.diagnostic_reason.clone(),
     })
+}
+
+fn crawl_size_failure_error(shop_url: &str, total_links: usize) -> Option<SpiderServiceError> {
+    match total_links {
+        0 => Some(SpiderServiceError::EmptyCrawl {
+            shop_url: shop_url.to_string(),
+        }),
+        1 => Some(SpiderServiceError::TinyCrawl {
+            shop_url: shop_url.to_string(),
+            total_links,
+        }),
+        _ => None,
+    }
 }
