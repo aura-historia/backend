@@ -110,7 +110,7 @@ impl ScraperService for ScraperServiceImpl {
             )
             .await?
         {
-            ExistingSchemaSelection::Normalized(product) => product,
+            ExistingSchemaSelection::Normalized(product) => *product,
             ExistingSchemaSelection::NeedsRepair {
                 selected_schema,
                 last_norm_error,
@@ -122,7 +122,7 @@ impl ScraperService for ScraperServiceImpl {
                         url,
                         html: &html,
                         existing_schemas: &shops_product_schema.product_schemas,
-                        selected_schema,
+                        selected_schema: *selected_schema,
                     },
                     last_norm_error,
                 )

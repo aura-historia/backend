@@ -31,9 +31,9 @@ pub(crate) struct NormalizationRetryContext<'a> {
 }
 
 pub(crate) enum ExistingSchemaSelection {
-    Normalized(NormalizedProduct),
+    Normalized(Box<NormalizedProduct>),
     NeedsRepair {
-        selected_schema: ProductCssSelectorSchema,
+        selected_schema: Box<ProductCssSelectorSchema>,
         last_norm_error: NormalizationError,
     },
     NoSchemaApplied {
@@ -80,7 +80,7 @@ impl ScraperServiceImpl {
                 .normalize_applied_schema(shop_id, url, schema, raw)
                 .await
             {
-                Ok(product) => return Ok(ExistingSchemaSelection::Normalized(product)),
+                Ok(product) => return Ok(ExistingSchemaSelection::Normalized(Box::new(product))),
                 Err(ScraperError::NormalizationError(err))
                     if normalization_error_to_schema_hint(&err).is_some() =>
                 {
@@ -95,7 +95,7 @@ impl ScraperServiceImpl {
 
         if let Some((selected_schema, last_norm_error)) = last_fixable_norm_failure {
             return Ok(ExistingSchemaSelection::NeedsRepair {
-                selected_schema,
+                selected_schema: Box::new(selected_schema),
                 last_norm_error,
             });
         }
