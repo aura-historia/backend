@@ -24,6 +24,179 @@ fn should_still_map_fixable_normalization_errors_to_schema_repair_hint() {
 }
 
 #[tokio::test]
+async fn should_try_next_existing_schema_when_first_schema_has_fixable_normalization_error() {
+    let id = shop_id();
+    let url = product_url();
+
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher
+        .expect_fetch()
+        .once()
+        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+    let first_schema = minimal_schema();
+    let second_schema = minimal_schema();
+    let schema = ShopsProductSchema {
+        shop_id: id,
+        product_schemas: vec![first_schema, second_schema],
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    };
+    let mut schema_svc = MockProductSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let s = schema.clone();
+            Box::pin(async move { Ok(Some(s)) })
+        });
+    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_save_product_schemas().never();
+
+    let expected = normalized_product(url.clone());
+    let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut norm_svc = MockProductNormalizationService::new();
+    norm_svc
+        .expect_normalize()
+        .times(2)
+        .returning(move |_, _, _| {
+            let n = expected.clone();
+            let norm_calls = norm_calls.clone();
+            Box::pin(async move {
+                if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    Err(NormalizationError::TitleEmpty)
+                } else {
+                    Ok((n, 0u32))
+                }
+            })
+        });
+
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Box::new(norm_svc),
+        Arc::new(cand_svc),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+    );
+
+    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    assert_eq!(
+        result.product.shops_product_id,
+        ShopsProductId::from("SKU-42")
+    );
+}
+
+#[tokio::test]
+async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_error() {
+    let id = shop_id();
+    let url = product_url();
+
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher
+        .expect_fetch()
+        .once()
+        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+
+    let first_schema = minimal_schema();
+    let mut second_schema = minimal_schema();
+    second_schema.description = Some(ExtractionRule {
+        selector: CssSelector::from("main"),
+        additional_selectors: vec![],
+        extract: ExtractionKind::Text,
+        cardinality: ExtractionCardinality::First,
+    });
+
+    let schema = ShopsProductSchema {
+        shop_id: id,
+        product_schemas: vec![first_schema, second_schema.clone()],
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    };
+    let mut schema_svc = MockProductSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let s = schema.clone();
+            Box::pin(async move { Ok(Some(s)) })
+        });
+    schema_svc
+        .expect_append_single_schema()
+        .once()
+        .withf(move |_, prompt_source, failed_schema, last_error| {
+            *prompt_source == SchemaPromptSource::YamlProjection
+                && failed_schema == &Some(&second_schema)
+                && matches!(
+                    last_error,
+                    Some(ApplySchemaError::Title(ExtractionError::NoElementMatched {
+                        selector
+                    })) if selector == "title"
+                )
+        })
+        .returning(move |_, _, _, _| {
+            Box::pin(async {
+                Ok(generated_schemas(
+                    vec![minimal_schema()],
+                    SchemaLlmEvaluationConfidence::High,
+                ))
+            })
+        });
+    schema_svc
+        .expect_save_product_schemas()
+        .once()
+        .returning(move |_, schemas| {
+            let saved = ShopsProductSchema {
+                shop_id: id,
+                product_schemas: schemas,
+                created: OffsetDateTime::now_utc(),
+                updated: OffsetDateTime::now_utc(),
+            };
+            Box::pin(async move { Ok(saved) })
+        });
+
+    let expected = normalized_product(url.clone());
+    let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut norm_svc = MockProductNormalizationService::new();
+    norm_svc
+        .expect_normalize()
+        .times(3)
+        .returning(move |_, _, _| {
+            let n = expected.clone();
+            let norm_calls = norm_calls.clone();
+            Box::pin(async move {
+                if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
+                    Err(NormalizationError::TitleEmpty)
+                } else {
+                    Ok((n, 0u32))
+                }
+            })
+        });
+
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_budget_increment(&mut cand_svc, 1);
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Box::new(norm_svc),
+        Arc::new(cand_svc),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+    );
+
+    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    assert_eq!(
+        result.product.shops_product_id,
+        ShopsProductId::from("SKU-42")
+    );
+}
+
+#[tokio::test]
 async fn should_regenerate_schema_when_normalization_error_is_fixable() {
     let id = shop_id();
     let url = product_url();

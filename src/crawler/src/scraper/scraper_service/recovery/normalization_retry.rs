@@ -1,11 +1,13 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
-use crate::scraper::css_selector::product_schema::{ApplySchemaError, ProductCssSelectorSchema};
+use crate::scraper::css_selector::product_schema::{
+    ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
+};
 use crate::scraper::css_selector::product_schema_service::SchemaPromptSource;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
+use crate::scraper::scraper_service::extraction::engine::{apply_schema, try_apply_schemas};
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -28,11 +30,112 @@ pub(crate) struct NormalizationRetryContext<'a> {
     pub(crate) selected_schema: ProductCssSelectorSchema,
 }
 
+pub(crate) enum ExistingSchemaSelection {
+    Normalized(NormalizedProduct),
+    NeedsRepair {
+        selected_schema: ProductCssSelectorSchema,
+        last_norm_error: NormalizationError,
+    },
+    NoSchemaApplied {
+        last_error: ApplySchemaError,
+    },
+}
+
 // ---------------------------------------------------------------------------
 // impl ScraperServiceImpl
 // ---------------------------------------------------------------------------
 
 impl ScraperServiceImpl {
+    #[tracing::instrument(
+        skip(self, schemas, html),
+        fields(
+            shop_id = %shop_id,
+            domain = domain,
+            url = %url,
+            schema_count = schemas.len()
+        )
+    )]
+    pub(crate) async fn select_existing_schema_with_normalization(
+        &self,
+        shop_id: &ShopId,
+        domain: &str,
+        url: &Url,
+        html: &str,
+        schemas: &[ProductCssSelectorSchema],
+    ) -> Result<ExistingSchemaSelection, ScraperError> {
+        let mut last_apply_error: Option<ApplySchemaError> = None;
+        let mut last_fixable_norm_failure: Option<(ProductCssSelectorSchema, NormalizationError)> =
+            None;
+
+        for schema in schemas {
+            let raw = match apply_schema(schema, html) {
+                Ok(raw) => raw,
+                Err(err) => {
+                    last_apply_error = Some(err);
+                    continue;
+                }
+            };
+
+            match self
+                .normalize_applied_schema(shop_id, url, schema, raw)
+                .await
+            {
+                Ok(product) => return Ok(ExistingSchemaSelection::Normalized(product)),
+                Err(ScraperError::NormalizationError(err))
+                    if normalization_error_to_schema_hint(&err).is_some() =>
+                {
+                    last_fixable_norm_failure = Some((schema.clone(), err));
+                }
+                Err(ScraperError::NormalizationError(err)) => {
+                    return Err(ScraperError::NormalizationError(err));
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        if let Some((selected_schema, last_norm_error)) = last_fixable_norm_failure {
+            return Ok(ExistingSchemaSelection::NeedsRepair {
+                selected_schema,
+                last_norm_error,
+            });
+        }
+
+        Ok(ExistingSchemaSelection::NoSchemaApplied {
+            last_error: last_apply_error.unwrap_or_else(|| {
+                ApplySchemaError::Title(ExtractionError::NoElementMatched {
+                    selector: "title".to_string(),
+                })
+            }),
+        })
+    }
+
+    async fn normalize_applied_schema(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        selected_schema: &ProductCssSelectorSchema,
+        mut raw: RawExtractedProduct,
+    ) -> Result<NormalizedProduct, ScraperError> {
+        raw.images = filter_valid_image_urls(raw.images, url, &*self.image_validator)
+            .await
+            .map_err(ScraperError::NormalizationError)?;
+
+        let (product, norm_llm_calls) = self
+            .normalization_service
+            .normalize(
+                raw,
+                url.clone(),
+                selected_schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
+            .await
+            .map_err(ScraperError::NormalizationError)?;
+        self.consume_llm_budget_n_or_err(shop_id, url, norm_llm_calls)
+            .await?;
+        Ok(product)
+    }
+
     /// Thin dispatcher: run normalization once and branch on the result.
     ///
     /// - **Happy path** — charge normalization LLM calls and return the product.
