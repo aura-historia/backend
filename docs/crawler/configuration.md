@@ -63,10 +63,10 @@ Controls per-run behavior of the spider.
   construction time.
 
 - **`min_inference_sample_urls`**: URL pattern inference is not attempted when the crawl sample has fewer than this many
-  URLs, preventing low-confidence LLM calls on tiny crawls. Crawls with one URL or less fail as `TinyCrawl`; crawls with
-  2-19 URLs fail as `InsufficientInferenceSample`. Both failure modes avoid LLM calls and do not mark the domain as
-  successfully crawled. They use the bounded small-crawl retry policy: attempts 1-2 retry after 6 hours; attempt 3 and
-  later retry after 30 days.
+  URLs, preventing low-confidence LLM calls on tiny crawls. Crawls with zero URLs fail as `EmptyCrawl`, crawls with one
+  URL fail as `TinyCrawl`, and crawls with 2-19 URLs fail as `InsufficientInferenceSample`. These failure modes avoid LLM
+  calls and do not mark the domain as successfully crawled. They use the bounded small-crawl retry policy: attempts 1-2
+  retry after 6 hours; attempt 3 and later retry after 30 days.
   When preflight diagnostics identify a clearer cause for a zero/one-page crawl, the crawler persists that specific
   kind instead, such as `RateLimited`, `AccessDenied`, `CloudflareChallenge`, `TlsError`, `RobotsBlocked`,
   `RedirectProblem`, or `JavascriptRequired`.

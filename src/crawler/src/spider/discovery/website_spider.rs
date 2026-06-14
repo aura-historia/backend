@@ -366,7 +366,6 @@ fn populate_html_diagnostics(body: &str, diagnostics: &mut CrawlDiagnostics) {
         || lower.contains("cf-chl")
         || lower.contains("checking your browser")
         || lower.contains("just a moment")
-        || lower.contains("cloudflare")
     {
         diagnostics.failure_kind = Some(CrawlFailureKind::CloudflareChallenge);
         diagnostics.diagnostic_reason = Some("cloudflare_challenge_html".to_string());
@@ -488,6 +487,19 @@ mod tests {
             diagnostics.diagnostic_reason.as_deref(),
             Some("cloudflare_challenge_html")
         );
+    }
+
+    #[test]
+    fn should_not_detect_cloudflare_challenge_from_word_only() {
+        let mut diagnostics = CrawlDiagnostics::default();
+
+        populate_html_diagnostics(
+            r#"<html><body><a href="//cdnjs.cloudflare.com/ajax/libs/semantic-ui/icon.min.css">Icons</a><p>Cloudflare CDN assets load here.</p></body></html>"#,
+            &mut diagnostics,
+        );
+
+        assert_eq!(diagnostics.failure_kind, None);
+        assert_eq!(diagnostics.diagnostic_reason, None);
     }
 
     #[test]

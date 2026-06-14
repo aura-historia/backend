@@ -431,10 +431,11 @@ The crawler now also tracks crawl-level cooldown metadata on `shop_domains`:
 
 Spider candidate selection excludes domains with `next_crawl_at > NOW()`. On a successful crawl the metadata is reset.
 On failure, cron compares the new error kind with `last_crawl_error_kind`: matching kinds increment
-`crawl_failure_count`; changed kinds reset it to `1`. `TinyCrawl` and `InsufficientInferenceSample` retry after 6 hours
-for attempts 1-2 and after 30 days from attempt 3 onward. Pending URL-pattern reviews and generic spider failures keep
-the existing short retry cooldown.
+`crawl_failure_count`; changed kinds reset it to `1`. `EmptyCrawl`, `TinyCrawl`, and `InsufficientInferenceSample` retry
+after 6 hours for attempts 1-2 and after 30 days from attempt 3 onward. Pending URL-pattern reviews and generic spider
+failures keep the existing short retry cooldown.
 
 For zero/one-page crawls, spider preflight diagnostics can persist a more specific failure kind before falling back to
-`TinyCrawl`: `RateLimited`, `AccessDenied`, `CloudflareChallenge`, `TlsError`, `RobotsBlocked`, `RedirectProblem`, or
-`JavascriptRequired`. These diagnostic kinds use the same bounded retry policy as other small-crawl failures.
+`EmptyCrawl` or `TinyCrawl`: `RateLimited`, `AccessDenied`, `CloudflareChallenge`, `TlsError`, `RobotsBlocked`,
+`RedirectProblem`, or `JavascriptRequired`. These diagnostic kinds use the same bounded retry policy as other small-crawl
+failures.
