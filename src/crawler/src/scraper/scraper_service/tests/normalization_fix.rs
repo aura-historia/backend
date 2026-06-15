@@ -345,7 +345,7 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
 }
 
 #[tokio::test]
-async fn should_not_regenerate_schema_when_image_policy_rejects_all_candidates() {
+async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candidates() {
     let id = shop_id();
     let url = product_url();
     let html = r#"<!DOCTYPE html>
@@ -380,10 +380,21 @@ async fn should_not_regenerate_schema_when_image_policy_rejects_all_candidates()
     schema_svc.expect_append_single_schema().never();
     schema_svc.expect_save_product_schemas().never();
 
+    let expected = normalized_product(url.clone());
     let mut norm_svc = MockProductNormalizationService::new();
-    norm_svc.expect_normalize().never();
+    norm_svc
+        .expect_normalize()
+        .once()
+        .returning(move |raw, _, _| {
+            let n = expected.clone();
+            Box::pin(async move {
+                assert!(raw.images.is_empty());
+                Ok((n, 0u32))
+            })
+        });
 
-    let cand_svc = MockScraperCandidateService::new();
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -394,11 +405,8 @@ async fn should_not_regenerate_schema_when_image_policy_rejects_all_candidates()
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
-    assert!(matches!(
-        err,
-        ScraperError::NormalizationError(NormalizationError::NoValidImages { candidates: 2 })
-    ));
+    let result = service.scrape(&id, &url, None).await.unwrap();
+    assert!(result.is_some());
 }
 
 #[tokio::test]
@@ -425,7 +433,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
         cardinality: ExtractionCardinality::All,
     };
     let make_bad_schema = |title_selector: &str| ProductCssSelectorSchema {
-        shops_product_id: text_rule("non-existent-id"),
+        shops_product_id: Some(text_rule("non-existent-id")),
         title: text_rule(title_selector),
         description: None,
         price: None,
@@ -508,9 +516,9 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
         err,
         ScraperError::SchemaRegenerationExhausted {
             attempts: 2,
-            last_error: ApplySchemaError::ShopsProductId(ExtractionError::NoElementMatched { ref selector }),
+            last_error: ApplySchemaError::Title(ExtractionError::NoElementMatched { ref selector }),
             ..
-        } if selector == "non-existent-id"
+        } if selector == "non-existent-title-2"
     ));
 }
 

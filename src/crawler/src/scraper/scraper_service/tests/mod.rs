@@ -75,7 +75,7 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
     };
 
     ProductCssSelectorSchema {
-        shops_product_id: text_rule("#product-id"),
+        shops_product_id: Some(text_rule("#product-id")),
         title: text_rule("h1"),
         description: None,
         price: None,

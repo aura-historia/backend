@@ -29,7 +29,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
             cardinality: ExtractionCardinality::All,
         };
         ProductCssSelectorSchema {
-            shops_product_id: text_rule("non-existent-id"),
+            shops_product_id: Some(text_rule("non-existent-id")),
             title: text_rule("non-existent-title"),
             description: None,
             price: None,

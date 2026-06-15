@@ -50,7 +50,6 @@ impl ScraperServiceImpl {
         skip(self, schemas, html),
         fields(
             shop_id = %shop_id,
-            domain = domain,
             url = %url,
             schema_count = schemas.len()
         )
@@ -58,7 +57,6 @@ impl ScraperServiceImpl {
     pub(crate) async fn select_existing_schema_with_normalization(
         &self,
         shop_id: &ShopId,
-        domain: &str,
         url: &Url,
         html: &str,
         schemas: &[ProductCssSelectorSchema],
@@ -116,9 +114,11 @@ impl ScraperServiceImpl {
         selected_schema: &ProductCssSelectorSchema,
         mut raw: RawExtractedProduct,
     ) -> Result<NormalizedProduct, ScraperError> {
-        raw.images = filter_valid_image_urls(raw.images, url, &*self.image_validator)
-            .await
-            .map_err(ScraperError::NormalizationError)?;
+        raw.images = match filter_valid_image_urls(raw.images, url, &*self.image_validator).await {
+            Ok(images) => images,
+            Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
+            Err(err) => return Err(ScraperError::NormalizationError(err)),
+        };
 
         let (product, norm_llm_calls) = self
             .normalization_service
@@ -161,6 +161,7 @@ impl ScraperServiceImpl {
         raw.images =
             match filter_valid_image_urls(raw.images, ctx.url, &*self.image_validator).await {
                 Ok(images) => images,
+                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
                 Err(err) if normalization_error_to_schema_hint(&err).is_some() => {
                     return self.fix_normalization_with_schema_retry(ctx, err).await;
                 }
@@ -285,6 +286,7 @@ impl ScraperServiceImpl {
                     .await
                 {
                     Ok(images) => images,
+                    Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
                     Err(norm_err) => {
                         last_generated_schema = Some(generated_schema);
                         last_apply_error = normalization_error_to_schema_hint(&norm_err);

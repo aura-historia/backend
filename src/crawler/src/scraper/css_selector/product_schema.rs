@@ -47,8 +47,11 @@ mod faker {
     The rules are intended to extract raw data from the HTML, not normalized data."
 )]
 pub struct ProductCssSelectorSchema {
-    #[schemars(description = "ID of the product on the shop's website")]
-    pub shops_product_id: ExtractionRule,
+    #[schemars(
+        description = "ID of the product on the shop's website. Optional: leave null when the page has no stable product ID."
+    )]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shops_product_id: Option<ExtractionRule>,
 
     #[schemars(description = "Title of the product")]
     pub title: ExtractionRule,
@@ -168,13 +171,14 @@ impl ProductCssSelectorSchema {
     /// element of the extraction result is used. For multi-valued fields
     /// (`description`, `images`) all results are kept as a `Vec<String>`.
     pub fn apply(&self, html: &Html) -> Result<RawExtractedProduct, ApplySchemaError> {
-        let shops_product_id = self
-            .shops_product_id
-            .apply(html)
-            .map_err(ApplySchemaError::ShopsProductId)?
-            .into_iter()
-            .next()
-            .unwrap_or_default();
+        let shops_product_id = match &self.shops_product_id {
+            None => String::new(),
+            Some(rule) => match rule.apply(html) {
+                Ok(values) => values.into_iter().next().unwrap_or_default(),
+                Err(ExtractionError::NoElementMatched { .. }) => String::new(),
+                Err(err) => return Err(ApplySchemaError::ShopsProductId(err)),
+            },
+        };
 
         let title = self
             .title
@@ -368,7 +372,7 @@ mod tests {
     fn minimal_schema(html: &str) -> (Html, ProductCssSelectorSchema) {
         let parsed = Html::parse_document(html);
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -406,7 +410,7 @@ mod tests {
 
     fn full_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: Some(text_rule_all("p.desc")),
             price: Some(text_rule("span.price")),
@@ -525,7 +529,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -553,7 +557,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -658,7 +662,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: Some(text_rule("span.price")),
@@ -691,7 +695,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: Some(text_rule_all("p.desc")),
             price: None,
@@ -730,7 +734,7 @@ mod tests {
             cardinality: ExtractionCardinality::All,
         };
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -748,25 +752,38 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Error cases: mandatory fields
+    // Optional product ID
     // -------------------------------------------------------------------------
 
     #[test]
-    fn should_return_err_shops_product_id_when_selector_matches_nothing() {
+    fn should_return_empty_shops_product_id_when_selector_matches_nothing() {
         let html = Html::parse_document(
             r#"<html><body><h1>T</h1><span id="state">ok</span><img src="x.jpg"></body></html>"#,
         );
         let (_, schema) = minimal_schema("<ignored>");
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             ..schema
         };
-        let err = schema.apply(&html).unwrap_err();
-        assert!(
-            matches!(err, ApplySchemaError::ShopsProductId(_)),
-            "unexpected variant: {err}"
-        );
+        let result = schema.apply(&html).unwrap();
+        assert_eq!(result.shops_product_id, "");
     }
+
+    #[test]
+    fn should_return_empty_shops_product_id_when_rule_is_absent() {
+        let html = Html::parse_document(product_html());
+        let (_, schema) = minimal_schema("<ignored>");
+        let schema = ProductCssSelectorSchema {
+            shops_product_id: None,
+            ..schema
+        };
+        let result = schema.apply(&html).unwrap();
+        assert_eq!(result.shops_product_id, "");
+    }
+
+    // -------------------------------------------------------------------------
+    // Error cases: mandatory fields
+    // -------------------------------------------------------------------------
 
     #[test]
     fn should_return_err_title_when_selector_matches_nothing() {
@@ -776,7 +793,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -804,7 +821,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -832,7 +849,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -865,7 +882,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: Some(text_rule_all("p.desc")),
             price: None,
@@ -894,7 +911,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: Some(text_rule("span.price")),
@@ -923,7 +940,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -952,7 +969,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -981,7 +998,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -1010,7 +1027,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -1039,7 +1056,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -1080,7 +1097,7 @@ mod tests {
 
         let schema = match field {
             "shops_product_id" => ProductCssSelectorSchema {
-                shops_product_id: bad,
+                shops_product_id: Some(bad),
                 title: good_h1,
                 description: None,
                 price: None,
@@ -1094,7 +1111,7 @@ mod tests {
                 default_currency: None,
             },
             "title" => ProductCssSelectorSchema {
-                shops_product_id: good_id,
+                shops_product_id: Some(good_id),
                 title: bad,
                 description: None,
                 price: None,
@@ -1108,7 +1125,7 @@ mod tests {
                 default_currency: None,
             },
             "state" => ProductCssSelectorSchema {
-                shops_product_id: good_id,
+                shops_product_id: Some(good_id),
                 title: good_h1,
                 description: None,
                 price: None,
@@ -1122,7 +1139,7 @@ mod tests {
                 default_currency: None,
             },
             "images" => ProductCssSelectorSchema {
-                shops_product_id: good_id,
+                shops_product_id: Some(good_id),
                 title: good_h1,
                 description: None,
                 price: None,
@@ -1152,9 +1169,9 @@ mod tests {
 
     #[test]
     fn should_include_field_name_in_error_message_for_shops_product_id() {
-        let html = Html::parse_document("<html><body></body></html>");
+        let html = Html::parse_document(product_html());
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#missing"),
+            shops_product_id: Some(text_rule("!!! invalid !!!")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -1181,7 +1198,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: Some(text_rule(".price")),
@@ -1213,7 +1230,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -1239,7 +1256,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,
@@ -1300,7 +1317,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule("h1"),
             description: None,
             price: None,

@@ -103,7 +103,6 @@ impl ScraperService for ScraperServiceImpl {
         let final_product = match self
             .select_existing_schema_with_normalization(
                 shop_id,
-                domain,
                 url,
                 &html,
                 &shops_product_schema.product_schemas,

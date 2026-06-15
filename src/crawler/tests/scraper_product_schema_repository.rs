@@ -18,12 +18,12 @@ const RDS: Rds = Rds {
 
 fn minimal_css_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
-        shops_product_id: ExtractionRule {
+        shops_product_id: Some(ExtractionRule {
             selector: "span.id".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
-        },
+        }),
         title: ExtractionRule {
             selector: "h1".into(),
             additional_selectors: vec![],
@@ -55,12 +55,12 @@ fn minimal_css_schema() -> ProductCssSelectorSchema {
 
 fn full_css_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
-        shops_product_id: ExtractionRule {
+        shops_product_id: Some(ExtractionRule {
             selector: "span#product-id".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
-        },
+        }),
         title: ExtractionRule {
             selector: "h1.product-title".into(),
             additional_selectors: vec!["h2.alt-title".into()],

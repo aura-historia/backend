@@ -41,10 +41,7 @@ pub(super) fn update_schema_rule(
     rule: Option<ExtractionRule>,
 ) -> Result<(), ReviewRepositoryError> {
     match field {
-        "shops_product_id" => {
-            schema.shops_product_id =
-                rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
-        }
+        "shops_product_id" => schema.shops_product_id = rule,
         "title" => {
             schema.title =
                 rule.ok_or_else(|| ReviewRepositoryError::RequiredSchemaField(field.into()))?;
@@ -117,7 +114,7 @@ mod tests {
 
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule(title_selector),
             description: None,
             price: None,

@@ -5,7 +5,7 @@ use crate::scraper::scraper_service::domain::errors::ScraperError;
 
 fn invalid_schema() -> ProductCssSelectorSchema {
     let mut schema = minimal_schema();
-    schema.shops_product_id.selector = CssSelector::from("missing-product-id");
+    schema.title.selector = CssSelector::from("missing-title");
     schema
 }
 
@@ -221,10 +221,9 @@ async fn should_exhaust_append_repair_after_yaml_and_cleaned_html_fail() {
         err,
         ScraperError::SchemaRegenerationExhausted {
             attempts: 2,
-            last_error:
-                crate::scraper::css_selector::product_schema::ApplySchemaError::ShopsProductId(
-                    ExtractionError::NoElementMatched { .. }
-                ),
+            last_error: crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
+                ExtractionError::NoElementMatched { .. }
+            ),
             ..
         }
     ));

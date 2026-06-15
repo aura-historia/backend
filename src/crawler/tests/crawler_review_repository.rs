@@ -39,7 +39,7 @@ fn image_rule(selector: &str) -> ExtractionRule {
 
 fn schema(title_selector: &str) -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
-        shops_product_id: rule("span.id"),
+        shops_product_id: Some(rule("span.id")),
         title: rule(title_selector),
         description: None,
         price: None,

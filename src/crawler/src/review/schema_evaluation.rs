@@ -148,8 +148,7 @@ fn page_has_required_extraction(page: &SchemaPageEvaluation) -> bool {
 }
 
 fn raw_extraction_has_required_values(raw: &RawExtractedProduct) -> bool {
-    !raw.shops_product_id.trim().is_empty()
-        && !raw.title.trim().is_empty()
+    !raw.title.trim().is_empty()
         && !raw.state.trim().is_empty()
         && raw.images.iter().any(|image| !image.trim().is_empty())
 }
@@ -159,11 +158,9 @@ fn evaluate_schema_fields(
     html: &str,
 ) -> Vec<SelectorFieldEvaluation> {
     let mut fields = Vec::new();
-    fields.push(evaluate_rule(
-        "shops_product_id",
-        &schema.shops_product_id,
-        html,
-    ));
+    if let Some(rule) = &schema.shops_product_id {
+        fields.push(evaluate_rule("shops_product_id", rule, html));
+    }
     fields.push(evaluate_rule("title", &schema.title, html));
     if let Some(rule) = &schema.description {
         fields.push(evaluate_rule("description", rule, html));
@@ -257,7 +254,7 @@ mod tests {
 
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shops_product_id: text_rule("#product-id"),
+            shops_product_id: Some(text_rule("#product-id")),
             title: text_rule(title_selector),
             description: None,
             price: None,
