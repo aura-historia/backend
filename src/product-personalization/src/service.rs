@@ -201,18 +201,7 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
         user_id: &UserId,
         created: &OffsetDateTime,
     ) -> Result<u64, ProductPersonalizationError> {
-        let now = OffsetDateTime::now_utc();
-        let from = now
-            .replace_day(1)
-            .expect("day 1 is always valid")
-            .replace_hour(0)
-            .expect("hour 0 is always valid")
-            .replace_minute(0)
-            .expect("minute 0 is always valid")
-            .replace_second(0)
-            .expect("second 0 is always valid")
-            .replace_nanosecond(0)
-            .expect("nanosecond 0 is always valid");
+        let from = month_start(created);
         let count = self
             .search_filter_repository
             .count_user_search_filter_match_records_for_between(user_id, &from, created)
@@ -220,6 +209,19 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
             .map_err(|e| ProductPersonalizationError::SearchFilterMatchError(e.to_string()))?;
         Ok(count)
     }
+}
+
+fn month_start(dt: &OffsetDateTime) -> OffsetDateTime {
+    dt.replace_day(1)
+        .expect("day 1 is always valid")
+        .replace_hour(0)
+        .expect("hour 0 is always valid")
+        .replace_minute(0)
+        .expect("minute 0 is always valid")
+        .replace_second(0)
+        .expect("second 0 is always valid")
+        .replace_nanosecond(0)
+        .expect("nanosecond 0 is always valid")
 }
 
 fn hidden_title(language: Language) -> Title {
@@ -258,11 +260,6 @@ fn anonymize_product(product: &mut LocalizedProductView) {
     product.auction_end = None;
     product.created = OffsetDateTime::UNIX_EPOCH;
     product.updated = OffsetDateTime::UNIX_EPOCH;
-}
-
-fn is_current_month(dt: &OffsetDateTime) -> bool {
-    let now = OffsetDateTime::now_utc();
-    dt.year() == now.year() && dt.month() == now.month()
 }
 
 #[async_trait::async_trait]
@@ -472,17 +469,12 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
 
         let (search_filter_state, product) = match match_records.first() {
             Some(record) => {
-                let hidden = if is_current_month(&record.created) {
-                    match self.get_search_filter_match_quota(user_id).await? {
-                        Some(quota) => {
-                            let position =
-                                self.count_matches_up_to(user_id, &record.created).await?;
-                            position > quota as u64
-                        }
-                        None => false,
+                let hidden = match self.get_search_filter_match_quota(user_id).await? {
+                    Some(quota) => {
+                        let position = self.count_matches_up_to(user_id, &record.created).await?;
+                        position > quota as u64
                     }
-                } else {
-                    false
+                    None => false,
                 };
 
                 let mut product = product;
@@ -536,29 +528,37 @@ impl<'a> ProductPersonalizationService for ProductPersonalizationServiceImpl<'a>
             .map(|record| (record.product_id, record))
             .collect();
 
-        let any_current_month = match_by_product
-            .values()
-            .any(|record| is_current_month(&record.created));
+        let hidden_product_ids: std::collections::HashSet<ProductId> =
+            if match_by_product.is_empty() {
+                std::collections::HashSet::new()
+            } else {
+                match self.get_search_filter_match_quota(user_id).await? {
+                    Some(quota) => {
+                        let mut matches: Vec<_> = match_by_product.values().collect();
+                        matches.sort_by_key(|record| record.created);
 
-        let hidden_product_ids: std::collections::HashSet<ProductId> = if any_current_month {
-            match self.get_search_filter_match_quota(user_id).await? {
-                Some(quota) => {
-                    let mut current_month_matches: Vec<_> = match_by_product
-                        .values()
-                        .filter(|record| is_current_month(&record.created))
-                        .collect();
-                    current_month_matches.sort_by_key(|record| record.created);
-                    current_month_matches
-                        .into_iter()
-                        .skip(quota as usize)
-                        .map(|record| record.product_id)
-                        .collect()
+                        let mut hidden_product_ids = std::collections::HashSet::new();
+                        let mut current_month = None;
+                        let mut matches_in_month = 0usize;
+
+                        for record in matches {
+                            let record_month = month_start(&record.created);
+                            if current_month != Some(record_month) {
+                                current_month = Some(record_month);
+                                matches_in_month = 0;
+                            }
+
+                            matches_in_month += 1;
+                            if matches_in_month > quota as usize {
+                                hidden_product_ids.insert(record.product_id);
+                            }
+                        }
+
+                        hidden_product_ids
+                    }
+                    None => std::collections::HashSet::new(),
                 }
-                None => std::collections::HashSet::new(),
-            }
-        } else {
-            std::collections::HashSet::new()
-        };
+            };
 
         let result = products
             .into_iter()
@@ -710,7 +710,9 @@ mod tests {
     use user::core::user::User;
     use user::service::user_service::MockUserService;
 
-    use crate::service::{ProductPersonalizationService, ProductPersonalizationServiceImpl};
+    use crate::service::{
+        ProductPersonalizationService, ProductPersonalizationServiceImpl, month_start,
+    };
     use notification::service::notification_service::MockNotificationService;
 
     #[tokio::test]
@@ -1696,7 +1698,7 @@ mod tests {
     // ---- Quota-aware search filter personalization tests ----
 
     #[tokio::test]
-    async fn should_personalize_search_filter_hidden_when_quota_exceeded_for_current_month_match() {
+    async fn should_personalize_search_filter_hidden_when_quota_exceeded_for_match() {
         let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         let notification_service = MockNotificationService::default();
 
@@ -1721,7 +1723,7 @@ mod tests {
                 Box::pin(async move { Ok(vec![record]) })
             });
 
-        // Position 11 means this match is the 11th this month, exceeding Free quota of 10
+        // Position 11 means this match is the 11th in its month, exceeding Free quota of 10
         search_filter_repository
             .expect_count_user_search_filter_match_records_for_between()
             .returning(|_, _, _| Box::pin(async { Ok(11) }));
@@ -1791,7 +1793,7 @@ mod tests {
                 Box::pin(async move { Ok(vec![record]) })
             });
 
-        // Position 5 means this match is the 5th this month, within Free quota of 10
+        // Position 5 means this match is the 5th in its month, within Free quota of 10
         search_filter_repository
             .expect_count_user_search_filter_match_records_for_between()
             .returning(|_, _, _| Box::pin(async { Ok(5) }));
@@ -1821,10 +1823,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_personalize_search_filter_not_hidden_when_match_from_previous_month() {
+    async fn should_personalize_search_filter_hidden_when_quota_exceeded_for_previous_month_match()
+    {
         let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         let notification_service = MockNotificationService::default();
-        let user_service = MockUserService::default();
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Free;
+                Ok(user)
+            })
+        });
 
         let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
         let mut match_record: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
@@ -1838,6 +1849,11 @@ mod tests {
                 Box::pin(async move { Ok(vec![record]) })
             });
 
+        // Position 11 means this previous-month match exceeds that month's Free quota of 10.
+        search_filter_repository
+            .expect_count_user_search_filter_match_records_for_between()
+            .returning(|_, _, _| Box::pin(async { Ok(11) }));
+
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
             &notification_service,
@@ -1847,6 +1863,7 @@ mod tests {
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = expected_product_id;
+        input.title.localization = common::language::domain::Language::En;
 
         let actual = service
             .personalize_search_filter(&Faker.fake(), input)
@@ -1855,7 +1872,15 @@ mod tests {
 
         let state = actual.user_state.unwrap();
         assert!(state.matched);
-        assert!(!state.hidden);
+        assert!(state.hidden);
+        assert_eq!(
+            actual.item.product_id,
+            common::product_id::ProductId::from(uuid::Uuid::nil())
+        );
+        assert_eq!(
+            actual.item.title.payload.to_string(),
+            "Hidden Product Title"
+        );
     }
 
     #[tokio::test]
@@ -1886,17 +1911,17 @@ mod tests {
             time::Time::MIDNIGHT,
         );
 
-        // Match created at start of this month — will sort as position 1 (within Free quota of 10)
+        // Current-month match that remains within that month's Free quota of 10.
         let mut within_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
         within_match.product_id = within_quota_product_id;
         within_match.created = current_month_base;
 
-        // Match created last in this month — will sort as position 12 (beyond Free quota of 10)
+        // Current-month match that lands beyond that month's Free quota of 10.
         let mut beyond_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
         beyond_match.product_id = beyond_quota_product_id;
         beyond_match.created = current_month_base + time::Duration::hours(11);
 
-        // Old match from previous month — never hidden
+        // Old match from a previous month — counted against its own month.
         let mut old_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
         old_match.product_id = old_product_id;
         old_match.created = time::macros::datetime!(2020-01-15 12:00:00 UTC);
@@ -1941,10 +1966,10 @@ mod tests {
 
         assert_eq!(actual.len(), 4);
 
-        // Sorted current-month order:
-        // within_match (now-100h), filler[0..10] (now-99h..now-89h), beyond_match (now)
-        // within_match is position 1 → within quota of 10 → visible
-        // beyond_match is position 12 → beyond quota of 10 → hidden
+        // Quota is enforced per month:
+        // old_match is position 1 in its month → visible
+        // within_match is position 1 in the current month → visible
+        // beyond_match is position 12 in the current month → hidden
 
         let state0 = actual[0].user_state.clone().unwrap();
         assert!(state0.matched);
@@ -1971,20 +1996,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_personalize_search_filter_all_skip_quota_check_when_no_current_month_matches() {
+    async fn should_personalize_search_filter_all_hide_previous_month_matches_beyond_quota() {
         let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         let notification_service = MockNotificationService::default();
-        let user_service = MockUserService::default();
+
+        let mut user_service = MockUserService::default();
+        user_service.expect_find_user().returning(|_| {
+            Box::pin(async {
+                let mut user: User = Faker.fake();
+                user.tier = user::core::tier::UserTier::Free;
+                Ok(user)
+            })
+        });
 
         let old_product_id = ProductId::new();
         let mut old_match: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
         old_match.product_id = old_product_id;
-        old_match.created = time::macros::datetime!(2020-01-15 12:00:00 UTC);
+        old_match.created =
+            time::macros::datetime!(2020-01-15 12:00:00 UTC) + time::Duration::hours(10);
 
         let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
         search_filter_repository
             .expect_query_user_search_filter_match_records_all()
-            .return_once(move |_| Box::pin(async move { Ok(vec![old_match]) }));
+            .return_once(move |_| {
+                let mut records = Vec::new();
+                for i in 0..10i64 {
+                    let mut filler: search_filter::dynamodb::user_search_filter_match_record::UserSearchFilterMatchRecord = Faker.fake();
+                    filler.created =
+                        time::macros::datetime!(2020-01-15 12:00:00 UTC) + time::Duration::hours(i);
+                    records.push(filler);
+                }
+                records.push(old_match);
+                Box::pin(async move { Ok(records) })
+            });
 
         let service = ProductPersonalizationServiceImpl::new(
             &watchlist_repository,
@@ -1995,6 +2039,7 @@ mod tests {
 
         let mut input = Faker.fake::<LocalizedProductView>();
         input.product_id = old_product_id;
+        input.title.localization = common::language::domain::Language::En;
 
         let actual = service
             .personalize_search_filter_all(&Faker.fake(), vec![input])
@@ -2004,7 +2049,22 @@ mod tests {
         assert_eq!(actual.len(), 1);
         let state = actual[0].user_state.clone().unwrap();
         assert!(state.matched);
-        assert!(!state.hidden);
+        assert!(state.hidden);
+        assert_eq!(
+            actual[0].item.product_id,
+            common::product_id::ProductId::from(uuid::Uuid::nil())
+        );
+        assert_eq!(
+            actual[0].item.title.payload.to_string(),
+            "Hidden Product Title"
+        );
+    }
+
+    #[test]
+    fn should_return_month_start_for_match_created_in_past_month() {
+        let actual = month_start(&time::macros::datetime!(2020-01-15 12:34:56.789 UTC));
+
+        assert_eq!(actual, time::macros::datetime!(2020-01-01 00:00:00 UTC));
     }
 
     #[test]

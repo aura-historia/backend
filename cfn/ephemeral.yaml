@@ -93,6 +93,67 @@ Resources:
       Principal: cognito-idp.amazonaws.com
       SourceArn: !GetAtt PrimaryUserPool.Arn
 
+  CloudWatchLogRetentionLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "cloudwatch-log-retention-lambda-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CloudWatchLogsRetentionAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:PutRetentionPolicy
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*"
+  CloudWatchLogRetentionLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "cloudwatch-log-retention-${StageName}"
+      Runtime: provided.al2023
+      Handler: lib.handler
+      Role: !GetAtt CloudWatchLogRetentionLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Sub "cloudwatch-log-retention-lambda-${StageName}-${CommitSHA}.zip"
+      MemorySize: 128
+      Timeout: 10
+      EphemeralStorage:
+        Size: 512
+  CloudWatchLogGroupCreatedEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "cloudwatch-log-group-created-${StageName}"
+      EventPattern:
+        source:
+          - aws.logs
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        detail:
+          eventSource:
+            - logs.amazonaws.com
+          eventName:
+            - CreateLogGroup
+      Targets:
+        - Arn: !GetAtt CloudWatchLogRetentionLambda.Arn
+          Id: CloudWatchLogRetentionLambda
+  AllowEventBridgeInvokeCloudWatchLogRetentionLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref CloudWatchLogRetentionLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt CloudWatchLogGroupCreatedEventRule.Arn
+
   PrimaryUserPoolClientPublic:
     Type: AWS::Cognito::UserPoolClient
     Properties:

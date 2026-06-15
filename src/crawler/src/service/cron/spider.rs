@@ -2,15 +2,43 @@ use super::job::CrawlerCronJob;
 use crate::network::policy::{NetworkErrorKind, retry_cooldown_for};
 use crate::spider::advisory_lock::DomainLock;
 use crate::spider::candidate_service::SpiderCandidate;
+use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
+use crate::spider::service::SpiderServiceError;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{Instrument, debug, error, info, warn};
 
-const SMALL_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
-const SMALL_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-const SMALL_CRAWL_LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
+const CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
+const TRANSIENT_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CrawlCooldownProfile {
+    Transient,
+    Recoverable,
+    DurableBlock,
+}
+
+impl CrawlCooldownProfile {
+    fn long_cooldown(self) -> Duration {
+        match self {
+            CrawlCooldownProfile::Transient => TRANSIENT_CRAWL_LONG_COOLDOWN,
+            CrawlCooldownProfile::Recoverable => RECOVERABLE_CRAWL_LONG_COOLDOWN,
+            CrawlCooldownProfile::DurableBlock => DURABLE_BLOCK_CRAWL_LONG_COOLDOWN,
+        }
+    }
+
+    fn cooldown_for_failure_count(self, failure_count: i32) -> Duration {
+        match failure_count >= LONG_COOLDOWN_FAILURE_COUNT {
+            true => self.long_cooldown(),
+            false => CRAWL_RETRY_COOLDOWN,
+        }
+    }
+}
 
 fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
     if candidate.last_crawl_error_kind.as_deref() == Some(error_kind) {
@@ -20,19 +48,39 @@ fn next_failure_count(candidate: &SpiderCandidate, error_kind: &str) -> i32 {
     }
 }
 
-fn is_small_crawl_error_kind(error_kind: &str) -> bool {
-    matches!(error_kind, "TinyCrawl" | "InsufficientInferenceSample")
+fn crawl_cooldown_profile(error_kind: &str) -> Option<CrawlCooldownProfile> {
+    match error_kind {
+        "EmptyCrawl"
+        | "TinyCrawl"
+        | "RateLimited"
+        | "CloudflareChallenge"
+        | "BotProtection"
+        | "ConnectError"
+        | "ServerError" => Some(CrawlCooldownProfile::Transient),
+        "InsufficientInferenceSample" | "TlsError" | "RedirectProblem" | "InvalidUrl" => {
+            Some(CrawlCooldownProfile::Recoverable)
+        }
+        "AccessDenied" | "JavascriptRequired" => Some(CrawlCooldownProfile::DurableBlock),
+        _ => None,
+    }
 }
 
 fn cooldown_for_spider_failure(error_kind: &str, failure_count: i32) -> Duration {
-    if is_small_crawl_error_kind(error_kind) {
-        if failure_count >= SMALL_CRAWL_LONG_COOLDOWN_FAILURE_COUNT {
-            SMALL_CRAWL_LONG_COOLDOWN
-        } else {
-            SMALL_CRAWL_RETRY_COOLDOWN
+    crawl_cooldown_profile(error_kind)
+        .map(|profile| profile.cooldown_for_failure_count(failure_count))
+        .unwrap_or_else(|| retry_cooldown_for(NetworkErrorKind::Unknown))
+}
+
+fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
+    match error {
+        SpiderServiceError::UrlPattern(UrlPatternServiceError::PendingReview { .. }) => {
+            "PendingUrlPatternReview"
         }
-    } else {
-        retry_cooldown_for(NetworkErrorKind::Unknown)
+        SpiderServiceError::TinyCrawl { .. } => "TinyCrawl",
+        SpiderServiceError::EmptyCrawl { .. } => "EmptyCrawl",
+        SpiderServiceError::InsufficientInferenceSample { .. } => "InsufficientInferenceSample",
+        SpiderServiceError::DiagnosticCrawlFailure { kind, .. } => kind.as_str(),
+        _ => "spider_run_error",
     }
 }
 
@@ -123,20 +171,7 @@ impl CrawlerCronJob {
                                 true
                             }
                             Err(e) => {
-                                let error_kind = match &e {
-                                    crate::spider::service::SpiderServiceError::UrlPattern(
-                                        crate::spider::classification::url_pattern_service::UrlPatternServiceError::PendingReview {
-                                            ..
-                                        },
-                                    ) => "PendingUrlPatternReview",
-                                    crate::spider::service::SpiderServiceError::TinyCrawl {
-                                        ..
-                                    } => "TinyCrawl",
-                                    crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
-                                        ..
-                                    } => "InsufficientInferenceSample",
-                                    _ => "spider_run_error",
-                                };
+                                let error_kind = error_kind_for_spider_error(&e);
                                 let failure_count = next_failure_count(&candidate, error_kind);
                                 let cooldown =
                                     cooldown_for_spider_failure(error_kind, failure_count);
@@ -159,6 +194,19 @@ impl CrawlerCronJob {
                                     );
                                 }
                                 match &e {
+                                    crate::spider::service::SpiderServiceError::EmptyCrawl {
+                                        ..
+                                    } => warn!(
+                                        domain = %candidate.shop_domain,
+                                        error = %e,
+                                        error_kind,
+                                        failure_count,
+                                        total_crawled = 0,
+                                        min_required_links = 2,
+                                        next_crawl_at = %next_crawl_at,
+                                        cooldown_seconds = cooldown.as_secs(),
+                                        "Spider run failed"
+                                    ),
                                     crate::spider::service::SpiderServiceError::TinyCrawl {
                                         total_links,
                                         ..
@@ -186,6 +234,27 @@ impl CrawlerCronJob {
                                         stage,
                                         sample_size = *sample_size,
                                         min_sample_size = *min_sample_size,
+                                        next_crawl_at = %next_crawl_at,
+                                        cooldown_seconds = cooldown.as_secs(),
+                                        "Spider run failed"
+                                    ),
+                                    crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
+                                        total_links,
+                                        http_status,
+                                        final_url,
+                                        redirect_url,
+                                        diagnostic_reason,
+                                        ..
+                                    } => warn!(
+                                        domain = %candidate.shop_domain,
+                                        error = %e,
+                                        error_kind,
+                                        failure_count,
+                                        total_crawled = *total_links,
+                                        http_status = ?http_status,
+                                        final_url = ?final_url,
+                                        redirect_url = ?redirect_url,
+                                        diagnostic_reason = ?diagnostic_reason,
                                         next_crawl_at = %next_crawl_at,
                                         cooldown_seconds = cooldown.as_secs(),
                                         "Spider run failed"
@@ -242,6 +311,7 @@ mod tests {
     use crate::service::cron::test_support::{noop_product_push, noop_shop_registration};
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::{MockSpiderCandidateService, SpiderCandidate};
+    use crate::spider::discovery::website_spider::CrawlFailureKind;
     use crate::spider::service::{MockSpiderService, SpiderRunResult};
     use common::shop_id::ShopId;
 
@@ -282,6 +352,85 @@ mod tests {
         assert_eq!(
             next_failure_count(&candidate, "InsufficientInferenceSample"),
             1
+        );
+    }
+
+    #[test]
+    fn cooldown_should_use_retry_cooldown_for_first_two_grouped_failures() {
+        for error_kind in [
+            "EmptyCrawl",
+            "TinyCrawl",
+            "RateLimited",
+            "CloudflareChallenge",
+            "BotProtection",
+            "ConnectError",
+            "ServerError",
+            "InsufficientInferenceSample",
+            "TlsError",
+            "RedirectProblem",
+            "InvalidUrl",
+            "AccessDenied",
+            "JavascriptRequired",
+        ] {
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, 1),
+                CRAWL_RETRY_COOLDOWN
+            );
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, 2),
+                CRAWL_RETRY_COOLDOWN
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_use_transient_long_cooldown_for_flaky_failures() {
+        for error_kind in [
+            "EmptyCrawl",
+            "TinyCrawl",
+            "RateLimited",
+            "CloudflareChallenge",
+            "BotProtection",
+            "ConnectError",
+            "ServerError",
+        ] {
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
+                TRANSIENT_CRAWL_LONG_COOLDOWN
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_use_recoverable_long_cooldown_for_site_or_sample_failures() {
+        for error_kind in [
+            "InsufficientInferenceSample",
+            "TlsError",
+            "RedirectProblem",
+            "InvalidUrl",
+        ] {
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
+                RECOVERABLE_CRAWL_LONG_COOLDOWN
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_use_durable_block_long_cooldown_for_explicit_blocks() {
+        for error_kind in ["AccessDenied", "JavascriptRequired"] {
+            assert_eq!(
+                cooldown_for_spider_failure(error_kind, LONG_COOLDOWN_FAILURE_COUNT),
+                DURABLE_BLOCK_CRAWL_LONG_COOLDOWN
+            );
+        }
+    }
+
+    #[test]
+    fn cooldown_should_keep_generic_fallback_for_unknown_failures() {
+        assert_eq!(
+            cooldown_for_spider_failure("spider_run_error", LONG_COOLDOWN_FAILURE_COUNT),
+            retry_cooldown_for(NetworkErrorKind::Unknown)
         );
     }
 
@@ -401,7 +550,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == "TinyCrawl"
                     && *failure_count == 1
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_RETRY_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -413,6 +562,54 @@ mod tests {
                     shop_url,
                     total_links: 1,
                 })
+            })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            noop_product_push(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_mark_empty_crawl_failure_with_specific_error_kind() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "EmptyCrawl"
+                    && *failure_count == 1
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().returning(|_, _, shop_url, _| {
+            let shop_url = shop_url.to_string();
+            Box::pin(async move {
+                Err(crate::spider::service::SpiderServiceError::EmptyCrawl { shop_url })
             })
         });
 
@@ -452,7 +649,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == "InsufficientInferenceSample"
                     && *failure_count == 1
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_RETRY_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -468,6 +665,59 @@ mod tests {
                         min_sample_size: 20,
                     },
                 )
+            })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            noop_product_push(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_use_long_cooldown_after_repeated_empty_crawl_failures() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                Box::pin(async move {
+                    let mut candidate = spider_candidate(expected_domain_id);
+                    candidate.crawl_failure_count = 2;
+                    candidate.last_crawl_error_kind = Some("EmptyCrawl".to_string());
+                    Ok(vec![candidate])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "EmptyCrawl"
+                    && *failure_count == 3
+                    && next_crawl_at_is_about(*next_crawl_at, TRANSIENT_CRAWL_LONG_COOLDOWN)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().returning(|_, _, shop_url, _| {
+            let shop_url = shop_url.to_string();
+            Box::pin(async move {
+                Err(crate::spider::service::SpiderServiceError::EmptyCrawl { shop_url })
             })
         });
 
@@ -513,7 +763,7 @@ mod tests {
                 *domain_id == expected_domain_id
                     && error_kind == "InsufficientInferenceSample"
                     && *failure_count == 3
-                    && next_crawl_at_is_about(*next_crawl_at, SMALL_CRAWL_LONG_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, RECOVERABLE_CRAWL_LONG_COOLDOWN)
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
 
@@ -527,6 +777,150 @@ mod tests {
                         stage: "end_of_crawl",
                         sample_size: 16,
                         min_sample_size: 20,
+                    },
+                )
+            })
+        });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            noop_product_push(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    async fn assert_diagnostic_failure_is_persisted(
+        kind: CrawlFailureKind,
+        expected_error_kind: &'static str,
+    ) {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == expected_error_kind
+                    && *failure_count == 1
+                    && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .returning(move |_, _, shop_url, _| {
+                let shop_url = shop_url.to_string();
+                Box::pin(async move {
+                    Err(
+                        crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
+                            shop_url,
+                            kind,
+                            total_links: 1,
+                            http_status: None,
+                            final_url: None,
+                            redirect_url: None,
+                            diagnostic_reason: Some("test_diagnostic".to_string()),
+                        },
+                    )
+                })
+            });
+
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let scraper_service = MockScraperService::new();
+
+        let job = CrawlerCronJob::new(
+            CrawlerCronConfig::default(),
+            Arc::new(LocalLockManager::new()),
+            Box::new(spider_candidates),
+            Box::new(spider_service),
+            Box::new(scraper_candidates),
+            Box::new(scraper_service),
+            noop_shop_registration(),
+            noop_product_push(),
+        );
+
+        job.run_spider_once().await;
+    }
+
+    #[tokio::test]
+    async fn should_persist_diagnostic_failure_kinds_with_small_crawl_cooldown() {
+        for (kind, expected_error_kind) in [
+            (CrawlFailureKind::EmptyCrawl, "EmptyCrawl"),
+            (CrawlFailureKind::RateLimited, "RateLimited"),
+            (CrawlFailureKind::AccessDenied, "AccessDenied"),
+            (CrawlFailureKind::CloudflareChallenge, "CloudflareChallenge"),
+            (CrawlFailureKind::BotProtection, "BotProtection"),
+            (CrawlFailureKind::TlsError, "TlsError"),
+            (CrawlFailureKind::ConnectError, "ConnectError"),
+            (CrawlFailureKind::ServerError, "ServerError"),
+            (CrawlFailureKind::RedirectProblem, "RedirectProblem"),
+            (CrawlFailureKind::InvalidUrl, "InvalidUrl"),
+            (CrawlFailureKind::JavascriptRequired, "JavascriptRequired"),
+        ] {
+            assert_diagnostic_failure_is_persisted(kind, expected_error_kind).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn should_use_long_cooldown_after_repeated_diagnostic_failures() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_domain_id = uuid::Uuid::new_v4();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_| {
+                Box::pin(async move {
+                    let mut candidate = spider_candidate(expected_domain_id);
+                    candidate.crawl_failure_count = 2;
+                    candidate.last_crawl_error_kind = Some("RateLimited".to_string());
+                    Ok(vec![candidate])
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_failure()
+            .withf(move |domain_id, error_kind, failure_count, next_crawl_at| {
+                *domain_id == expected_domain_id
+                    && error_kind == "RateLimited"
+                    && *failure_count == 3
+                    && next_crawl_at_is_about(*next_crawl_at, TRANSIENT_CRAWL_LONG_COOLDOWN)
+            })
+            .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service.expect_run().returning(|_, _, shop_url, _| {
+            let shop_url = shop_url.to_string();
+            Box::pin(async move {
+                Err(
+                    crate::spider::service::SpiderServiceError::DiagnosticCrawlFailure {
+                        shop_url,
+                        kind: CrawlFailureKind::RateLimited,
+                        total_links: 1,
+                        http_status: Some(429),
+                        final_url: Some("https://example.com/".to_string()),
+                        redirect_url: None,
+                        diagnostic_reason: Some("canonical_non_success_status".to_string()),
                     },
                 )
             })
