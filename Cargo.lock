@@ -7318,13 +7318,14 @@ dependencies = [
 
 [[package]]
 name = "spider"
-version = "2.51.197"
+version = "2.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e9da38f8d0fc1e91636287d21fb404b574b48a1e73bf898cc2f429c69a94274"
+checksum = "2608d8bc4c1e26786a3c57ff6ba632a757c3e8dde4f96ca5765ec1b1a8aa8697"
 dependencies = [
  "ahash",
  "aho-corasick",
  "arc-swap",
+ "async-trait",
  "auto_encoder",
  "bytes",
  "case_insensitive_string",
@@ -9150,7 +9151,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
