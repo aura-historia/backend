@@ -1,5 +1,7 @@
 use crate::scraper::css_selector::currency_dto::CurrencyDto;
-use crate::scraper::css_selector::rule::{ExtractionError, ExtractionRule};
+use crate::scraper::css_selector::rule::{
+    ExtractionError, ExtractionRule, split_image_candidate_group,
+};
 use common::shop_id::ShopId;
 use llm::chat::StructuredOutputFormat;
 use schemars::JsonSchema;
@@ -238,6 +240,16 @@ impl ProductCssSelectorSchema {
             .images
             .apply_image_url_candidate_groups(html)
             .map_err(ApplySchemaError::Images)?;
+        let images = images
+            .into_iter()
+            .map(|image| {
+                split_image_candidate_group(&image)
+                    .into_iter()
+                    .next()
+                    .unwrap_or(image.as_str())
+                    .to_owned()
+            })
+            .collect();
 
         let auction_start = match &self.auction_start {
             None => None,
@@ -310,7 +322,6 @@ mod tests {
     };
     use crate::scraper::css_selector::rule::{
         CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule, HtmlAttributeName,
-        IMAGE_CANDIDATE_SEPARATOR,
     };
 
     // -------------------------------------------------------------------------
@@ -1266,7 +1277,7 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_ordered_image_url_candidate_group_for_validation() {
+    fn should_extract_first_image_candidate_from_ordered_image_url_group() {
         let html = Html::parse_document(
             r#"<html><body>
                 <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
@@ -1296,10 +1307,7 @@ mod tests {
         let result = schema.apply(&html).unwrap();
 
         assert_eq!(result.images.len(), 1);
-        assert_eq!(
-            result.images[0],
-            format!("/full-800x600.jpg{IMAGE_CANDIDATE_SEPARATOR}/thumb-100x100.jpg")
-        );
+        assert_eq!(result.images[0], "/full-800x600.jpg");
     }
 
     // -------------------------------------------------------------------------
