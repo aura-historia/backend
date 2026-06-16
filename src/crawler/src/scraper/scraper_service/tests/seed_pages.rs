@@ -89,7 +89,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         .once()
         .returning(move |_, _, _| {
             let n = expected.clone();
-            Box::pin(async move { Ok((n, 0u32)) })
+            Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
@@ -154,7 +154,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         .once()
         .returning(move |_, _, _| {
             let n = expected.clone();
-            Box::pin(async move { Ok((n, 0u32)) })
+            Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
@@ -235,7 +235,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
         .once()
         .returning(move |_, _, _| {
             let n = expected.clone();
-            Box::pin(async move { Ok((n, 0u32)) })
+            Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
@@ -305,7 +305,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         .once()
         .returning(move |_, _, _| {
             let n = expected.clone();
-            Box::pin(async move { Ok((n, 0u32)) })
+            Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
 
     let mut cand_svc = MockScraperCandidateService::new();

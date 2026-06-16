@@ -130,10 +130,11 @@ pub async fn assert_normalized(
 
     let product_url = Url::parse(url).expect("test URL must be valid");
     let default_currency = schema.default_currency.map(Currency::from);
-    let (result, _) = norm_svc
+    let result = norm_svc
         .normalize(raw, product_url, default_currency)
         .await
-        .unwrap_or_else(|e| panic!("normalization failed: {e}"));
+        .unwrap_or_else(|e| panic!("normalization failed: {e}"))
+        .product;
 
     assert_eq!(
         result.shops_product_id.to_string(),

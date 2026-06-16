@@ -29,7 +29,7 @@ async fn scrape_with_schema_service(
         .once()
         .returning(move |_, _, _| {
             let n = expected.clone();
-            Box::pin(async move { Ok((n, 0u32)) })
+            Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
 
     let mut cand_svc = MockScraperCandidateService::new();

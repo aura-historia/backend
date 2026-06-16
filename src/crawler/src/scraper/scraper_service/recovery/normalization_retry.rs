@@ -6,6 +6,9 @@ use crate::scraper::css_selector::product_schema_service::SchemaPromptSource;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
+use crate::scraper::normalization::product_normalization_service::{
+    NormalizationFailure, NormalizationSuccess,
+};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::{apply_schema, try_apply_schemas};
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
@@ -120,7 +123,7 @@ impl ScraperServiceImpl {
             Err(err) => return Err(ScraperError::NormalizationError(err)),
         };
 
-        let (product, norm_llm_calls) = self
+        match self
             .normalization_service
             .normalize(
                 raw,
@@ -130,10 +133,24 @@ impl ScraperServiceImpl {
                     .map(common::currency::domain::Currency::from),
             )
             .await
-            .map_err(ScraperError::NormalizationError)?;
-        self.consume_llm_budget_n_or_err(shop_id, url, norm_llm_calls)
-            .await?;
-        Ok(product)
+        {
+            Ok(NormalizationSuccess {
+                product,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(shop_id, url, llm_calls_used)
+                    .await?;
+                Ok(product)
+            }
+            Err(NormalizationFailure {
+                error,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(shop_id, url, llm_calls_used)
+                    .await?;
+                Err(ScraperError::NormalizationError(error))
+            }
+        }
     }
 
     /// Thin dispatcher: run normalization once and branch on the result.
@@ -178,15 +195,30 @@ impl ScraperServiceImpl {
             )
             .await
         {
-            Ok((product, norm_llm_calls)) => {
-                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, norm_llm_calls)
+            Ok(NormalizationSuccess {
+                product,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
                     .await?;
                 Ok(product)
             }
-            Err(err) if normalization_error_to_schema_hint(&err).is_some() => {
-                self.fix_normalization_with_schema_retry(ctx, err).await
+            Err(NormalizationFailure {
+                error,
+                llm_calls_used,
+            }) if normalization_error_to_schema_hint(&error).is_some() => {
+                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                    .await?;
+                self.fix_normalization_with_schema_retry(ctx, error).await
             }
-            Err(err) => Err(ScraperError::NormalizationError(err)),
+            Err(NormalizationFailure {
+                error,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                    .await?;
+                Err(ScraperError::NormalizationError(error))
+            }
         }
     }
 
@@ -306,8 +338,11 @@ impl ScraperServiceImpl {
                 )
                 .await
             {
-                Ok((product, norm_llm_calls)) => {
-                    self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, norm_llm_calls)
+                Ok(NormalizationSuccess {
+                    product,
+                    llm_calls_used,
+                }) => {
+                    self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
                         .await?;
                     let mut persisted_schemas = ctx.existing_schemas.to_vec();
                     persisted_schemas.push(generated_schema.clone());
@@ -351,7 +386,12 @@ impl ScraperServiceImpl {
                         }
                     }
                 }
-                Err(norm_err) => {
+                Err(NormalizationFailure {
+                    error: norm_err,
+                    llm_calls_used,
+                }) => {
+                    self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                        .await?;
                     let Some(hint) = normalization_error_to_schema_hint(&norm_err) else {
                         return Err(ScraperError::NormalizationError(norm_err));
                     };

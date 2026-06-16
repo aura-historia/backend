@@ -64,9 +64,9 @@ async fn should_try_next_existing_schema_when_first_schema_has_fixable_normaliza
             let norm_calls = norm_calls.clone();
             Box::pin(async move {
                 if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                    Err(NormalizationError::TitleEmpty)
+                    Err(normalization_failure(NormalizationError::TitleEmpty, 0))
                 } else {
-                    Ok((n, 0u32))
+                    Ok(normalization_success(n, 0))
                 }
             })
         });
@@ -169,9 +169,9 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
             let norm_calls = norm_calls.clone();
             Box::pin(async move {
                 if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
-                    Err(NormalizationError::TitleEmpty)
+                    Err(normalization_failure(NormalizationError::TitleEmpty, 0))
                 } else {
-                    Ok((n, 0u32))
+                    Ok(normalization_success(n, 0))
                 }
             })
         });
@@ -269,9 +269,9 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
             let norm_calls = norm_calls.clone();
             Box::pin(async move {
                 if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                    Err(NormalizationError::TitleEmpty)
+                    Err(normalization_failure(NormalizationError::TitleEmpty, 0))
                 } else {
-                    Ok((n, 0u32))
+                    Ok(normalization_success(n, 0))
                 }
             })
         });
@@ -322,10 +322,13 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
     let mut norm_svc = MockProductNormalizationService::new();
     norm_svc.expect_normalize().once().returning(|_, _, _| {
         Box::pin(async {
-            Err(NormalizationError::InvalidImageUrl {
-                raw: "not-a-url".to_string(),
-                source: url::Url::parse("://bad").unwrap_err(),
-            })
+            Err(normalization_failure(
+                NormalizationError::InvalidImageUrl {
+                    raw: "not-a-url".to_string(),
+                    source: url::Url::parse("://bad").unwrap_err(),
+                },
+                0,
+            ))
         })
     });
 
@@ -389,7 +392,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
             let n = expected.clone();
             Box::pin(async move {
                 assert!(raw.images.is_empty());
-                Ok((n, 0u32))
+                Ok(normalization_success(n, 0))
             })
         });
 
@@ -573,7 +576,9 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
     norm_svc
         .expect_normalize()
         .times(3) // 1 initial + 2 retry attempts
-        .returning(|_, _, _| Box::pin(async { Err(NormalizationError::TitleEmpty) }));
+        .returning(|_, _, _| {
+            Box::pin(async { Err(normalization_failure(NormalizationError::TitleEmpty, 0)) })
+        });
 
     let mut cand_svc = MockScraperCandidateService::new();
     // 2 schema-generation LLM calls (one per attempt).

@@ -41,7 +41,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         .once()
         .returning(move |_, _, _| {
             let n = expected.clone();
-            Box::pin(async move { Ok((n, 0u32)) })
+            Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
@@ -105,7 +105,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
     let mut norm_svc = MockProductNormalizationService::new();
     norm_svc.expect_normalize().returning(move |_, _, _| {
         let n = norm_clone.clone();
-        Box::pin(async move { Ok((n, 0u32)) })
+        Box::pin(async move { Ok(normalization_success(n, 0)) })
     });
 
     let mut cand_svc = MockScraperCandidateService::new();
@@ -171,7 +171,7 @@ async fn should_filter_invalid_thumbnail_images_before_normalization() {
                 vec!["https://example.com/image-800x600.jpg".to_string()]
             );
             let n = expected.clone();
-            Box::pin(async move { Ok((n, 0u32)) })
+            Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
 
     let mut cand_svc = MockScraperCandidateService::new();

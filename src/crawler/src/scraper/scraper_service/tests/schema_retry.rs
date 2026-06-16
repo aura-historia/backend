@@ -35,7 +35,7 @@ fn normalizer_with_success(url: Url) -> MockProductNormalizationService {
         .once()
         .returning(move |_, _, _| {
             let n = expected.clone();
-            Box::pin(async move { Ok((n, 0u32)) })
+            Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
     norm_svc
 }
