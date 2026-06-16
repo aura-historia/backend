@@ -413,6 +413,82 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
 }
 
 #[tokio::test]
+async fn should_keep_valid_image_fallback_after_malformed_candidate_without_schema_repair() {
+    let id = shop_id();
+    let url = product_url();
+    let html = r#"<!DOCTYPE html>
+    <html>
+    <body>
+      <main>
+        <span id="product-id">SKU-42</span>
+        <h1>Biedermeier Chair</h1>
+        <span id="state">In Stock</span>
+        <img data-large_image="//" src="/image-800x600.jpg">
+      </main>
+    </body>
+    </html>"#
+        .to_string();
+
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let html = html.clone();
+        Box::pin(async move { Ok(html) })
+    });
+
+    let mut product_schema = minimal_schema();
+    product_schema.images = ExtractionRule {
+        selector: CssSelector::from("img"),
+        additional_selectors: vec![],
+        extract: ExtractionKind::ImageUrl,
+        cardinality: ExtractionCardinality::All,
+    };
+    let schema = ShopsProductSchema {
+        shop_id: id,
+        product_schemas: vec![product_schema],
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    };
+    let mut schema_svc = MockProductSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let schema = schema.clone();
+            Box::pin(async move { Ok(Some(schema)) })
+        });
+    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_save_product_schemas().never();
+
+    let expected = normalized_product(url.clone());
+    let mut norm_svc = MockProductNormalizationService::new();
+    norm_svc
+        .expect_normalize()
+        .once()
+        .returning(move |raw, _, _| {
+            let n = expected.clone();
+            Box::pin(async move {
+                assert_eq!(raw.images, vec!["https://example.com/image-800x600.jpg"]);
+                Ok(normalization_success(n, 0))
+            })
+        });
+
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Box::new(norm_svc),
+        Arc::new(cand_svc),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+    );
+
+    let result = service.scrape(&id, &url, None).await.unwrap();
+    assert!(result.is_some());
+}
+
+#[tokio::test]
 async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
     let id = shop_id();
     let url = product_url();
