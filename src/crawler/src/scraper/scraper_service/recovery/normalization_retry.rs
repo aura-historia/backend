@@ -1,11 +1,16 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
-use crate::scraper::css_selector::product_schema::{ApplySchemaError, ProductCssSelectorSchema};
+use crate::scraper::css_selector::product_schema::{
+    ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
+};
 use crate::scraper::css_selector::product_schema_service::SchemaPromptSource;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
+use crate::scraper::normalization::product_normalization_service::{
+    NormalizationFailure, NormalizationSuccess,
+};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
+use crate::scraper::scraper_service::extraction::engine::{apply_schema, try_apply_schemas};
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -28,11 +33,126 @@ pub(crate) struct NormalizationRetryContext<'a> {
     pub(crate) selected_schema: ProductCssSelectorSchema,
 }
 
+pub(crate) enum ExistingSchemaSelection {
+    Normalized(Box<NormalizedProduct>),
+    NeedsRepair {
+        selected_schema: Box<ProductCssSelectorSchema>,
+        last_norm_error: NormalizationError,
+    },
+    NoSchemaApplied {
+        last_error: ApplySchemaError,
+    },
+}
+
 // ---------------------------------------------------------------------------
 // impl ScraperServiceImpl
 // ---------------------------------------------------------------------------
 
 impl ScraperServiceImpl {
+    #[tracing::instrument(
+        skip(self, schemas, html),
+        fields(
+            shop_id = %shop_id,
+            url = %url,
+            schema_count = schemas.len()
+        )
+    )]
+    pub(crate) async fn select_existing_schema_with_normalization(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        html: &str,
+        schemas: &[ProductCssSelectorSchema],
+    ) -> Result<ExistingSchemaSelection, ScraperError> {
+        let mut last_apply_error: Option<ApplySchemaError> = None;
+        let mut last_fixable_norm_failure: Option<(ProductCssSelectorSchema, NormalizationError)> =
+            None;
+
+        for schema in schemas {
+            let raw = match apply_schema(schema, html) {
+                Ok(raw) => raw,
+                Err(err) => {
+                    last_apply_error = Some(err);
+                    continue;
+                }
+            };
+
+            match self
+                .normalize_applied_schema(shop_id, url, schema, raw)
+                .await
+            {
+                Ok(product) => return Ok(ExistingSchemaSelection::Normalized(Box::new(product))),
+                Err(ScraperError::NormalizationError(err))
+                    if normalization_error_to_schema_hint(&err).is_some() =>
+                {
+                    last_fixable_norm_failure = Some((schema.clone(), err));
+                }
+                Err(ScraperError::NormalizationError(err)) => {
+                    return Err(ScraperError::NormalizationError(err));
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        if let Some((selected_schema, last_norm_error)) = last_fixable_norm_failure {
+            return Ok(ExistingSchemaSelection::NeedsRepair {
+                selected_schema: Box::new(selected_schema),
+                last_norm_error,
+            });
+        }
+
+        Ok(ExistingSchemaSelection::NoSchemaApplied {
+            last_error: last_apply_error.unwrap_or_else(|| {
+                ApplySchemaError::Title(ExtractionError::NoElementMatched {
+                    selector: "title".to_string(),
+                })
+            }),
+        })
+    }
+
+    async fn normalize_applied_schema(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        selected_schema: &ProductCssSelectorSchema,
+        mut raw: RawExtractedProduct,
+    ) -> Result<NormalizedProduct, ScraperError> {
+        raw.images = match filter_valid_image_urls(raw.images, url, &*self.image_validator).await {
+            Ok(images) => images,
+            Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
+            Err(err) => return Err(ScraperError::NormalizationError(err)),
+        };
+
+        match self
+            .normalization_service
+            .normalize(
+                raw,
+                url.clone(),
+                selected_schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
+            .await
+        {
+            Ok(NormalizationSuccess {
+                product,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(shop_id, url, llm_calls_used)
+                    .await?;
+                Ok(product)
+            }
+            Err(NormalizationFailure {
+                error,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(shop_id, url, llm_calls_used)
+                    .await?;
+                Err(ScraperError::NormalizationError(error))
+            }
+        }
+    }
+
     /// Thin dispatcher: run normalization once and branch on the result.
     ///
     /// - **Happy path** — charge normalization LLM calls and return the product.
@@ -58,6 +178,7 @@ impl ScraperServiceImpl {
         raw.images =
             match filter_valid_image_urls(raw.images, ctx.url, &*self.image_validator).await {
                 Ok(images) => images,
+                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
                 Err(err) if normalization_error_to_schema_hint(&err).is_some() => {
                     return self.fix_normalization_with_schema_retry(ctx, err).await;
                 }
@@ -74,15 +195,30 @@ impl ScraperServiceImpl {
             )
             .await
         {
-            Ok((product, norm_llm_calls)) => {
-                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, norm_llm_calls)
+            Ok(NormalizationSuccess {
+                product,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
                     .await?;
                 Ok(product)
             }
-            Err(err) if normalization_error_to_schema_hint(&err).is_some() => {
-                self.fix_normalization_with_schema_retry(ctx, err).await
+            Err(NormalizationFailure {
+                error,
+                llm_calls_used,
+            }) if normalization_error_to_schema_hint(&error).is_some() => {
+                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                    .await?;
+                self.fix_normalization_with_schema_retry(ctx, error).await
             }
-            Err(err) => Err(ScraperError::NormalizationError(err)),
+            Err(NormalizationFailure {
+                error,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                    .await?;
+                Err(ScraperError::NormalizationError(error))
+            }
         }
     }
 
@@ -182,6 +318,7 @@ impl ScraperServiceImpl {
                     .await
                 {
                     Ok(images) => images,
+                    Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
                     Err(norm_err) => {
                         last_generated_schema = Some(generated_schema);
                         last_apply_error = normalization_error_to_schema_hint(&norm_err);
@@ -201,8 +338,11 @@ impl ScraperServiceImpl {
                 )
                 .await
             {
-                Ok((product, norm_llm_calls)) => {
-                    self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, norm_llm_calls)
+                Ok(NormalizationSuccess {
+                    product,
+                    llm_calls_used,
+                }) => {
+                    self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
                         .await?;
                     let mut persisted_schemas = ctx.existing_schemas.to_vec();
                     persisted_schemas.push(generated_schema.clone());
@@ -246,7 +386,12 @@ impl ScraperServiceImpl {
                         }
                     }
                 }
-                Err(norm_err) => {
+                Err(NormalizationFailure {
+                    error: norm_err,
+                    llm_calls_used,
+                }) => {
+                    self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                        .await?;
                     let Some(hint) = normalization_error_to_schema_hint(&norm_err) else {
                         return Err(ScraperError::NormalizationError(norm_err));
                     };

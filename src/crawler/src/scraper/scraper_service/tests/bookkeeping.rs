@@ -42,7 +42,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         .once()
         .returning(move |_, _, _| {
             let n = expected.clone();
-            Box::pin(async move { Ok((n, 0u32)) })
+            Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
 
     let mut cand_svc = MockScraperCandidateService::new();

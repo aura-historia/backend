@@ -20,8 +20,11 @@ use crate::scraper::css_selector::product_schema_service::{
 use crate::scraper::css_selector::rule::{
     CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
 };
+use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
-use crate::scraper::normalization::product_normalization_service::MockProductNormalizationService;
+use crate::scraper::normalization::product_normalization_service::{
+    MockProductNormalizationService, NormalizationFailure, NormalizationSuccess,
+};
 use crate::scraper::scraper_service::ScraperService;
 use crate::scraper::scraper_service::service::{
     DEFAULT_MAX_LLM_CALLS_PER_SHOP, MockHtmlFetcher, ScraperServiceImpl,
@@ -75,7 +78,7 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
     };
 
     ProductCssSelectorSchema {
-        shops_product_id: text_rule("#product-id"),
+        shops_product_id: Some(text_rule("#product-id")),
         title: text_rule("h1"),
         description: None,
         price: None,
@@ -135,6 +138,26 @@ pub(super) fn normalized_product(url: Url) -> NormalizedProduct {
         images: vec![],
         auction_start: None,
         auction_end: None,
+    }
+}
+
+pub(super) fn normalization_success(
+    product: NormalizedProduct,
+    llm_calls_used: u32,
+) -> NormalizationSuccess {
+    NormalizationSuccess {
+        product,
+        llm_calls_used,
+    }
+}
+
+pub(super) fn normalization_failure(
+    error: NormalizationError,
+    llm_calls_used: u32,
+) -> NormalizationFailure {
+    NormalizationFailure {
+        error,
+        llm_calls_used,
     }
 }
 

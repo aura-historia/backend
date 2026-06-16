@@ -376,12 +376,12 @@ mod tests {
 
     fn sample_css_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            shops_product_id: ExtractionRule {
+            shops_product_id: Some(ExtractionRule {
                 selector: "span.product-id".into(),
                 additional_selectors: vec![],
                 extract: ExtractionKind::Text,
                 cardinality: ExtractionCardinality::First,
-            },
+            }),
             title: ExtractionRule {
                 selector: "h1.title".into(),
                 additional_selectors: vec![],

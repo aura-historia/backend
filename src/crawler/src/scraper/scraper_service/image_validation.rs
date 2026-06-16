@@ -91,12 +91,18 @@ pub(crate) async fn filter_valid_image_urls(
                 continue;
             }
 
-            let resolved = Url::parse(trimmed)
-                .or_else(|_| base_url.join(trimmed))
-                .map_err(|source| NormalizationError::InvalidImageUrl {
-                    raw: trimmed.to_owned(),
-                    source,
-                })?;
+            let resolved = match Url::parse(trimmed).or_else(|_| base_url.join(trimmed)) {
+                Ok(url) => url,
+                Err(err) => {
+                    tracing::debug!(
+                        raw = trimmed,
+                        error = ?err,
+                        "Discarding invalid image URL candidate"
+                    );
+                    invalid_count += 1;
+                    continue;
+                }
+            };
 
             let validation = match validate_image_url(&resolved) {
                 Some(validation) => validation,
@@ -329,5 +335,37 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, NormalizationError::NoValidImages { .. }));
+    }
+
+    #[tokio::test]
+    async fn treats_malformed_image_url_candidates_as_invalid() {
+        let base = Url::parse("https://example.com/products/1").unwrap();
+        let err = filter_valid_image_urls(
+            vec!["//".to_string()],
+            &base,
+            &StaticValidator {
+                validation: ImageValidation::Unknown,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, NormalizationError::NoValidImages { .. }));
+    }
+
+    #[tokio::test]
+    async fn keeps_valid_fallback_candidate_after_malformed_candidate_in_same_group() {
+        let base = Url::parse("https://example.com/products/1").unwrap();
+        let result = filter_valid_image_urls(
+            vec![format!("//{IMAGE_CANDIDATE_SEPARATOR}/image-800x600.jpg")],
+            &base,
+            &StaticValidator {
+                validation: ImageValidation::Unknown,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result, vec!["https://example.com/image-800x600.jpg"]);
     }
 }
