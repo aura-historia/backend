@@ -6,10 +6,16 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## 2026-06-17 - Product Search Accepts Multiple Text Queries
+## 2026-06-17 - Move Enhanced Search Description Into Product Search & Product Search Accepts Multiple Text Queries
 
 ### Changed
 
+- **Saved search filter DTOs**
+  - `enhancedSearchDescription` moved from `PostUserSearchFilterData`,
+    `PatchUserSearchFilterData`, and `UserSearchFilterData` into their nested
+    `search` / `ProductSearchData` payload.
+  - PATCH requests now update the enhanced search description via
+    `search.enhancedSearchDescription`.
 - **`ProductSearchData.productQuery`**
   - Changed from a single optional string to an array of strings.
   - Empty arrays are allowed and mean no text query.
@@ -22,17 +28,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `POST /api/v1/me/search-filters`
   - `PATCH /api/v1/me/search-filters/{userSearchFilterId}`
   - Search-filter response payloads
-
-## 2026-06-17 - Move Enhanced Search Description Into Product Search
-
-### Changed
-
-- **Saved search filter DTOs**
-  - `enhancedSearchDescription` moved from `PostUserSearchFilterData`,
-    `PatchUserSearchFilterData`, and `UserSearchFilterData` into their nested
-    `search` / `ProductSearchData` payload.
-  - PATCH requests now update the enhanced search description via
-    `search.enhancedSearchDescription`.
 
 ## 2026-06-13 - Search Filter Product Preview Uses Percolator Matching
 
