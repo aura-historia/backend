@@ -77,6 +77,14 @@ impl ProductSearch {
         self
     }
 
+    pub fn with_enhanced_search_description(
+        mut self,
+        enhanced_search_description: EnhancedSearchDescription,
+    ) -> Self {
+        self.enhanced_search_description = Some(enhanced_search_description);
+        self
+    }
+
     pub fn with_shop_name_query(mut self, shop_name_query: AnyOfQuery<ShopName>) -> Self {
         self.shop_name_query = shop_name_query;
         self
