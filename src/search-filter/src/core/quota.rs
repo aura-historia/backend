@@ -116,7 +116,7 @@ fn check_search_filter_features_free(
 }
 
 fn check_search_filter_features_pro(search: &ProductSearch) -> Result<(), ProductSearchSerdeField> {
-    if search.enhanced_search_description.is_none() {
+    if search.enhanced_search_description.is_some() {
         return Err(ProductSearchSerdeField::EnhancedSearchDescription);
     }
 
@@ -186,7 +186,7 @@ fn check_search_filter_update_features_free(
 fn check_search_filter_update_features_pro(
     search: &UserSearchFilterUpdate,
 ) -> Result<(), ProductSearchSerdeField> {
-    if search.enhanced_search_description.is_none() {
+    if search.enhanced_search_description.is_some() {
         return Err(ProductSearchSerdeField::EnhancedSearchDescription);
     }
 
