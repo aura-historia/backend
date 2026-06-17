@@ -1744,7 +1744,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_allow_pro_tier_to_update_with_all_features() {
+        async fn should_allow_ultimate_tier_to_update_with_all_features() {
             use user::core::user::User;
 
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
@@ -1758,7 +1758,7 @@ mod tests {
             user_service.expect_find_user().return_once(|_| {
                 Box::pin(async {
                     let mut user: User = fake::Fake::fake(&fake::Faker);
-                    user.tier = user::core::tier::UserTier::Pro;
+                    user.tier = user::core::tier::UserTier::Ultimate;
                     Ok(user)
                 })
             });
