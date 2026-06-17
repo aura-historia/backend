@@ -1,4 +1,4 @@
-use crate::core::product_search::ProductSearch;
+use crate::core::product_search::{EnhancedSearchDescription, ProductSearch};
 use crate::opensearch::product_state_document::ProductStateDocument;
 use common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery};
 use common::query::range_query::RangeQuery;
@@ -58,6 +58,8 @@ pub struct ProductSearchDocument {
         default
     )]
     pub product_query: Option<TextQuery<1>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub enhanced_search_description: Option<String>,
     #[serde(
         rename = "shopName",
         skip_serializing_if = "HashSet::is_empty",
@@ -166,6 +168,7 @@ impl From<ProductSearch> for ProductSearchDocument {
             language: search.language.into(),
             currency: search.currency.into(),
             product_query: search.product_query,
+            enhanced_search_description: search.enhanced_search_description.map(Into::into),
             shop_name_query: search.shop_name_query.into(),
             exclude_shop_name_query: search.exclude_shop_name_query.into(),
             seller_name_query: search.seller_name_query.into(),
@@ -208,6 +211,9 @@ impl From<ProductSearchDocument> for ProductSearch {
             language: document.language.into(),
             currency: document.currency.into(),
             product_query: document.product_query,
+            enhanced_search_description: document
+                .enhanced_search_description
+                .map(EnhancedSearchDescription::from),
             shop_name_query: document.shop_name_query.into(),
             exclude_shop_name_query: document.exclude_shop_name_query.into(),
             seller_name_query: document.seller_name_query.into(),

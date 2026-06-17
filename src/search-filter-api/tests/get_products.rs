@@ -166,13 +166,7 @@ async fn should_200_when_success_without_enhanced_description() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(
-            &user_ctx(user_id),
-            &user_id,
-            Faker.fake(),
-            Faker.fake(),
-            None,
-        )
+        .create_user_search_filter(&user_ctx(user_id), &user_id, Faker.fake(), Faker.fake())
         .await
         .unwrap();
 
@@ -229,7 +223,6 @@ async fn should_preview_products_with_percolator_query_semantics() {
             &user_id,
             Faker.fake(),
             percolator_only_search(),
-            None,
         )
         .await
         .unwrap();
@@ -285,7 +278,6 @@ async fn should_return_hardcoded_preview_size_without_pagination() {
             &user_id,
             Faker.fake(),
             percolator_only_search(),
-            None,
         )
         .await
         .unwrap();
@@ -330,13 +322,7 @@ async fn should_400_when_size_provided() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(
-            &user_ctx(user_id),
-            &user_id,
-            Faker.fake(),
-            Faker.fake(),
-            None,
-        )
+        .create_user_search_filter(&user_ctx(user_id), &user_id, Faker.fake(), Faker.fake())
         .await
         .unwrap();
 
@@ -375,13 +361,7 @@ async fn should_400_when_search_after_provided() {
 
     let user_id = create_user(client).await;
     let search_filter = service
-        .create_user_search_filter(
-            &user_ctx(user_id),
-            &user_id,
-            Faker.fake(),
-            Faker.fake(),
-            None,
-        )
+        .create_user_search_filter(&user_ctx(user_id), &user_id, Faker.fake(), Faker.fake())
         .await
         .unwrap();
 

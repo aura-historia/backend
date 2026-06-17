@@ -81,7 +81,7 @@ pub async fn handle(
     let items: Vec<Personalized<GetProductSummaryData, ProductUserStateData>> = if let Some(
         enhanced_desc,
     ) =
-        &search_filter.enhanced_search_description
+        &search_filter.search.enhanced_search_description
     {
         if let Some(match_service) = enhanced_match_service {
             let mut result_items = Vec::with_capacity(personalized.len());
@@ -212,14 +212,14 @@ mod tests {
 
     fn filter_without_enhanced_description() -> UserSearchFilter {
         let mut filter: UserSearchFilter = Faker.fake();
-        filter.enhanced_search_description = None;
+        filter.search.enhanced_search_description = None;
         filter
     }
 
     fn filter_with_enhanced_description() -> UserSearchFilter {
-        use search_filter::core::user_search_filter::EnhancedSearchDescription;
+        use product::core::product_search::EnhancedSearchDescription;
         let mut filter: UserSearchFilter = Faker.fake();
-        filter.enhanced_search_description =
+        filter.search.enhanced_search_description =
             Some(EnhancedSearchDescription::from("golden cufflinks"));
         filter
     }

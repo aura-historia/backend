@@ -53,7 +53,6 @@ async fn should_return_actual_search_filter() {
             &user.user_id,
             Faker.fake(),
             Faker.fake::<ProductSearch>(),
-            Faker.fake(),
         )
         .await
         .unwrap();

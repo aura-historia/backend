@@ -238,7 +238,7 @@ impl<'a> ProductMatcherServiceImpl<'a> {
         let mut eligible_matches = Vec::with_capacity(unmatched_filters.len());
 
         for filter in unmatched_filters {
-            match &filter.enhanced_search_description {
+            match &filter.search.enhanced_search_description {
                 Some(enhanced_desc) => {
                     let language = resolve_user_language(self.user_service, &filter.user_id).await;
                     let eval_result = self
@@ -508,7 +508,7 @@ mod tests {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: UserSearchFilterName::from("Test Filter"),
-            enhanced_search_description: None,
+            search: Default::default(),
             notifications: true,
             state,
             created_by: Actor::System,
@@ -530,7 +530,10 @@ mod tests {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: UserSearchFilterName::from("Enhanced Filter"),
-            enhanced_search_description: Some(EnhancedSearchDescription::from(description)),
+            search: product::core::product_search::ProductSearch {
+                enhanced_search_description: Some(EnhancedSearchDescription::from(description)),
+                ..Default::default()
+            },
             notifications: true,
             state: ResourceState::Active,
             created_by: Actor::System,
@@ -813,7 +816,7 @@ mod tests {
             user_id: UserId::new(),
             user_search_filter_id: filter_id,
             name: filter_name.clone(),
-            enhanced_search_description: None,
+            search: Default::default(),
             notifications: true,
             state: ResourceState::Active,
             created_by: Actor::System,

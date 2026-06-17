@@ -1,4 +1,3 @@
-use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter::UserSearchFilterSummary;
 use crate::core::user_search_filter_name::UserSearchFilterName;
@@ -20,8 +19,6 @@ pub struct UserSearchFilterDocument {
     pub user_search_filter_id: UserSearchFilterId,
     pub user_id: UserId,
     pub name: UserSearchFilterName,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enhanced_search_description: Option<String>,
     pub notifications: bool,
     #[serde(default)]
     pub state: ResourceStateDocument,
@@ -49,9 +46,7 @@ impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
             user_search_filter_id: document.user_search_filter_id,
             user_id: document.user_id,
             name: document.name,
-            enhanced_search_description: document
-                .enhanced_search_description
-                .map(EnhancedSearchDescription::from),
+            search: document.search.into(),
             notifications: document.notifications,
             state: document.state.into(),
             created_by: document.created_by.into(),
@@ -68,9 +63,6 @@ impl From<UserSearchFilterDocument> for UserSearchFilter {
             user_search_filter_id: document.user_search_filter_id,
             user_id: document.user_id,
             name: document.name,
-            enhanced_search_description: document
-                .enhanced_search_description
-                .map(EnhancedSearchDescription::from),
             notifications: document.notifications,
             state: document.state.into(),
             search: document.search.into(),
@@ -92,9 +84,6 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
             user_search_filter_id: user_search_filter.user_search_filter_id,
             user_id: user_search_filter.user_id,
             name: user_search_filter.name,
-            enhanced_search_description: user_search_filter
-                .enhanced_search_description
-                .map(Into::into),
             notifications: user_search_filter.notifications,
             state: user_search_filter.state.into(),
             search: user_search_filter.search.clone().into(),

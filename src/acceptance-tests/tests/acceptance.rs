@@ -3259,7 +3259,6 @@ async fn should_get_all_search_filters_when_authorized() {
             &user_id,
             expected1_name.clone(),
             expected1.clone(),
-            None,
         )
         .await
         .unwrap();
@@ -3269,7 +3268,6 @@ async fn should_get_all_search_filters_when_authorized() {
             &user_id,
             expected2_name.clone(),
             expected2.clone(),
-            None,
         )
         .await
         .unwrap();
@@ -3363,7 +3361,6 @@ async fn should_post_get_patch_delete_search_filter() {
     // PATCH
     let patch = PatchUserSearchFilterData {
         name: None,
-        enhanced_search_description: None,
         notifications: None,
         state: None,
         search: Some(PatchProductSearchData {

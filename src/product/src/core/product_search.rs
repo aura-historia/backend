@@ -9,17 +9,21 @@ use common::query::text_query::TextQuery;
 use common::seller_slug_id::SellerSlugId;
 use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
+use common::string_newtype;
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
 use serde_fields::SerdeField;
 use shop::core::shop_type::ShopType;
 use time::OffsetDateTime;
 
+string_newtype!(EnhancedSearchDescription, max_length(1000));
+
 #[derive(Debug, Clone, PartialEq, Default, SerdeField)]
 pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,
     pub product_query: Option<TextQuery<1>>,
+    pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub shop_name_query: AnyOfQuery<ShopName>,
     pub exclude_shop_name_query: AnyOfQuery<ShopName>,
     pub seller_name_query: AnyOfQuery<ShopName>,
@@ -46,6 +50,7 @@ impl ProductSearch {
             language,
             currency,
             product_query: None,
+            enhanced_search_description: None,
             shop_name_query: AnyOfQuery::default(),
             exclude_shop_name_query: AnyOfQuery::default(),
             seller_name_query: AnyOfQuery::default(),
@@ -195,6 +200,7 @@ pub mod faker {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
+                enhanced_search_description: None,
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),

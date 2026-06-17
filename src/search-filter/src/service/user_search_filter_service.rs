@@ -2,9 +2,7 @@ use crate::core::command::UpdateUserSearchFilterMatchCommand;
 use crate::core::quota::SearchFilterQuota;
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
-use crate::core::user_search_filter::{
-    EnhancedSearchDescription, UserSearchFilter, UserSearchFilterSummary,
-};
+use crate::core::user_search_filter::{UserSearchFilter, UserSearchFilterSummary};
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::core::user_search_filter_search::UserSearchFilterSearch;
 use crate::core::user_search_filter_update::UserSearchFilterUpdate;
@@ -174,7 +172,6 @@ pub trait UserSearchFilterService {
         user_id: &UserId,
         name: UserSearchFilterName,
         search_filter: ProductSearch,
-        enhanced_search_description: Option<EnhancedSearchDescription>,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
 
     async fn delete_user_search_filter(
@@ -359,7 +356,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         user_id: &UserId,
         name: UserSearchFilterName,
         search: ProductSearch,
-        enhanced_search_description: Option<EnhancedSearchDescription>,
     ) -> Result<UserSearchFilter, UserSearchFilterError> {
         let user: User = self
             .user_service
@@ -381,7 +377,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             ));
         }
 
-        if let Some(enhanced_description) = enhanced_search_description.as_ref() {
+        if let Some(enhanced_description) = search.enhanced_search_description.as_ref() {
             let () = user
                 .tier
                 .check_enhanced_search_filter_description(enhanced_description)
@@ -392,7 +388,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             user_id: *user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name,
-            enhanced_search_description,
             notifications: true,
             state: ResourceState::Active,
             search,
@@ -464,7 +459,8 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             user.tier
                 .check_search_filter_features(&existing.search)
                 .map_err(UserSearchFilterError::SearchFilterFeatureForbidden)?;
-            if let Some(enhanced_description) = existing.enhanced_search_description.as_ref() {
+            if let Some(enhanced_description) = existing.search.enhanced_search_description.as_ref()
+            {
                 user.tier
                     .check_enhanced_search_filter_description(enhanced_description)
                     .map_err(|_| {
@@ -1085,7 +1081,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await;
             assert!(actual.is_ok());
@@ -1133,7 +1128,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await;
 
@@ -1173,7 +1167,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await
                 .unwrap_err();
@@ -1205,7 +1198,6 @@ mod tests {
                     &user_id,
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await
                 .unwrap_err();
@@ -1263,7 +1255,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     search,
-                    None,
                 )
                 .await
                 .unwrap_err();
@@ -1312,7 +1303,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await;
 
@@ -1346,15 +1336,14 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
-            // Generate searches until we find one with forbidden features for Free tier
-            let search: ProductSearch = Faker.fake();
+            let mut search: ProductSearch = Faker.fake();
+            search.enhanced_search_description = Some(Faker.fake());
             let actual = service
                 .create_user_search_filter(
                     &super::system_ctx(),
                     &UserId::new(),
                     Faker.fake(),
                     search,
-                    Some(Faker.fake()),
                 )
                 .await
                 .unwrap_err();
@@ -1392,13 +1381,14 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
+            let mut search = Faker.fake::<product::core::product_search::ProductSearch>();
+            search.enhanced_search_description = Some(Faker.fake());
             let actual = service
                 .create_user_search_filter(
                     &super::system_ctx(),
                     &UserId::new(),
                     Faker.fake(),
-                    Faker.fake(),
-                    Some(Faker.fake()),
+                    search,
                 )
                 .await;
 

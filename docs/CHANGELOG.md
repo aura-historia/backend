@@ -6,6 +6,17 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-06-17 - Move Enhanced Search Description Into Product Search
+
+### Changed
+
+- **Saved search filter DTOs**
+  - `enhancedSearchDescription` moved from `PostUserSearchFilterData`,
+    `PatchUserSearchFilterData`, and `UserSearchFilterData` into their nested
+    `search` / `ProductSearchData` payload.
+  - PATCH requests now update the enhanced search description via
+    `search.enhancedSearchDescription`.
+
 ## 2026-06-13 - Search Filter Product Preview Uses Percolator Matching
 
 ### Changed

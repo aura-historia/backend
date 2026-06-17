@@ -56,7 +56,6 @@ async fn should_delete_search_filter() {
             &user.user_id,
             Faker.fake(),
             Faker.fake::<ProductSearch>(),
-            Faker.fake(),
         )
         .await
         .unwrap();

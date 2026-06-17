@@ -1,8 +1,7 @@
-use crate::core::{
-    user_search_filter::{EnhancedSearchDescription, UserSearchFilterSerdeField},
-    user_search_filter_update::UserSearchFilterUpdate,
+use crate::core::user_search_filter_update::UserSearchFilterUpdate;
+use product::core::product_search::{
+    EnhancedSearchDescription, ProductSearch, ProductSearchSerdeField,
 };
-use product::core::product_search::{ProductSearch, ProductSearchSerdeField};
 use user::core::tier::UserTier;
 
 pub trait SearchFilterQuota {
@@ -19,7 +18,7 @@ pub trait SearchFilterQuota {
     fn check_enhanced_search_filter_description(
         &self,
         enhanced_description: &EnhancedSearchDescription,
-    ) -> Result<(), UserSearchFilterSerdeField>;
+    ) -> Result<(), ProductSearchSerdeField>;
 }
 
 impl SearchFilterQuota for UserTier {
@@ -64,10 +63,10 @@ impl SearchFilterQuota for UserTier {
     fn check_enhanced_search_filter_description(
         &self,
         _enhanced_description: &EnhancedSearchDescription,
-    ) -> Result<(), UserSearchFilterSerdeField> {
+    ) -> Result<(), ProductSearchSerdeField> {
         match self {
-            UserTier::Free => Err(UserSearchFilterSerdeField::EnhancedSearchDescription),
-            UserTier::Pro => Err(UserSearchFilterSerdeField::EnhancedSearchDescription),
+            UserTier::Free => Err(ProductSearchSerdeField::EnhancedSearchDescription),
+            UserTier::Pro => Err(ProductSearchSerdeField::EnhancedSearchDescription),
             UserTier::Ultimate => Ok(()),
         }
     }

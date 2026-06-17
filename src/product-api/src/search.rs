@@ -249,6 +249,7 @@ mod tests {
             language: common::language::data::LanguageData::En,
             currency: common::currency::data::CurrencyData::Eur,
             product_query: Some("chair".try_into().unwrap()),
+            enhanced_search_description: None,
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
             seller_name_query: Default::default(),

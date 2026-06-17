@@ -1,20 +1,19 @@
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use common::{
-    actor::domain::Actor, resource_state::domain::ResourceState, string_newtype, user_id::UserId,
+    actor::domain::Actor, resource_state::domain::ResourceState, user_id::UserId,
     user_search_filter_id::UserSearchFilterId,
 };
+pub use product::core::product_search::EnhancedSearchDescription;
 use product::core::product_search::ProductSearch;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
-
-string_newtype!(EnhancedSearchDescription, max_length(1000));
 
 #[derive(Debug, Clone)]
 pub struct UserSearchFilterSummary {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
-    pub enhanced_search_description: Option<EnhancedSearchDescription>,
+    pub search: ProductSearch,
     pub notifications: bool,
     pub state: ResourceState,
     pub created_by: Actor,
@@ -31,7 +30,6 @@ pub struct UserSearchFilter {
     pub notifications: bool,
     pub state: ResourceState,
     pub search: ProductSearch,
-    pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub created_by: Actor,
     pub updated_by: Actor,
     pub created: OffsetDateTime,
@@ -44,7 +42,7 @@ impl From<UserSearchFilter> for UserSearchFilterSummary {
             user_id: filter.user_id,
             user_search_filter_id: filter.user_search_filter_id,
             name: filter.name,
-            enhanced_search_description: filter.enhanced_search_description,
+            search: filter.search,
             notifications: filter.notifications,
             state: filter.state,
             created_by: filter.created_by,
@@ -69,7 +67,6 @@ mod faker {
                 notifications: true,
                 state: ResourceState::Active,
                 search: config.fake_with_rng(rng),
-                enhanced_search_description: None,
                 created_by: config.fake_with_rng(rng),
                 updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
@@ -84,7 +81,7 @@ mod faker {
                 user_id: config.fake_with_rng(rng),
                 user_search_filter_id: config.fake_with_rng(rng),
                 name: config.fake_with_rng(rng),
-                enhanced_search_description: None,
+                search: config.fake_with_rng(rng),
                 notifications: true,
                 state: ResourceState::Active,
                 created_by: config.fake_with_rng(rng),
@@ -155,7 +152,6 @@ mod tests {
             notifications: true,
             state: ResourceState::Active,
             search: ProductSearch::default(),
-            enhanced_search_description: None,
             created_by: Actor::System,
             updated_by: Actor::User(UserId::new()),
             created: OffsetDateTime::now_utc(),
