@@ -82,11 +82,6 @@ pub enum UserSearchFilterError {
     )]
     SearchFilterFeatureForbidden(ProductSearchSerdeField),
 
-    #[error(
-        "Search filter contains forbidden enhanced search description which requires a higher user tier."
-    )]
-    EnhancedSearchDescriptionFeatureForbidden,
-
     #[error("UserServiceError: {0}")]
     UserServiceError(UserServiceError),
 
@@ -131,11 +126,6 @@ pub mod api {
                         .with_detail(detail)
                 }
                 err @ UserSearchFilterError::SearchFilterFeatureForbidden(_) => {
-                    let detail = err.to_string();
-                    ApiError::unprocessable_entity(SEARCH_FILTER_RESTRICTED_FEATURE, Box::new(err))
-                        .with_detail(detail)
-                }
-                err @ UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden => {
                     let detail = err.to_string();
                     ApiError::unprocessable_entity(SEARCH_FILTER_RESTRICTED_FEATURE, Box::new(err))
                         .with_detail(detail)
@@ -1039,6 +1029,7 @@ mod tests {
         };
         use common::user_id::UserId;
         use fake::{Fake, Faker};
+        use product::core::product_search::ProductSearchSerdeField;
         use user::core::user::User;
         use user::service::user_service::{MockUserService, UserServiceError};
 
@@ -1334,9 +1325,11 @@ mod tests {
                 .unwrap_err();
 
             match actual {
-                UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden => {}
+                UserSearchFilterError::SearchFilterFeatureForbidden(
+                    ProductSearchSerdeField::EnhancedSearchDescription,
+                ) => {}
                 err => panic!(
-                    "Expected 'UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden' but got '{err}'"
+                    "Expected 'UserSearchFilterError::SearchFilterFeatureForbidden(ProductSearchSerdeField::EnhancedSearchDescription)' but got '{err}'"
                 ),
             }
         }
