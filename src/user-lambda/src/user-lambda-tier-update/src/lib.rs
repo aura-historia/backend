@@ -118,11 +118,6 @@ fn search_filter_features_allowed(
 ) -> bool {
     let filter = search_filter::core::user_search_filter::UserSearchFilter::from(record);
     tier.check_search_filter_features(&filter.search).is_ok()
-        && filter
-            .search
-            .enhanced_search_description
-            .as_ref()
-            .is_none_or(|desc| tier.check_enhanced_search_filter_description(desc).is_ok())
 }
 
 async fn update_watchlist_state(

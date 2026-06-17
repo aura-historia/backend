@@ -377,13 +377,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             ));
         }
 
-        if let Some(enhanced_description) = search.enhanced_search_description.as_ref() {
-            let () = user
-                .tier
-                .check_enhanced_search_filter_description(enhanced_description)
-                .map_err(|_| UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden)?;
-        }
-
         let user_search_filter = UserSearchFilter {
             user_id: *user_id,
             user_search_filter_id: UserSearchFilterId::new(),
@@ -459,14 +452,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             user.tier
                 .check_search_filter_features(&existing.search)
                 .map_err(UserSearchFilterError::SearchFilterFeatureForbidden)?;
-            if let Some(enhanced_description) = existing.search.enhanced_search_description.as_ref()
-            {
-                user.tier
-                    .check_enhanced_search_filter_description(enhanced_description)
-                    .map_err(|_| {
-                        UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden
-                    })?;
-            }
             let limit = user.tier.search_filter_quota();
             let filter_count = self
                 .count_active_user_search_filter_records(user_id)
