@@ -1530,7 +1530,7 @@ dependencies = [
  "fake",
  "http 1.4.2",
  "httpdate",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "lambda_runtime",
  "opensearch",
  "rstest",
@@ -2152,7 +2152,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3629,6 +3629,15 @@ name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
 dependencies = [
  "either",
 ]
@@ -5315,7 +5324,7 @@ dependencies = [
  "html-escape",
  "indexmap 2.14.0",
  "isocountry",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "mockall",
  "once_cell",
  "opensearch",
@@ -5429,7 +5438,7 @@ dependencies = [
  "fxrate",
  "geo",
  "indexmap 2.14.0",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "lambda_runtime",
  "llm",
  "mockall",
@@ -5607,7 +5616,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "common",
  "fake",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "mockall",
  "product",
  "product-watchlist",
@@ -6322,7 +6331,7 @@ dependencies = [
  "security-framework 3.7.0",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7271,7 +7280,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
