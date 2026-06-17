@@ -2,7 +2,7 @@ use crate::core::command::UpdateUserSearchFilterMatchCommand;
 use crate::core::quota::SearchFilterQuota;
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
-use crate::core::user_search_filter::{UserSearchFilter, UserSearchFilterSummary};
+use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::core::user_search_filter_search::UserSearchFilterSearch;
 use crate::core::user_search_filter_update::UserSearchFilterUpdate;
@@ -192,7 +192,7 @@ pub trait UserSearchFilterService {
     async fn match_user_search_filters(
         &self,
         product_document: &product::opensearch::product_document::ProductDocument,
-    ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError>;
+    ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError>;
 
     async fn search_user_search_filters(
         &self,
@@ -500,7 +500,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
     async fn match_user_search_filters(
         &self,
         product_document: &ProductDocument,
-    ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError> {
+    ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError> {
         #[cfg(feature = "opensearch")]
         {
             use serde::ser::Error as _;
@@ -516,7 +516,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 .percolate(product_document)
                 .await?
                 .into_iter()
-                .map(UserSearchFilterSummary::from)
+                .map(UserSearchFilter::from)
                 .collect();
             Ok(matched_documents)
         }

@@ -14,7 +14,7 @@ use product::opensearch::product_document::ProductDocument;
 use product::service::get_service::{GetProductError, GetProductService};
 use search_filter::core::quota::SearchFilterQuota;
 use search_filter::core::search_filter_product_match::SearchFilterProductMatch;
-use search_filter::core::user_search_filter::UserSearchFilterSummary;
+use search_filter::core::user_search_filter::UserSearchFilter;
 use search_filter::service::enhanced_search_match_service::EnhancedSearchMatchService;
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterError, UserSearchFilterService,
@@ -40,7 +40,7 @@ pub enum ProductMatcherServiceError {
 /// carrying the filter summary and optional enhanced match reason.
 #[derive(Debug, Clone)]
 pub struct EligibleMatch {
-    pub filter: UserSearchFilterSummary,
+    pub filter: UserSearchFilter,
     pub enhanced_match_reason: Option<EnhancedMatchReason>,
 }
 
@@ -394,7 +394,7 @@ impl<'a> ProductMatcherService for ProductMatcherServiceImpl<'a> {
 
 fn mk_notification_command(
     product: &Product,
-    filter: &UserSearchFilterSummary,
+    filter: &UserSearchFilter,
 ) -> CreateNotificationCommand {
     CreateNotificationCommand {
         user_id: filter.user_id,
@@ -436,7 +436,7 @@ mod tests {
     };
     use product::service::get_service::MockGetProductService;
     use search_filter::core::user_search_filter::EnhancedSearchDescription;
-    use search_filter::core::user_search_filter::UserSearchFilterSummary;
+    use search_filter::core::user_search_filter::UserSearchFilter;
     use search_filter::core::user_search_filter_name::UserSearchFilterName;
     use search_filter::service::enhanced_search_match_service::{
         EnhancedSearchMatchError, EnhancedSearchMatchResult, MockEnhancedSearchMatchService,
@@ -500,11 +500,8 @@ mod tests {
         }
     }
 
-    fn mk_filter_summary_with_state(
-        user_id: UserId,
-        state: ResourceState,
-    ) -> UserSearchFilterSummary {
-        UserSearchFilterSummary {
+    fn mk_filter_summary_with_state(user_id: UserId, state: ResourceState) -> UserSearchFilter {
+        UserSearchFilter {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: UserSearchFilterName::from("Test Filter"),
@@ -518,15 +515,12 @@ mod tests {
         }
     }
 
-    fn mk_filter_summary(user_id: UserId) -> UserSearchFilterSummary {
+    fn mk_filter_summary(user_id: UserId) -> UserSearchFilter {
         mk_filter_summary_with_state(user_id, ResourceState::Active)
     }
 
-    fn mk_filter_summary_with_enhanced(
-        user_id: UserId,
-        description: &str,
-    ) -> UserSearchFilterSummary {
-        UserSearchFilterSummary {
+    fn mk_filter_summary_with_enhanced(user_id: UserId, description: &str) -> UserSearchFilter {
+        UserSearchFilter {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: UserSearchFilterName::from("Enhanced Filter"),
@@ -812,7 +806,7 @@ mod tests {
         let product_clone = product.clone();
         let filter_id = UserSearchFilterId::new();
         let filter_name = UserSearchFilterName::from("My Antiques Filter");
-        let summary = UserSearchFilterSummary {
+        let summary = UserSearchFilter {
             user_id: UserId::new(),
             user_search_filter_id: filter_id,
             name: filter_name.clone(),

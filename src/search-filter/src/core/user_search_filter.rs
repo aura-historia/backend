@@ -8,20 +8,6 @@ use product::core::product_search::ProductSearch;
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
 
-#[derive(Debug, Clone)]
-pub struct UserSearchFilterSummary {
-    pub user_id: UserId,
-    pub user_search_filter_id: UserSearchFilterId,
-    pub name: UserSearchFilterName,
-    pub search: ProductSearch,
-    pub notifications: bool,
-    pub state: ResourceState,
-    pub created_by: Actor,
-    pub updated_by: Actor,
-    pub created: OffsetDateTime,
-    pub updated: OffsetDateTime,
-}
-
 #[derive(Debug, Clone, SerdeField)]
 pub struct UserSearchFilter {
     pub user_id: UserId,
@@ -34,23 +20,6 @@ pub struct UserSearchFilter {
     pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-}
-
-impl From<UserSearchFilter> for UserSearchFilterSummary {
-    fn from(filter: UserSearchFilter) -> Self {
-        UserSearchFilterSummary {
-            user_id: filter.user_id,
-            user_search_filter_id: filter.user_search_filter_id,
-            name: filter.name,
-            search: filter.search,
-            notifications: filter.notifications,
-            state: filter.state,
-            created_by: filter.created_by,
-            updated_by: filter.updated_by,
-            created: filter.created,
-            updated: filter.updated,
-        }
-    }
 }
 
 #[cfg(feature = "test-data")]
@@ -67,23 +36,6 @@ mod faker {
                 notifications: true,
                 state: ResourceState::Active,
                 search: config.fake_with_rng(rng),
-                created_by: config.fake_with_rng(rng),
-                updated_by: config.fake_with_rng(rng),
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
-            }
-        }
-    }
-
-    impl Dummy<Faker> for UserSearchFilterSummary {
-        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            UserSearchFilterSummary {
-                user_id: config.fake_with_rng(rng),
-                user_search_filter_id: config.fake_with_rng(rng),
-                name: config.fake_with_rng(rng),
-                search: config.fake_with_rng(rng),
-                notifications: true,
-                state: ResourceState::Active,
                 created_by: config.fake_with_rng(rng),
                 updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
@@ -141,26 +93,5 @@ mod tests {
         let long = "d".repeat(1111);
         let desc = EnhancedSearchDescription::from(long);
         assert_eq!(desc.as_ref().len(), 1000);
-    }
-
-    #[test]
-    fn should_preserve_actor_metadata_when_creating_summary() {
-        let filter = UserSearchFilter {
-            user_id: UserId::new(),
-            user_search_filter_id: UserSearchFilterId::new(),
-            name: "Foo".into(),
-            notifications: true,
-            state: ResourceState::Active,
-            search: ProductSearch::default(),
-            created_by: Actor::System,
-            updated_by: Actor::User(UserId::new()),
-            created: OffsetDateTime::now_utc(),
-            updated: OffsetDateTime::now_utc(),
-        };
-
-        let summary = UserSearchFilterSummary::from(filter.clone());
-
-        assert_eq!(summary.created_by, filter.created_by);
-        assert_eq!(summary.updated_by, filter.updated_by);
     }
 }

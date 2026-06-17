@@ -1,5 +1,4 @@
 use crate::core::user_search_filter::UserSearchFilter;
-use crate::core::user_search_filter::UserSearchFilterSummary;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use common::actor::document::ActorDocument;
@@ -37,23 +36,6 @@ pub struct UserSearchFilterDocument {
 impl UserSearchFilterDocument {
     pub fn _id(&self) -> UserSearchFilterId {
         self.user_search_filter_id
-    }
-}
-
-impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
-    fn from(document: UserSearchFilterDocument) -> Self {
-        UserSearchFilterSummary {
-            user_search_filter_id: document.user_search_filter_id,
-            user_id: document.user_id,
-            name: document.name,
-            search: document.search.into(),
-            notifications: document.notifications,
-            state: document.state.into(),
-            created_by: document.created_by.into(),
-            updated_by: document.updated_by.into(),
-            created: document.created,
-            updated: document.updated,
-        }
     }
 }
 
