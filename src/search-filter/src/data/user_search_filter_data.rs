@@ -105,7 +105,7 @@ mod tests {
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
-                product_query: Some("Boop".try_into().unwrap()),
+                product_query: vec!["Boop".try_into().unwrap()],
                 enhanced_search_description: Some("This is a filter for Boop products".into()),
                 shop_name_query: ["Baap".into()].into(),
                 exclude_shop_name_query: ["baddlebap".into()].into(),
@@ -163,7 +163,7 @@ mod tests {
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "productQuery": "Boop",
+                "productQuery": ["Boop"],
                 "enhancedSearchDescription": "This is a filter for Boop products",
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
@@ -224,7 +224,7 @@ mod tests {
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "productQuery": "Boop",
+                "productQuery": ["Boop"],
                 "enhancedSearchDescription": "This is a filter for Boop products",
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
@@ -276,7 +276,7 @@ mod tests {
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
-                product_query: Some("Boop".try_into().unwrap()),
+                product_query: vec!["Boop".try_into().unwrap()],
                 enhanced_search_description: Some("This is a filter for Boop products".into()),
                 shop_name_query: [ShopName::from("Baap")].into(),
                 exclude_shop_name_query: [ShopName::from("baddlebap")].into(),

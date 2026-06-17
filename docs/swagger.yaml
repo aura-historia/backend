@@ -1681,11 +1681,15 @@ paths:
         - name: productQuery
           in: query
           required: false
-          description: Optional text query for products (minimum 1 character when provided)
+          description: Optional text queries for products. Multiple entries are ORed together.
+          style: form
+          explode: true
           schema:
-            type: string
-            minLength: 1
-          example: test
+            type: array
+            items:
+              type: string
+              minLength: 1
+          example: [test, example]
         - name: shopName
           in: query
           required: false
@@ -2147,7 +2151,7 @@ paths:
             example:
               language: "en"
               currency: "USD"
-              productQuery: "antique clock"
+              productQuery: ["antique clock", "vintage clock"]
               shopName: ["Antique Store", "Vintage Gallery"]
               country: ["DE"]
               continent: ["EUROPE"]
@@ -2348,7 +2352,7 @@ paths:
                     search:
                       language: "en"
                       currency: "USD"
-                      productQuery: "antique clock"
+                      productQuery: ["antique clock", "vintage clock"]
                       shopName: ["Antique Store"]
                       price:
                         min: 1000
@@ -2435,7 +2439,7 @@ paths:
               search:
                 language: "en"
                 currency: "USD"
-                productQuery: "antique clock"
+                productQuery: ["antique clock", "vintage clock"]
                 shopName: ["Antique Store"]
                 price:
                   min: 1000
@@ -2483,7 +2487,7 @@ paths:
                 search:
                   language: "en"
                   currency: "USD"
-                  productQuery: "antique clock"
+                  productQuery: ["antique clock", "vintage clock"]
                   shopName: ["Antique Store"]
                   price:
                     min: 1000
@@ -2618,7 +2622,7 @@ paths:
                 search:
                   language: "en"
                   currency: "USD"
-                  productQuery: "antique clock"
+                  productQuery: ["antique clock", "vintage clock"]
                   shopName: ["Antique Store"]
                   price:
                     min: 1000
@@ -2874,7 +2878,7 @@ paths:
                 search:
                   language: "en"
                   currency: "USD"
-                  productQuery: "antique clock"
+                  productQuery: ["antique clock", "vintage clock"]
                   shopName: ["Updated Store"]
                   price:
                     min: 2000
@@ -11870,11 +11874,12 @@ components:
         currency:
           $ref: "#/components/schemas/CurrencyData"
         productQuery:
-          type: string
-          description: Optional text query for searching products (minimum 1 character when provided)
-          minLength: 1
-          nullable: true
-          example: "smartphone case"
+          type: array
+          description: Optional text queries for searching products. Multiple entries are ORed together. Empty list means no text query.
+          items:
+            type: string
+            minLength: 1
+          example: ["smartphone case", "mobile phone case"]
         enhancedSearchDescription:
           type: string
           nullable: true
@@ -12137,11 +12142,13 @@ components:
           nullable: true
           description: Currency for price display
         productQuery:
-          type: string
-          description: Text query for searching products (minimum 1 character when provided)
-          minLength: 1
+          type: array
+          description: Text queries for searching products. Multiple entries are ORed together. Empty list clears the text query when patching.
+          items:
+            type: string
+            minLength: 1
           nullable: true
-          example: "laptop bag"
+          example: ["laptop bag", "notebook bag"]
         enhancedSearchDescription:
           type: string
           description: |

@@ -28,7 +28,7 @@ pub struct UserSearchFilterRecordUpdate {
     pub state: Option<ResourceStateRecord>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub product_query: Option<TextQuery<1>>,
+    pub product_query: Option<Vec<TextQuery<1>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enhanced_search_description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

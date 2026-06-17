@@ -138,7 +138,28 @@ async fn should_percolate_document_when_product_query_matches_title_in_selected_
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = Some("renaissance cabinet".try_into().unwrap());
+    record.product_query = vec!["renaissance cabinet".try_into().unwrap()];
+    record.language = common::language::record::LanguageRecord::En;
+
+    let expected = index_document(&repository, record).await;
+    let actual = repository
+        .percolate(&base_product_document())
+        .await
+        .unwrap();
+
+    assert_eq!(vec![expected], actual);
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_percolate_document_when_any_product_query_matches_title_in_selected_language() {
+    let client = get_opensearch_client().await;
+    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
+
+    let mut record = base_record();
+    record.product_query = vec![
+        "completely unrelated phrase".try_into().unwrap(),
+        "renaissance cabinet".try_into().unwrap(),
+    ];
     record.language = common::language::record::LanguageRecord::En;
 
     let expected = index_document(&repository, record).await;
@@ -156,7 +177,7 @@ async fn should_not_percolate_document_when_product_query_does_not_match() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_record();
-    record.product_query = Some("completely unrelated phrase".try_into().unwrap());
+    record.product_query = vec!["completely unrelated phrase".try_into().unwrap()];
 
     index_document(&repository, record).await;
 
@@ -698,7 +719,7 @@ async fn should_percolate_only_documents_that_match_when_multiple_filters_are_in
     let mut matching_record = base_record();
     matching_record.user_search_filter_id = UserSearchFilterId::new();
     matching_record.name = "matching".into();
-    matching_record.product_query = Some("renaissance cabinet".try_into().unwrap());
+    matching_record.product_query = vec!["renaissance cabinet".try_into().unwrap()];
     matching_record.shop_name_query = HashSet::from_iter(["Imperial Antiques".into()]);
     matching_record.price_query = Some(RangeQuery {
         min: Some(100),
@@ -708,7 +729,7 @@ async fn should_percolate_only_documents_that_match_when_multiple_filters_are_in
     let mut non_matching_record = base_record();
     non_matching_record.user_search_filter_id = UserSearchFilterId::new();
     non_matching_record.name = "non matching".into();
-    non_matching_record.product_query = Some("renaissance cabinet".try_into().unwrap());
+    non_matching_record.product_query = vec!["renaissance cabinet".try_into().unwrap()];
     non_matching_record.shop_name_query = HashSet::from_iter(["A Different Shop".into()]);
 
     let expected = index_document(&repository, matching_record).await;
@@ -730,7 +751,7 @@ async fn should_percolate_multiple_documents_when_all_match() {
     let mut first_record = base_record();
     first_record.user_search_filter_id = UserSearchFilterId::new();
     first_record.name = "first".into();
-    first_record.product_query = Some("renaissance cabinet".try_into().unwrap());
+    first_record.product_query = vec!["renaissance cabinet".try_into().unwrap()];
 
     let mut second_record = base_record();
     second_record.user_search_filter_id = UserSearchFilterId::new();
@@ -765,7 +786,7 @@ fn base_record() -> UserSearchFilterRecord {
         enhanced_search_description: None,
         notifications: true,
         state: ResourceStateRecord::Active,
-        product_query: Some("renaissance cabinet".try_into().unwrap()),
+        product_query: vec!["renaissance cabinet".try_into().unwrap()],
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
         seller_name_query: HashSet::new(),
@@ -931,7 +952,7 @@ fn base_query_record() -> UserSearchFilterRecord {
         enhanced_search_description: None,
         notifications: true,
         state: ResourceStateRecord::Active,
-        product_query: None,
+        product_query: Vec::new(),
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
         seller_name_query: HashSet::new(),
@@ -1091,7 +1112,7 @@ async fn should_percolate_victorian_silver_tea_set_when_query_matches(
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_query_record();
-    record.product_query = Some(query.try_into().unwrap());
+    record.product_query = vec![query.try_into().unwrap()];
     record.language = language;
 
     let expected = index_document(&repository, record).await;
@@ -1120,7 +1141,7 @@ async fn should_not_percolate_victorian_silver_tea_set_when_query_does_not_match
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_query_record();
-    record.product_query = Some(query.try_into().unwrap());
+    record.product_query = vec![query.try_into().unwrap()];
     record.language = language;
 
     index_document(&repository, record).await;
@@ -1260,7 +1281,7 @@ async fn should_percolate_ming_dynasty_vase_when_query_matches(
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_query_record();
-    record.product_query = Some(query.try_into().unwrap());
+    record.product_query = vec![query.try_into().unwrap()];
     record.language = language;
 
     let expected = index_document(&repository, record).await;
@@ -1278,11 +1299,11 @@ async fn should_percolate_ming_dynasty_vase_when_long_query_misses_one_detail() 
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_query_record();
-    record.product_query = Some(
+    record.product_query = vec![
         "Ming dynasty blue white porcelain vase dragon mark"
             .try_into()
             .unwrap(),
-    );
+    ];
     record.language = LanguageRecord::En;
 
     let expected = index_document(&repository, record).await;
@@ -1310,7 +1331,7 @@ async fn should_not_percolate_ming_dynasty_vase_when_query_does_not_match(
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_query_record();
-    record.product_query = Some(query.try_into().unwrap());
+    record.product_query = vec![query.try_into().unwrap()];
     record.language = language;
 
     index_document(&repository, record).await;
@@ -1450,7 +1471,7 @@ async fn should_percolate_louis_xv_fauteuil_when_query_matches(
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_query_record();
-    record.product_query = Some(query.try_into().unwrap());
+    record.product_query = vec![query.try_into().unwrap()];
     record.language = language;
 
     let expected = index_document(&repository, record).await;
@@ -1478,7 +1499,7 @@ async fn should_not_percolate_louis_xv_fauteuil_when_query_does_not_match(
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
 
     let mut record = base_query_record();
-    record.product_query = Some(query.try_into().unwrap());
+    record.product_query = vec![query.try_into().unwrap()];
     record.language = language;
 
     index_document(&repository, record).await;

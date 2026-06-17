@@ -53,7 +53,7 @@ pub struct PatchProductSearchData {
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub product_query: Option<TextQuery<1>>,
+    pub product_query: Option<Vec<TextQuery<1>>>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub enhanced_search_description: Option<String>,
@@ -310,7 +310,7 @@ mod tests {
         let json = json!({
             "language": "de",
             "currency": "EUR",
-            "productQuery": "Boop",
+            "productQuery": ["Boop"],
             "shopName": ["Baap"],
             "shopSlugId": ["imperial-antiques"],
             "price": {
@@ -339,7 +339,7 @@ mod tests {
         let expected = PatchProductSearchData {
             language: Some(LanguageData::De),
             currency: Some(CurrencyData::Eur),
-            product_query: Some("Boop".try_into().unwrap()),
+            product_query: Some(vec!["Boop".try_into().unwrap()]),
             enhanced_search_description: None,
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Baap")])),
             exclude_shop_name_query: None,
@@ -388,7 +388,7 @@ mod tests {
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "productQuery": "Boop",
+                "productQuery": ["Boop"],
                 "enhancedSearchDescription": "I want foo",
                 "shopName": ["Baap"],
                 "shopSlugId": ["imperial-antiques"],
@@ -423,7 +423,7 @@ mod tests {
             search: Some(PatchProductSearchData {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
-                product_query: Some("Boop".try_into().unwrap()),
+                product_query: Some(vec!["Boop".try_into().unwrap()]),
                 enhanced_search_description: Some("I want foo".into()),
                 shop_name_query: Some([ShopName::from("Baap")].into()),
                 exclude_shop_name_query: None,

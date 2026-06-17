@@ -22,7 +22,7 @@ string_newtype!(EnhancedSearchDescription, max_length(1000));
 pub struct ProductSearch {
     pub language: Language,
     pub currency: Currency,
-    pub product_query: Option<TextQuery<1>>,
+    pub product_query: Vec<TextQuery<1>>,
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub shop_name_query: AnyOfQuery<ShopName>,
     pub exclude_shop_name_query: AnyOfQuery<ShopName>,
@@ -49,7 +49,7 @@ impl ProductSearch {
         Self {
             language,
             currency,
-            product_query: None,
+            product_query: Vec::new(),
             enhanced_search_description: None,
             shop_name_query: AnyOfQuery::default(),
             exclude_shop_name_query: AnyOfQuery::default(),
@@ -73,7 +73,7 @@ impl ProductSearch {
     }
 
     pub fn with_product_query(mut self, product_query: TextQuery<1>) -> Self {
-        self.product_query = Some(product_query);
+        self.product_query.push(product_query);
         self
     }
 

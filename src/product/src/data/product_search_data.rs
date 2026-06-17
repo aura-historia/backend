@@ -27,10 +27,10 @@ pub struct ProductSearchData {
     pub currency: CurrencyData,
     #[serde(
         rename = "productQuery",
-        skip_serializing_if = "Option::is_none",
+        skip_serializing_if = "Vec::is_empty",
         default
     )]
-    pub product_query: Option<TextQuery<1>>,
+    pub product_query: Vec<TextQuery<1>>,
     #[serde(
         rename = "enhancedSearchDescription",
         skip_serializing_if = "Option::is_none",

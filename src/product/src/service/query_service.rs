@@ -268,7 +268,7 @@ mod tests {
         ProductSearch {
             language: Language::De,
             currency: Currency::Eur,
-            product_query: Some("Hallo Welt".try_into().unwrap()),
+            product_query: vec!["Hallo Welt".try_into().unwrap()],
             enhanced_search_description: None,
             shop_name_query: HashSet::from_iter(["Hallo Shop".into()]).into(),
             exclude_shop_name_query: Default::default(),
@@ -297,7 +297,7 @@ mod tests {
         ProductSearch {
             language: Language::En,
             currency: Currency::Usd,
-            product_query: Some("Hallo Welt".try_into().unwrap()),
+            product_query: vec!["Hallo Welt".try_into().unwrap()],
             enhanced_search_description: None,
             shop_name_query: HashSet::from_iter(["Hallo Shop".into()]).into(),
             exclude_shop_name_query: HashSet::from_iter(["Hallo Welt".into()]).into(),
@@ -326,7 +326,7 @@ mod tests {
         ProductSearch {
             language: Language::En,
             currency: Currency::Gbp,
-            product_query: Some("Hallo Welten!".try_into().unwrap()),
+            product_query: vec!["Hallo Welten!".try_into().unwrap()],
             enhanced_search_description: None,
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
@@ -355,7 +355,7 @@ mod tests {
         ProductSearch {
             language: Language::Fr,
             currency: Currency::Eur,
-            product_query: Some("Hallo Welten!".try_into().unwrap()),
+            product_query: vec!["Hallo Welten!".try_into().unwrap()],
             enhanced_search_description: None,
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
@@ -384,7 +384,7 @@ mod tests {
         ProductSearch {
             language: Language::Es,
             currency: Currency::Eur,
-            product_query: Some("Hallo Welten!".try_into().unwrap()),
+            product_query: vec!["Hallo Welten!".try_into().unwrap()],
             enhanced_search_description: None,
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
@@ -413,7 +413,7 @@ mod tests {
         ProductSearch {
             language: Language::Es,
             currency: Currency::Eur,
-            product_query: None,
+            product_query: Vec::new(),
             enhanced_search_description: None,
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
@@ -481,7 +481,7 @@ mod tests {
                 &ProductSearch {
                     language: Language::De,
                     currency: Currency::Cad,
-                    product_query: Some("Hallo Welten!".try_into().unwrap()),
+                    product_query: vec!["Hallo Welten!".try_into().unwrap()],
                     enhanced_search_description: None,
                     shop_name_query: Default::default(),
                     exclude_shop_name_query: Default::default(),
@@ -582,7 +582,7 @@ mod tests {
                 &ProductSearch {
                     language: Language::De,
                     currency,
-                    product_query: Some("Hallo Welten!".try_into().unwrap()),
+                    product_query: vec!["Hallo Welten!".try_into().unwrap()],
                     enhanced_search_description: None,
                     shop_name_query: Default::default(),
                     exclude_shop_name_query: Default::default(),
@@ -654,7 +654,7 @@ mod tests {
                 &ProductSearch {
                     language,
                     currency: Currency::Aud,
-                    product_query: Some("Hallo Welten!".try_into().unwrap()),
+                    product_query: vec!["Hallo Welten!".try_into().unwrap()],
                     enhanced_search_description: None,
                     shop_name_query: Default::default(),
                     exclude_shop_name_query: Default::default(),

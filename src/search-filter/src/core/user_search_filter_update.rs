@@ -31,7 +31,7 @@ pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
     pub notifications: Option<bool>,
     pub state: Option<ResourceState>,
-    pub product_query: Option<TextQuery<1>>,
+    pub product_query: Option<Vec<TextQuery<1>>>,
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub shop_name_query: Option<HashSet<ShopName>>,
     pub exclude_shop_name_query: Option<HashSet<ShopName>>,

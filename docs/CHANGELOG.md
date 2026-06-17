@@ -6,6 +6,23 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-06-17 - Product Search Accepts Multiple Text Queries
+
+### Changed
+
+- **`ProductSearchData.productQuery`**
+  - Changed from a single optional string to an array of strings.
+  - Empty arrays are allowed and mean no text query.
+  - When multiple queries are provided, product search and saved-search-filter
+    matching OR them together while preserving the existing matching logic for
+    each individual query.
+- **Affected endpoints**
+  - `GET /api/v1/products`
+  - `POST /api/v1/products/search`
+  - `POST /api/v1/me/search-filters`
+  - `PATCH /api/v1/me/search-filters/{userSearchFilterId}`
+  - Search-filter response payloads
+
 ## 2026-06-17 - Move Enhanced Search Description Into Product Search
 
 ### Changed

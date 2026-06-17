@@ -48,7 +48,7 @@ mod tests {
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "productQuery": "Boop",
+                "productQuery": ["Boop"],
                 "enhancedSearchDescription": "a filter for peppino",
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
@@ -92,7 +92,7 @@ mod tests {
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
-                product_query: Some("Boop".try_into().unwrap()),
+                product_query: vec!["Boop".try_into().unwrap()],
                 enhanced_search_description: Some("a filter for peppino".into()),
                 shop_name_query: [ShopName::from("Baap")].into(),
                 exclude_shop_name_query: [ShopName::from("baddlebap")].into(),

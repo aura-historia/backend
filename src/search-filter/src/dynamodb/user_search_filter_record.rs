@@ -36,8 +36,8 @@ pub struct UserSearchFilterRecord {
     pub notifications: bool,
     #[serde(default)]
     pub state: ResourceStateRecord,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub product_query: Option<TextQuery<1>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub product_query: Vec<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enhanced_search_description: Option<String>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]

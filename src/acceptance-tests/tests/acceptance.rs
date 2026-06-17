@@ -3365,7 +3365,7 @@ async fn should_post_get_patch_delete_search_filter() {
         state: None,
         search: Some(PatchProductSearchData {
             language: Some(LanguageData::Fr),
-            product_query: Some("weesl bee wuff".try_into().unwrap()),
+            product_query: Some(vec!["weesl bee wuff".try_into().unwrap()]),
             ..Default::default()
         }),
     };
@@ -3389,7 +3389,7 @@ async fn should_post_get_patch_delete_search_filter() {
     );
     assert_eq!(
         &patch.search.unwrap().product_query.unwrap(),
-        &patched.search.product_query.unwrap()
+        &patched.search.product_query
     );
     assert_eq!(posted.user_search_filter_id, patched.user_search_filter_id);
 

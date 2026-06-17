@@ -10,6 +10,7 @@ use common::opensearch::{bulk_response::BulkResponse, search_response::SearchRes
 use common::pagination::cursor::Cursor;
 use common::product_id::ProductId;
 use common::query::any_of_query::AnyOfQuery;
+use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
 use opensearch::http::Method;
@@ -360,8 +361,10 @@ pub fn build_search_query(search: &ProductSearch) -> Result<serde_json::Value, s
     // ---------- Text search ----------
     let title_field = title_fields(&search.language);
 
-    if let Some(product_query) = search.product_query.as_ref() {
-        must.push(build_text_match_clause(product_query.as_ref(), title_field));
+    if let Some(product_query_clause) =
+        build_product_query_clause(&search.product_query, title_field)
+    {
+        must.push(product_query_clause);
     }
 
     let (must_not, filter) = build_filter_clauses(search)?;
@@ -380,11 +383,10 @@ pub fn build_percolator_query(
 ) -> Result<serde_json::Value, serde_json::Error> {
     let mut must = Vec::with_capacity(1);
 
-    if let Some(product_query) = search.product_query.as_ref() {
-        must.push(build_percolator_text_match_clause(
-            product_query.as_ref(),
-            title_fields(&search.language),
-        ));
+    if let Some(product_query_clause) =
+        build_percolator_product_query_clause(&search.product_query, title_fields(&search.language))
+    {
+        must.push(product_query_clause);
     }
 
     let (must_not, filter) = build_filter_clauses(search)?;
@@ -407,6 +409,43 @@ fn title_fields(language: &Language) -> ProductDocumentSerdeField {
         Language::It => ProductDocumentSerdeField::TitleIt,
         // Ingestion-only languages fall back to English for search
         _ => ProductDocumentSerdeField::TitleEn,
+    }
+}
+
+fn build_product_query_clause(
+    product_queries: &[TextQuery<1>],
+    title_field: ProductDocumentSerdeField,
+) -> Option<serde_json::Value> {
+    build_any_product_query_clause(product_queries, |product_query| {
+        build_text_match_clause(product_query, title_field)
+    })
+}
+
+fn build_percolator_product_query_clause(
+    product_queries: &[TextQuery<1>],
+    title_field: ProductDocumentSerdeField,
+) -> Option<serde_json::Value> {
+    build_any_product_query_clause(product_queries, |product_query| {
+        build_percolator_text_match_clause(product_query, title_field)
+    })
+}
+
+fn build_any_product_query_clause(
+    product_queries: &[TextQuery<1>],
+    build_clause: impl Fn(&str) -> serde_json::Value,
+) -> Option<serde_json::Value> {
+    match product_queries {
+        [] => None,
+        [product_query] => Some(build_clause(product_query.as_ref())),
+        product_queries => Some(json!({
+            "bool": {
+                "should": product_queries
+                    .iter()
+                    .map(|product_query| build_clause(product_query.as_ref()))
+                    .collect::<Vec<_>>(),
+                "minimum_should_match": 1
+            }
+        })),
     }
 }
 
@@ -706,12 +745,10 @@ pub fn build_hybrid_search_request(
 
     // ---------- BM25 sub-query: text-match + filters ----------
     let title_field = title_fields(&search.language);
-    let bm25_text_clause = match search.product_query.as_ref() {
-        Some(q) => build_text_match_clause(q.as_ref(), title_field),
+    let bm25_text_clause = build_product_query_clause(&search.product_query, title_field)
         // Defensive: hybrid search is only meaningful with a text query, but fall back to
         // a match-all so the request is still valid.
-        None => json!({ "match_all": {} }),
-    };
+        .unwrap_or_else(|| json!({ "match_all": {} }));
     let bm25_subquery = json!({
         "bool": {
             "must": [bm25_text_clause],
@@ -817,6 +854,13 @@ mod tests {
             .with_product_query(product_query.try_into().unwrap())
     }
 
+    fn search_with_product_queries(product_queries: &[&str]) -> ProductSearch {
+        product_queries.iter().fold(
+            ProductSearch::new(Language::En, Currency::Eur),
+            |search, product_query| search.with_product_query((*product_query).try_into().unwrap()),
+        )
+    }
+
     #[test]
     fn should_build_live_search_query_without_percolator_score_workaround() {
         let mut search = ProductSearch::new(Language::En, Currency::Eur);
@@ -828,6 +872,50 @@ mod tests {
         assert_eq!(
             actual.pointer("/bool/filter/0/terms/state"),
             Some(&json!(["LISTED"]))
+        );
+    }
+
+    #[test]
+    fn should_build_live_search_query_with_or_over_multiple_product_queries() {
+        let search =
+            search_with_product_queries(&["Madonna oil painting", "Virgin Mary oil painting"]);
+
+        let actual = build_search_query(&search).unwrap();
+
+        assert_eq!(
+            actual.pointer("/bool/must/0/bool/minimum_should_match"),
+            Some(&json!(1))
+        );
+        assert_eq!(
+            actual
+                .pointer("/bool/must/0/bool/should/0/bool/must/0/bool/should/0/multi_match/query"),
+            Some(&json!("Madonna oil painting"))
+        );
+        assert_eq!(
+            actual
+                .pointer("/bool/must/0/bool/should/1/bool/must/0/bool/should/0/multi_match/query"),
+            Some(&json!("Virgin Mary oil painting"))
+        );
+    }
+
+    #[test]
+    fn should_build_percolator_query_with_or_over_multiple_product_queries() {
+        let search =
+            search_with_product_queries(&["Madonna oil painting", "Virgin Mary oil painting"]);
+
+        let actual = build_percolator_query(&search).unwrap();
+
+        assert_eq!(
+            actual.pointer("/bool/must/0/bool/minimum_should_match"),
+            Some(&json!(1))
+        );
+        assert_eq!(
+            actual.pointer("/bool/must/0/bool/should/0/multi_match/query"),
+            Some(&json!("Madonna oil painting"))
+        );
+        assert_eq!(
+            actual.pointer("/bool/must/0/bool/should/1/multi_match/query"),
+            Some(&json!("Virgin Mary oil painting"))
         );
     }
 
