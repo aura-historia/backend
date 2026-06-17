@@ -1,7 +1,4 @@
-use crate::core::{
-    user_search_filter::{EnhancedSearchDescription, UserSearchFilterSerdeField},
-    user_search_filter_update::UserSearchFilterUpdate,
-};
+use crate::core::user_search_filter_update::UserSearchFilterUpdate;
 use product::core::product_search::{ProductSearch, ProductSearchSerdeField};
 use user::core::tier::UserTier;
 
@@ -16,10 +13,6 @@ pub trait SearchFilterQuota {
         &self,
         search: &UserSearchFilterUpdate,
     ) -> Result<(), ProductSearchSerdeField>;
-    fn check_enhanced_search_filter_description(
-        &self,
-        enhanced_description: &EnhancedSearchDescription,
-    ) -> Result<(), UserSearchFilterSerdeField>;
 }
 
 impl SearchFilterQuota for UserTier {
@@ -45,7 +38,7 @@ impl SearchFilterQuota for UserTier {
     ) -> Result<(), ProductSearchSerdeField> {
         match self {
             UserTier::Free => check_search_filter_features_free(search),
-            UserTier::Pro => Ok(()),
+            UserTier::Pro => check_search_filter_features_pro(search),
             UserTier::Ultimate => Ok(()),
         }
     }
@@ -56,18 +49,7 @@ impl SearchFilterQuota for UserTier {
     ) -> Result<(), ProductSearchSerdeField> {
         match self {
             UserTier::Free => check_search_filter_update_features_free(search),
-            UserTier::Pro => Ok(()),
-            UserTier::Ultimate => Ok(()),
-        }
-    }
-
-    fn check_enhanced_search_filter_description(
-        &self,
-        _enhanced_description: &EnhancedSearchDescription,
-    ) -> Result<(), UserSearchFilterSerdeField> {
-        match self {
-            UserTier::Free => Err(UserSearchFilterSerdeField::EnhancedSearchDescription),
-            UserTier::Pro => Err(UserSearchFilterSerdeField::EnhancedSearchDescription),
+            UserTier::Pro => check_search_filter_update_features_pro(search),
             UserTier::Ultimate => Ok(()),
         }
     }
@@ -78,6 +60,8 @@ fn check_search_filter_features_free(
 ) -> Result<(), ProductSearchSerdeField> {
     // allow product_query, price_query, state_query
     // forbid all other scoped filters
+
+    check_search_filter_features_pro(search)?;
 
     if !search.shop_name_query.is_empty() {
         return Err(ProductSearchSerdeField::ShopNameQuery);
@@ -131,11 +115,21 @@ fn check_search_filter_features_free(
     Ok(())
 }
 
+fn check_search_filter_features_pro(search: &ProductSearch) -> Result<(), ProductSearchSerdeField> {
+    if search.enhanced_search_description.is_some() {
+        return Err(ProductSearchSerdeField::EnhancedSearchDescription);
+    }
+
+    Ok(())
+}
+
 fn check_search_filter_update_features_free(
     search: &UserSearchFilterUpdate,
 ) -> Result<(), ProductSearchSerdeField> {
     // allow product_query, price_query, state_query
     // forbid all other scoped filters
+
+    check_search_filter_update_features_pro(search)?;
 
     if search.shop_name_query.is_some() {
         return Err(ProductSearchSerdeField::ShopNameQuery);
@@ -184,6 +178,16 @@ fn check_search_filter_update_features_free(
     }
     if search.auction_end_query.is_some() {
         return Err(ProductSearchSerdeField::AuctionEndQuery);
+    }
+
+    Ok(())
+}
+
+fn check_search_filter_update_features_pro(
+    search: &UserSearchFilterUpdate,
+) -> Result<(), ProductSearchSerdeField> {
+    if search.enhanced_search_description.is_some() {
+        return Err(ProductSearchSerdeField::EnhancedSearchDescription);
     }
 
     Ok(())

@@ -1,4 +1,4 @@
-use crate::core::product_search::ProductSearch;
+use crate::core::product_search::{EnhancedSearchDescription, ProductSearch};
 use crate::data::product_state_data::ProductStateData;
 use common::distance::data::GeoDistanceQueryData;
 use common::query::range_query::RangeQuery;
@@ -27,10 +27,16 @@ pub struct ProductSearchData {
     pub currency: CurrencyData,
     #[serde(
         rename = "productQuery",
+        skip_serializing_if = "Vec::is_empty",
+        default
+    )]
+    pub product_query: Vec<TextQuery<1>>,
+    #[serde(
+        rename = "enhancedSearchDescription",
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub product_query: Option<TextQuery<1>>,
+    pub enhanced_search_description: Option<String>,
     #[serde(
         rename = "shopName",
         skip_serializing_if = "HashSet::is_empty",
@@ -139,6 +145,7 @@ impl From<ProductSearch> for ProductSearchData {
             language: search_filter.language.into(),
             currency: search_filter.currency.into(),
             product_query: search_filter.product_query,
+            enhanced_search_description: search_filter.enhanced_search_description.map(Into::into),
             shop_name_query: search_filter.shop_name_query.into(),
             exclude_shop_name_query: search_filter.exclude_shop_name_query.into(),
             seller_name_query: search_filter.seller_name_query.into(),
@@ -181,6 +188,9 @@ impl From<ProductSearchData> for ProductSearch {
             language: data.language.into(),
             currency: data.currency.into(),
             product_query: data.product_query,
+            enhanced_search_description: data
+                .enhanced_search_description
+                .map(EnhancedSearchDescription::from),
             shop_name_query: data.shop_name_query.into(),
             exclude_shop_name_query: data.exclude_shop_name_query.into(),
             seller_name_query: data.seller_name_query.into(),

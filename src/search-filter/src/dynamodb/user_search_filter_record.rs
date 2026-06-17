@@ -31,15 +31,15 @@ pub struct UserSearchFilterRecord {
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
     pub name: UserSearchFilterName,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enhanced_search_description: Option<String>,
 
     #[serde(default = "default_notifications")]
     pub notifications: bool,
     #[serde(default)]
     pub state: ResourceStateRecord,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub product_query: Vec<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub product_query: Option<TextQuery<1>>,
+    pub enhanced_search_description: Option<String>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_name_query: HashSet<ShopName>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -123,13 +123,13 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
             user_id: record.user_id,
             user_search_filter_id: record.user_search_filter_id,
             name: record.name,
-            enhanced_search_description: record.enhanced_search_description.map(Into::into),
             notifications: record.notifications,
             state: record.state.into(),
             search: ProductSearch {
                 language: record.language.into(),
                 currency: record.currency.into(),
                 product_query: record.product_query,
+                enhanced_search_description: record.enhanced_search_description.map(Into::into),
                 shop_name_query: record.shop_name_query.into(),
                 exclude_shop_name_query: record.exclude_shop_name_query.into(),
                 seller_name_query: record.seller_name_query.into(),
@@ -179,12 +179,13 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             user_id: user_search_filter.user_id,
             user_search_filter_id: user_search_filter.user_search_filter_id,
             name: user_search_filter.name,
-            enhanced_search_description: user_search_filter
-                .enhanced_search_description
-                .map(Into::into),
             notifications: user_search_filter.notifications,
             state: user_search_filter.state.into(),
             product_query: user_search_filter.search.product_query,
+            enhanced_search_description: user_search_filter
+                .search
+                .enhanced_search_description
+                .map(Into::into),
             shop_name_query: user_search_filter.search.shop_name_query.into(),
             exclude_shop_name_query: user_search_filter.search.exclude_shop_name_query.into(),
             seller_name_query: user_search_filter.search.seller_name_query.into(),
@@ -255,10 +256,10 @@ mod fake {
                 user_id,
                 user_search_filter_id: search_filter_id,
                 name: config.fake_with_rng(rng),
-                enhanced_search_description: config.fake_with_rng(rng),
                 notifications: true,
                 state: ResourceStateRecord::Active,
                 product_query: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),

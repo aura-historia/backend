@@ -24,7 +24,7 @@ async fn should_update_search_filter_record() {
         notifications: None,
         state: None,
         enhanced_search_description: None,
-        product_query: Some("boopel boop doop".try_into().unwrap()),
+        product_query: Some(vec!["boopel boop doop".try_into().unwrap()]),
         shop_name_query: None,
         exclude_shop_name_query: None,
         seller_name_query: None,
@@ -55,7 +55,7 @@ async fn should_update_search_filter_record() {
 
     let mut expected = record.clone();
     expected.name = "my cool name".into();
-    expected.product_query = Some("boopel boop doop".try_into().unwrap());
+    expected.product_query = vec!["boopel boop doop".try_into().unwrap()];
     expected.updated_by = common::actor::record::ActorRecord::System;
     expected.updated = updated;
 

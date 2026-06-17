@@ -66,7 +66,7 @@ fn mk_search_filter_record_with_state(
         enhanced_search_description: None,
         notifications: true,
         state,
-        product_query: None,
+        product_query: Vec::new(),
         shop_name_query: HashSet::new(),
         exclude_shop_name_query: HashSet::new(),
         seller_name_query: HashSet::new(),

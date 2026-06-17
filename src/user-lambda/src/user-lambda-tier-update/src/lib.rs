@@ -118,11 +118,6 @@ fn search_filter_features_allowed(
 ) -> bool {
     let filter = search_filter::core::user_search_filter::UserSearchFilter::from(record);
     tier.check_search_filter_features(&filter.search).is_ok()
-        && filter
-            .enhanced_search_description
-            .as_ref()
-            .map(|desc| tier.check_enhanced_search_filter_description(desc).is_ok())
-            .unwrap_or(true)
 }
 
 async fn update_watchlist_state(
@@ -249,7 +244,6 @@ mod tests {
             notifications: true,
             state: state.into(),
             search: product::core::product_search::ProductSearch::new(Language::En, Currency::Eur),
-            enhanced_search_description: None,
             created_by: Actor::User(user.user_id),
             updated_by: Actor::User(user.user_id),
             created: OffsetDateTime::now_utc(),

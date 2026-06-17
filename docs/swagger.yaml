@@ -1681,11 +1681,15 @@ paths:
         - name: productQuery
           in: query
           required: false
-          description: Optional text query for products (minimum 1 character when provided)
+          description: Optional text queries for products. Multiple entries are ORed together.
+          style: form
+          explode: true
           schema:
-            type: string
-            minLength: 1
-          example: test
+            type: array
+            items:
+              type: string
+              minLength: 1
+          example: [test, example]
         - name: shopName
           in: query
           required: false
@@ -2147,7 +2151,7 @@ paths:
             example:
               language: "en"
               currency: "USD"
-              productQuery: "antique clock"
+              productQuery: ["antique clock", "vintage clock"]
               shopName: ["Antique Store", "Vintage Gallery"]
               country: ["DE"]
               continent: ["EUROPE"]
@@ -2348,7 +2352,7 @@ paths:
                     search:
                       language: "en"
                       currency: "USD"
-                      productQuery: "antique clock"
+                      productQuery: ["antique clock", "vintage clock"]
                       shopName: ["Antique Store"]
                       price:
                         min: 1000
@@ -2435,7 +2439,7 @@ paths:
               search:
                 language: "en"
                 currency: "USD"
-                productQuery: "antique clock"
+                productQuery: ["antique clock", "vintage clock"]
                 shopName: ["Antique Store"]
                 price:
                   min: 1000
@@ -2483,7 +2487,7 @@ paths:
                 search:
                   language: "en"
                   currency: "USD"
-                  productQuery: "antique clock"
+                  productQuery: ["antique clock", "vintage clock"]
                   shopName: ["Antique Store"]
                   price:
                     min: 1000
@@ -2618,7 +2622,7 @@ paths:
                 search:
                   language: "en"
                   currency: "USD"
-                  productQuery: "antique clock"
+                  productQuery: ["antique clock", "vintage clock"]
                   shopName: ["Antique Store"]
                   price:
                     min: 1000
@@ -2874,7 +2878,7 @@ paths:
                 search:
                   language: "en"
                   currency: "USD"
-                  productQuery: "antique clock"
+                  productQuery: ["antique clock", "vintage clock"]
                   shopName: ["Updated Store"]
                   price:
                     min: 2000
@@ -2987,7 +2991,7 @@ paths:
         Client-driven pagination is not supported. The endpoint always returns a fixed preview of up to
         10 products and rejects `size` or `searchAfter` query parameters with `BAD_QUERY_PARAMETER_VALUE`.
 
-        When the saved search filter contains an `enhancedSearchDescription` and enhanced matching is available,
+        When the saved search filter contains `search.enhancedSearchDescription` and enhanced matching is available,
         the backend re-evaluates each candidate product for this specific filter. Products rejected by enhanced
         matching are omitted from the preview; accepted products expose the live result in
         `userState.searchFilter`:
@@ -11381,7 +11385,7 @@ components:
           type: string
           description: |
             A human-readable explanation of why the saved search filter matched this product.
-            Only set for AI-enhanced filters (i.e. those with an `enhancedSearchDescription`).
+            Only set for AI-enhanced filters (i.e. those with `search.enhancedSearchDescription`).
             Present only when `matched` is `true` and an enhanced match reason exists; omitted otherwise.
           example: "Product matches the vintage Art Deco style described in your search filter."
         matchFeedback:
@@ -11870,11 +11874,23 @@ components:
         currency:
           $ref: "#/components/schemas/CurrencyData"
         productQuery:
+          type: array
+          description: Optional text queries for searching products. Multiple entries are ORed together. Empty list means no text query.
+          items:
+            type: string
+            minLength: 1
+          example: ["smartphone case", "mobile phone case"]
+        enhancedSearchDescription:
           type: string
-          description: Optional text query for searching products (minimum 1 character when provided)
-          minLength: 1
           nullable: true
-          example: "smartphone case"
+          description: |
+            Optional natural-language description used by the AI-enhanced search filter matching service.
+            When provided on a saved search filter, a language model evaluates each matched product against
+            this description and only keeps products that are a true match, attaching a user-facing reason
+            to every confirmed hit.
+            Whitespace is trimmed and the value is silently truncated to 1000 characters if longer.
+          maxLength: 1000
+          example: "Golden cufflinks from the Art Deco period, preferably from French workshops"
         shopName:
           type: array
           items:
@@ -12054,16 +12070,6 @@ components:
           description: User-defined name for the search filter (max 255 characters, will be truncated if longer)
           maxLength: 255
           example: "My Tech Store Search"
-        enhancedSearchDescription:
-          type: string
-          nullable: true
-          description: |
-            Optional natural-language description used by the AI-enhanced search filter matching service.
-            When provided, a language model evaluates each matched product against this description and only
-            keeps products that are a true match, attaching a user-facing reason to every confirmed hit.
-            Whitespace is trimmed and the value is silently truncated to 1000 characters if longer.
-          maxLength: 1000
-          example: "Golden cufflinks from the Art Deco period, preferably from French workshops"
         search:
           $ref: "#/components/schemas/ProductSearchData"
 
@@ -12072,7 +12078,7 @@ components:
       description: |
         Partial search filter update data.
         All fields are optional and only provided fields will be updated.
-        Can update the search filter name, enhanced search description, notifications preference, activation state, and/or the search filter criteria.
+        Can update the search filter name, notifications preference, activation state, and/or the search filter criteria.
       properties:
         name:
           type: string
@@ -12080,17 +12086,6 @@ components:
           maxLength: 255
           nullable: true
           example: "Updated Filter Name"
-        enhancedSearchDescription:
-          type: string
-          description: |
-            Optional natural-language description used by the AI-enhanced search filter matching service.
-            When provided, a language model evaluates each matched product against this description and only
-            keeps products that are a true match, attaching a user-facing reason to every confirmed hit.
-            Whitespace is trimmed and the value is silently truncated to 1000 characters if longer.
-            Omit to leave unchanged.
-          maxLength: 1000
-          nullable: true
-          example: "Golden cufflinks from the Art Deco period, preferably from French workshops"
         notifications:
           type: boolean
           nullable: true
@@ -12147,11 +12142,25 @@ components:
           nullable: true
           description: Currency for price display
         productQuery:
-          type: string
-          description: Text query for searching products (minimum 1 character when provided)
-          minLength: 1
+          type: array
+          description: Text queries for searching products. Multiple entries are ORed together. Empty list clears the text query when patching.
+          items:
+            type: string
+            minLength: 1
           nullable: true
-          example: "laptop bag"
+          example: ["laptop bag", "notebook bag"]
+        enhancedSearchDescription:
+          type: string
+          description: |
+            Optional natural-language description used by the AI-enhanced search filter matching service.
+            When provided on a saved search filter, a language model evaluates each matched product against
+            this description and only keeps products that are a true match, attaching a user-facing reason
+            to every confirmed hit.
+            Whitespace is trimmed and the value is silently truncated to 1000 characters if longer.
+            Omit to leave unchanged.
+          maxLength: 1000
+          nullable: true
+          example: "Golden cufflinks from the Art Deco period, preferably from French workshops"
         shopName:
           type: array
           items:
@@ -12340,13 +12349,6 @@ components:
           type: string
           description: User-defined name for the search filter
           example: "My Tech Store Search"
-        enhancedSearchDescription:
-          type: string
-          description: |
-            Optional natural-language description used by the AI-enhanced search filter matching service.
-            Present only when an enhanced search description was set on this filter.
-          maxLength: 1000
-          example: "Golden cufflinks from the Art Deco period, preferably from French workshops"
         notifications:
           type: boolean
           description: |

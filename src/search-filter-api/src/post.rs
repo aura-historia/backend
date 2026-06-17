@@ -40,9 +40,6 @@ pub async fn handle(
             &user_id,
             user_search_filter_data.name,
             user_search_filter_data.search.into(),
-            user_search_filter_data
-                .enhanced_search_description
-                .map(Into::into),
         )
         .await?
         .into();
@@ -91,7 +88,7 @@ mod tests {
         let mut service = MockUserSearchFilterService::default();
         service
             .expect_create_user_search_filter()
-            .return_once(move |_, _, _, _, _| Box::pin(async move { Ok(expected) }));
+            .return_once(move |_, _, _, _| Box::pin(async move { Ok(expected) }));
 
         let get_product_service = MockGetProductService::default();
         let query_product_service = MockQueryProductService::default();

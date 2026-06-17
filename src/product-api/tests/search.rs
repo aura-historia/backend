@@ -100,6 +100,114 @@ async fn should_200_when_no_hits() {
 }
 
 #[localstack_test(services = [OpenSearch(), DynamoDB()])]
+async fn should_200_when_any_product_query_matches() {
+    let ddb_client = get_dynamodb_client().await;
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let notification_service = MockNotificationService::default();
+    let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+    let product_personalization_service = ProductPersonalizationServiceImpl::new(
+        &watchlist_repository,
+        &notification_service,
+        &user_service,
+        &search_filter_repository,
+    );
+    let opensearch_repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_service = QueryProductServiceImpl::new(&opensearch_repository);
+    let mut access_token_verifier_service = MockAccessTokenVerifierService::default();
+    access_token_verifier_service
+        .expect_verify_extract_user_id()
+        .returning(|_| Box::pin(async { Ok(None) }));
+
+    let mut madonna = Faker.fake::<ProductDocument>();
+    madonna.title_en = Some("Madonna oil painting renaissance artwork".into());
+    madonna.title_native = TextDocument {
+        text: "Madonna oil painting renaissance artwork".into(),
+        language: LanguageDocument::En,
+    };
+    let mut virgin_mary = Faker.fake::<ProductDocument>();
+    virgin_mary.title_en = Some("Virgin Mary oil painting antique icon".into());
+    virgin_mary.title_native = TextDocument {
+        text: "Virgin Mary oil painting antique icon".into(),
+        language: LanguageDocument::En,
+    };
+    let mut unrelated = Faker.fake::<ProductDocument>();
+    unrelated.title_en = Some("Bronze garden sculpture".into());
+    unrelated.title_native = TextDocument {
+        text: "Bronze garden sculpture".into(),
+        language: LanguageDocument::En,
+    };
+    let response = opensearch_repository
+        .create_product_documents(vec![madonna.clone(), virgin_mary.clone(), unrelated])
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search = ProductSearchData {
+        language: LanguageData::En,
+        currency: CurrencyData::Eur,
+        product_query: vec![
+            "Madonna oil painting".try_into().unwrap(),
+            "Virgin Mary oil painting".try_into().unwrap(),
+        ],
+        enhanced_search_description: None,
+        shop_name_query: Default::default(),
+        exclude_shop_name_query: Default::default(),
+        seller_name_query: Default::default(),
+        exclude_seller_name_query: Default::default(),
+        shop_type_query: Default::default(),
+        country_query: Default::default(),
+        continent_query: Default::default(),
+        geo_address_distance_query: None,
+        price_query: None,
+        state_query: Default::default(),
+        created_query: None,
+        updated_query: None,
+        auction_start_query: None,
+        auction_end_query: None,
+        shop_slug_id_query: Default::default(),
+        exclude_shop_slug_id_query: Default::default(),
+        seller_slug_id_query: Default::default(),
+        exclude_seller_slug_id_query: Default::default(),
+    };
+    let lambda_event = LambdaEvent {
+        payload: ApiGatewayV2httpRequestProxy::builder()
+            .http_method(http::Method::POST)
+            .body_serde(&search)
+            .build(),
+        context: Default::default(),
+    };
+
+    let response = handle(
+        lambda_event,
+        &query_service,
+        None,
+        &access_token_verifier_service,
+        &product_personalization_service,
+    )
+    .await
+    .unwrap();
+    assert_eq!(200, response.status_code);
+
+    let json = extract_apigw_response_json_body!(response);
+    let response_data: JsonCursoredData<
+        PersonalizedData<GetProductSummaryData, ProductUserStateData>,
+    > = serde_json::from_value(json).unwrap();
+    let actual_ids = response_data
+        .items
+        .into_iter()
+        .map(|item| item.item.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        HashSet::from_iter([madonna.product_id, virgin_mary.product_id]),
+        actual_ids
+    );
+}
+
+#[localstack_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_filter_products_when_geo_filters_are_given() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -137,7 +245,8 @@ async fn should_200_filter_products_when_geo_filters_are_given() {
     let search = ProductSearchData {
         language: LanguageData::En,
         currency: CurrencyData::Eur,
-        product_query: None,
+        product_query: Vec::new(),
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -215,7 +324,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some(product_query.try_into().unwrap()),
+        product_query: vec![product_query.try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -378,7 +488,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some(product_query.try_into().unwrap()),
+        product_query: vec![product_query.try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -546,7 +657,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        product_query: Some(product_query.try_into().unwrap()),
+        product_query: vec![product_query.try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -681,7 +793,8 @@ async fn should_200_when_following_search_after_for_native_hybrid_product_api() 
     let search = ProductSearchData {
         language: LanguageData::En,
         currency: CurrencyData::Eur,
-        product_query: Some(product_query.try_into().unwrap()),
+        product_query: vec![product_query.try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -988,7 +1101,8 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Usd,
-        product_query: Some(product_query.try_into().unwrap()),
+        product_query: vec![product_query.try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1132,7 +1246,8 @@ async fn should_200_when_created_query(
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: vec!["Der erwartete Titel".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1246,7 +1361,8 @@ async fn should_200_when_updated_query(
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: vec!["Der erwartete Titel".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1369,7 +1485,8 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: vec!["Der erwartete Titel".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1492,7 +1609,8 @@ async fn should_respond_200_and_respect_language_query_param(
             .body_serde(&ProductSearchData {
                 language: expected_title_lang.into(),
                 currency: CurrencyData::Eur,
-                product_query: Some(expected_title.try_into().unwrap()),
+                product_query: vec![expected_title.try_into().unwrap()],
+                enhanced_search_description: None,
                 shop_name_query: Default::default(),
                 exclude_shop_name_query: Default::default(),
                 seller_name_query: Default::default(),
@@ -1569,7 +1687,8 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: vec!["Der erwartete Titel".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1670,7 +1789,8 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: vec!["Der erwartete Titel".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: query.iter().map(|s| s.to_string().into()).collect(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1778,7 +1898,8 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
     let search = ProductSearchData {
         language: common::language::data::LanguageData::De,
         currency: common::currency::data::CurrencyData::Eur,
-        product_query: Some("Der erwartete Titel".try_into().unwrap()),
+        product_query: vec!["Der erwartete Titel".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: query.iter().map(|s| s.to_string().into()).collect(),
         seller_name_query: Default::default(),
@@ -1878,7 +1999,8 @@ async fn should_200_when_auction_start_range_is_given() {
     let search = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: Some("Auction test product".try_into().unwrap()),
+        product_query: vec!["Auction test product".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1975,7 +2097,8 @@ async fn should_200_when_auction_end_range_is_given() {
     let search = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: Some("Auction end test".try_into().unwrap()),
+        product_query: vec!["Auction end test".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -2078,7 +2201,8 @@ async fn should_200_when_seller_name_query_for_keyword_filter(#[case] query: Has
     let search = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: Some("Seller name keyword filter test".try_into().unwrap()),
+        product_query: vec!["Seller name keyword filter test".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: query.iter().map(|s| s.to_string().into()).collect(),
@@ -2185,7 +2309,8 @@ async fn should_200_when_exclude_seller_name_query(#[case] query: HashSet<&str>)
     let search = ProductSearchData {
         language: LanguageData::De,
         currency: CurrencyData::Eur,
-        product_query: Some("Exclude seller name filter test".try_into().unwrap()),
+        product_query: vec!["Exclude seller name filter test".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),

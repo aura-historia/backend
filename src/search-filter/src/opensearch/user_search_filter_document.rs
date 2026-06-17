@@ -1,6 +1,4 @@
-use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter::UserSearchFilter;
-use crate::core::user_search_filter::UserSearchFilterSummary;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
 use common::actor::document::ActorDocument;
@@ -20,8 +18,6 @@ pub struct UserSearchFilterDocument {
     pub user_search_filter_id: UserSearchFilterId,
     pub user_id: UserId,
     pub name: UserSearchFilterName,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enhanced_search_description: Option<String>,
     pub notifications: bool,
     #[serde(default)]
     pub state: ResourceStateDocument,
@@ -43,34 +39,12 @@ impl UserSearchFilterDocument {
     }
 }
 
-impl From<UserSearchFilterDocument> for UserSearchFilterSummary {
-    fn from(document: UserSearchFilterDocument) -> Self {
-        UserSearchFilterSummary {
-            user_search_filter_id: document.user_search_filter_id,
-            user_id: document.user_id,
-            name: document.name,
-            enhanced_search_description: document
-                .enhanced_search_description
-                .map(EnhancedSearchDescription::from),
-            notifications: document.notifications,
-            state: document.state.into(),
-            created_by: document.created_by.into(),
-            updated_by: document.updated_by.into(),
-            created: document.created,
-            updated: document.updated,
-        }
-    }
-}
-
 impl From<UserSearchFilterDocument> for UserSearchFilter {
     fn from(document: UserSearchFilterDocument) -> Self {
         UserSearchFilter {
             user_search_filter_id: document.user_search_filter_id,
             user_id: document.user_id,
             name: document.name,
-            enhanced_search_description: document
-                .enhanced_search_description
-                .map(EnhancedSearchDescription::from),
             notifications: document.notifications,
             state: document.state.into(),
             search: document.search.into(),
@@ -92,9 +66,6 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
             user_search_filter_id: user_search_filter.user_search_filter_id,
             user_id: user_search_filter.user_id,
             name: user_search_filter.name,
-            enhanced_search_description: user_search_filter
-                .enhanced_search_description
-                .map(Into::into),
             notifications: user_search_filter.notifications,
             state: user_search_filter.state.into(),
             search: user_search_filter.search.clone().into(),

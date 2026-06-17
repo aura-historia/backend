@@ -57,20 +57,19 @@ async fn should_update_search_filter() {
             &user.user_id,
             Faker.fake(),
             Faker.fake::<ProductSearch>(),
-            Faker.fake(),
         )
         .await
         .unwrap();
 
     let patch = PatchUserSearchFilterData {
         name: Some("thorbens filter".into()),
-        enhanced_search_description: None,
         notifications: None,
         state: None,
         search: Some(PatchProductSearchData {
             language: None,
             currency: None,
             product_query: None,
+            enhanced_search_description: None,
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Whoop boop woah")])),
             exclude_shop_name_query: None,
             seller_name_query: None,

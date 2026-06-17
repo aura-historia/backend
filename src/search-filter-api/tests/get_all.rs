@@ -41,13 +41,13 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
         .unwrap()
         .user_id;
     let mut expected = vec![];
-    for search_filter in fake::vec![ProductSearch; 81] {
+    for mut search_filter in fake::vec![ProductSearch; 81] {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        search_filter.enhanced_search_description = Faker.fake();
         let filter = UserSearchFilter {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: Faker.fake(),
-            enhanced_search_description: Faker.fake(),
             notifications: true,
             state: ResourceState::Active,
             search: search_filter,
@@ -127,13 +127,13 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
         .unwrap()
         .user_id;
     let mut expected = vec![];
-    for search_filter in fake::vec![ProductSearch; 81] {
+    for mut search_filter in fake::vec![ProductSearch; 81] {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        search_filter.enhanced_search_description = Faker.fake();
         let filter = UserSearchFilter {
             user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name: Faker.fake(),
-            enhanced_search_description: Faker.fake(),
             notifications: true,
             state: ResourceState::Active,
             search: search_filter,

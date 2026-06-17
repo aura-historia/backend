@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PostUserSearchFilterData {
     pub name: UserSearchFilterName,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enhanced_search_description: Option<String>,
     pub search: ProductSearchData,
 }
 
@@ -20,7 +18,6 @@ mod faker {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             PostUserSearchFilterData {
                 name: config.fake_with_rng(rng),
-                enhanced_search_description: config.fake_with_rng(rng),
                 search: config.fake_with_rng(rng),
             }
         }
@@ -48,11 +45,11 @@ mod tests {
     fn should_deserialize_post_user_search_filter() {
         let json = json!({
             "name": "hugos filter for peppino",
-            "enhancedSearchDescription": "a filter for peppino",
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "productQuery": "Boop",
+                "productQuery": ["Boop"],
+                "enhancedSearchDescription": "a filter for peppino",
                 "shopName": ["Baap"],
                 "excludeShopName": ["baddlebap"],
                 "shopSlugId": ["imperial-antiques"],
@@ -92,11 +89,11 @@ mod tests {
         });
         let expected = PostUserSearchFilterData {
             name: "hugos filter for peppino".into(),
-            enhanced_search_description: Some("a filter for peppino".into()),
             search: ProductSearchData {
                 language: LanguageData::De,
                 currency: CurrencyData::Eur,
-                product_query: Some("Boop".try_into().unwrap()),
+                product_query: vec!["Boop".try_into().unwrap()],
+                enhanced_search_description: Some("a filter for peppino".into()),
                 shop_name_query: [ShopName::from("Baap")].into(),
                 exclude_shop_name_query: [ShopName::from("baddlebap")].into(),
                 seller_name_query: Default::default(),

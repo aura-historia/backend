@@ -49,7 +49,6 @@ fn search_filter_record(
         notifications: true,
         state: state.into(),
         search: product::core::product_search::ProductSearch::new(Language::En, Currency::Eur),
-        enhanced_search_description: None,
         created_by: Actor::User(user.user_id),
         updated_by: Actor::User(user.user_id),
         created,

@@ -668,7 +668,8 @@ async fn should_search_product_documents() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Hallo Welt".try_into().unwrap()),
+        product_query: vec!["Hallo Welt".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -709,6 +710,67 @@ async fn should_search_product_documents() {
             .map(|hit| hit.source)
             .collect::<Vec<_>>()
     )
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_search_product_documents_when_any_product_query_matches() {
+    let mut madonna = Faker.fake::<ProductDocument>();
+    madonna.title_en = Some("Madonna oil painting renaissance artwork".into());
+    madonna.title_native = TextDocument {
+        text: "Madonna oil painting renaissance artwork".into(),
+        language: LanguageDocument::En,
+    };
+
+    let mut virgin_mary = Faker.fake::<ProductDocument>();
+    virgin_mary.title_en = Some("Virgin Mary oil painting antique icon".into());
+    virgin_mary.title_native = TextDocument {
+        text: "Virgin Mary oil painting antique icon".into(),
+        language: LanguageDocument::En,
+    };
+
+    let mut unrelated = Faker.fake::<ProductDocument>();
+    unrelated.title_en = Some("Bronze garden sculpture".into());
+    unrelated.title_native = TextDocument {
+        text: "Bronze garden sculpture".into(),
+        language: LanguageDocument::En,
+    };
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(vec![madonna.clone(), virgin_mary.clone(), unrelated])
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+
+    let search_filter = ProductSearch::new(Language::En, Currency::Eur)
+        .with_product_query("Madonna oil painting".try_into().unwrap())
+        .with_product_query("Virgin Mary oil painting".try_into().unwrap());
+
+    let response = repository
+        .search_product_documents(
+            &search_filter,
+            &Sort {
+                sort: SortProductField::Score,
+                order: SortOrder::Desc,
+            },
+            &None,
+        )
+        .await
+        .unwrap();
+
+    let actual_ids = response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| hit.source.product_id)
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        HashSet::from_iter([madonna.product_id, virgin_mary.product_id]),
+        actual_ids
+    );
 }
 
 #[localstack_test(services = [OpenSearch()])]
@@ -863,7 +925,8 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Lorem".try_into().unwrap()),
+        product_query: vec!["Lorem".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_type_query: Default::default(),
         shop_name_query: HashSet::from_iter(["Wyoming LLC".into()]).into(),
         exclude_shop_name_query: HashSet::from_iter(["Berlin GmbH".into()]).into(),
@@ -937,7 +1000,8 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
+        product_query: vec!["The same title".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1001,7 +1065,8 @@ async fn should_search_product_documents_when_no_states_are_given() {
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
+        product_query: vec!["The same title".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1079,7 +1144,8 @@ async fn should_search_product_documents_when_price_range_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("The same title".try_into().unwrap()),
+        product_query: vec!["The same title".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1165,7 +1231,8 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
     let search_filter = ProductSearch {
         language: Language::En,
         currency: Currency::Usd,
-        product_query: Some("The same title".try_into().unwrap()),
+        product_query: vec!["The same title".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -1255,7 +1322,8 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
     let search_filter = ProductSearch {
         language: Language::En,
         currency: Currency::Usd,
-        product_query: Some("The same title".try_into().unwrap()),
+        product_query: vec!["The same title".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -2374,7 +2442,8 @@ async fn should_search_product_documents_when_shop_types_are_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Test product for shop type filter".try_into().unwrap()),
+        product_query: vec!["Test product for shop type filter".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -2459,7 +2528,8 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Test product for shop name filter".try_into().unwrap()),
+        product_query: vec!["Test product for shop name filter".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: AnyOfQuery::from(HashSet::from_iter(
             shop_names.iter().map(|name| name.to_string().into()),
         )),
@@ -2547,7 +2617,8 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Test product for shop name filter".try_into().unwrap()),
+        product_query: vec!["Test product for shop name filter".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: AnyOfQuery::from(HashSet::from_iter(
             exclude_shop_names
@@ -2637,7 +2708,8 @@ async fn should_search_product_documents_when_seller_names_are_given_for_keyword
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Test product for seller name filter".try_into().unwrap()),
+        product_query: vec!["Test product for seller name filter".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: AnyOfQuery::from(HashSet::from_iter(
@@ -2725,11 +2797,12 @@ async fn should_search_product_documents_when_excluded_seller_names_are_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some(
+        product_query: vec![
             "Test product for exclude seller name filter"
                 .try_into()
                 .unwrap(),
-        ),
+        ],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -2823,7 +2896,8 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Test product for shop slug id filter".try_into().unwrap()),
+        product_query: vec!["Test product for shop slug id filter".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -2915,11 +2989,12 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some(
+        product_query: vec![
             "Test product for exclude shop slug id filter"
                 .try_into()
                 .unwrap(),
-        ),
+        ],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -3014,7 +3089,8 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Test product for seller slug id filter".try_into().unwrap()),
+        product_query: vec!["Test product for seller slug id filter".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -3106,11 +3182,12 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some(
+        product_query: vec![
             "Test product for exclude seller slug id filter"
                 .try_into()
                 .unwrap(),
-        ),
+        ],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -3209,7 +3286,8 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Auction product".try_into().unwrap()),
+        product_query: vec!["Auction product".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -3331,7 +3409,8 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: Some("Auction item".try_into().unwrap()),
+        product_query: vec!["Auction item".try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -3453,7 +3532,8 @@ async fn should_search_product_documents_when_query_is_empty(
     let search_filter = ProductSearch {
         language: Language::De,
         currency: Currency::Eur,
-        product_query: None,
+        product_query: Vec::new(),
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),
@@ -3557,7 +3637,8 @@ fn search_with_query(query: &str) -> ProductSearch {
     ProductSearch {
         language: Language::En,
         currency: Currency::Eur,
-        product_query: Some(query.try_into().unwrap()),
+        product_query: vec![query.try_into().unwrap()],
+        enhanced_search_description: None,
         shop_name_query: Default::default(),
         exclude_shop_name_query: Default::default(),
         seller_name_query: Default::default(),

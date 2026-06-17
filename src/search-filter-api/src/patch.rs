@@ -85,10 +85,12 @@ mod tests {
                 .path_parameter("userSearchFilterId", UserSearchFilterId::new())
                 .body_serde(&PatchUserSearchFilterData {
                     name: Some("foo".into()),
-                    enhanced_search_description: Some("bar".into()),
                     notifications: None,
                     state: None,
-                    search: None,
+                    search: Some(crate::patch_types::PatchProductSearchData {
+                        enhanced_search_description: Some("bar".into()),
+                        ..Default::default()
+                    }),
                 })
                 .jwt_claim("sub", UserId::new())
                 .build(),

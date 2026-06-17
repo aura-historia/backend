@@ -1,4 +1,3 @@
-use crate::core::user_search_filter::EnhancedSearchDescription;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::dynamodb::user_search_filter_record_update::UserSearchFilterRecordUpdate;
 use common::actor::domain::Actor;
@@ -20,6 +19,7 @@ use common::{
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
+use product::core::product_search::EnhancedSearchDescription;
 use product::dynamodb::product_state_record::ProductStateRecord;
 use shop::core::shop_type::ShopType;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
@@ -29,10 +29,10 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserSearchFilterUpdate {
     pub name: Option<UserSearchFilterName>,
-    pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub notifications: Option<bool>,
     pub state: Option<ResourceState>,
-    pub product_query: Option<TextQuery<1>>,
+    pub product_query: Option<Vec<TextQuery<1>>>,
+    pub enhanced_search_description: Option<EnhancedSearchDescription>,
     pub shop_name_query: Option<HashSet<ShopName>>,
     pub exclude_shop_name_query: Option<HashSet<ShopName>>,
     pub seller_name_query: Option<HashSet<ShopName>>,
@@ -60,10 +60,10 @@ impl Default for UserSearchFilterUpdate {
     fn default() -> Self {
         Self {
             name: None,
-            enhanced_search_description: None,
             notifications: None,
             state: None,
             product_query: None,
+            enhanced_search_description: None,
             shop_name_query: None,
             exclude_shop_name_query: None,
             seller_name_query: None,
@@ -93,10 +93,10 @@ impl UserSearchFilterUpdate {
     pub fn is_empty(&self) -> bool {
         let UserSearchFilterUpdate {
             name,
-            enhanced_search_description,
             notifications,
             state,
             product_query,
+            enhanced_search_description,
             shop_name_query,
             exclude_shop_name_query,
             seller_name_query,
@@ -121,10 +121,10 @@ impl UserSearchFilterUpdate {
         } = self;
 
         name.is_none()
-            && enhanced_search_description.is_none()
             && notifications.is_none()
             && state.is_none()
             && product_query.is_none()
+            && enhanced_search_description.is_none()
             && shop_name_query.is_none()
             && exclude_shop_name_query.is_none()
             && seller_name_query.is_none()
@@ -154,8 +154,8 @@ impl From<(UserSearchFilterUpdate, Actor)> for UserSearchFilterRecordUpdate {
             name: update.name,
             notifications: update.notifications,
             state: update.state.map(ResourceStateRecord::from),
-            enhanced_search_description: update.enhanced_search_description.map(Into::into),
             product_query: update.product_query,
+            enhanced_search_description: update.enhanced_search_description.map(Into::into),
             shop_name_query: update.shop_name_query,
             exclude_shop_name_query: update.exclude_shop_name_query,
             seller_name_query: update.seller_name_query,
@@ -201,10 +201,10 @@ mod fake {
         fn dummy_with_rng<R: fake::RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             UserSearchFilterUpdate {
                 name: config.fake_with_rng(rng),
-                enhanced_search_description: config.fake_with_rng(rng),
                 notifications: config.fake_with_rng(rng),
                 state: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),

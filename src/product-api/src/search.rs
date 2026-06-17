@@ -79,15 +79,14 @@ pub async fn handle(
 
     // OpenSearch-native hybrid retrieval is only chosen when:
     //   * an embedding service is configured (Lambda has Vertex ADC configured), AND
-    //   * the request carries a non-empty textual `product_query`, AND
+    //   * the request carries at least one non-empty textual `product_query`, AND
     //   * the user did not request a non-score sort (e.g. price/created/updated).
     // Otherwise we fall back to the existing pure-BM25 path.
     let use_hybrid = embedding_service.is_some()
         && product_search
             .product_query
-            .as_ref()
-            .map(|q| !q.as_ref().trim().is_empty())
-            .unwrap_or(false)
+            .iter()
+            .any(|q| !q.as_ref().trim().is_empty())
         && matches!(
             sort.as_ref().map(|s| s.sort),
             None | Some(SortProductField::Score)
@@ -97,9 +96,10 @@ pub async fn handle(
         let es = embedding_service.expect("guarded above");
         let query_text = product_search
             .product_query
-            .as_ref()
-            .map(|q| q.as_ref().to_string())
-            .unwrap_or_default();
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>()
+            .join(" ");
         match es.embed_query(&query_text).await {
             Ok(embedding) => {
                 service
@@ -248,7 +248,8 @@ mod tests {
         let search = ProductSearchData {
             language: common::language::data::LanguageData::En,
             currency: common::currency::data::CurrencyData::Eur,
-            product_query: Some("chair".try_into().unwrap()),
+            product_query: vec!["chair".try_into().unwrap()],
+            enhanced_search_description: None,
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
             seller_name_query: Default::default(),

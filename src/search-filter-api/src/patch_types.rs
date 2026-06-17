@@ -30,9 +30,6 @@ pub struct PatchUserSearchFilterData {
     pub name: Option<UserSearchFilterName>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub enhanced_search_description: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub notifications: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -56,7 +53,10 @@ pub struct PatchProductSearchData {
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub product_query: Option<TextQuery<1>>,
+    pub product_query: Option<Vec<TextQuery<1>>>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub enhanced_search_description: Option<String>,
 
     #[serde(rename = "shopName", skip_serializing_if = "Option::is_none", default)]
     pub shop_name_query: Option<HashSet<ShopName>>,
@@ -169,7 +169,11 @@ impl From<PatchUserSearchFilterData> for UserSearchFilterUpdate {
     fn from(patch: PatchUserSearchFilterData) -> Self {
         UserSearchFilterUpdate {
             name: patch.name,
-            enhanced_search_description: patch.enhanced_search_description.map(Into::into),
+            enhanced_search_description: patch
+                .search
+                .as_ref()
+                .and_then(|sf| sf.enhanced_search_description.clone())
+                .map(Into::into),
             notifications: patch.notifications,
             state: patch.state.map(ResourceState::from),
             language: patch
@@ -264,6 +268,7 @@ mod faker {
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
+                enhanced_search_description: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
@@ -305,7 +310,7 @@ mod tests {
         let json = json!({
             "language": "de",
             "currency": "EUR",
-            "productQuery": "Boop",
+            "productQuery": ["Boop"],
             "shopName": ["Baap"],
             "shopSlugId": ["imperial-antiques"],
             "price": {
@@ -334,7 +339,8 @@ mod tests {
         let expected = PatchProductSearchData {
             language: Some(LanguageData::De),
             currency: Some(CurrencyData::Eur),
-            product_query: Some("Boop".try_into().unwrap()),
+            product_query: Some(vec!["Boop".try_into().unwrap()]),
+            enhanced_search_description: None,
             shop_name_query: Some(HashSet::from_iter([ShopName::from("Baap")])),
             exclude_shop_name_query: None,
             seller_name_query: None,
@@ -379,11 +385,11 @@ mod tests {
     fn should_deserialize_user_search_filter_patch() {
         let json = json!({
             "name": "hugos filter for peppino",
-            "enhancedSearchDescription": "I want foo",
             "search": {
                 "language": "de",
                 "currency": "EUR",
-                "productQuery": "Boop",
+                "productQuery": ["Boop"],
+                "enhancedSearchDescription": "I want foo",
                 "shopName": ["Baap"],
                 "shopSlugId": ["imperial-antiques"],
                 "price": {
@@ -412,13 +418,13 @@ mod tests {
         });
         let expected = PatchUserSearchFilterData {
             name: Some("hugos filter for peppino".into()),
-            enhanced_search_description: Some("I want foo".into()),
             notifications: None,
             state: None,
             search: Some(PatchProductSearchData {
                 language: Some(LanguageData::De),
                 currency: Some(CurrencyData::Eur),
-                product_query: Some("Boop".try_into().unwrap()),
+                product_query: Some(vec!["Boop".try_into().unwrap()]),
+                enhanced_search_description: Some("I want foo".into()),
                 shop_name_query: Some([ShopName::from("Baap")].into()),
                 exclude_shop_name_query: None,
                 seller_name_query: None,

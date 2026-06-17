@@ -2,9 +2,7 @@ use crate::core::command::UpdateUserSearchFilterMatchCommand;
 use crate::core::quota::SearchFilterQuota;
 use crate::core::search_filter_product_match::SearchFilterProductMatch;
 use crate::core::sort_search_filter_match_field::SortSearchFilterMatchField;
-use crate::core::user_search_filter::{
-    EnhancedSearchDescription, UserSearchFilter, UserSearchFilterSummary,
-};
+use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use crate::core::user_search_filter_search::UserSearchFilterSearch;
 use crate::core::user_search_filter_update::UserSearchFilterUpdate;
@@ -84,11 +82,6 @@ pub enum UserSearchFilterError {
     )]
     SearchFilterFeatureForbidden(ProductSearchSerdeField),
 
-    #[error(
-        "Search filter contains forbidden enhanced search description which requires a higher user tier."
-    )]
-    EnhancedSearchDescriptionFeatureForbidden,
-
     #[error("UserServiceError: {0}")]
     UserServiceError(UserServiceError),
 
@@ -137,11 +130,6 @@ pub mod api {
                     ApiError::unprocessable_entity(SEARCH_FILTER_RESTRICTED_FEATURE, Box::new(err))
                         .with_detail(detail)
                 }
-                err @ UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden => {
-                    let detail = err.to_string();
-                    ApiError::unprocessable_entity(SEARCH_FILTER_RESTRICTED_FEATURE, Box::new(err))
-                        .with_detail(detail)
-                }
                 UserSearchFilterError::UserServiceError(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
@@ -174,7 +162,6 @@ pub trait UserSearchFilterService {
         user_id: &UserId,
         name: UserSearchFilterName,
         search_filter: ProductSearch,
-        enhanced_search_description: Option<EnhancedSearchDescription>,
     ) -> Result<UserSearchFilter, UserSearchFilterError>;
 
     async fn delete_user_search_filter(
@@ -195,7 +182,7 @@ pub trait UserSearchFilterService {
     async fn match_user_search_filters(
         &self,
         product_document: &product::opensearch::product_document::ProductDocument,
-    ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError>;
+    ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError>;
 
     async fn search_user_search_filters(
         &self,
@@ -359,7 +346,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
         user_id: &UserId,
         name: UserSearchFilterName,
         search: ProductSearch,
-        enhanced_search_description: Option<EnhancedSearchDescription>,
     ) -> Result<UserSearchFilter, UserSearchFilterError> {
         let user: User = self
             .user_service
@@ -381,18 +367,10 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             ));
         }
 
-        if let Some(enhanced_description) = enhanced_search_description.as_ref() {
-            let () = user
-                .tier
-                .check_enhanced_search_filter_description(enhanced_description)
-                .map_err(|_| UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden)?;
-        }
-
         let user_search_filter = UserSearchFilter {
             user_id: *user_id,
             user_search_filter_id: UserSearchFilterId::new(),
             name,
-            enhanced_search_description,
             notifications: true,
             state: ResourceState::Active,
             search,
@@ -464,13 +442,6 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             user.tier
                 .check_search_filter_features(&existing.search)
                 .map_err(UserSearchFilterError::SearchFilterFeatureForbidden)?;
-            if let Some(enhanced_description) = existing.enhanced_search_description.as_ref() {
-                user.tier
-                    .check_enhanced_search_filter_description(enhanced_description)
-                    .map_err(|_| {
-                        UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden
-                    })?;
-            }
             let limit = user.tier.search_filter_quota();
             let filter_count = self
                 .count_active_user_search_filter_records(user_id)
@@ -504,7 +475,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
     async fn match_user_search_filters(
         &self,
         product_document: &ProductDocument,
-    ) -> Result<Vec<UserSearchFilterSummary>, UserSearchFilterError> {
+    ) -> Result<Vec<UserSearchFilter>, UserSearchFilterError> {
         #[cfg(feature = "opensearch")]
         {
             use serde::ser::Error as _;
@@ -520,7 +491,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
                 .percolate(product_document)
                 .await?
                 .into_iter()
-                .map(UserSearchFilterSummary::from)
+                .map(UserSearchFilter::from)
                 .collect();
             Ok(matched_documents)
         }
@@ -1058,6 +1029,7 @@ mod tests {
         };
         use common::user_id::UserId;
         use fake::{Fake, Faker};
+        use product::core::product_search::ProductSearchSerdeField;
         use user::core::user::User;
         use user::service::user_service::{MockUserService, UserServiceError};
 
@@ -1085,7 +1057,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await;
             assert!(actual.is_ok());
@@ -1133,7 +1104,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await;
 
@@ -1173,7 +1143,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await
                 .unwrap_err();
@@ -1205,7 +1174,6 @@ mod tests {
                     &user_id,
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await
                 .unwrap_err();
@@ -1263,7 +1231,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     search,
-                    None,
                 )
                 .await
                 .unwrap_err();
@@ -1312,7 +1279,6 @@ mod tests {
                     &UserId::new(),
                     Faker.fake(),
                     Faker.fake(),
-                    None,
                 )
                 .await;
 
@@ -1346,23 +1312,24 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
-            // Generate searches until we find one with forbidden features for Free tier
-            let search: ProductSearch = Faker.fake();
+            let mut search: ProductSearch = Faker.fake();
+            search.enhanced_search_description = Some(Faker.fake());
             let actual = service
                 .create_user_search_filter(
                     &super::system_ctx(),
                     &UserId::new(),
                     Faker.fake(),
                     search,
-                    Some(Faker.fake()),
                 )
                 .await
                 .unwrap_err();
 
             match actual {
-                UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden => {}
+                UserSearchFilterError::SearchFilterFeatureForbidden(
+                    ProductSearchSerdeField::EnhancedSearchDescription,
+                ) => {}
                 err => panic!(
-                    "Expected 'UserSearchFilterError::EnhancedSearchDescriptionFeatureForbidden' but got '{err}'"
+                    "Expected 'UserSearchFilterError::SearchFilterFeatureForbidden(ProductSearchSerdeField::EnhancedSearchDescription)' but got '{err}'"
                 ),
             }
         }
@@ -1392,13 +1359,14 @@ mod tests {
 
             let service = UserSearchFilterServiceImpl::new(&repository, &user_service);
 
+            let mut search = Faker.fake::<product::core::product_search::ProductSearch>();
+            search.enhanced_search_description = Some(Faker.fake());
             let actual = service
                 .create_user_search_filter(
                     &super::system_ctx(),
                     &UserId::new(),
                     Faker.fake(),
-                    Faker.fake(),
-                    Some(Faker.fake()),
+                    search,
                 )
                 .await;
 
@@ -1776,7 +1744,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_allow_pro_tier_to_update_with_all_features() {
+        async fn should_allow_ultimate_tier_to_update_with_all_features() {
             use user::core::user::User;
 
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
@@ -1790,7 +1758,7 @@ mod tests {
             user_service.expect_find_user().return_once(|_| {
                 Box::pin(async {
                     let mut user: User = fake::Fake::fake(&fake::Faker);
-                    user.tier = user::core::tier::UserTier::Pro;
+                    user.tier = user::core::tier::UserTier::Ultimate;
                     Ok(user)
                 })
             });
