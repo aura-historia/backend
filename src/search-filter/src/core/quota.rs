@@ -38,7 +38,7 @@ impl SearchFilterQuota for UserTier {
     ) -> Result<(), ProductSearchSerdeField> {
         match self {
             UserTier::Free => check_search_filter_features_free(search),
-            UserTier::Pro => Ok(()),
+            UserTier::Pro => check_search_filter_features_pro(search),
             UserTier::Ultimate => Ok(()),
         }
     }
@@ -49,7 +49,7 @@ impl SearchFilterQuota for UserTier {
     ) -> Result<(), ProductSearchSerdeField> {
         match self {
             UserTier::Free => check_search_filter_update_features_free(search),
-            UserTier::Pro => Ok(()),
+            UserTier::Pro => check_search_filter_update_features_pro(search),
             UserTier::Ultimate => Ok(()),
         }
     }
