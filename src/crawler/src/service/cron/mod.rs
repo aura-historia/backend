@@ -1,4 +1,3 @@
-mod backoff;
 mod config;
 mod job;
 mod metrics;

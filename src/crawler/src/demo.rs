@@ -387,7 +387,9 @@ async fn main() {
             ),
         );
 
-        let fetcher = Box::new(ReqwestHtmlFetcher::new());
+        let fetcher = Box::new(ReqwestHtmlFetcher::with_auto_throttle_config(
+            config.scraper_auto_throttle_config(),
+        ));
         let scraper_svc = Box::new(
             ScraperServiceImpl::new_with_schema_seed_pages(
                 fetcher,

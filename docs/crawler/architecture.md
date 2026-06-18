@@ -160,10 +160,11 @@ guard is dropped.
 via semaphore). Each domain task:
 
 1. Scrapes that domain's URLs sequentially.
-2. Applies `scraper_domain_delay` between consecutive URLs for that domain.
+2. Lets the real HTML fetcher apply latency-aware per-domain auto-throttling before each HTTP request.
 3. Returns commands/counts to the caller for batched push.
 
-This keeps the scheduling logic simple while preserving per-domain pacing and multi-domain parallelism.
+This keeps the scheduling logic simple while preserving per-domain pacing, multi-domain parallelism, and request timing
+measurements that are scoped to the actual HTTP fetch rather than schema extraction or LLM work.
 
 ### Crawl execution — `SpiderServiceImpl`
 
@@ -257,22 +258,15 @@ The same cooldown path is also used for `LlmBudgetExceeded`: when the per-shop s
 during an in-flight scrape, a retry cooldown is written for observability. In steady state, hard-stop is enforced
 earlier by candidate selection (`shops.llm_calls_count < cap`).
 
-The scraper also has a lightweight in-batch domain politeness layer. Retryable URL failures and adaptive domain delay
-are intentionally separate decisions:
-
-- `is_retryable_network_failure(...)` controls whether the failed URL gets `next_retry_at`.
-- `should_adapt_domain_delay(...)` controls whether the current domain worker slows down before processing the next URL
-  from that same domain.
-
-Domain delay adapts only for signals that suggest domain-wide pressure or availability trouble: HTTP `408`, `429`,
-`503`, `504`, request `Timeout`, and `Connect` failures. It does not adapt for retryable failures that are more likely
-to be URL/request-scoped, such as HTTP `500`, `502`, `425`, or generic `Request` failures. For example, a `500` writes
-`next_retry_at` for that URL and the same-domain batch continues at the normal pace; a `429` writes URL retry metadata
-and increases the in-memory delay between remaining same-domain URLs.
-
-Adaptive domain delay is process-local and batch-local. It starts from `scraper_domain_delay`, doubles after each
-domain-delay signal, is capped at 10 seconds, and decays after five clean requested outcomes. It is deliberately not
+The real `ReqwestHtmlFetcher` also has a lightweight process-local domain politeness layer inspired by the `spider`
+crate's auto-throttle. Before each HTTP attempt, it sleeps for that domain's current delay. After the HTTP send
+completes, it records the observed fetch latency in an EMA and computes the next delay as roughly
+`latency / target_concurrency`, clamped between `scraper_domain_delay` and 10 seconds. This state is deliberately not
 persisted to `shop_domains`, so it is a short-lived politeness mechanism rather than a domain-wide scheduling lock.
+
+Retry decisions remain URL-level: a `500`, timeout, or `429` writes `next_retry_at` for that URL and does not block the
+rest of the same-domain batch. If a retryable response includes `Retry-After`, the fetcher respects it inside the
+per-URL retry loop before returning failure to cron.
 
 ### Scrape execution — `ScraperServiceImpl`
 
