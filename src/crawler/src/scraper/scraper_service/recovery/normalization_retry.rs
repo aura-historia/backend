@@ -2,7 +2,6 @@ use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInp
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
-use crate::scraper::css_selector::product_schema_service::SCHEMA_PROMPT_SOURCE_YAML;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
@@ -254,139 +253,130 @@ impl ScraperServiceImpl {
         ctx: NormalizationRetryContext<'_>,
         first_norm_err: NormalizationError,
     ) -> Result<NormalizedProduct, ScraperError> {
-        const ATTEMPTS: u32 = 1;
-        const ATTEMPT: u32 = 1;
-
         // Hint for the schema generator derived from the last normalization error.
         let Some(apply_hint) = normalization_error_to_schema_hint(&first_norm_err) else {
             return Err(ScraperError::NormalizationError(first_norm_err));
         };
 
-        {
-            let attempt = ATTEMPT;
-            let prompt_source = SCHEMA_PROMPT_SOURCE_YAML;
-            if let Some(review_id) = self.pending_product_schema_review_id(ctx.shop_id).await? {
-                return Err(ScraperError::PendingSchemaReview {
+        if let Some(review_id) = self.pending_product_schema_review_id(ctx.shop_id).await? {
+            return Err(ScraperError::PendingSchemaReview {
+                url: ctx.url.clone(),
+                review_id,
+            });
+        }
+
+        self.consume_llm_budget_or_err(ctx.shop_id, ctx.url).await?;
+
+        let generated = self
+            .schema_service
+            .append_single_schema(ctx.html, Some(&ctx.selected_schema), Some(&apply_hint))
+            .await?;
+        let Some(generated_schema) = generated.schemas.first().cloned() else {
+            return Err(ScraperError::SchemaServiceError(
+                crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(
+                    "LLM produced zero schemas".to_string(),
+                ),
+            ));
+        };
+
+        let mut reapplied = match try_apply_schemas(std::iter::once(&generated_schema), ctx.html) {
+            Ok((_, raw)) => raw,
+            Err(apply_err) => {
+                return Err(ScraperError::SchemaRegenerationExhausted {
                     url: ctx.url.clone(),
-                    review_id,
+                    attempts: 1,
+                    last_error: apply_err,
                 });
             }
+        };
+        reapplied.images = match filter_valid_image_urls(
+            reapplied.images,
+            ctx.url,
+            &*self.image_validator,
+        )
+        .await
+        {
+            Ok(images) => images,
+            Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
+            Err(norm_err) if normalization_error_to_schema_hint(&norm_err).is_some() => {
+                return Err(ScraperError::NormalizationFixExhausted {
+                    url: ctx.url.clone(),
+                    attempts: 1,
+                    last_norm_error: norm_err,
+                });
+            }
+            Err(norm_err) => return Err(ScraperError::NormalizationError(norm_err)),
+        };
 
-            self.consume_llm_budget_or_err(ctx.shop_id, ctx.url).await?;
+        match self
+            .normalization_service
+            .normalize(
+                reapplied,
+                ctx.url.clone(),
+                generated_schema
+                    .default_currency
+                    .map(common::currency::domain::Currency::from),
+            )
+            .await
+        {
+            Ok(NormalizationSuccess {
+                product,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                    .await?;
+                let mut persisted_schemas = ctx.existing_schemas.to_vec();
+                persisted_schemas.push(generated_schema.clone());
 
-            let generated = self
-                .schema_service
-                .append_single_schema(ctx.html, Some(&ctx.selected_schema), Some(&apply_hint))
-                .await?;
-            let Some(generated_schema) = generated.schemas.first().cloned() else {
-                return Err(ScraperError::SchemaServiceError(
-                    crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(
-                        "LLM produced zero schemas".to_string(),
-                    ),
-                ));
-            };
-
-            let mut reapplied =
-                match try_apply_schemas(std::iter::once(&generated_schema), ctx.html) {
-                    Ok((_, raw)) => raw,
-                    Err(apply_err) => {
-                        return Err(ScraperError::SchemaRegenerationExhausted {
-                            url: ctx.url.clone(),
-                            attempts: ATTEMPTS,
-                            last_error: apply_err,
-                        });
-                    }
-                };
-            reapplied.images =
-                match filter_valid_image_urls(reapplied.images, ctx.url, &*self.image_validator)
-                    .await
+                let pages = vec![SchemaReviewPageInput {
+                    url: ctx.url.to_string(),
+                    role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
+                    raw_html: ctx.html.to_string(),
+                }];
+                match self
+                    .handle_generated_schema_review(
+                        ctx.shop_id,
+                        "normalization_schema_repair",
+                        persisted_schemas,
+                        generated.evaluation,
+                        pages,
+                        json!({
+                            "schema_applied": true,
+                            "normalization_fixed": true,
+                        }),
+                    )
+                    .await?
                 {
-                    Ok(images) => images,
-                    Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-                    Err(norm_err) if normalization_error_to_schema_hint(&norm_err).is_some() => {
-                        return Err(ScraperError::NormalizationFixExhausted {
-                            url: ctx.url.clone(),
-                            attempts: ATTEMPTS,
-                            last_norm_error: norm_err,
-                        });
+                    GeneratedSchemaReviewOutcome::Persisted(_) => {
+                        info!(
+                            domain = ctx.domain,
+                            url = %ctx.url,
+                            "Schema fixed normalization failure"
+                        );
+                        Ok(product)
                     }
-                    Err(norm_err) => return Err(ScraperError::NormalizationError(norm_err)),
-                };
-
-            match self
-                .normalization_service
-                .normalize(
-                    reapplied,
-                    ctx.url.clone(),
-                    generated_schema
-                        .default_currency
-                        .map(common::currency::domain::Currency::from),
-                )
-                .await
-            {
-                Ok(NormalizationSuccess {
-                    product,
-                    llm_calls_used,
-                }) => {
-                    self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
-                        .await?;
-                    let mut persisted_schemas = ctx.existing_schemas.to_vec();
-                    persisted_schemas.push(generated_schema.clone());
-
-                    let pages = vec![SchemaReviewPageInput {
-                        url: ctx.url.to_string(),
-                        role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
-                        raw_html: ctx.html.to_string(),
-                    }];
-                    match self
-                        .handle_generated_schema_review(
-                            ctx.shop_id,
-                            "normalization_schema_repair",
-                            persisted_schemas,
-                            generated.evaluation,
-                            pages,
-                            json!({
-                                "attempt": attempt,
-                                "prompt_source": prompt_source,
-                                "schema_applied": true,
-                                "normalization_fixed": true,
-                            }),
-                        )
-                        .await?
-                    {
-                        GeneratedSchemaReviewOutcome::Persisted(_) => {
-                            info!(
-                                domain = ctx.domain,
-                                url = %ctx.url,
-                                attempt,
-                                prompt_source = prompt_source,
-                                "Schema fixed normalization failure"
-                            );
-                            return Ok(product);
-                        }
-                        GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
-                            return Err(ScraperError::PendingSchemaReview {
-                                url: ctx.url.clone(),
-                                review_id,
-                            });
-                        }
+                    GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
+                        Err(ScraperError::PendingSchemaReview {
+                            url: ctx.url.clone(),
+                            review_id,
+                        })
                     }
                 }
-                Err(NormalizationFailure {
-                    error: norm_err,
-                    llm_calls_used,
-                }) => {
-                    self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
-                        .await?;
-                    if normalization_error_to_schema_hint(&norm_err).is_some() {
-                        return Err(ScraperError::NormalizationFixExhausted {
-                            url: ctx.url.clone(),
-                            attempts: ATTEMPTS,
-                            last_norm_error: norm_err,
-                        });
-                    }
-                    return Err(ScraperError::NormalizationError(norm_err));
+            }
+            Err(NormalizationFailure {
+                error: norm_err,
+                llm_calls_used,
+            }) => {
+                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
+                    .await?;
+                if normalization_error_to_schema_hint(&norm_err).is_some() {
+                    return Err(ScraperError::NormalizationFixExhausted {
+                        url: ctx.url.clone(),
+                        attempts: 1,
+                        last_norm_error: norm_err,
+                    });
                 }
+                Err(ScraperError::NormalizationError(norm_err))
             }
         }
     }

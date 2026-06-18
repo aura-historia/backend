@@ -1,6 +1,5 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
-use crate::scraper::css_selector::product_schema_service::SCHEMA_PROMPT_SOURCE_YAML;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
@@ -39,9 +38,6 @@ impl ScraperServiceImpl {
         ),
         ScraperError,
     > {
-        const ATTEMPTS: u32 = 1;
-        const ATTEMPT: u32 = 1;
-
         if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
             return Err(ScraperError::PendingSchemaReview {
                 url: url.clone(),
@@ -67,16 +63,10 @@ impl ScraperServiceImpl {
             match try_apply_schemas(std::iter::once(&generated_schema), html) {
                 Ok(applied) => applied,
                 Err(err) => {
-                    warn!(
-                        attempt = ATTEMPT,
-                        max_attempts = ATTEMPTS,
-                        prompt_source = SCHEMA_PROMPT_SOURCE_YAML,
-                        error = ?err,
-                        "Generated schema did not apply; discarding"
-                    );
+                    warn!(error = ?err, "Generated schema did not apply; discarding");
                     return Err(ScraperError::SchemaRegenerationExhausted {
                         url: url.clone(),
-                        attempts: ATTEMPTS,
+                        attempts: 1,
                         last_error: err,
                     });
                 }
@@ -98,15 +88,13 @@ impl ScraperServiceImpl {
                 generated.evaluation,
                 pages,
                 json!({
-                    "attempt": ATTEMPT,
-                    "prompt_source": SCHEMA_PROMPT_SOURCE_YAML,
                     "schema_applied": true,
                 }),
             )
             .await?
         {
             GeneratedSchemaReviewOutcome::Persisted(saved) => {
-                info!(attempt = ATTEMPT, "Generated schema appended and applied");
+                info!("Generated schema appended and applied");
                 Ok((selected_schema, raw, saved.product_schemas))
             }
             GeneratedSchemaReviewOutcome::PendingReview(review_id) => {

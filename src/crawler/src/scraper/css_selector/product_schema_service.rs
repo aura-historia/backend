@@ -26,7 +26,6 @@ mod prompt;
 mod response;
 
 pub use projection::html_to_schema_prompt_dsl;
-pub use prompt::SCHEMA_PROMPT_SOURCE_YAML;
 pub use response::{
     GeneratedProductSchemas, SchemaLlmEvaluation, SchemaLlmEvaluationConfidence,
     SchemaLlmEvaluationDecision, strip_markdown_json_embedding,
@@ -198,7 +197,6 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             schemas_count = generated.schemas.len(),
             html_pages = html_pages.len(),
             confidence = ?generated.evaluation.confidence,
-            prompt_source = SCHEMA_PROMPT_SOURCE_YAML,
             "LLM created product CSS selector schemas"
         );
         Ok(generated)
@@ -206,8 +204,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
     #[tracing::instrument(
         name = "scraper_append_single_schema",
-        skip(self, html, failed_schema, last_error),
-        fields(prompt_source = SCHEMA_PROMPT_SOURCE_YAML)
+        skip(self, html, failed_schema, last_error)
     )]
     async fn append_single_schema(
         &self,
@@ -252,7 +249,6 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         info!(
             schema_count = generated.schemas.len(),
             confidence = ?generated.evaluation.confidence,
-            prompt_source = SCHEMA_PROMPT_SOURCE_YAML,
             "Generated schema response for append-and-retry"
         );
         Ok(generated)

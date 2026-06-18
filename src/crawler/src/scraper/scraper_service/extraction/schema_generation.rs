@@ -3,14 +3,12 @@ use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, schema_matrix_has_required_coverage, unused_schema_indices,
 };
 use crate::scraper::css_selector::product_schema::ShopsProductSchema;
-use crate::scraper::css_selector::product_schema_service::{
-    GeneratedProductSchemas, SCHEMA_PROMPT_SOURCE_YAML,
-};
+use crate::scraper::css_selector::product_schema_service::GeneratedProductSchemas;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
-use serde_json::{Value, json};
+use serde_json::json;
 use tracing::debug;
 use url::Url;
 
@@ -30,16 +28,6 @@ impl SchemaGenerationAttempt {
             deterministic_approval_ok,
             unused_schema_indices,
         }
-    }
-
-    fn summary(&self) -> Value {
-        json!({
-            "prompt_source": SCHEMA_PROMPT_SOURCE_YAML,
-            "confidence": self.generated.evaluation.confidence,
-            "deterministic_approval_ok": self.deterministic_approval_ok,
-            "schema_count": self.generated.schemas.len(),
-            "unused_schema_indices": self.unused_schema_indices,
-        })
     }
 }
 
@@ -108,14 +96,12 @@ impl ScraperServiceImpl {
                 .await?;
             let yaml_attempt = SchemaGenerationAttempt::new(yaml_generated, &pages);
             let schema_count = yaml_attempt.generated.schemas.len();
-            let yaml_summary = yaml_attempt.summary();
             let validation_summary = json!({
                 "seed_page_count": seed_pages.len(),
                 "schema_count": schema_count,
-                "prompt_source": SCHEMA_PROMPT_SOURCE_YAML,
-                "schema_generation_attempts": [
-                    yaml_summary
-                ],
+                "confidence": yaml_attempt.generated.evaluation.confidence,
+                "deterministic_approval_ok": yaml_attempt.deterministic_approval_ok,
+                "unused_schema_indices": yaml_attempt.unused_schema_indices,
             });
             let generated = yaml_attempt.generated;
 

@@ -1,8 +1,6 @@
 use super::projection::html_to_schema_prompt_dsl;
 use crate::scraper::css_selector::product_schema::{ApplySchemaError, ProductCssSelectorSchema};
 
-pub const SCHEMA_PROMPT_SOURCE_YAML: &str = "yaml_projection";
-
 const SAMPLE_LABEL: &str = "YAML";
 const SAMPLE_DESCRIPTION: &str = "The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.";
 
