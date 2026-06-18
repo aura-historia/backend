@@ -1694,6 +1694,7 @@ dependencies = [
  "fake",
  "futures",
  "fxrate",
+ "httpdate",
  "imagesize",
  "kuchiki",
  "libc",

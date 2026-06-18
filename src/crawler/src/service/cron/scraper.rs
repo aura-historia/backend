@@ -1,8 +1,5 @@
-use super::backoff::{ADAPTIVE_DOMAIN_SUCCESSES_BEFORE_DECAY, AdaptiveDomainBackoff};
 use super::job::CrawlerCronJob;
-use crate::network::policy::{
-    NetworkErrorKind, is_retryable_network_failure, retry_cooldown_for, should_adapt_domain_delay,
-};
+use crate::network::policy::{NetworkErrorKind, retry_cooldown_for};
 use crate::scraper::candidate_service::{
     ProductSnapshot, ScraperCandidate, ScraperCandidateService,
 };
@@ -12,7 +9,6 @@ use crate::spider::advisory_lock::{LocalLockManager, ShopLock, UrlLock};
 use common::shop_id::ShopId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
@@ -23,7 +19,6 @@ struct ScrapeDomainContext {
     scraper: Arc<dyn ScraperService>,
     scraper_candidates: Arc<dyn ScraperCandidateService>,
     lock_manager: Arc<LocalLockManager>,
-    domain_delay: Duration,
     command_tx: mpsc::UnboundedSender<(
         product::service::product_command::UpsertProductCommand,
         CandidateMeta,
@@ -48,15 +43,7 @@ struct ScrapeCandidateOutcome {
         CandidateMeta,
     )>,
     errored: bool,
-    requested: bool,
     skipped: bool,
-    adaptive_domain_delay_error: Option<NetworkErrorKind>,
-}
-
-impl ScrapeCandidateOutcome {
-    fn counts_toward_domain_recovery(&self) -> bool {
-        self.requested && !self.errored
-    }
 }
 
 struct ScrapeDomainOutcome {
@@ -129,9 +116,7 @@ async fn scrape_candidate(
             return ScrapeCandidateOutcome {
                 command: None,
                 errored: false,
-                requested: false,
                 skipped: true,
-                adaptive_domain_delay_error: None,
             };
         }
     }
@@ -143,9 +128,7 @@ async fn scrape_candidate(
             return ScrapeCandidateOutcome {
                 command: None,
                 errored: false,
-                requested: false,
                 skipped: true,
-                adaptive_domain_delay_error: None,
             };
         }
     }
@@ -155,9 +138,7 @@ async fn scrape_candidate(
         return ScrapeCandidateOutcome {
             command: None,
             errored: false,
-            requested: false,
             skipped: true,
-            adaptive_domain_delay_error: None,
         };
     };
 
@@ -166,9 +147,7 @@ async fn scrape_candidate(
         return ScrapeCandidateOutcome {
             command: None,
             errored: false,
-            requested: false,
             skipped: true,
-            adaptive_domain_delay_error: None,
         };
     };
 
@@ -191,30 +170,18 @@ async fn scrape_candidate(
             ScrapeCandidateOutcome {
                 command: normalize_to_upsert(scraped.product, &candidate).map(|cmd| (cmd, meta)),
                 errored: false,
-                requested: true,
                 skipped: false,
-                adaptive_domain_delay_error: None,
             }
         }
         Ok(None) => ScrapeCandidateOutcome {
             command: None,
             errored: false,
-            requested: true,
             skipped: true,
-            adaptive_domain_delay_error: None,
         },
         Err(e) => {
             let error_message = e.to_string();
             let is_llm_budget_exceeded = matches!(&e, ScraperError::LlmBudgetExceeded { .. });
             let is_pending_schema_review = matches!(&e, ScraperError::PendingSchemaReview { .. });
-            let adaptive_domain_delay_error = match &e {
-                ScraperError::HttpError { kind, .. }
-                    if is_retryable_network_failure(*kind) && should_adapt_domain_delay(*kind) =>
-                {
-                    Some(*kind)
-                }
-                _ => None,
-            };
 
             if let ScraperError::HttpError { kind, .. } = &e {
                 let cooldown = retry_cooldown_for(*kind);
@@ -322,9 +289,7 @@ async fn scrape_candidate(
             ScrapeCandidateOutcome {
                 command: None,
                 errored: true,
-                requested: true,
                 skipped: false,
-                adaptive_domain_delay_error,
             }
         }
     }
@@ -353,10 +318,9 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
 #[tracing::instrument(
     name = "crawler_scrape_domain_candidates",
     skip(candidates, ctx),
-    fields(domain = %domain, candidate_count = candidates.len())
+    fields(candidate_count = candidates.len())
 )]
 async fn scrape_domain_candidates(
-    domain: String,
     candidates: Vec<ScraperCandidate>,
     ctx: ScrapeDomainContext,
 ) -> ScrapeDomainOutcome {
@@ -365,13 +329,9 @@ async fn scrape_domain_candidates(
         failed: 0,
         skipped: 0,
     };
-    let mut domain_backoff = AdaptiveDomainBackoff::new(ctx.domain_delay);
 
-    let len = candidates.len();
-    for (idx, candidate) in candidates.into_iter().enumerate() {
-        let url = candidate.url.clone();
+    for candidate in candidates {
         let candidate_outcome = scrape_candidate(candidate, &ctx).await;
-        let counts_toward_domain_recovery = candidate_outcome.counts_toward_domain_recovery();
 
         if candidate_outcome.errored {
             outcome.failed += 1;
@@ -386,34 +346,6 @@ async fn scrape_domain_candidates(
             outcome.skipped += 1;
         } else {
             outcome.succeeded += 1;
-        }
-
-        if let Some(kind) = candidate_outcome.adaptive_domain_delay_error {
-            let (previous_delay, new_delay) = domain_backoff.record_retryable_failure();
-            info!(
-                domain = %domain,
-                url = %url,
-                error_kind = ?kind,
-                previous_delay_ms = previous_delay.as_millis(),
-                new_delay_ms = new_delay.as_millis(),
-                "Increased scraper domain delay after retryable network failure"
-            );
-        } else if counts_toward_domain_recovery
-            && let Some((previous_delay, new_delay)) = domain_backoff.record_clean_outcome()
-        {
-            info!(
-                domain = %domain,
-                url = %url,
-                previous_delay_ms = previous_delay.as_millis(),
-                new_delay_ms = new_delay.as_millis(),
-                successes_before_decay = ADAPTIVE_DOMAIN_SUCCESSES_BEFORE_DECAY,
-                "Reduced scraper domain delay after sustained domain recovery"
-            );
-        }
-
-        let current_delay = domain_backoff.current_delay();
-        if idx + 1 < len && !current_delay.is_zero() {
-            tokio::time::sleep(current_delay).await;
         }
     }
 
@@ -467,7 +399,6 @@ impl CrawlerCronJob {
 
         debug!(domains = by_domain.len(), "Candidates grouped by domain");
 
-        let domain_delay = self.config.scraper_domain_delay;
         let semaphore = Arc::new(Semaphore::new(scraper_concurrency));
         let mut join_set: JoinSet<ScrapeDomainOutcome> = JoinSet::new();
         let (command_tx, mut command_rx) = mpsc::unbounded_channel::<(
@@ -533,13 +464,12 @@ impl CrawlerCronJob {
                         scraper,
                         scraper_candidates,
                         lock_manager,
-                        domain_delay,
                         command_tx: domain_tx,
                         budget_exhausted_shops,
                         schema_pending_shops,
                     };
 
-                    scrape_domain_candidates(domain, candidates, ctx).await
+                    scrape_domain_candidates(candidates, ctx).await
                 }
                 .instrument(span),
             );
@@ -615,6 +545,7 @@ mod tests {
     use common::shop_id::ShopId;
     use shop::core::shop_type::ShopType;
     use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     fn empty_spider_dependencies() -> (MockSpiderCandidateService, MockSpiderService) {
         let mut spider_candidates = MockSpiderCandidateService::new();
@@ -660,41 +591,10 @@ mod tests {
             scraper: Arc::new(scraper_service),
             scraper_candidates: Arc::new(scraper_candidates),
             lock_manager: Arc::new(LocalLockManager::new()),
-            domain_delay: Duration::from_millis(1),
             command_tx,
             budget_exhausted_shops: Arc::new(Mutex::new(HashSet::new())),
             schema_pending_shops: Arc::new(Mutex::new(HashSet::new())),
         }
-    }
-
-    #[test]
-    fn should_count_only_requested_clean_outcomes_toward_domain_recovery() {
-        let pre_request_skip = ScrapeCandidateOutcome {
-            command: None,
-            errored: false,
-            requested: false,
-            skipped: true,
-            adaptive_domain_delay_error: None,
-        };
-        assert!(!pre_request_skip.counts_toward_domain_recovery());
-
-        let clean_request_without_product_change = ScrapeCandidateOutcome {
-            command: None,
-            errored: false,
-            requested: true,
-            skipped: true,
-            adaptive_domain_delay_error: None,
-        };
-        assert!(clean_request_without_product_change.counts_toward_domain_recovery());
-
-        let failed_request = ScrapeCandidateOutcome {
-            command: None,
-            errored: true,
-            requested: true,
-            skipped: false,
-            adaptive_domain_delay_error: Some(NetworkErrorKind::Timeout),
-        };
-        assert!(!failed_request.counts_toward_domain_recovery());
     }
 
     #[tokio::test]
@@ -763,7 +663,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_not_adapt_domain_delay_for_same_domain_500_failure() {
+    async fn should_mark_same_domain_500_fetch_failure() {
         let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
         let candidate = scraper_candidate("Shop", ShopType::CommercialDealer, url.clone());
         let shop_id = candidate.shop_id;
@@ -801,11 +701,10 @@ mod tests {
         let outcome = scrape_candidate(candidate, &ctx).await;
 
         assert!(outcome.errored);
-        assert_eq!(outcome.adaptive_domain_delay_error, None);
     }
 
     #[tokio::test]
-    async fn should_adapt_domain_delay_for_same_domain_429_failure() {
+    async fn should_mark_same_domain_429_fetch_failure() {
         let url = url::Url::parse("https://same-domain.com/product/1").unwrap();
         let candidate = scraper_candidate("Shop", ShopType::CommercialDealer, url.clone());
         let shop_id = candidate.shop_id;
@@ -843,14 +742,10 @@ mod tests {
         let outcome = scrape_candidate(candidate, &ctx).await;
 
         assert!(outcome.errored);
-        assert_eq!(
-            outcome.adaptive_domain_delay_error,
-            Some(crate::network::policy::NetworkErrorKind::HttpStatus(429))
-        );
     }
 
     #[tokio::test]
-    async fn should_continue_same_domain_after_500_without_domain_delay_adaptation() {
+    async fn should_continue_same_domain_after_500_failure() {
         let first_url = url::Url::parse("https://same-domain.com/product/1").unwrap();
         let second_url = url::Url::parse("https://same-domain.com/product/2").unwrap();
         let first_candidate_url = first_url.clone();

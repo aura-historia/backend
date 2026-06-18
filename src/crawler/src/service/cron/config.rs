@@ -1,4 +1,6 @@
-use crate::scraper::scraper_service::{DEFAULT_MAX_LLM_CALLS_PER_SHOP, DEFAULT_SCHEMA_SEED_PAGES};
+use crate::scraper::scraper_service::{
+    DEFAULT_MAX_LLM_CALLS_PER_SHOP, DEFAULT_SCHEMA_SEED_PAGES, ScraperAutoThrottleConfig,
+};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
@@ -19,8 +21,14 @@ pub struct CrawlerCronConfig {
     /// `1` means current page only; higher values fetch additional random
     /// product pages on schema cache miss.
     pub scraper_schema_seed_pages: usize,
-    /// Delay between consecutive scraper requests for the same domain.
+    /// Minimum delay before scraper requests for the same domain.
     pub scraper_domain_delay: Duration,
+    /// Desired average in-flight scraper requests per domain for adaptive pacing.
+    pub scraper_auto_throttle_target_concurrency: f64,
+    /// Maximum adaptive delay before scraper requests for a slow domain.
+    pub scraper_auto_throttle_max_delay: Duration,
+    /// Smoothing factor for per-domain scraper fetch latency.
+    pub scraper_auto_throttle_alpha: f64,
     /// Hard per-shop budget for schema-generation LLM calls.
     pub scraper_max_llm_calls_per_shop: i64,
     /// Maximum Postgres connections for crawler queries.
@@ -41,6 +49,9 @@ impl Default for CrawlerCronConfig {
             spider_classify_threshold: 200,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             scraper_domain_delay: Duration::from_secs(1),
+            scraper_auto_throttle_target_concurrency: 2.0,
+            scraper_auto_throttle_max_delay: Duration::from_secs(10),
+            scraper_auto_throttle_alpha: 0.15,
             scraper_max_llm_calls_per_shop: DEFAULT_MAX_LLM_CALLS_PER_SHOP,
             db_max_connections: None,
         }
@@ -51,6 +62,16 @@ impl CrawlerCronConfig {
     pub fn effective_db_max_connections(&self) -> u32 {
         self.db_max_connections
             .unwrap_or_else(|| (self.spider_concurrency + self.scraper_concurrency + 10) as u32)
+    }
+
+    pub fn scraper_auto_throttle_config(&self) -> ScraperAutoThrottleConfig {
+        ScraperAutoThrottleConfig {
+            target_concurrency: self.scraper_auto_throttle_target_concurrency,
+            min_delay: self.scraper_domain_delay,
+            max_delay: self.scraper_auto_throttle_max_delay,
+            alpha: self.scraper_auto_throttle_alpha,
+            enabled: true,
+        }
     }
 
     pub async fn connect_pool(&self, url: &str) -> Result<PgPool, sqlx::Error> {

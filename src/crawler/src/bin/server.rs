@@ -361,6 +361,11 @@ async fn main() {
             spider_concurrency = config.spider_concurrency,
             scraper_concurrency = config.scraper_concurrency,
             scraper_schema_seed_pages = config.scraper_schema_seed_pages,
+            scraper_domain_delay_ms = config.scraper_domain_delay.as_millis(),
+            scraper_auto_throttle_target_concurrency =
+                config.scraper_auto_throttle_target_concurrency,
+            scraper_auto_throttle_max_delay_ms = config.scraper_auto_throttle_max_delay.as_millis(),
+            scraper_auto_throttle_alpha = config.scraper_auto_throttle_alpha,
             scraper_max_llm_calls_per_shop = config.scraper_max_llm_calls_per_shop,
             "Crawler cron configuration loaded"
         );
@@ -459,7 +464,9 @@ async fn main() {
             ),
         );
 
-        let fetcher = Box::new(ReqwestHtmlFetcher::new());
+        let fetcher = Box::new(ReqwestHtmlFetcher::with_auto_throttle_config(
+            config.scraper_auto_throttle_config(),
+        ));
         let scraper_svc = Box::new(
             ScraperServiceImpl::new_with_schema_seed_pages(
                 fetcher,
