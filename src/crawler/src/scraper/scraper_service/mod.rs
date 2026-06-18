@@ -1,3 +1,4 @@
+pub(crate) mod auto_throttle;
 pub mod domain;
 pub(crate) mod extraction;
 pub(crate) mod image_validation;
@@ -14,6 +15,7 @@ mod tests;
 // `crate::scraper::scraper_service::Foo` unchanged.
 // ---------------------------------------------------------------------------
 
+pub use auto_throttle::{ScraperAutoThrottle, ScraperAutoThrottleConfig};
 pub use domain::errors::ScraperError;
 pub use domain::product::{MockScraperService, ScrapedProduct, ScraperService};
 pub use service::{
