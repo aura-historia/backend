@@ -49,8 +49,7 @@ async fn scrape_with_schema_service(
 }
 
 #[tokio::test]
-async fn should_not_use_cleaned_html_fallback_when_yaml_schema_is_high_confidence_and_covers_pages()
-{
+async fn should_use_yaml_schema_when_yaml_schema_is_high_confidence_and_covers_pages() {
     let id = shop_id();
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -69,9 +68,6 @@ async fn should_not_use_cleaned_html_fallback_when_yaml_schema_is_high_confidenc
             Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     schema_svc
-        .expect_create_product_schemas_with_source()
-        .never();
-    schema_svc
         .expect_save_product_schemas()
         .once()
         .returning(move |_, _| {
@@ -84,11 +80,10 @@ async fn should_not_use_cleaned_html_fallback_when_yaml_schema_is_high_confidenc
 }
 
 #[tokio::test]
-async fn should_use_cleaned_html_fallback_when_yaml_confidence_is_low() {
+async fn should_use_yaml_schema_when_yaml_confidence_is_low() {
     let id = shop_id();
     let schema = shops_product_schema(id);
     let yaml_schema = schema.product_schemas.first().cloned().unwrap();
-    let fallback_schema = schema.product_schemas.first().cloned().unwrap();
     let schema_for_save = schema.clone();
 
     let mut schema_svc = MockProductSchemaService::new();
@@ -104,14 +99,6 @@ async fn should_use_cleaned_html_fallback_when_yaml_confidence_is_low() {
             Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::Low)) })
         });
     schema_svc
-        .expect_create_product_schemas_with_source()
-        .once()
-        .withf(|_, source| *source == SchemaPromptSource::CleanedHtmlFallback)
-        .returning(move |_, _| {
-            let s = vec![fallback_schema.clone()];
-            Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
-        });
-    schema_svc
         .expect_save_product_schemas()
         .once()
         .returning(move |_, _| {
@@ -119,16 +106,15 @@ async fn should_use_cleaned_html_fallback_when_yaml_confidence_is_low() {
             Box::pin(async move { Ok(s) })
         });
 
-    let result = scrape_with_schema_service(schema_svc, 2).await.unwrap();
+    let result = scrape_with_schema_service(schema_svc, 1).await.unwrap();
     assert!(result.is_some());
 }
 
 #[tokio::test]
-async fn should_use_cleaned_html_fallback_when_yaml_schema_does_not_cover_raw_html() {
+async fn should_repair_after_yaml_schema_does_not_cover_raw_html_without_initial_fallback() {
     let id = shop_id();
     let schema = shops_product_schema(id);
-    let fallback_schema = schema.product_schemas.first().cloned().unwrap();
-    let schema_for_save = schema.clone();
+    let repair_schema = schema.product_schemas.first().cloned().unwrap();
 
     let mut schema_svc = MockProductSchemaService::new();
     schema_svc
@@ -147,19 +133,25 @@ async fn should_use_cleaned_html_fallback_when_yaml_schema_does_not_cover_raw_ht
             })
         });
     schema_svc
-        .expect_create_product_schemas_with_source()
+        .expect_append_single_schema()
         .once()
-        .withf(|_, source| *source == SchemaPromptSource::CleanedHtmlFallback)
-        .returning(move |_, _| {
-            let s = vec![fallback_schema.clone()];
+        .returning(move |_, _, _| {
+            let s = vec![repair_schema.clone()];
             Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
     schema_svc
         .expect_save_product_schemas()
-        .once()
-        .returning(move |_, _| {
-            let s = schema_for_save.clone();
-            Box::pin(async move { Ok(s) })
+        .times(2)
+        .returning(move |shop_id, product_schemas| {
+            let shop_id = *shop_id;
+            Box::pin(async move {
+                Ok(ShopsProductSchema {
+                    shop_id,
+                    product_schemas,
+                    created: OffsetDateTime::now_utc(),
+                    updated: OffsetDateTime::now_utc(),
+                })
+            })
         });
 
     let result = scrape_with_schema_service(schema_svc, 2).await.unwrap();
@@ -191,9 +183,6 @@ async fn should_not_fallback_only_because_one_extra_schema_is_unused() {
             })
         });
     schema_svc
-        .expect_create_product_schemas_with_source()
-        .never();
-    schema_svc
         .expect_save_product_schemas()
         .once()
         .returning(move |_, _| {
@@ -206,18 +195,12 @@ async fn should_not_fallback_only_because_one_extra_schema_is_unused() {
 }
 
 #[tokio::test]
-async fn should_return_budget_error_in_no_review_mode_when_fallback_budget_is_exhausted() {
+async fn should_not_consume_second_budget_call_when_yaml_confidence_is_low() {
     let id = shop_id();
-    let url = product_url();
-
-    let mut fetcher = MockHtmlFetcher::new();
-    fetcher
-        .expect_fetch()
-        .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
-
     let schema = shops_product_schema(id);
     let yaml_schema = schema.product_schemas.first().cloned().unwrap();
+    let schema_for_save = schema.clone();
+
     let mut schema_svc = MockProductSchemaService::new();
     schema_svc
         .expect_find_product_schema()
@@ -231,36 +214,13 @@ async fn should_return_budget_error_in_no_review_mode_when_fallback_budget_is_ex
             Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::Low)) })
         });
     schema_svc
-        .expect_create_product_schemas_with_source()
-        .never();
-    schema_svc.expect_save_product_schemas().never();
-
-    let norm_svc = MockProductNormalizationService::new();
-    let mut cand_svc = MockScraperCandidateService::new();
-    let call_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    cand_svc
-        .expect_try_increment_shop_llm_calls_with_limit()
-        .times(2)
-        .returning(move |_, _, _| {
-            let counter = call_counter.clone();
-            Box::pin(async move {
-                let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Ok(n == 0)
-            })
+        .expect_save_product_schemas()
+        .once()
+        .returning(move |_, _| {
+            let s = schema_for_save.clone();
+            Box::pin(async move { Ok(s) })
         });
 
-    let service = ScraperServiceImpl::new_with_schema_seed_pages(
-        Box::new(fetcher),
-        Box::new(schema_svc),
-        Box::new(norm_svc),
-        Arc::new(cand_svc),
-        1,
-        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
-    );
-
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
-    assert!(matches!(
-        err,
-        crate::scraper::scraper_service::domain::errors::ScraperError::LlmBudgetExceeded { .. }
-    ));
+    let result = scrape_with_schema_service(schema_svc, 1).await.unwrap();
+    assert!(result.is_some());
 }

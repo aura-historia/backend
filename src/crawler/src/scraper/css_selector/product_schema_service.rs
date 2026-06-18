@@ -25,8 +25,8 @@ mod prompt;
 #[path = "schema_generation/response.rs"]
 mod response;
 
-pub use projection::{clean_html_for_schema_generation, html_to_schema_prompt_dsl};
-pub use prompt::SchemaPromptSource;
+pub use projection::html_to_schema_prompt_dsl;
+pub use prompt::SCHEMA_PROMPT_SOURCE_YAML;
 pub use response::{
     GeneratedProductSchemas, SchemaLlmEvaluation, SchemaLlmEvaluationConfidence,
     SchemaLlmEvaluationDecision, strip_markdown_json_embedding,
@@ -60,19 +60,12 @@ pub trait ProductSchemaService {
         html_pages: &[String],
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
 
-    async fn create_product_schemas_with_source(
-        &self,
-        html_pages: &[String],
-        prompt_source: SchemaPromptSource,
-    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
-
     /// Generate a single schema from a single HTML page and append it to the
     /// cached schema set. Used when a runtime schema-variant match fails to
     /// dynamically expand the schema set without full regeneration.
     async fn append_single_schema(
         &self,
         html: &str,
-        prompt_source: SchemaPromptSource,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
@@ -173,20 +166,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         &self,
         html_pages: &[String],
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
-        self.create_product_schemas_with_source(html_pages, SchemaPromptSource::YamlProjection)
-            .await
-    }
-
-    #[tracing::instrument(
-        skip(self, html_pages),
-        fields(html_pages = html_pages.len(), prompt_source = prompt_source.as_str())
-    )]
-    async fn create_product_schemas_with_source(
-        &self,
-        html_pages: &[String],
-        prompt_source: SchemaPromptSource,
-    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
-        let instruction = build_create_schemas_instruction(html_pages, prompt_source);
+        let instruction = build_create_schemas_instruction(html_pages);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -218,7 +198,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             schemas_count = generated.schemas.len(),
             html_pages = html_pages.len(),
             confidence = ?generated.evaluation.confidence,
-            prompt_source = prompt_source.as_str(),
+            prompt_source = SCHEMA_PROMPT_SOURCE_YAML,
             "LLM created product CSS selector schemas"
         );
         Ok(generated)
@@ -227,17 +207,15 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
     #[tracing::instrument(
         name = "scraper_append_single_schema",
         skip(self, html, failed_schema, last_error),
-        fields(prompt_source = prompt_source.as_str())
+        fields(prompt_source = SCHEMA_PROMPT_SOURCE_YAML)
     )]
     async fn append_single_schema(
         &self,
         html: &str,
-        prompt_source: SchemaPromptSource,
         failed_schema: Option<&ProductCssSelectorSchema>,
         last_error: Option<&ApplySchemaError>,
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
-        let instruction =
-            build_append_schema_instruction(html, prompt_source, failed_schema, last_error);
+        let instruction = build_append_schema_instruction(html, failed_schema, last_error);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -274,7 +252,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         info!(
             schema_count = generated.schemas.len(),
             confidence = ?generated.evaluation.confidence,
-            prompt_source = prompt_source.as_str(),
+            prompt_source = SCHEMA_PROMPT_SOURCE_YAML,
             "Generated schema response for append-and-retry"
         );
         Ok(generated)
@@ -364,7 +342,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::prompt::{build_append_schema_instruction, build_create_schemas_instruction};
+    use super::prompt::build_create_schemas_instruction;
     use super::response::parse_product_schemas_response;
     use super::*;
     use crate::scraper::css_selector::product_schema_repository::MockShopsProductSchemaRepository;
@@ -826,8 +804,7 @@ mod tests {
             "<html><body><h1>A</h1></body></html>".to_string(),
             "<html><body><h1>B</h1></body></html>".to_string(),
         ];
-        let instruction =
-            build_create_schemas_instruction(&html_pages, SchemaPromptSource::YamlProjection);
+        let instruction = build_create_schemas_instruction(&html_pages);
         assert!(instruction.contains("--- SAMPLE 1 YAML ---"));
         assert!(instruction.contains("--- SAMPLE 2 YAML ---"));
         assert!(instruction.contains("page YAML samples"));
@@ -836,38 +813,6 @@ mod tests {
         assert!(instruction.contains("not one schema per page"));
         assert!(instruction.contains("The schemas field contains one ProductCssSelectorSchema"));
         assert!(instruction.contains("multiple schemas ordered as described"));
-    }
-
-    #[test]
-    fn should_build_cleaned_html_fallback_create_instruction() {
-        let html_pages =
-            vec!["<html><body><script>noise</script><h1>A</h1></body></html>".to_string()];
-
-        let instruction =
-            build_create_schemas_instruction(&html_pages, SchemaPromptSource::CleanedHtmlFallback);
-
-        assert!(instruction.contains("--- SAMPLE 1 CLEANED HTML ---"));
-        assert!(instruction.contains("cleaned HTML from the original pages"));
-        assert!(instruction.contains("<h1>A</h1>"));
-        assert!(!instruction.contains("noise"));
-    }
-
-    #[test]
-    fn should_build_cleaned_html_fallback_append_instruction() {
-        let html = "<html><body><script>noise</script><h1>A</h1></body></html>";
-
-        let instruction = build_append_schema_instruction(
-            html,
-            SchemaPromptSource::CleanedHtmlFallback,
-            None,
-            None,
-        );
-
-        assert!(instruction.contains("page CLEANED HTML"));
-        assert!(instruction.contains("cleaned HTML from the original pages"));
-        assert!(instruction.contains("<h1>A</h1>"));
-        assert!(!instruction.contains("page_dsl"));
-        assert!(!instruction.contains("noise"));
     }
 
     #[test]

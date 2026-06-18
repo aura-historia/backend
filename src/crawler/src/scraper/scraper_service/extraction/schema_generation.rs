@@ -4,48 +4,37 @@ use crate::review::schema_evaluation::{
 };
 use crate::scraper::css_selector::product_schema::ShopsProductSchema;
 use crate::scraper::css_selector::product_schema_service::{
-    GeneratedProductSchemas, SchemaLlmEvaluationConfidence, SchemaPromptSource,
+    GeneratedProductSchemas, SCHEMA_PROMPT_SOURCE_YAML,
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
 use serde_json::{Value, json};
-use tracing::{debug, info};
+use tracing::debug;
 use url::Url;
 
 struct SchemaGenerationAttempt {
-    prompt_source: SchemaPromptSource,
     generated: GeneratedProductSchemas,
     deterministic_approval_ok: bool,
     unused_schema_indices: Vec<usize>,
 }
 
 impl SchemaGenerationAttempt {
-    fn new(
-        prompt_source: SchemaPromptSource,
-        generated: GeneratedProductSchemas,
-        pages: &[SchemaReviewPageInput],
-    ) -> Self {
+    fn new(generated: GeneratedProductSchemas, pages: &[SchemaReviewPageInput]) -> Self {
         let matrix = evaluate_schema_matrix_for_inputs(&generated.schemas, pages);
         let deterministic_approval_ok = schema_matrix_has_required_coverage(&matrix);
         let unused_schema_indices = unused_schema_indices(&matrix);
         Self {
-            prompt_source,
             generated,
             deterministic_approval_ok,
             unused_schema_indices,
         }
     }
 
-    fn should_use_cleaned_html_fallback(&self) -> bool {
-        !self.deterministic_approval_ok
-            || self.generated.evaluation.confidence != SchemaLlmEvaluationConfidence::High
-    }
-
     fn summary(&self) -> Value {
         json!({
-            "prompt_source": self.prompt_source.as_str(),
+            "prompt_source": SCHEMA_PROMPT_SOURCE_YAML,
             "confidence": self.generated.evaluation.confidence,
             "deterministic_approval_ok": self.deterministic_approval_ok,
             "schema_count": self.generated.schemas.len(),
@@ -117,94 +106,18 @@ impl ScraperServiceImpl {
                 .schema_service
                 .create_product_schemas(&seed_html_pages)
                 .await?;
-            let yaml_attempt = SchemaGenerationAttempt::new(
-                SchemaPromptSource::YamlProjection,
-                yaml_generated,
-                &pages,
-            );
-
-            let (generated, validation_summary) = if yaml_attempt.should_use_cleaned_html_fallback()
-            {
-                let fallback_reason = if !yaml_attempt.deterministic_approval_ok {
-                    "yaml_projection_failed_matrix_coverage"
-                } else {
-                    "yaml_projection_confidence_not_high"
-                };
-
-                info!(
-                    fallback_reason,
-                    "Schema generation fallback to cleaned HTML requested"
-                );
-
-                match self.consume_llm_budget_or_err(shop_id, url).await {
-                    Ok(()) => {
-                        let fallback_generated = self
-                            .schema_service
-                            .create_product_schemas_with_source(
-                                &seed_html_pages,
-                                SchemaPromptSource::CleanedHtmlFallback,
-                            )
-                            .await?;
-                        let fallback_attempt = SchemaGenerationAttempt::new(
-                            SchemaPromptSource::CleanedHtmlFallback,
-                            fallback_generated,
-                            &pages,
-                        );
-
-                        let schema_count = fallback_attempt.generated.schemas.len();
-                        let yaml_summary = yaml_attempt.summary();
-                        let fallback_summary = fallback_attempt.summary();
-                        (
-                            fallback_attempt.generated,
-                            json!({
-                                "seed_page_count": seed_pages.len(),
-                                "schema_count": schema_count,
-                                "prompt_source": SchemaPromptSource::CleanedHtmlFallback.as_str(),
-                                "fallback_reason": fallback_reason,
-                                "schema_generation_attempts": [
-                                    yaml_summary,
-                                    fallback_summary
-                                ],
-                            }),
-                        )
-                    }
-                    Err(error @ ScraperError::LlmBudgetExceeded { .. }) => {
-                        if self.review_repository.is_none() || !self.review_required {
-                            return Err(error);
-                        }
-                        let schema_count = yaml_attempt.generated.schemas.len();
-                        let yaml_summary = yaml_attempt.summary();
-                        (
-                            yaml_attempt.generated,
-                            json!({
-                                "seed_page_count": seed_pages.len(),
-                                "schema_count": schema_count,
-                                "prompt_source": SchemaPromptSource::YamlProjection.as_str(),
-                                "fallback_reason": fallback_reason,
-                                "cleaned_html_fallback_skipped": "llm_budget_exhausted",
-                                "schema_generation_attempts": [
-                                    yaml_summary
-                                ],
-                            }),
-                        )
-                    }
-                    Err(error) => return Err(error),
-                }
-            } else {
-                let schema_count = yaml_attempt.generated.schemas.len();
-                let yaml_summary = yaml_attempt.summary();
-                (
-                    yaml_attempt.generated,
-                    json!({
-                        "seed_page_count": seed_pages.len(),
-                        "schema_count": schema_count,
-                        "prompt_source": SchemaPromptSource::YamlProjection.as_str(),
-                        "schema_generation_attempts": [
-                            yaml_summary
-                        ],
-                    }),
-                )
-            };
+            let yaml_attempt = SchemaGenerationAttempt::new(yaml_generated, &pages);
+            let schema_count = yaml_attempt.generated.schemas.len();
+            let yaml_summary = yaml_attempt.summary();
+            let validation_summary = json!({
+                "seed_page_count": seed_pages.len(),
+                "schema_count": schema_count,
+                "prompt_source": SCHEMA_PROMPT_SOURCE_YAML,
+                "schema_generation_attempts": [
+                    yaml_summary
+                ],
+            });
+            let generated = yaml_attempt.generated;
 
             match self
                 .handle_generated_schema_review(

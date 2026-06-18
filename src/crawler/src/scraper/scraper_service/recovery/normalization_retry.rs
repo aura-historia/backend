@@ -2,7 +2,7 @@ use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInp
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
-use crate::scraper::css_selector::product_schema_service::SchemaPromptSource;
+use crate::scraper::css_selector::product_schema_service::SCHEMA_PROMPT_SOURCE_YAML;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
@@ -254,24 +254,17 @@ impl ScraperServiceImpl {
         ctx: NormalizationRetryContext<'_>,
         first_norm_err: NormalizationError,
     ) -> Result<NormalizedProduct, ScraperError> {
-        let prompt_sources = [
-            SchemaPromptSource::YamlProjection,
-            SchemaPromptSource::CleanedHtmlFallback,
-        ];
-        let attempts = prompt_sources.len();
+        const ATTEMPTS: u32 = 1;
+        const ATTEMPT: u32 = 1;
 
         // Hint for the schema generator derived from the last normalization error.
-        let mut last_apply_error: Option<ApplySchemaError> =
-            normalization_error_to_schema_hint(&first_norm_err);
-        // Track the last normalization error so we can surface it at exhaustion
-        // when the terminal failure was a norm error (schema applied fine but
-        // normalization still failed).
-        let mut last_norm_error: Option<NormalizationError> = Some(first_norm_err);
-        let mut last_generated_schema: Option<ProductCssSelectorSchema> =
-            Some(ctx.selected_schema.clone());
+        let Some(apply_hint) = normalization_error_to_schema_hint(&first_norm_err) else {
+            return Err(ScraperError::NormalizationError(first_norm_err));
+        };
 
-        for (attempt_idx, prompt_source) in prompt_sources.iter().copied().enumerate() {
-            let attempt = attempt_idx + 1;
+        {
+            let attempt = ATTEMPT;
+            let prompt_source = SCHEMA_PROMPT_SOURCE_YAML;
             if let Some(review_id) = self.pending_product_schema_review_id(ctx.shop_id).await? {
                 return Err(ScraperError::PendingSchemaReview {
                     url: ctx.url.clone(),
@@ -279,21 +272,11 @@ impl ScraperServiceImpl {
                 });
             }
 
-            // Unwrap is safe: last_apply_error is Some on every loop entry —
-            // it is set from the norm error on first entry and from the apply
-            // error or norm error on subsequent iterations.
-            let apply_hint = last_apply_error.take().unwrap();
-
             self.consume_llm_budget_or_err(ctx.shop_id, ctx.url).await?;
 
             let generated = self
                 .schema_service
-                .append_single_schema(
-                    ctx.html,
-                    prompt_source,
-                    last_generated_schema.as_ref(),
-                    Some(&apply_hint),
-                )
+                .append_single_schema(ctx.html, Some(&ctx.selected_schema), Some(&apply_hint))
                 .await?;
             let Some(generated_schema) = generated.schemas.first().cloned() else {
                 return Err(ScraperError::SchemaServiceError(
@@ -307,10 +290,11 @@ impl ScraperServiceImpl {
                 match try_apply_schemas(std::iter::once(&generated_schema), ctx.html) {
                     Ok((_, raw)) => raw,
                     Err(apply_err) => {
-                        last_generated_schema = Some(generated_schema);
-                        last_apply_error = Some(apply_err);
-                        last_norm_error = None;
-                        continue;
+                        return Err(ScraperError::SchemaRegenerationExhausted {
+                            url: ctx.url.clone(),
+                            attempts: ATTEMPTS,
+                            last_error: apply_err,
+                        });
                     }
                 };
             reapplied.images =
@@ -319,12 +303,14 @@ impl ScraperServiceImpl {
                 {
                     Ok(images) => images,
                     Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-                    Err(norm_err) => {
-                        last_generated_schema = Some(generated_schema);
-                        last_apply_error = normalization_error_to_schema_hint(&norm_err);
-                        last_norm_error = Some(norm_err);
-                        continue;
+                    Err(norm_err) if normalization_error_to_schema_hint(&norm_err).is_some() => {
+                        return Err(ScraperError::NormalizationFixExhausted {
+                            url: ctx.url.clone(),
+                            attempts: ATTEMPTS,
+                            last_norm_error: norm_err,
+                        });
                     }
+                    Err(norm_err) => return Err(ScraperError::NormalizationError(norm_err)),
                 };
 
             match self
@@ -361,7 +347,7 @@ impl ScraperServiceImpl {
                             pages,
                             json!({
                                 "attempt": attempt,
-                                "prompt_source": prompt_source.as_str(),
+                                "prompt_source": prompt_source,
                                 "schema_applied": true,
                                 "normalization_fixed": true,
                             }),
@@ -373,7 +359,7 @@ impl ScraperServiceImpl {
                                 domain = ctx.domain,
                                 url = %ctx.url,
                                 attempt,
-                                prompt_source = prompt_source.as_str(),
+                                prompt_source = prompt_source,
                                 "Schema fixed normalization failure"
                             );
                             return Ok(product);
@@ -392,33 +378,16 @@ impl ScraperServiceImpl {
                 }) => {
                     self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
                         .await?;
-                    let Some(hint) = normalization_error_to_schema_hint(&norm_err) else {
-                        return Err(ScraperError::NormalizationError(norm_err));
-                    };
-                    last_generated_schema = Some(generated_schema);
-                    last_apply_error = Some(hint);
-                    last_norm_error = Some(norm_err);
+                    if normalization_error_to_schema_hint(&norm_err).is_some() {
+                        return Err(ScraperError::NormalizationFixExhausted {
+                            url: ctx.url.clone(),
+                            attempts: ATTEMPTS,
+                            last_norm_error: norm_err,
+                        });
+                    }
+                    return Err(ScraperError::NormalizationError(norm_err));
                 }
             }
-        }
-
-        // Determine the terminal failure mode.
-        if let Some(norm_err) = last_norm_error {
-            Err(ScraperError::NormalizationFixExhausted {
-                url: ctx.url.clone(),
-                attempts: attempts as u32,
-                last_norm_error: norm_err,
-            })
-        } else {
-            Err(ScraperError::SchemaRegenerationExhausted {
-                url: ctx.url.clone(),
-                attempts: attempts as u32,
-                last_error: last_apply_error.unwrap_or_else(|| {
-                    ApplySchemaError::Title(ExtractionError::NoElementMatched {
-                        selector: "title".to_string(),
-                    })
-                }),
-            })
         }
     }
 }

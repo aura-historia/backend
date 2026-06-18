@@ -1,6 +1,4 @@
-use crawler::scraper::css_selector::product_schema_service::{
-    clean_html_for_schema_generation, html_to_schema_prompt_dsl,
-};
+use crawler::scraper::css_selector::product_schema_service::html_to_schema_prompt_dsl;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -28,7 +26,6 @@ struct RawExpectation {
 fn should_project_all_html_fixtures_to_compact_schema_prompt_dsl() {
     for fixture in load_fixtures() {
         let html = read_fixture_html(&fixture.html);
-        let cleaned_html = clean_html_for_schema_generation(&html);
         let dsl = html_to_schema_prompt_dsl(&html);
 
         assert!(
@@ -41,14 +38,6 @@ fn should_project_all_html_fixtures_to_compact_schema_prompt_dsl() {
             "{} DSL should be smaller than raw HTML: dsl={} html={}",
             fixture.html,
             dsl.len(),
-            html.len()
-        );
-        assert!(
-            dsl.len() < cleaned_html.len(),
-            "{} YAML DSL should be smaller than cleaned HTML: yaml_dsl={} cleaned_html={} raw_html={}",
-            fixture.html,
-            dsl.len(),
-            cleaned_html.len(),
             html.len()
         );
         assert_no_raw_noise_blocks(&fixture.html, &dsl);

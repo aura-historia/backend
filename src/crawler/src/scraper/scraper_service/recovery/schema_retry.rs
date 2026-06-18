@@ -1,9 +1,6 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
-use crate::scraper::css_selector::product_schema::{
-    ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
-};
-use crate::scraper::css_selector::product_schema_service::SchemaPromptSource;
-use crate::scraper::css_selector::rule::ExtractionError;
+use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
+use crate::scraper::css_selector::product_schema_service::SCHEMA_PROMPT_SOURCE_YAML;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::engine::try_apply_schemas;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
@@ -42,101 +39,82 @@ impl ScraperServiceImpl {
         ),
         ScraperError,
     > {
-        let prompt_sources = [
-            SchemaPromptSource::YamlProjection,
-            SchemaPromptSource::CleanedHtmlFallback,
-        ];
-        let attempts = prompt_sources.len();
-        let mut last_error: Option<ApplySchemaError> = None;
-        let mut last_generated_schema: Option<ProductCssSelectorSchema> = None;
+        const ATTEMPTS: u32 = 1;
+        const ATTEMPT: u32 = 1;
 
-        for (attempt_idx, prompt_source) in prompt_sources.iter().copied().enumerate() {
-            let attempt = attempt_idx + 1;
-            if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
-                return Err(ScraperError::PendingSchemaReview {
-                    url: url.clone(),
-                    review_id,
-                });
-            }
-
-            self.consume_llm_budget_or_err(shop_id, url).await?;
-
-            let generated = self
-                .schema_service
-                .append_single_schema(
-                    html,
-                    prompt_source,
-                    last_generated_schema.as_ref(),
-                    last_error.as_ref(),
-                )
-                .await?;
-            let Some(generated_schema) = generated.schemas.first().cloned() else {
-                return Err(ScraperError::SchemaServiceError(
-                    crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(
-                        "LLM produced zero schemas".to_string(),
-                    ),
-                ));
-            };
-
-            match try_apply_schemas(std::iter::once(&generated_schema), html) {
-                Ok((selected_schema, raw)) => {
-                    let mut persisted_schemas = existing_schemas.to_vec();
-                    persisted_schemas.push(generated_schema.clone());
-
-                    let pages = vec![SchemaReviewPageInput {
-                        url: url.to_string(),
-                        role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
-                        raw_html: html.to_string(),
-                    }];
-                    match self
-                        .handle_generated_schema_review(
-                            shop_id,
-                            "append_schema_generation",
-                            persisted_schemas,
-                            generated.evaluation,
-                            pages,
-                            json!({
-                                "attempt": attempt,
-                                "prompt_source": prompt_source.as_str(),
-                                "schema_applied": true,
-                            }),
-                        )
-                        .await?
-                    {
-                        GeneratedSchemaReviewOutcome::Persisted(saved) => {
-                            info!(attempt, "Generated schema appended and applied");
-                            return Ok((selected_schema, raw, saved.product_schemas));
-                        }
-                        GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
-                            return Err(ScraperError::PendingSchemaReview {
-                                url: url.clone(),
-                                review_id,
-                            });
-                        }
-                    }
-                }
-                Err(err) => {
-                    last_generated_schema = Some(generated_schema);
-                    warn!(
-                        attempt,
-                        max_attempts = attempts,
-                        prompt_source = prompt_source.as_str(),
-                        error = ?err,
-                        "Generated schema did not apply; discarding and retrying"
-                    );
-                    last_error = Some(err);
-                }
-            }
+        if let Some(review_id) = self.pending_product_schema_review_id(shop_id).await? {
+            return Err(ScraperError::PendingSchemaReview {
+                url: url.clone(),
+                review_id,
+            });
         }
 
-        Err(ScraperError::SchemaRegenerationExhausted {
-            url: url.clone(),
-            attempts: attempts as u32,
-            last_error: last_error.unwrap_or_else(|| {
-                ApplySchemaError::Title(ExtractionError::NoElementMatched {
-                    selector: "title".to_string(),
+        self.consume_llm_budget_or_err(shop_id, url).await?;
+
+        let generated = self
+            .schema_service
+            .append_single_schema(html, None, None)
+            .await?;
+        let Some(generated_schema) = generated.schemas.first().cloned() else {
+            return Err(ScraperError::SchemaServiceError(
+                crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(
+                    "LLM produced zero schemas".to_string(),
+                ),
+            ));
+        };
+
+        let (selected_schema, raw) =
+            match try_apply_schemas(std::iter::once(&generated_schema), html) {
+                Ok(applied) => applied,
+                Err(err) => {
+                    warn!(
+                        attempt = ATTEMPT,
+                        max_attempts = ATTEMPTS,
+                        prompt_source = SCHEMA_PROMPT_SOURCE_YAML,
+                        error = ?err,
+                        "Generated schema did not apply; discarding"
+                    );
+                    return Err(ScraperError::SchemaRegenerationExhausted {
+                        url: url.clone(),
+                        attempts: ATTEMPTS,
+                        last_error: err,
+                    });
+                }
+            };
+
+        let mut persisted_schemas = existing_schemas.to_vec();
+        persisted_schemas.push(generated_schema);
+
+        let pages = vec![SchemaReviewPageInput {
+            url: url.to_string(),
+            role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
+            raw_html: html.to_string(),
+        }];
+        match self
+            .handle_generated_schema_review(
+                shop_id,
+                "append_schema_generation",
+                persisted_schemas,
+                generated.evaluation,
+                pages,
+                json!({
+                    "attempt": ATTEMPT,
+                    "prompt_source": SCHEMA_PROMPT_SOURCE_YAML,
+                    "schema_applied": true,
+                }),
+            )
+            .await?
+        {
+            GeneratedSchemaReviewOutcome::Persisted(saved) => {
+                info!(attempt = ATTEMPT, "Generated schema appended and applied");
+                Ok((selected_schema, raw, saved.product_schemas))
+            }
+            GeneratedSchemaReviewOutcome::PendingReview(review_id) => {
+                Err(ScraperError::PendingSchemaReview {
+                    url: url.clone(),
+                    review_id,
                 })
-            }),
-        })
+            }
+        }
     }
 }
