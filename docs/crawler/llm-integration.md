@@ -34,8 +34,8 @@ run, and in all future runs, to classify `CrawledUrl` instances as `Product`.
 
 ## 2. Product Schema Generation — `ProductSchemaServiceImpl`
 
-**Purpose:** Given cleaned HTML pages from product URLs, produce one or more `ProductCssSelectorSchema` variants that
-together cover heterogeneous templates in the same shop.
+**Purpose:** Given compact YAML projections of product pages, produce one or more `ProductCssSelectorSchema` variants
+that together cover heterogeneous templates in the same shop.
 
 **When called:**
 
@@ -74,15 +74,14 @@ together cover heterogeneous templates in the same shop.
 - On runtime schema miss (append-on-miss flow, issue #801): if no cached schema variant applies during scrape, calls
   `append_single_schema()` to generate and append a single new schema for that page to the existing set, then retries.
   This enables heterogeneous shops to accumulate schema variants dynamically without triggering full regeneration.
-- On runtime schema miss, regeneration uses a fixed two-step attempt loop:
-    - attempt 1 generates from the current page YAML projection,
-    - attempt 2 falls back to cleaned HTML and includes the previously failed generated schema and extraction error as
-      repair context,
+- On runtime schema miss, regeneration performs one YAML-projection repair attempt:
+    - generates from the current page YAML projection,
     - appends in-memory to cached schemas and re-applies only candidates not already known to fail in the current retry
       loop,
     - persists only when at least one schema applies (deduplicated),
-    - discards non-applicable generated schemas and retries.
-    - on exhaustion, scraping returns `SchemaRegenerationExhausted`; cron records the error and sets a retry cooldown.
+    - discards a non-applicable generated schema.
+    - if the repair does not apply, scraping returns `SchemaRegenerationExhausted`; cron records the error and sets a
+      retry cooldown.
 - Normalization can trigger schema regeneration only for schema-fixable errors (title empty/unknown language, price
   parse/currency issues, `StateTextTooLong`).
     - Non-fixable normalization errors (e.g. state mapping DB failures, invalid image URL, datetime parse issues) are
@@ -98,11 +97,12 @@ together cover heterogeneous templates in the same shop.
     - If the cap is reached during an in-flight scrape, scraper returns `LlmBudgetExceeded` and cron writes cooldown
       metadata (`next_retry_at`) for observability.
 
-**HTML pre-processing (before sending to LLM):**
+**YAML projection (before sending to LLM):**
 
-- `<script>`, `<style>`, `<nav>`, `<footer>`, `<header>`, `<form>` elements stripped.
-- Noisy attributes (`class`, `id`, `style`, `data-*`, `aria-*`) removed via `kuchiki`.
-- This dramatically reduces token usage.
+- Product pages are converted to a compact YAML-like DSL via `html_to_schema_prompt_dsl()`.
+- The projection preserves tags, useful attributes, text snippets, and tree context needed to derive selectors against
+  the original raw HTML.
+- Boilerplate and irrelevant nodes are reduced to keep schema prompts compact and deterministic.
 
 **Output (JSON):** An array of `ProductCssSelectorSchema` objects:
 
@@ -131,15 +131,11 @@ field is used as a fallback by `normalize()` when the extracted price string con
 **Append-and-retry flow (runtime apply miss):**
 
 ```
-for prompt_source in [yaml_projection, cleaned_html_fallback]:
-  increment shops.llm_calls_count
-  candidate = append_single_schema(domain, html, prompt_source, failed_schema?, last_error?)
-    // yaml_projection: failed_schema/last_error are None (fresh generation)
-    // cleaned_html_fallback: failed_schema/last_error come from previous failed generated schema
-  re-apply only schemas not already known to fail in this loop:
-    ok -> dedupe, persist candidate set, continue pipeline
-    fail -> discard generated schema and retry
-if exhausted -> return SchemaRegenerationExhausted
+increment shops.llm_calls_count
+candidate = append_single_schema(domain, html, failed_schema?, last_error?)
+re-apply only schemas not already known to fail in this loop:
+  ok -> dedupe, persist candidate set, continue pipeline
+  fail -> discard generated schema and return SchemaRegenerationExhausted
 ```
 
 **Persistence:** Schema set stored in `shops_product_schema` (keyed by `shop_id`) as a JSON array. During scrape,
