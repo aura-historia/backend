@@ -434,9 +434,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cloudwatchlogs"
-version = "1.137.0"
+version = "1.138.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aa80461d9b62e0584cffa597feab0abed547b7be335138c0fe13f9460a4933d"
+checksum = "af7c0e202a9a0cba6bd7047c205d674aeb3254c244116d402040fdfac21fe4bf"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -460,9 +460,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cognitoidentityprovider"
-version = "1.121.0"
+version = "1.122.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd15437cc96e27f0b5371fcc52a047a114e777efd1a9e73579efa198237e2de4"
+checksum = "99e39cb12d93f1c19f2dac01828e560cfe2730fb3b999574888d20279cb79ec1"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
