@@ -15,7 +15,7 @@ use crate::scraper::candidate_service::MockScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
     GeneratedProductSchemas, MockProductSchemaService, SchemaLlmEvaluation,
-    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision, SchemaPromptSource,
+    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
 };
 use crate::scraper::css_selector::rule::{
     CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,

@@ -3,29 +3,6 @@ use kuchiki::{NodeRef, parse_html};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-pub fn clean_html_for_schema_generation(input: &str) -> String {
-    let document = parse_html().one(input);
-
-    // Tags to remove entirely
-    let remove_selectors = [
-        "script", "style", "svg", "canvas", "header", "footer", "nav", "aside",
-    ];
-
-    for selector in &remove_selectors {
-        if let Ok(nodes) = document.select(selector) {
-            for node in nodes {
-                node.as_node().detach();
-            }
-        }
-    }
-
-    remove_comments(&document);
-    strip_attributes(&document);
-    let mut cleaned = Vec::new();
-    document.serialize(&mut cleaned).unwrap();
-    String::from_utf8(cleaned).unwrap_or_default()
-}
-
 const DSL_TEXT_LIMIT: usize = 180;
 const DSL_ATTR_LIMIT: usize = 250;
 const DSL_IMAGE_ATTR_LIMIT: usize = 1_000;
@@ -378,42 +355,5 @@ fn remove_comments(node: &NodeRef) {
         } else {
             remove_comments(&child);
         }
-    }
-}
-
-fn strip_attributes(document: &NodeRef) {
-    let deny_prefixes = ["on"]; // onclick, onload, etc.
-
-    let deny_exact = [
-        "style",
-        "integrity",
-        "crossorigin",
-        "referrerpolicy",
-        "nonce",
-        "tabindex",
-        "width",
-        "height",
-        "loading",
-        "decoding",
-    ];
-
-    for css_match in document.select("*").unwrap() {
-        let mut attributes = css_match.attributes.borrow_mut();
-
-        attributes.map.retain(|key, _| {
-            let name = key.local.as_ref();
-
-            // Remove JS event handlers
-            if deny_prefixes.iter().any(|prefix| name.starts_with(prefix)) {
-                return false;
-            }
-
-            // Remove known useless attributes
-            if deny_exact.contains(&name) {
-                return false;
-            }
-
-            true
-        });
     }
 }

@@ -1,54 +1,16 @@
-use super::projection::{clean_html_for_schema_generation, html_to_schema_prompt_dsl};
+use super::projection::html_to_schema_prompt_dsl;
 use crate::scraper::css_selector::product_schema::{ApplySchemaError, ProductCssSelectorSchema};
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SchemaPromptSource {
-    YamlProjection,
-    CleanedHtmlFallback,
-}
+const SAMPLE_LABEL: &str = "YAML";
+const SAMPLE_DESCRIPTION: &str = "The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.";
 
-impl SchemaPromptSource {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::YamlProjection => "yaml_projection",
-            Self::CleanedHtmlFallback => "cleaned_html_fallback",
-        }
-    }
-
-    fn sample_label(self) -> &'static str {
-        match self {
-            Self::YamlProjection => "YAML",
-            Self::CleanedHtmlFallback => "CLEANED HTML",
-        }
-    }
-
-    fn sample_description(self) -> &'static str {
-        match self {
-            Self::YamlProjection => {
-                "The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML."
-            }
-            Self::CleanedHtmlFallback => {
-                "The samples below are cleaned HTML from the original pages. Derive CSS selectors from this HTML context, and target the original raw HTML."
-            }
-        }
-    }
-}
-
-pub(super) fn build_create_schemas_instruction(
-    html_pages: &[String],
-    prompt_source: SchemaPromptSource,
-) -> String {
+pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String {
     let prompt_pages: Vec<String> = if html_pages.is_empty() {
         Vec::new()
     } else {
         html_pages
             .iter()
-            .map(|html| match prompt_source {
-                SchemaPromptSource::YamlProjection => html_to_schema_prompt_dsl(html),
-                SchemaPromptSource::CleanedHtmlFallback => clean_html_for_schema_generation(html),
-            })
+            .map(|html| html_to_schema_prompt_dsl(html))
             .collect()
     };
 
@@ -65,7 +27,7 @@ pub(super) fn build_create_schemas_instruction(
             format_args!(
                 "\n--- SAMPLE {sample_idx} {sample_label} ---\n{page_dsl}\n",
                 sample_idx = idx + 1,
-                sample_label = prompt_source.sample_label(),
+                sample_label = SAMPLE_LABEL,
                 page_dsl = prompt_page,
             ),
         );
@@ -94,21 +56,17 @@ pub(super) fn build_create_schemas_instruction(
          Use confidence HIGH only when selectors are product-specific and likely safe for unattended approval after deterministic validation. Use MEDIUM for plausible schemas with ambiguity. Use LOW when selectors or fields are uncertain. MEDIUM and LOW require human review.\n\
          {sample_description}\n\
          Here are the page {sample_label} samples:{samples}",
-        sample_description = prompt_source.sample_description(),
-        sample_label = prompt_source.sample_label()
+        sample_description = SAMPLE_DESCRIPTION,
+        sample_label = SAMPLE_LABEL
     )
 }
 
 pub(super) fn build_append_schema_instruction(
     html: &str,
-    prompt_source: SchemaPromptSource,
     failed_schema: Option<&ProductCssSelectorSchema>,
     last_error: Option<&ApplySchemaError>,
 ) -> String {
-    let prompt_page = match prompt_source {
-        SchemaPromptSource::YamlProjection => html_to_schema_prompt_dsl(html),
-        SchemaPromptSource::CleanedHtmlFallback => clean_html_for_schema_generation(html),
-    };
+    let prompt_page = html_to_schema_prompt_dsl(html);
     let failure_context = match (failed_schema, last_error) {
         (Some(schema), Some(error)) => {
             let schema_json = serde_json::to_string_pretty(schema)
@@ -133,7 +91,7 @@ pub(super) fn build_append_schema_instruction(
           {sample_description}\n\
           Here is the page {sample_label}:\n\
           {prompt_page}",
-        sample_description = prompt_source.sample_description(),
-        sample_label = prompt_source.sample_label()
+        sample_description = SAMPLE_DESCRIPTION,
+        sample_label = SAMPLE_LABEL
     )
 }

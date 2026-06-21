@@ -158,10 +158,10 @@ Caches the LLM-generated CSS selector schemas for each shop. One row per shop.
 | `product_schema`      | JSONB       | Serialized array of `ProductCssSelectorSchema` variants (legacy single-object payloads are still readable) |
 | `created` / `updated` | TIMESTAMPTZ |                                                                                                            |
 
-If no cached schema variant applies to a product page, the scraper enters append-and-retry mode: each attempt generates
-one schema for the current page, re-applies only newly appended candidate schemas for that attempt, and persists only
-when one applies. Non-applicable generated schemas are discarded. Existing schema variants are never fully replaced.
-Persisted sets are deduplicated.
+If no cached schema variant applies to a product page, the scraper enters append-and-retry mode: it makes one
+YAML-projection repair call to generate a schema for the current page, re-applies only newly appended candidate schemas,
+and persists only when one applies. Non-applicable generated schemas are discarded. Existing schema variants are never
+fully replaced. Persisted sets are deduplicated.
 
 Approved `PRODUCT_SCHEMA` reviews can also update this table from the Crawler Review Console. Those edits are trusted
 operator hotfixes: field edits, schema ordering, added/deleted schemas, and full JSON saves apply to
