@@ -9,9 +9,35 @@ use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
 use crate::scraper::scraper_service::util::hash::{hash_html, hash_main_fragment};
 use crate::scraper::scraper_service::util::html::extract_main_fragment;
 use crate::spider::classification::url_metadata::UrlState;
+use crate::spider::utils::url::CrawledUrl;
 use common::shop_id::ShopId;
 use tracing::{debug, warn};
 use url::Url;
+
+pub(crate) fn is_redirect_to_homepage(original_url: &Url, final_url: &Url) -> bool {
+    let normalized_original = CrawledUrl::new(original_url.clone());
+    let normalized_final = CrawledUrl::new(final_url.clone());
+
+    if normalized_original.as_url() == normalized_final.as_url() {
+        return false;
+    }
+
+    if !is_same_logical_host(original_url, final_url) {
+        return false;
+    }
+
+    let path_is_root = final_url.path().is_empty() || final_url.path() == "/";
+    path_is_root
+}
+
+fn is_same_logical_host(left: &Url, right: &Url) -> bool {
+    normalize_host(left) == normalize_host(right)
+}
+
+fn normalize_host(url: &Url) -> Option<&str> {
+    url.host_str()
+        .map(|host| host.strip_prefix("www.").unwrap_or(host))
+}
 
 impl ScraperServiceImpl {
     #[tracing::instrument(skip(self), fields(shop_id = %shop_id, url = %url))]
@@ -60,8 +86,8 @@ impl ScraperService for ScraperServiceImpl {
 
         // 1. Fetch HTML --------------------------------------------------
         debug!(domain, "Fetching product page HTML");
-        let html = match self.html_fetcher.fetch(url).await {
-            Ok(html) => html,
+        let fetched = match self.html_fetcher.fetch(url).await {
+            Ok(fetched) => fetched,
             Err(FetchError::Network {
                 kind: NetworkErrorKind::HttpStatus(404 | 410),
                 details,
@@ -80,6 +106,17 @@ impl ScraperService for ScraperServiceImpl {
                 });
             }
         };
+        if is_redirect_to_homepage(url, &fetched.final_url) {
+            self.mark_product_removed_best_effort(shop_id, url).await;
+            return Err(ScraperError::ProductRemoved {
+                url: url.clone(),
+                details: format!(
+                    "product URL redirected to homepage: original={url}, final={}",
+                    fetched.final_url
+                ),
+            });
+        }
+        let html = fetched.html;
 
         let has_main = extract_main_fragment(&html).is_some();
         let current_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));

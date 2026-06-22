@@ -12,7 +12,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
     let primary_html_for_fetch = primary_html.clone();
     fetcher.expect_fetch().once().returning(move |_| {
         let html = primary_html_for_fetch.clone();
-        Box::pin(async move { Ok(html) })
+        Box::pin(async move { Ok(fetch_result(html)) })
     });
 
     let initial_schema = {
@@ -121,7 +121,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -194,7 +194,7 @@ async fn should_keep_primary_only_when_extra_schema_seed_fetch_fails() {
             let expected_primary_url = expected_primary_url.clone();
             Box::pin(async move {
                 if requested_url == expected_primary_url {
-                    Ok(sample_html())
+                    Ok(fetch_result(sample_html()))
                 } else {
                     Err(FetchError::Network {
                         kind: NetworkErrorKind::Timeout,
@@ -272,7 +272,7 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();

@@ -9,7 +9,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();

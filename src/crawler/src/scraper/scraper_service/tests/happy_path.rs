@@ -9,7 +9,7 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -75,7 +75,7 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
     let mut fetcher = MockHtmlFetcher::new();
     fetcher
         .expect_fetch()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -147,7 +147,7 @@ async fn should_filter_invalid_thumbnail_images_before_normalization() {
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
         let html = html.clone();
-        Box::pin(async move { Ok(html) })
+        Box::pin(async move { Ok(fetch_result(html)) })
     });
 
     let schema = shops_product_schema(id);

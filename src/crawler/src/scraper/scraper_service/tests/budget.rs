@@ -10,7 +10,7 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let mut schema_svc = MockProductSchemaService::new();
     schema_svc
@@ -58,7 +58,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -124,7 +124,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -203,7 +203,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = ShopsProductSchema {
         shop_id: id,
@@ -266,7 +266,7 @@ async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_excee
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let mut schema_svc = MockProductSchemaService::new();

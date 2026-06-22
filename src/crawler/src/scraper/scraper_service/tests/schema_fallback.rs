@@ -20,7 +20,7 @@ async fn scrape_with_schema_service(
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let expected = normalized_product(url.clone());
     let mut norm_svc = MockProductNormalizationService::new();

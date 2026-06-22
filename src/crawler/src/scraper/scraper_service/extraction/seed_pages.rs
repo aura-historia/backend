@@ -1,3 +1,4 @@
+use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_homepage;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
 use std::collections::HashSet;
@@ -63,10 +64,20 @@ impl ScraperServiceImpl {
                 continue;
             }
             match self.html_fetcher.fetch(&sample_url).await {
-                Ok(sample_html) => pages.push(SchemaSeedPage {
-                    url: sample_url.clone(),
-                    raw_html: sample_html,
-                }),
+                Ok(sample) => {
+                    if is_redirect_to_homepage(&sample_url, &sample.final_url) {
+                        warn!(
+                            sample_url = %sample_url,
+                            final_url = %sample.final_url,
+                            "Skipping sampled schema-seed page because it redirected to homepage"
+                        );
+                        continue;
+                    }
+                    pages.push(SchemaSeedPage {
+                        url: sample_url.clone(),
+                        raw_html: sample.html,
+                    });
+                }
                 Err(err) => {
                     warn!(
                         error = ?err,

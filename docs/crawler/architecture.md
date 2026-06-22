@@ -274,7 +274,9 @@ per-URL retry loop before returning failure to cron.
 
 ```
 scrape(shop_id, url, last_scraped_hash)
- ├── HtmlFetcher::fetch(url)                  — download raw HTML
+ ├── HtmlFetcher::fetch(url)                  — download raw HTML and capture the final URL after redirects
+ ├── if product URL redirected to same-host homepage
+ │    └── mark URL as REMOVED and stop before schema extraction
  ├── current_hash = SHA-256(<main> fragment) if present, else SHA-256(full HTML)
  ├── if <main> present AND current_hash == last_scraped_hash
  │    └── touch_scraped(current_hash) and return None      — page unchanged, skip extraction
