@@ -18,18 +18,20 @@ CrawlerCronJob::run_loop()
   └── tokio::spawn → scraper_loop    (sleeps 1 min between ticks)
 ```
 
-The spider and scraper loops follow the same pattern each tick:
+The spider and scraper loops each run a scheduler pass on their tick:
 
-1. Ask the relevant **CandidateService** for a batch of work.
-2. Fan the batch out as Tokio worker tasks: one task per spider domain candidate, and one task per scraper domain
-   group (all URLs of that domain handled sequentially in that task).
-3. Before processing each item, acquire an in-memory lock (`DomainLock` for spider domains, `UrlLock` for scraper URLs)
+1. Maintain up to `*_concurrency` active execution slots.
+2. Ask the relevant **CandidateService** for refill candidates, excluding work already in flight or skipped during the
+   current pass.
+3. Assign spider slots one domain candidate at a time. Assign scraper slots one host group at a time; all URLs in that
+   host group are still processed sequentially by one worker.
+4. Before processing each item, acquire an in-memory lock (`DomainLock` for spider domains, `UrlLock` for scraper URLs)
    via `LocalLockManager`. If another worker already holds the lock the item is skipped (not failed).
-4. Call the relevant service (`SpiderService::run` or `ScraperService::scrape`). Errors are logged and swallowed so one
-   failure doesn't abort the whole batch.
-5. After each batch completes, log a summary line with `total`, `succeeded`, `failed`, `skipped` (lock-skipped items),
-   and `duration_ms`. Performance counters are accumulated across batches and a rolling average is emitted every 500
-   scraper URLs / every 50 spider domains.
+5. When any slot finishes, immediately refill the open slot if more eligible work exists. A pass ends only when no
+   eligible non-excluded candidates remain and all active slots are finished.
+6. After each scheduler pass completes, log a summary line with `total`, `succeeded`, `failed`, `skipped`, and
+   `duration_ms`. Performance counters are accumulated across passes and a rolling average is emitted every 500 scraper
+   URLs / every 50 spider domains.
 
 `CrawlerCronJob` carries two `Arc<PerfCounter>` fields for these rolling counters: `scraper_perf` and `spider_perf`.
 Each `PerfCounter` encapsulates a count and a cumulative duration, and emits an `info!` summary when its rolling total
@@ -156,8 +158,10 @@ guard is dropped.
 
 ### Scraper domain workers
 
-`run_scraper_once` groups candidate URLs by host and spawns one task per domain group (bounded by `scraper_concurrency`
-via semaphore). Each domain task:
+`run_scraper_once` groups candidate URLs by host and uses `scraper_concurrency` as the number of global domain-group
+slots. Whenever a domain group finishes, the scheduler fetches another refill, groups the returned URLs by host, and
+starts the next inactive host group. It never schedules the same host into two slots during the same scheduler pass.
+Each domain task:
 
 1. Scrapes that domain's URLs sequentially.
 2. Lets the real HTML fetcher apply latency-aware per-domain auto-throttling before each HTTP request.

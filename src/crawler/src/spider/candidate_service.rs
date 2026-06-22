@@ -14,6 +14,11 @@ pub struct SpiderCandidate {
 #[mockall::automock]
 pub trait SpiderCandidateService: Send + Sync {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<SpiderCandidate>, sqlx::Error>;
+    async fn get_candidates_excluding(
+        &self,
+        limit: i64,
+        excluded_domain_ids: &[uuid::Uuid],
+    ) -> Result<Vec<SpiderCandidate>, sqlx::Error>;
     async fn mark_crawl_failure(
         &self,
         domain_id: &uuid::Uuid,
@@ -46,6 +51,14 @@ struct SpiderCandidateRow {
 #[async_trait]
 impl SpiderCandidateService for SpiderCandidateServiceImpl {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<SpiderCandidate>, sqlx::Error> {
+        self.get_candidates_excluding(limit, &[]).await
+    }
+
+    async fn get_candidates_excluding(
+        &self,
+        limit: i64,
+        excluded_domain_ids: &[uuid::Uuid],
+    ) -> Result<Vec<SpiderCandidate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, SpiderCandidateRow>(
             r#"
             SELECT s.shop_id,
@@ -58,11 +71,13 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
             WHERE s.active = TRUE
               AND (sd.last_crawled IS NULL OR sd.last_crawled < NOW() - INTERVAL '7 days')
               AND (sd.next_crawl_at IS NULL OR sd.next_crawl_at <= NOW())
+              AND NOT (sd.domain_id = ANY($2))
             ORDER BY sd.last_crawled NULLS FIRST
             LIMIT $1
             "#,
         )
         .bind(limit)
+        .bind(excluded_domain_ids)
         .fetch_all(&self.pool)
         .await?;
 

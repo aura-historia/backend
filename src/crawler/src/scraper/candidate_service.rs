@@ -173,6 +173,11 @@ pub fn has_product_changed(candidate: &ScraperCandidate, product: &NormalizedPro
 #[mockall::automock]
 pub trait ScraperCandidateService: Send + Sync {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
+    async fn get_candidates_excluding(
+        &self,
+        limit: i64,
+        excluded_urls: &[String],
+    ) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
     /// Returns a random sample of product URLs for a shop (excluding the current
     /// URL) to seed first-time schema generation with additional page layouts.
     ///
@@ -327,6 +332,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
             AND cr.artifact_type = 'PRODUCT_SCHEMA'
             AND cr.status = 'PENDING_REVIEW'
       )
+      AND NOT (su.url = ANY($3))
     ORDER BY su.last_scraped NULLS FIRST
     LIMIT $1
     "#;
@@ -334,9 +340,18 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
 #[async_trait]
 impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
+        self.get_candidates_excluding(limit, &[]).await
+    }
+
+    async fn get_candidates_excluding(
+        &self,
+        limit: i64,
+        excluded_urls: &[String],
+    ) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(SCRAPER_CANDIDATE_QUERY)
             .bind(limit)
             .bind(self.max_llm_calls_per_shop)
+            .bind(excluded_urls)
             .fetch_all(&self.pool)
             .await?;
 
