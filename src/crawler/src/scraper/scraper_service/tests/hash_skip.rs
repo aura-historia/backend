@@ -12,7 +12,7 @@ async fn should_skip_fetching_and_return_none_when_hashes_match() {
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
         let html = html.clone();
-        Box::pin(async move { Ok(html) })
+        Box::pin(async move { Ok(fetch_result(html)) })
     });
 
     let schema_svc = MockProductSchemaService::new();

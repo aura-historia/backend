@@ -23,7 +23,7 @@ fn fetcher_with_sample_html() -> MockHtmlFetcher {
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
     fetcher
 }
 

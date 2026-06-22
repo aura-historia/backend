@@ -3,6 +3,7 @@ mod budget;
 mod happy_path;
 mod hash_skip;
 mod normalization_fix;
+mod redirect_guard;
 mod schema_fallback;
 mod schema_retry;
 mod seed_pages;
@@ -27,7 +28,7 @@ use crate::scraper::normalization::product_normalization_service::{
 };
 use crate::scraper::scraper_service::ScraperService;
 use crate::scraper::scraper_service::service::{
-    DEFAULT_MAX_LLM_CALLS_PER_SHOP, MockHtmlFetcher, ScraperServiceImpl,
+    DEFAULT_MAX_LLM_CALLS_PER_SHOP, FetchedHtml, MockHtmlFetcher, ScraperServiceImpl,
 };
 use crate::spider::classification::url_metadata::UrlState;
 use common::language::domain::Language;
@@ -61,6 +62,14 @@ pub(super) fn sample_html() -> String {
     </body>
     </html>"#
         .to_string()
+}
+
+pub(super) fn fetch_result(html: String) -> FetchedHtml {
+    FetchedHtml::new(html, product_url())
+}
+
+pub(super) fn fetch_result_for(html: String, final_url: Url) -> FetchedHtml {
+    FetchedHtml::new(html, final_url)
 }
 
 pub(super) fn minimal_schema() -> ProductCssSelectorSchema {

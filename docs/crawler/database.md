@@ -129,8 +129,10 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `created` / `updated`             | TIMESTAMPTZ              |                                                                                 |
 
 `shop_urls.last_scraped_state` is crawler-owned URL metadata in Postgres. The scraper updates it after successful
-normalization and uses it for crawler-side candidate selection. The downstream product backend receives the same
-normalized availability separately through product upsert commands; that persistence path is related but distinct.
+normalization and uses it for crawler-side candidate selection. If a product URL redirects to the same shop's homepage,
+the scraper marks the original URL as `REMOVED` before schema extraction so it is excluded from future scrape
+candidates. The downstream product backend receives normalized availability separately through product upsert commands;
+that persistence path is related but distinct.
 
 **Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop
 registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from
