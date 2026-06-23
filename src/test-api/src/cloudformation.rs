@@ -6,7 +6,7 @@ use crate::opensearch::clear_all_indices;
 use crate::ses::{Ses, clear_sent_emails};
 use crate::sqs::drain_queues;
 use async_trait::async_trait;
-use aws_sdk_cloudformation::types::StackStatus;
+use aws_sdk_cloudformation::{error::ProvideErrorMetadata, types::StackStatus};
 use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
 use aws_tests_common::{CloudFormationOutput, get_cfn_output, set_cfn_output};
 use futures::stream::{self, StreamExt};
@@ -106,9 +106,10 @@ async fn get_s3_client() -> &'static aws_sdk_s3::Client {
 /// 1. Builds all Lambda binaries from the workspace
 /// 2. Packages each binary into a ZIP (containing a `bootstrap` executable)
 /// 3. Creates an S3 bucket and uploads all Lambda ZIPs
-/// 4. Deploys the LocalStack-specific ephemeral CloudFormation template
-/// 5. Waits for the stack to reach `CREATE_COMPLETE`
-/// 6. Extracts stack outputs into [`CloudFormationOutput`] via `CFN_OUTPUT` env var
+/// 4. Synthesizes the LocalStack-specific CDK stack template
+/// 5. Deploys the synthesized template through CloudFormation
+/// 6. Waits for the stack to reach `CREATE_COMPLETE`
+/// 7. Extracts stack outputs into [`CloudFormationOutput`] via `CFN_OUTPUT` env var
 pub struct Cloudformation();
 
 #[async_trait]
@@ -268,7 +269,8 @@ fn build_lambdas() {
 /// Creates the S3 artifact bucket in LocalStack.
 async fn create_artifact_bucket() {
     let s3 = get_s3_client().await;
-    s3.create_bucket()
+    match s3
+        .create_bucket()
         .bucket(ARTIFACT_BUCKET)
         .create_bucket_configuration(
             CreateBucketConfiguration::builder()
@@ -277,8 +279,20 @@ async fn create_artifact_bucket() {
         )
         .send()
         .await
-        .expect("shouldn't fail creating artifact S3 bucket");
-    debug!("Created S3 artifact bucket '{ARTIFACT_BUCKET}'.");
+    {
+        Ok(_) => debug!("Created S3 artifact bucket '{ARTIFACT_BUCKET}'."),
+        Err(error) if is_bucket_already_owned_error(&error) => {
+            debug!("S3 artifact bucket '{ARTIFACT_BUCKET}' already exists; reusing it.");
+        }
+        Err(error) => panic!("shouldn't fail creating artifact S3 bucket: {error:?}"),
+    }
+}
+
+fn is_bucket_already_owned_error(error: &impl ProvideErrorMetadata) -> bool {
+    matches!(
+        error.code(),
+        Some("BucketAlreadyOwnedByYou" | "BucketAlreadyExists")
+    )
 }
 
 /// Maximum number of concurrent S3 uploads.
@@ -360,26 +374,65 @@ fn create_lambda_zip(binary_path: &Path) -> Vec<u8> {
     buf
 }
 
-static CFN_TEMPLATE: &str =
-    include_str!(concat!(env!("CARGO_WORKSPACE_DIR"), "cfn/ephemeral.yaml"));
+/// Synthesizes the CDK template used by the LocalStack acceptance-test stack.
+fn synthesize_ephemeral_template() -> String {
+    info!("Synthesizing CDK ephemeral stack template...");
+
+    let output = Command::new("npm")
+        .args([
+            "--prefix",
+            "infra",
+            "--silent",
+            "run",
+            "synth",
+            "--",
+            "application-ephemeral",
+            "--context",
+            "stage=ephemeral",
+        ])
+        .current_dir(env!("CARGO_WORKSPACE_DIR"))
+        .output()
+        .expect(
+            "shouldn't fail spawning CDK synth; install Node.js and run `npm --prefix infra install`",
+        );
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        panic!("CDK synth for ephemeral stack failed\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    }
+
+    let template = String::from_utf8(output.stdout)
+        .expect("CDK synth output should be valid UTF-8 CloudFormation YAML");
+    assert!(
+        !template.trim().is_empty(),
+        "CDK synth returned an empty ephemeral template"
+    );
+
+    info!("CDK ephemeral stack template synthesized successfully.");
+    template
+}
 
 /// Deploys the CloudFormation stack on LocalStack and waits for completion.
 async fn deploy_stack() {
     info!("Deploying CloudFormation stack '{STACK_NAME}'...");
 
-    let template_key = "cfn-template.yaml";
+    let template = synthesize_ephemeral_template();
+    let template_key = "cdk-template.yaml";
     get_s3_client()
         .await
         .put_object()
         .bucket(ARTIFACT_BUCKET)
         .key(template_key)
-        .body(CFN_TEMPLATE.as_bytes().to_vec().into())
+        .body(template.into_bytes().into())
         .send()
         .await
-        .expect("shouldn't fail uploading CFN template to S3");
-    debug!("Uploaded CloudFormation template to S3.");
+        .expect("shouldn't fail uploading synthesized CDK template to S3");
+    debug!("Uploaded synthesized CDK template to S3.");
 
     let template_url = format!("{}/{ARTIFACT_BUCKET}/{template_key}", get_endpoint_url());
+
+    delete_existing_stack_if_present().await;
 
     let cfn = get_cfn_client().await;
 
@@ -423,6 +476,97 @@ async fn deploy_stack() {
 
     wait_for_stack_complete().await;
     info!("CloudFormation stack '{STACK_NAME}' deployed successfully.");
+}
+
+/// Deletes an acceptance-test stack left behind by an earlier failed run.
+async fn delete_existing_stack_if_present() {
+    let cfn = get_cfn_client().await;
+    match cfn.describe_stacks().stack_name(STACK_NAME).send().await {
+        Ok(response) => {
+            let status = response
+                .stacks()
+                .first()
+                .and_then(|stack| stack.stack_status())
+                .cloned();
+
+            if matches!(status, Some(StackStatus::DeleteComplete)) {
+                debug!("Previous CloudFormation stack '{STACK_NAME}' is already deleted.");
+                return;
+            }
+
+            info!(
+                status = ?status,
+                "Deleting previous CloudFormation stack '{STACK_NAME}' before redeploying."
+            );
+            cfn.delete_stack()
+                .stack_name(STACK_NAME)
+                .send()
+                .await
+                .expect("shouldn't fail deleting previous CloudFormation stack");
+            wait_for_stack_deleted().await;
+        }
+        Err(error) if is_stack_not_found_error(&error) => {
+            debug!("No previous CloudFormation stack '{STACK_NAME}' found.");
+        }
+        Err(error) => panic!("shouldn't fail checking previous CloudFormation stack: {error:?}"),
+    }
+}
+
+fn is_stack_not_found_error(error: &impl ProvideErrorMetadata) -> bool {
+    matches!(error.code(), Some("ValidationError" | "404" | "NotFound"))
+        || error.message().is_some_and(|message| {
+            message.contains("does not exist") || message.contains("not found")
+        })
+}
+
+async fn wait_for_stack_deleted() {
+    let cfn = get_cfn_client().await;
+    let mut retries = 600;
+
+    loop {
+        match cfn.describe_stacks().stack_name(STACK_NAME).send().await {
+            Ok(response) => {
+                let stack = response
+                    .stacks()
+                    .first()
+                    .expect("shouldn't fail getting stack from describe response");
+                let status = stack
+                    .stack_status()
+                    .expect("shouldn't fail getting stack status");
+
+                match status {
+                    StackStatus::DeleteComplete => {
+                        debug!("Previous stack reached DELETE_COMPLETE.");
+                        return;
+                    }
+                    StackStatus::DeleteInProgress => {
+                        retries -= 1;
+                        if retries <= 0 {
+                            panic!("Stack deletion timed out after 600 retries");
+                        }
+                        debug!(
+                            remaining_retries = retries,
+                            "Previous stack still deleting..."
+                        );
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                    StackStatus::DeleteFailed => {
+                        let reason = stack.stack_status_reason().unwrap_or("unknown");
+                        panic!("CloudFormation stack deletion failed: {status:?} - {reason}");
+                    }
+                    other => {
+                        debug!(status = ?other, "Waiting for previous stack deletion to settle...");
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                }
+            }
+            Err(error) if is_stack_not_found_error(&error) => {
+                debug!("Previous CloudFormation stack '{STACK_NAME}' no longer exists.");
+                return;
+            }
+            Err(error) => panic!("shouldn't fail waiting for stack deletion: {error:?}"),
+        }
+    }
 }
 
 /// Polls the stack status until it reaches `CREATE_COMPLETE` or fails.

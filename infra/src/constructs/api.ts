@@ -1,0 +1,243 @@
+import * as cdk from "aws-cdk-lib";
+import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
+import * as authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
+import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as logs from "aws-cdk-lib/aws-logs";
+import { Construct } from "constructs";
+import type { StageConfig } from "../config";
+import type { Identity } from "./cognito";
+import type { LambdaCatalog, LambdaKey } from "./lambdas";
+
+interface RouteDefinition {
+  readonly method: apigwv2.HttpMethod;
+  readonly path: string;
+  readonly lambda: LambdaKey;
+  readonly authenticated?: boolean;
+}
+
+const ROUTES: readonly RouteDefinition[] = [
+  route("PUT", "/api/v1/newsletter-subscriptions", "newsletterApi"),
+
+  route("DELETE", "/api/v1/me/notifications", "notificationApi", true),
+  route("DELETE", "/api/v1/me/notifications/{eventId}", "notificationApi", true),
+  route("GET", "/api/v1/me/notifications", "notificationApi", true),
+  route("PATCH", "/api/v1/me/notifications", "notificationApi", true),
+  route("PATCH", "/api/v1/me/notifications/{eventId}", "notificationApi", true),
+
+  route("GET", "/api/v1/oauth/authorize", "oauthApi", true),
+  route("POST", "/api/v1/oauth/clients", "oauthApi", true),
+  route("DELETE", "/api/v1/oauth/clients/{clientId}", "oauthApi", true),
+  route("GET", "/api/v1/oauth/clients/{clientId}", "oauthApi", true),
+  route("GET", "/api/v1/oauth/clients", "oauthApi", true),
+  route("POST", "/api/v1/oauth/introspect", "oauthApi"),
+  route("POST", "/api/v1/oauth/revoke", "oauthApi"),
+  route("GET", "/api/v1/oauth/tokens/by-third-party-code/{thirdPartyCode}", "oauthApi"),
+  route("POST", "/api/v1/oauth/token", "oauthApi"),
+  route("PATCH", "/api/v1/oauth/clients/{clientId}", "oauthApi", true),
+
+  route("POST", "/api/v1/partner-applications/{partnerApplicationId}/decision", "partnerShopApplicationApi", true),
+  route("GET", "/api/v1/partner-applications", "partnerShopApplicationApi", true),
+  route("GET", "/api/v1/partner-applications/{partnerApplicationId}", "partnerShopApplicationApi", true),
+  route("PATCH", "/api/v1/partner-applications/{partnerApplicationId}", "partnerShopApplicationApi", true),
+  route("DELETE", "/api/v1/me/partner-applications/{partnerApplicationId}", "partnerShopApplicationApi", true),
+  route("GET", "/api/v1/me/partner-applications", "partnerShopApplicationApi", true),
+  route("GET", "/api/v1/me/partner-applications/{partnerApplicationId}", "partnerShopApplicationApi", true),
+  route("PATCH", "/api/v1/me/partner-applications/{partnerApplicationId}", "partnerShopApplicationApi", true),
+  route("POST", "/api/v1/me/partner-applications", "partnerShopApplicationApi", true),
+
+  route("GET", "/api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}", "productApi"),
+  route("GET", "/api/v1/shops/{shopId}/products/{shopsProductId}/history", "productApi"),
+  route("GET", "/api/v1/shops/{shopId}/products/{shopsProductId}", "productApi"),
+  route("GET", "/api/v1/shops/{shopId}/products/{shopsProductId}/similar", "productApi"),
+  route("POST", "/api/v1/products/search", "productApi"),
+  route("GET", "/api/v1/products", "productApi"),
+  route("PATCH", "/api/v1/shops/{shopId}/products", "productApiPartner"),
+  route("POST", "/api/v1/shops/{shopId}/products", "productApiPartner"),
+  route("PUT", "/api/v1/shops/{shopId}/products", "productApiPartner"),
+
+  route("DELETE", "/api/v1/me/watchlist/{shopId}/{shopsProductId}", "productWatchlistApi", true),
+  route("GET", "/api/v1/me/watchlist", "productWatchlistApi", true),
+  route("PATCH", "/api/v1/me/watchlist/{shopId}/{shopsProductId}", "productWatchlistApi", true),
+  route("POST", "/api/v1/me/watchlist", "productWatchlistApi", true),
+
+  route("DELETE", "/api/v1/me/search-filters/{userSearchFilterId}", "searchFilterApi", true),
+  route("GET", "/api/v1/me/search-filters", "searchFilterApi", true),
+  route("GET", "/api/v1/me/search-filters/{userSearchFilterId}", "searchFilterApi", true),
+  route("GET", "/api/v1/me/search-filters/{userSearchFilterId}/matches", "searchFilterApi", true),
+  route("GET", "/api/v1/me/search-filters/{userSearchFilterId}/products", "searchFilterApi", true),
+  route("PATCH", "/api/v1/me/search-filters/{userSearchFilterId}/matches/{shopId}/{shopsProductId}", "searchFilterApi", true),
+  route("PATCH", "/api/v1/me/search-filters/{userSearchFilterId}", "searchFilterApi", true),
+  route("POST", "/api/v1/me/search-filters", "searchFilterApi", true),
+
+  route("GET", "/api/v1/me/partner-shops", "shopApi", true),
+  route("GET", "/api/v1/by-domain/shops/{shopDomain}", "shopApi"),
+  route("GET", "/api/v1/shops/{shopId}", "shopApi"),
+  route("GET", "/api/v1/by-slug/shops/{shopSlugId}", "shopApi"),
+  route("PATCH", "/api/v1/shops/{shopId}", "shopApi"),
+  route("POST", "/api/v1/shops", "shopApi", true),
+  route("PUT", "/api/v1/shops/{shopId}/api-key", "shopApi", true),
+  route("POST", "/api/v1/shops/search", "shopApi"),
+  route("GET", "/api/v1/shops", "shopApi"),
+
+  route("POST", "/api/v1/me/billing/checkout", "stripeApi", true),
+  route("POST", "/api/v1/me/billing/manage", "stripeApi", true),
+  route("POST", "/api/v1/me/billing/portal", "stripeApi", true),
+
+  route("DELETE", "/api/v1/users/{userId}", "userApi", true),
+  route("GET", "/api/v1/users/{userId}", "userApi", true),
+  route("PATCH", "/api/v1/users/{userId}", "userApi", true),
+  route("GET", "/api/v1/users", "userApi", true),
+  route("DELETE", "/api/v1/me/access-tokens/{accessTokenId}", "userApi", true),
+  route("DELETE", "/api/v1/me", "userApi", true),
+  route("GET", "/api/v1/me/access-tokens/{accessTokenId}", "userApi", true),
+  route("GET", "/api/v1/me/access-tokens", "userApi", true),
+  route("GET", "/api/v1/me/account", "userApi", true),
+  route("PATCH", "/api/v1/me/access-tokens", "userApi", true),
+  route("PATCH", "/api/v1/me/account", "userApi", true),
+  route("POST", "/api/v1/me/access-tokens", "userApi", true),
+
+  route("POST", "/api/v1/webhooks/woocommerce/{shopId}", "webhookApi"),
+];
+
+export interface HttpApiProps {
+  readonly config: StageConfig;
+  readonly stageName: string;
+  readonly functions: LambdaCatalog;
+  readonly identity: Identity;
+}
+
+export class BackendHttpApi extends Construct {
+  readonly api: apigwv2.HttpApi;
+  readonly stage: apigwv2.HttpStage;
+  readonly endpointUrl: string;
+
+  constructor(scope: Construct, id: string, props: HttpApiProps) {
+    super(scope, id);
+
+    this.api = new apigwv2.HttpApi(this, "Api", {
+      apiName: `api-${props.stageName}`,
+      createDefaultStage: false,
+      corsPreflight: {
+        allowHeaders: [
+          "Authorization",
+          "Content-Type",
+          "Accept",
+          "X-WC-Webhook-Source",
+          "X-WC-Webhook-Topic",
+          "X-WC-Webhook-Signature",
+          "X-WC-Webhook-Resource",
+          "X-WC-Webhook-Event",
+          "X-WC-Webhook-ID",
+          "X-WC-Webhook-Delivery-ID",
+          "X-Api-Key",
+        ],
+        allowMethods: [apigwv2.CorsHttpMethod.ANY],
+        allowOrigins: ["*"],
+      },
+    });
+
+    const logGroup = props.config.enableProductionObservability
+      ? new logs.LogGroup(this, "ApiLogGroup", {
+          logGroupName: `/aws/apigateway/api-${props.stageName}`,
+          retention: logs.RetentionDays.ONE_WEEK,
+          removalPolicy: props.config.removalPolicy,
+        })
+      : undefined;
+
+    this.stage = new apigwv2.HttpStage(this, "ApiStage", {
+      httpApi: this.api,
+      stageName: props.stageName,
+      autoDeploy: true,
+      throttle: props.config.enableProductionObservability
+        ? { burstLimit: 5000, rateLimit: 2000 }
+        : { burstLimit: 50, rateLimit: 20 },
+    });
+
+    if (logGroup) {
+      const cfnStage = this.stage.node.defaultChild as apigwv2.CfnStage;
+      cfnStage.addPropertyOverride("AccessLogSettings", {
+        DestinationArn: logGroup.logGroupArn,
+        Format: JSON.stringify({
+          requestId: "$context.requestId",
+          ip: "$context.identity.sourceIp",
+          requestTime: "$context.requestTime",
+          httpMethod: "$context.httpMethod",
+          routeKey: "$context.routeKey",
+          status: "$context.status",
+          protocol: "$context.protocol",
+          responseLength: "$context.responseLength",
+          integrationLatency: "$context.integrationLatency",
+          responseLatency: "$context.responseLatency",
+          integrationStatus: "$context.integrationStatus",
+          errorMessage: "$context.error.message",
+          errorMessageString: "$context.error.messageString",
+        }),
+      });
+      cfnStage.addPropertyOverride("DefaultRouteSettings.DetailedMetricsEnabled", true);
+    }
+
+    const authorizer = new authorizers.HttpJwtAuthorizer(
+      "ApiCognitoAuthorizer",
+      cdk.Fn.sub("https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}", {
+        UserPoolId: props.identity.userPool.userPoolId,
+      }),
+      {
+        jwtAudience: [
+          props.identity.publicClient.userPoolClientId,
+          props.identity.adminClient.userPoolClientId,
+        ],
+        identitySource: ["$request.header.Authorization"],
+      },
+    );
+
+    const integrationsByLambda = new Map<LambdaKey, integrations.HttpLambdaIntegration>();
+    for (const definition of ROUTES) {
+      const targetFunction = props.functions[definition.lambda];
+      if (!targetFunction) {
+        throw new Error(`No Lambda function configured for route '${definition.method} ${definition.path}'`);
+      }
+
+      let integration = integrationsByLambda.get(definition.lambda);
+      if (!integration) {
+        integration = new integrations.HttpLambdaIntegration(
+          `${definition.lambda}Integration`,
+          targetFunction,
+        );
+        integrationsByLambda.set(definition.lambda, integration);
+      }
+
+      this.api.addRoutes({
+        path: definition.path,
+        methods: [definition.method],
+        integration,
+        authorizer: definition.authenticated ? authorizer : undefined,
+      });
+    }
+
+    for (const lambdaKey of integrationsByLambda.keys()) {
+      props.functions[lambdaKey]?.addPermission(`${lambdaKey}ApiGatewayInvoke`, {
+        principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
+        sourceArn: cdk.Fn.sub("arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*/*/api/v1*", {
+          ApiId: this.api.apiId,
+        }),
+      });
+    }
+
+    this.endpointUrl = props.config.apiEndpointUrl ?? `${this.api.apiEndpoint}/${props.stageName}`;
+  }
+}
+
+function route(
+  method: keyof typeof apigwv2.HttpMethod,
+  path: string,
+  lambdaKey: LambdaKey,
+  authenticated = false,
+): RouteDefinition {
+  return {
+    method: apigwv2.HttpMethod[method],
+    path,
+    lambda: lambdaKey,
+    authenticated,
+  };
+}

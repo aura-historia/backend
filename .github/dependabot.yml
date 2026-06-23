@@ -26,9 +26,8 @@ updates:
           - "serde"
           - "serde*"
 
-  - package-ecosystem: pip
-    directories:
-      - "cfn/lint"
+  - package-ecosystem: npm
+    directory: "/infra"
     schedule:
       interval: daily
       time: "06:00"

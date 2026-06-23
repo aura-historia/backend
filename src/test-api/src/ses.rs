@@ -10,8 +10,8 @@ use tracing::{debug, info, warn};
 /// The sender email address used by all notification Lambdas in the
 /// ephemeral LocalStack stack.
 ///
-/// Must match the `SENDER_MAIL` environment variable set in
-/// `cfn/ephemeral.yaml`.
+/// Must match the `SENDER_MAIL` environment variable synthesized by the
+/// CDK ephemeral stack.
 const SENDER_EMAIL: &str = "no-reply@notify.aura-historia.com";
 
 /// A lazily-initialized, globally shared SESv2 client for integration testing.
