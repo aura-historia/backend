@@ -1,4 +1,4 @@
-use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_homepage;
+use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use common::shop_id::ShopId;
 use std::collections::HashSet;
@@ -23,6 +23,7 @@ impl ScraperServiceImpl {
         &self,
         shop_id: &ShopId,
         url: &Url,
+        product_url_pattern: Option<&str>,
         primary_html: &str,
     ) -> Vec<SchemaSeedPage> {
         let mut pages = vec![SchemaSeedPage {
@@ -65,11 +66,15 @@ impl ScraperServiceImpl {
             }
             match self.html_fetcher.fetch(&sample_url).await {
                 Ok(sample) => {
-                    if is_redirect_to_homepage(&sample_url, &sample.final_url) {
+                    if is_redirect_to_non_product_page(
+                        &sample_url,
+                        &sample.final_url,
+                        product_url_pattern,
+                    ) {
                         warn!(
                             sample_url = %sample_url,
                             final_url = %sample.final_url,
-                            "Skipping sampled schema-seed page because it redirected to homepage"
+                            "Skipping sampled schema-seed page because it redirected to a non-product page"
                         );
                         continue;
                     }

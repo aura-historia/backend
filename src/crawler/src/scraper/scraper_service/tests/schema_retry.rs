@@ -92,7 +92,7 @@ async fn should_use_yaml_only_when_append_schema_applies() {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap();
+    let result = service.scrape(&id, &url, None, None).await.unwrap();
     assert!(result.is_some());
 }
 
@@ -136,7 +136,7 @@ async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(matches!(
         err,
         ScraperError::SchemaRegenerationExhausted {
@@ -188,7 +188,7 @@ async fn should_exhaust_append_repair_after_yaml_fails() {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(matches!(
         err,
         ScraperError::SchemaRegenerationExhausted {
@@ -243,7 +243,7 @@ async fn should_not_consume_second_budget_call_when_yaml_append_does_not_apply()
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(matches!(
         err,
         ScraperError::SchemaRegenerationExhausted { attempts: 1, .. }

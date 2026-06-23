@@ -45,7 +45,7 @@ async fn scrape_with_schema_service(
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    service.scrape(&id, &url, None).await
+    service.scrape(&id, &url, None, None).await
 }
 
 #[tokio::test]

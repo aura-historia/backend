@@ -57,7 +57,11 @@ async fn should_return_normalized_product_when_schema_exists_and_applies_cleanly
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         result.product.shops_product_id,
@@ -121,7 +125,11 @@ async fn should_return_normalized_product_with_all_fields_when_normalization_pro
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(result.product, norm);
 }
@@ -186,7 +194,11 @@ async fn should_filter_invalid_thumbnail_images_before_normalization() {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(result.product.url, url);
 }

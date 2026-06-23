@@ -43,6 +43,7 @@ impl ScraperServiceImpl {
         &self,
         shop_id: &ShopId,
         url: &Url,
+        product_url_pattern: Option<&str>,
         html: &str,
     ) -> Result<ShopsProductSchema, ScraperError> {
         debug!("Obtaining product CSS selector schemas");
@@ -57,7 +58,9 @@ impl ScraperServiceImpl {
                 });
             }
 
-            let seed_pages = self.collect_schema_seed_pages(shop_id, url, html).await;
+            let seed_pages = self
+                .collect_schema_seed_pages(shop_id, url, product_url_pattern, html)
+                .await;
             if self.review_repository.is_some() {
                 if let Some(existing) = self.schema_service.find_product_schema(shop_id).await? {
                     debug!("Schema found in DB after seed page collection");

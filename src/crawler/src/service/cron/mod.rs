@@ -42,6 +42,7 @@ pub(super) mod test_support {
             shop_id: ShopId::new(),
             shop_name: shop_name.to_string(),
             shop_type,
+            url_pattern: None,
             url,
             last_scraped_hash: None,
             last_scraped_price: None,
