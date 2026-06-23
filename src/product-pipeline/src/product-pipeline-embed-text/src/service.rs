@@ -6,7 +6,7 @@ use common::logging::{
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder as GoogleCredentialsBuilder};
 use product::core::{description::Description, title::Title};
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::{debug, warn};
 use url::Url;
@@ -16,6 +16,8 @@ const GOOGLE_APPLICATION_CREDENTIALS_ENV_VAR: &str = "GOOGLE_APPLICATION_CREDENT
 const GOOGLE_APPLICATION_CREDENTIALS_TMP_PATH: &str = "/tmp/google-application-credentials.json";
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const OUTPUT_DIMENSIONALITY: usize = 768;
+const IMAGE_FETCH_MAX_ATTEMPTS: usize = 5;
+const IMAGE_FETCH_INITIAL_BACKOFF_MILLIS: u64 = 100;
 
 #[derive(Debug, Error)]
 pub enum MultimodalEmbeddingError {
@@ -99,6 +101,70 @@ impl MultimodalEmbeddingServiceImpl {
             source = current.source();
         }
         message
+    }
+
+    fn supported_image_mime_type_from_content_type(content_type: &str) -> Option<&'static str> {
+        let mime_type = content_type.split(';').next()?.trim();
+        if mime_type.eq_ignore_ascii_case("image/jpeg")
+            || mime_type.eq_ignore_ascii_case("image/jpg")
+            || mime_type.eq_ignore_ascii_case("image/pjpeg")
+        {
+            return Some("image/jpeg");
+        }
+        if mime_type.eq_ignore_ascii_case("image/png")
+            || mime_type.eq_ignore_ascii_case("image/x-png")
+        {
+            return Some("image/png");
+        }
+        if mime_type.eq_ignore_ascii_case("image/webp") {
+            return Some("image/webp");
+        }
+        if mime_type.eq_ignore_ascii_case("image/heic") {
+            return Some("image/heic");
+        }
+        if mime_type.eq_ignore_ascii_case("image/heif") {
+            return Some("image/heif");
+        }
+        None
+    }
+
+    fn supported_image_mime_type_from_bytes(bytes: &[u8]) -> Option<&'static str> {
+        if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+            return Some("image/jpeg");
+        }
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Some("image/png");
+        }
+        if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+            return Some("image/webp");
+        }
+        if bytes.get(4..8) == Some(b"ftyp") {
+            let major_brand = bytes.get(8..12)?;
+            if major_brand == b"heic"
+                || major_brand == b"heix"
+                || major_brand == b"hevc"
+                || major_brand == b"hevx"
+            {
+                return Some("image/heic");
+            }
+            if major_brand == b"mif1" || major_brand == b"msf1" {
+                return Some("image/heif");
+            }
+        }
+        None
+    }
+
+    fn content_type_can_be_supported_image(content_type: &str) -> bool {
+        let mime_type = content_type.split(';').next().unwrap_or_default().trim();
+        Self::supported_image_mime_type_from_content_type(content_type).is_some()
+            || mime_type.eq_ignore_ascii_case("application/octet-stream")
+            || mime_type.eq_ignore_ascii_case("binary/octet-stream")
+            || mime_type.to_ascii_lowercase().starts_with("image/")
+    }
+
+    fn image_fetch_backoff(attempt: usize) -> Duration {
+        let multiplier = 1_u64 << attempt.saturating_sub(1);
+        Duration::from_millis(IMAGE_FETCH_INITIAL_BACKOFF_MILLIS.saturating_mul(multiplier))
     }
 
     fn build_content_parts(
@@ -228,39 +294,76 @@ impl MultimodalEmbeddingServiceImpl {
         Ok(())
     }
 
+    async fn fetch_image_once(&self, url: &Url) -> Result<(String, String), String> {
+        let response = self
+            .client
+            .get(url.as_str())
+            .send()
+            .await
+            .map_err(|err| format!("request failed: {err}"))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("non-success HTTP status {status}"));
+        }
+
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+
+        if let Some(content_type) = content_type.as_deref()
+            && !Self::content_type_can_be_supported_image(content_type)
+        {
+            return Err(format!("unsupported content type {content_type}"));
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|err| format!("failed reading image bytes: {err}"))?;
+
+        let Some(mime_type) = Self::supported_image_mime_type_from_bytes(&bytes) else {
+            return Err(format!(
+                "body is not a supported image; content type was {}",
+                content_type.as_deref().unwrap_or("<missing>")
+            ));
+        };
+
+        let encoded = BASE64.encode(&bytes);
+        Ok((mime_type.to_string(), encoded))
+    }
+
     async fn fetch_image(&self, url: &Url) -> Option<(String, String)> {
-        match self.client.get(url.as_str()).send().await {
-            Ok(response) => {
-                let content_type = response
-                    .headers()
-                    .get(reqwest::header::CONTENT_TYPE)
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("image/jpeg")
-                    .to_string();
-
-                let mime_type = content_type
-                    .split(';')
-                    .next()
-                    .unwrap_or("image/jpeg")
-                    .trim()
-                    .to_string();
-
-                match response.bytes().await {
-                    Ok(bytes) => {
-                        let encoded = BASE64.encode(&bytes);
-                        Some((mime_type, encoded))
-                    }
-                    Err(err) => {
-                        warn!(error = %err, url = %url, "Failed reading image bytes.");
-                        None
-                    }
+        for attempt in 1..=IMAGE_FETCH_MAX_ATTEMPTS {
+            match self.fetch_image_once(url).await {
+                Ok(image) => return Some(image),
+                Err(err) if attempt == IMAGE_FETCH_MAX_ATTEMPTS => {
+                    warn!(
+                        error = %err,
+                        attempts = IMAGE_FETCH_MAX_ATTEMPTS,
+                        url = %url,
+                        "Skipping image after repeated fetch failures."
+                    );
+                    return None;
+                }
+                Err(err) => {
+                    let backoff = Self::image_fetch_backoff(attempt);
+                    debug!(
+                        error = %err,
+                        attempt = attempt,
+                        maxAttempts = IMAGE_FETCH_MAX_ATTEMPTS,
+                        backoffMs = backoff.as_millis(),
+                        url = %url,
+                        "Image fetch failed — retrying."
+                    );
+                    tokio::time::sleep(backoff).await;
                 }
             }
-            Err(err) => {
-                warn!(error = %err, url = %url, "Failed fetching image.");
-                None
-            }
         }
+
+        None
     }
 }
 
@@ -412,6 +515,72 @@ struct Embedding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[derive(Clone)]
+    struct TestHttpResponse {
+        status: String,
+        content_type: Option<String>,
+        body: Vec<u8>,
+    }
+
+    impl TestHttpResponse {
+        fn new(status: &str, content_type: Option<&str>, body: Vec<u8>) -> Self {
+            Self {
+                status: status.to_string(),
+                content_type: content_type.map(str::to_string),
+                body,
+            }
+        }
+    }
+
+    fn spawn_http_responses(
+        responses: impl IntoIterator<Item = TestHttpResponse>,
+    ) -> (Url, Arc<AtomicUsize>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let responses = responses.into_iter().collect::<Vec<_>>();
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let request_count_for_server = Arc::clone(&request_count);
+
+        std::thread::spawn(move || {
+            for test_response in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                request_count_for_server.fetch_add(1, Ordering::SeqCst);
+                let mut request = [0_u8; 1024];
+                let _ = stream.read(&mut request);
+
+                let content_type_header = test_response
+                    .content_type
+                    .map(|content_type| format!("Content-Type: {content_type}\r\n"))
+                    .unwrap_or_default();
+                let response = format!(
+                    "HTTP/1.1 {}\r\nContent-Length: {}\r\n{content_type_header}Connection: close\r\n\r\n",
+                    test_response.status,
+                    test_response.body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.write_all(&test_response.body).unwrap();
+            }
+        });
+
+        (
+            Url::parse(&format!("http://{addr}/image")).unwrap(),
+            request_count,
+        )
+    }
+
+    fn spawn_http_response(
+        status: &str,
+        content_type: Option<&str>,
+        body: Vec<u8>,
+    ) -> (Url, Arc<AtomicUsize>) {
+        spawn_http_responses([TestHttpResponse::new(status, content_type, body)])
+    }
 
     const GEMINI_EXAMPLE_RESPONSE_EMBEDDING_768: [f32; 768] = [
         -0.036270842,
@@ -1204,6 +1373,204 @@ mod tests {
         assert_eq!(
             MultimodalEmbeddingServiceImpl::build_embed_content_url("aura-historia", "global"),
             "https://aiplatform.googleapis.com/v1/projects/aura-historia/locations/global/publishers/google/models/gemini-embedding-2:embedContent"
+        );
+    }
+
+    #[test]
+    fn should_calculate_exponential_backoff_when_retrying_image_fetch() {
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::image_fetch_backoff(1),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::image_fetch_backoff(2),
+            Duration::from_millis(200)
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::image_fetch_backoff(3),
+            Duration::from_millis(400)
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::image_fetch_backoff(4),
+            Duration::from_millis(800)
+        );
+    }
+
+    #[test]
+    fn should_normalize_supported_image_mime_type_when_content_type_has_parameters_for_embedding_image()
+     {
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::supported_image_mime_type_from_content_type(
+                "image/jpg; charset=binary",
+            ),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::supported_image_mime_type_from_content_type(
+                "IMAGE/X-PNG",
+            ),
+            Some("image/png")
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::supported_image_mime_type_from_content_type(
+                "image/webp",
+            ),
+            Some("image/webp")
+        );
+    }
+
+    #[test]
+    fn should_reject_unsupported_image_mime_type_when_content_type_is_text_html_for_embedding_image()
+     {
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::supported_image_mime_type_from_content_type(
+                "text/html; charset=utf-8",
+            ),
+            None
+        );
+        assert!(
+            !MultimodalEmbeddingServiceImpl::content_type_can_be_supported_image(
+                "text/html; charset=utf-8"
+            )
+        );
+    }
+
+    #[test]
+    fn should_detect_supported_image_mime_type_when_body_has_image_signature_for_embedding_image() {
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::supported_image_mime_type_from_bytes(
+                b"\xff\xd8\xff\xe0jpeg",
+            ),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::supported_image_mime_type_from_bytes(
+                b"\x89PNG\r\n\x1a\nrest",
+            ),
+            Some("image/png")
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::supported_image_mime_type_from_bytes(
+                b"RIFFxxxxWEBPrest",
+            ),
+            Some("image/webp")
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::supported_image_mime_type_from_bytes(b"<html></html>"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn should_fetch_image_when_response_contains_supported_png_for_embedding_image() {
+        let body = b"\x89PNG\r\n\x1a\nnot-a-real-png-but-has-signature".to_vec();
+        let (url, request_count) =
+            spawn_http_response("200 OK", Some("image/png; charset=binary"), body.clone());
+        let service = MultimodalEmbeddingServiceImpl::new("test-project", "us");
+
+        let image = service.fetch_image(&url).await.unwrap();
+
+        assert_eq!(image.0, "image/png");
+        assert_eq!(image.1, BASE64.encode(&body));
+        assert_eq!(request_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn should_fetch_image_when_content_type_is_missing_but_body_is_supported_for_embedding_image()
+     {
+        let body = b"\x89PNG\r\n\x1a\nnot-a-real-png-but-has-signature".to_vec();
+        let (url, request_count) = spawn_http_response("200 OK", None, body.clone());
+        let service = MultimodalEmbeddingServiceImpl::new("test-project", "us");
+
+        let image = service.fetch_image(&url).await.unwrap();
+
+        assert_eq!(image.0, "image/png");
+        assert_eq!(image.1, BASE64.encode(&body));
+        assert_eq!(request_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn should_retry_fetch_image_when_initial_responses_fail_for_embedding_image() {
+        let body = b"\x89PNG\r\n\x1a\nnot-a-real-png-but-has-signature".to_vec();
+        let (url, request_count) = spawn_http_responses([
+            TestHttpResponse::new(
+                "200 OK",
+                Some("text/html; charset=utf-8"),
+                b"<html>not an image</html>".to_vec(),
+            ),
+            TestHttpResponse::new(
+                "503 Service Unavailable",
+                Some("text/html; charset=utf-8"),
+                b"<html>temporarily unavailable</html>".to_vec(),
+            ),
+            TestHttpResponse::new("200 OK", Some("image/png"), body.clone()),
+        ]);
+        let service = MultimodalEmbeddingServiceImpl::new("test-project", "us");
+
+        let image = service.fetch_image(&url).await.unwrap();
+
+        assert_eq!(image.0, "image/png");
+        assert_eq!(image.1, BASE64.encode(&body));
+        assert_eq!(request_count.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn should_skip_image_only_after_five_attempts_when_response_content_type_is_text_html_for_embedding_image()
+     {
+        let (url, request_count) = spawn_http_responses(vec![
+            TestHttpResponse::new(
+                "200 OK",
+                Some("text/html; charset=utf-8"),
+                b"<html>not an image</html>".to_vec(),
+            );
+            IMAGE_FETCH_MAX_ATTEMPTS
+        ]);
+        let service = MultimodalEmbeddingServiceImpl::new("test-project", "us");
+
+        assert!(service.fetch_image(&url).await.is_none());
+        assert_eq!(
+            request_count.load(Ordering::SeqCst),
+            IMAGE_FETCH_MAX_ATTEMPTS
+        );
+    }
+
+    #[tokio::test]
+    async fn should_skip_image_only_after_five_attempts_when_supported_content_type_has_html_body_for_embedding_image()
+     {
+        let (url, request_count) = spawn_http_responses(vec![
+            TestHttpResponse::new(
+                "200 OK",
+                Some("image/png"),
+                b"<html>not an image</html>".to_vec(),
+            );
+            IMAGE_FETCH_MAX_ATTEMPTS
+        ]);
+        let service = MultimodalEmbeddingServiceImpl::new("test-project", "us");
+
+        assert!(service.fetch_image(&url).await.is_none());
+        assert_eq!(
+            request_count.load(Ordering::SeqCst),
+            IMAGE_FETCH_MAX_ATTEMPTS
+        );
+    }
+
+    #[tokio::test]
+    async fn should_skip_image_only_after_five_attempts_when_response_status_is_not_success_for_embedding_image()
+     {
+        let (url, request_count) = spawn_http_responses(vec![
+            TestHttpResponse::new(
+                "404 Not Found",
+                Some("text/html; charset=utf-8"),
+                b"<html>missing</html>".to_vec(),
+            );
+            IMAGE_FETCH_MAX_ATTEMPTS
+        ]);
+        let service = MultimodalEmbeddingServiceImpl::new("test-project", "us");
+
+        assert!(service.fetch_image(&url).await.is_none());
+        assert_eq!(
+            request_count.load(Ordering::SeqCst),
+            IMAGE_FETCH_MAX_ATTEMPTS
         );
     }
 
