@@ -83,7 +83,11 @@ async fn should_try_next_existing_schema_when_first_schema_has_fixable_normaliza
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         result.product.shops_product_id,
         ShopsProductId::from("SKU-42")
@@ -188,7 +192,11 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         result.product.shops_product_id,
         ShopsProductId::from("SKU-42")
@@ -287,7 +295,11 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         result.product.shops_product_id,
         ShopsProductId::from("SKU-42")
@@ -341,7 +353,7 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(matches!(err, ScraperError::NormalizationError(_)));
 }
 
@@ -406,7 +418,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap();
+    let result = service.scrape(&id, &url, None, None).await.unwrap();
     assert!(result.is_some());
 }
 
@@ -482,7 +494,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate_without_sche
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap();
+    let result = service.scrape(&id, &url, None, None).await.unwrap();
     assert!(result.is_some());
 }
 
@@ -570,7 +582,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(matches!(
         err,
         ScraperError::SchemaRegenerationExhausted {
@@ -647,7 +659,7 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(
         matches!(
             err,

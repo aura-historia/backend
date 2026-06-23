@@ -33,7 +33,7 @@ async fn should_skip_fetching_and_return_none_when_hashes_match() {
     );
 
     let result = service
-        .scrape(&id, &url, Some(&matching_hash))
+        .scrape(&id, &url, None, Some(&matching_hash))
         .await
         .unwrap();
 

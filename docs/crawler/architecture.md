@@ -273,9 +273,9 @@ per-URL retry loop before returning failure to cron.
 `src/scraper/scraper_service.rs`:
 
 ```
-scrape(shop_id, url, last_scraped_hash)
+scrape(shop_id, url, product_url_pattern, last_scraped_hash)
  ├── HtmlFetcher::fetch(url)                  — download raw HTML and capture the final URL after redirects
- ├── if product URL redirected to same-host homepage
+ ├── if product URL redirected to a same-host URL that does not match the shop product URL pattern
  │    └── mark URL as REMOVED and stop before schema extraction
  ├── current_hash = SHA-256(<main> fragment) if present, else SHA-256(full HTML)
  ├── if <main> present AND current_hash == last_scraped_hash
@@ -343,6 +343,12 @@ Auto-approved schema reviews remain editable in the console. Editing a field, sc
 full JSON on an approved `PRODUCT_SCHEMA` review updates the live `shops_product_schema` row immediately, refreshes the
 review's candidate payload for audit readability, and appends a `manual_schema_edits` entry to
 `crawler_reviews.validation_summary`.
+
+Redirect guard: when `HtmlFetcher` follows redirects, the scraper compares the normalized original URL with the final
+URL. Equivalent canonical redirects continue normally. If the final URL differs and the shop has a valid persisted
+`shops.url_pattern`, the final URL must still match that product pattern; otherwise the original product URL is marked
+`REMOVED` before hashing, schema extraction, normalization, or product push. Without a valid pattern, the scraper only
+applies the conservative homepage/root redirect guard to avoid false removals.
 
 **Append-on-miss flow** — triggered when no cached schema variant applies during scrape:
 

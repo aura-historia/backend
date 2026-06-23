@@ -11,10 +11,15 @@ use crate::scraper::scraper_service::util::html::extract_main_fragment;
 use crate::spider::classification::url_metadata::UrlState;
 use crate::spider::utils::url::CrawledUrl;
 use common::shop_id::ShopId;
+use regex::Regex;
 use tracing::{debug, warn};
 use url::Url;
 
-pub(crate) fn is_redirect_to_homepage(original_url: &Url, final_url: &Url) -> bool {
+pub(crate) fn is_redirect_to_non_product_page(
+    original_url: &Url,
+    final_url: &Url,
+    product_url_pattern: Option<&str>,
+) -> bool {
     let normalized_original = CrawledUrl::new(original_url.clone());
     let normalized_final = CrawledUrl::new(final_url.clone());
 
@@ -26,8 +31,11 @@ pub(crate) fn is_redirect_to_homepage(original_url: &Url, final_url: &Url) -> bo
         return false;
     }
 
-    let path_is_root = final_url.path().is_empty() || final_url.path() == "/";
-    path_is_root
+    if let Some(pattern) = product_url_pattern.and_then(|raw| Regex::new(raw).ok()) {
+        return !normalized_final.matches_pattern(&pattern);
+    }
+
+    is_homepage(final_url)
 }
 
 fn is_same_logical_host(left: &Url, right: &Url) -> bool {
@@ -37,6 +45,10 @@ fn is_same_logical_host(left: &Url, right: &Url) -> bool {
 fn normalize_host(url: &Url) -> Option<&str> {
     url.host_str()
         .map(|host| host.strip_prefix("www.").unwrap_or(host))
+}
+
+fn is_homepage(url: &Url) -> bool {
+    url.path().is_empty() || url.path() == "/"
 }
 
 impl ScraperServiceImpl {
@@ -71,6 +83,7 @@ impl ScraperService for ScraperServiceImpl {
         &self,
         shop_id: &ShopId,
         url: &Url,
+        product_url_pattern: Option<&str>,
         last_scraped_hash: Option<&str>,
     ) -> Result<Option<ScrapedProduct>, ScraperError> {
         let domain = url
@@ -106,12 +119,12 @@ impl ScraperService for ScraperServiceImpl {
                 });
             }
         };
-        if is_redirect_to_homepage(url, &fetched.final_url) {
+        if is_redirect_to_non_product_page(url, &fetched.final_url, product_url_pattern) {
             self.mark_product_removed_best_effort(shop_id, url).await;
             return Err(ScraperError::ProductRemoved {
                 url: url.clone(),
                 details: format!(
-                    "product URL redirected to homepage: original={url}, final={}",
+                    "product URL redirected to non-product page: original={url}, final={}",
                     fetched.final_url
                 ),
             });
@@ -134,7 +147,9 @@ impl ScraperService for ScraperServiceImpl {
         }
 
         // 2. Obtain schemas (from DB or freshly created by LLM) -----------
-        let shops_product_schema = self.obtain_schemas(shop_id, url, &html).await?;
+        let shops_product_schema = self
+            .obtain_schemas(shop_id, url, product_url_pattern, &html)
+            .await?;
 
         // 3. Select a schema only after extraction and normalization succeed.
         let final_product = match self
