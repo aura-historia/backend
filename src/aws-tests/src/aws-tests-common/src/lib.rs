@@ -8,7 +8,6 @@ pub struct CloudFormationOutput {
     pub cognito_hosted_ui_domain: String,
     pub cognito_user_pool_id: String,
     pub cognito_user_pool_client_public_id: String,
-    pub cognito_user_pool_client_admin_id: String,
     pub api_gateway_endpoint_url: String,
     pub opensearch_endpoint_url: String,
     pub dynamodb_table_1_name: String,

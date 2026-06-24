@@ -59,6 +59,12 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let infrastructure_changed = changed_files.iter().any(|path| {
+        path.starts_with("infra/")
+            || path == ".github/workflows/deploy.yml"
+            || path == ".github/workflows/integrate.yml"
+    });
+
     let graph = MetadataCommand::new()
         .exec()
         .context("Failed to run cargo metadata")?
@@ -87,11 +93,15 @@ fn main() -> Result<()> {
         .filter(|c| affected_dirs.contains(*c))
         .collect();
 
-    let acceptance_test: Vec<&str> = ACCEPTANCE_TEST_CRATES
-        .iter()
-        .copied()
-        .filter(|c| affected_dirs.contains(*c))
-        .collect();
+    let acceptance_test: Vec<&str> = if infrastructure_changed {
+        ACCEPTANCE_TEST_CRATES.to_vec()
+    } else {
+        ACCEPTANCE_TEST_CRATES
+            .iter()
+            .copied()
+            .filter(|c| affected_dirs.contains(*c))
+            .collect()
+    };
 
     let output = serde_json::json!({
         "integration_test": integration_test,

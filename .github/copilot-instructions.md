@@ -193,8 +193,8 @@ Located in various directories:
 ### Creating new lambdas
 - Add the lambda to the github action "deploy"
 - Add the lambda to `src/ci-determinator/src/main.rs` iff it has an integration-test in dir `tests`
-- Add the lambda to `src/test-api/src/cloudformation.rs` for deployment to Localstack in integration- and acceptance-tests
-- Add the required Cloudformation resources to all templates in dir `cfn`
+- Add the lambda to `src/test-api/src/cloudformation.rs` for deployment to LocalStack in integration- and acceptance-tests
+- Add the required infrastructure to the CDK app in `infra/` and update CDK tests
 
 ### Code Quality
 - Format all code: `cargo fmt --all`
@@ -281,7 +281,7 @@ src/
 - `.github/workflows/golden-ami-product-pipeline-embed-text.yml`: Golden AMI workflow for embed-text pipeline
 - `.github/workflows/golden-ami-product-pipeline-translate.yml`: Golden AMI workflow for translate pipeline
 - `sonar-project.properties`: SonarQube configuration for code quality analysis
-- `cfn/`: CloudFormation templates for different stages (dev, prod, ephemeral, golden-ami)
+- `infra/`: AWS CDK app synthesizing the application stacks for prod, dev, and ephemeral
 
 ### Additional Resources
 - `docs/`: Documentation including DynamoDB schema documentation
@@ -289,8 +289,8 @@ src/
 - `mjml/`: MJML email templates for watchlist notifications (price/state updates in multiple languages)
 - `ci/`: CI/CD helper scripts (e.g., OpenSearch index setup)
 
-### Production CloudFormation Tuning Overview
-- Treat the prod Lambdas in three workload classes when tuning `cfn/prod.yaml`:
+### Production CDK Tuning Overview
+- Treat the prod Lambdas in three workload classes when tuning `infra/`:
   1. **API Lambdas** (`product-api`, `shop-api`, `user-api`, `search-filter-api`, `stripe-api`, `newsletter-api`, `partner-*`) are short-lived request/response handlers that mainly orchestrate DynamoDB, OpenSearch, Cognito, Stripe, Zoho, or geocoding calls.
   2. **Sequential queue workers** (`notification-send`, `product-lambda-update-notify-user`, `search-filter-lambda-percolate-product`, `shop-lambda-opensearch-index`, `user-lambda-index-opensearch`, `user-lambda-tier-update`, `search-filter-lambda-opensearch-sync`) process SQS records one-by-one and often perform external I/O per record, so batch sizes and SQS visibility timeouts must stay conservative.
   3. **Product pipeline workers** (`product-pipeline-translate`, `product-pipeline-embed-text`) call Gemini and/or OpenSearch, then persist enrichment events back to DynamoDB; prod tuning should cap concurrency deliberately and keep queue visibility timeouts at least `6 x` the Lambda timeout.
@@ -355,7 +355,7 @@ src/
 
 ### Project-Specific Context
 
-* We use AWS CloudFormation to declare the Cloud-Stack for each of the stages: prod, dev, ephemeral (per Pull-Request).
-* Whenever a Pull-Request changes any of the Cloudformation-Code, make sure it is done for ALL stages as long as relevant.
-* Stage ephemeral uses a managed AWS OpenSearch-Instance while dev and prod use a self-hosted variant.
+* We use AWS CDK in `infra/` to synthesize the CloudFormation stacks for prod, dev, and ephemeral.
+* Whenever a Pull-Request changes infrastructure, make sure stage-specific behavior is covered for all relevant stages.
+* Stage ephemeral uses a managed AWS OpenSearch instance in LocalStack while dev and prod use a self-hosted variant.
 * Cloudwatch Alarms are only used in prod.
