@@ -110,10 +110,9 @@ pub async fn create_test_user(email: &str) -> TestUser {
         .await
         .unwrap();
     let auth = cognito
-        .admin_initiate_auth()
-        .user_pool_id(&cfn.cognito_user_pool_id)
-        .client_id(&cfn.cognito_user_pool_client_admin_id)
-        .auth_flow(AuthFlowType::AdminUserPasswordAuth)
+        .initiate_auth()
+        .client_id(&cfn.cognito_user_pool_client_public_id)
+        .auth_flow(AuthFlowType::UserPasswordAuth)
         .auth_parameters("USERNAME", email)
         .auth_parameters("PASSWORD", &password)
         .send()

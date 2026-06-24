@@ -17,27 +17,17 @@ use std::time::Duration;
 use tokio::sync::OnceCell;
 use tracing::{debug, error, info};
 
-const ARTIFACT_BUCKET: &str = "lambda-artifacts";
+const ARTIFACT_BUCKET: &str = "aura-historia-binary-artifacts-eu-central-1";
 const STACK_NAME: &str = "acceptance-test-stack";
-const STAGE_NAME: &str = "acceptance";
 const COMMIT_SHA: &str = "local";
 
-/// The value passed as the CloudFormation `Stage` parameter.
+/// CDK stage synthesized for LocalStack acceptance tests.
 ///
-/// This controls the `STAGE` environment variable injected into every Lambda
-/// function by the template (`STAGE: !Ref Stage`).  The Lambda OpenSearch
-/// client (`common::opensearch::client::load_transport`) branches on this
-/// value:
-///
-/// * `"ephemeral"` → uses AWS-signed auth (no username/password needed) —
-///   the correct mode for LocalStack.
-/// * anything else → expects `OPENSEARCH_USERNAME` / `OPENSEARCH_PASSWORD`
-///   env vars, which do not exist in LocalStack, causing an immediate
-///   `Error: NotPresent` panic on startup.
-///
-/// Note: resource *naming* in the template uses the separate `StageName`
-/// parameter (always `STAGE_NAME`), so this constant does not affect queue
-/// names, table names, or any `!Sub "…${StageName}"` substitution.
+/// This value is used for physical resource suffixes, Lambda artifact keys,
+/// mail-template prefixes, and the runtime `STAGE` environment variable. The
+/// Lambda OpenSearch client branches on `"ephemeral"` to use AWS-signed auth
+/// without username/password credentials, which is the correct mode for
+/// LocalStack.
 const STAGE: &str = "ephemeral";
 
 /// All Lambda binary names that the ephemeral CloudFormation stack requires.
@@ -305,7 +295,7 @@ const MAX_CONCURRENT_UPLOADS: usize = 3;
 /// Packages each Lambda binary into a ZIP and uploads it to S3 with bounded concurrency.
 ///
 /// The ZIP contains a single file named `bootstrap` (required by the `provided.al2023` runtime).
-/// The S3 key follows the pattern: `{binary_name}-{STAGE_NAME}-{COMMIT_SHA}.zip`
+/// The S3 key follows the pattern: `{binary_name}-{STAGE}-{COMMIT_SHA}.zip`
 ///
 /// ZIP creation is deferred into each async task (via `spawn_blocking`) so that only
 /// `MAX_CONCURRENT_UPLOADS` binaries are read and compressed at any given time, avoiding
@@ -326,7 +316,7 @@ async fn package_and_upload_lambdas() {
                  Ensure `cargo lambda build --workspace --release` succeeded.",
                 binary_path.display()
             );
-            let s3_key = format!("{binary_name}-{STAGE_NAME}-{COMMIT_SHA}.zip");
+            let s3_key = format!("{binary_name}-{STAGE}-{COMMIT_SHA}.zip");
             (binary_path, s3_key)
         })
         .collect();
@@ -378,6 +368,9 @@ fn create_lambda_zip(binary_path: &Path) -> Vec<u8> {
 fn synthesize_ephemeral_template() -> String {
     info!("Synthesizing CDK ephemeral stack template...");
 
+    let endpoint_url = get_endpoint_url();
+    let local_stack_mapped_port = endpoint_url.rsplit(':').next().unwrap_or("4566").to_owned();
+
     let output = Command::new("npm")
         .args([
             "--prefix",
@@ -389,7 +382,11 @@ fn synthesize_ephemeral_template() -> String {
             "application-ephemeral",
             "--context",
             "stage=ephemeral",
+            "--context",
         ])
+        .arg(format!(
+            "localStackMappedPort={local_stack_mapped_port}"
+        ))
         .current_dir(env!("CARGO_WORKSPACE_DIR"))
         .output()
         .expect(
@@ -441,32 +438,8 @@ async fn deploy_stack() {
         .template_url(&template_url)
         .parameters(
             aws_sdk_cloudformation::types::Parameter::builder()
-                .parameter_key("Stage")
-                .parameter_value(STAGE)
-                .build(),
-        )
-        .parameters(
-            aws_sdk_cloudformation::types::Parameter::builder()
-                .parameter_key("StageName")
-                .parameter_value(STAGE_NAME)
-                .build(),
-        )
-        .parameters(
-            aws_sdk_cloudformation::types::Parameter::builder()
-                .parameter_key("ArtifactBucket")
-                .parameter_value(ARTIFACT_BUCKET)
-                .build(),
-        )
-        .parameters(
-            aws_sdk_cloudformation::types::Parameter::builder()
                 .parameter_key("CommitSHA")
                 .parameter_value(COMMIT_SHA)
-                .build(),
-        )
-        .parameters(
-            aws_sdk_cloudformation::types::Parameter::builder()
-                .parameter_key("LocalStackMappedPort")
-                .parameter_value(get_endpoint_url().rsplit(':').next().unwrap_or("4566"))
                 .build(),
         )
         .capabilities(aws_sdk_cloudformation::types::Capability::CapabilityNamedIam)
@@ -697,8 +670,8 @@ async fn extract_and_set_cfn_outputs() {
 /// # Example
 ///
 /// ```text
-/// input:  "https://46f9640d.execute-api.amazonaws.com:4566/acceptance"
-/// output: "http://46f9640d.execute-api.localhost.localstack.cloud:54321/acceptance"
+/// input:  "https://46f9640d.execute-api.amazonaws.com:4566/ephemeral"
+/// output: "http://46f9640d.execute-api.localhost.localstack.cloud:54321/ephemeral"
 /// ```
 fn localize_apigw_url(cfn_url: &str) -> String {
     // get_endpoint_url() → "http://localhost:{mapped-port}"

@@ -133,7 +133,7 @@ export class BackendHttpApi extends Construct {
           "X-Api-Key",
         ],
         allowMethods: [apigwv2.CorsHttpMethod.ANY],
-        allowOrigins: ["*"],
+        allowOrigins: props.config.apiCorsAllowOrigins,
       },
     });
 
@@ -183,10 +183,7 @@ export class BackendHttpApi extends Construct {
         UserPoolId: props.identity.userPool.userPoolId,
       }),
       {
-        jwtAudience: [
-          props.identity.publicClient.userPoolClientId,
-          props.identity.adminClient.userPoolClientId,
-        ],
+        jwtAudience: [props.identity.publicClient.userPoolClientId],
         identitySource: ["$request.header.Authorization"],
       },
     );

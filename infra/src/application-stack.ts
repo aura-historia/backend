@@ -2,7 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import type { StageName } from "./config";
+import { ARTIFACT_BUCKET_NAME, MAIL_TEMPLATE_BUCKET_NAME, type StageName } from "./config";
 import { stageConfig } from "./config";
 import { applicationParameters } from "./parameters";
 import { BackendHttpApi } from "./constructs/api";
@@ -17,6 +17,7 @@ import { PartnerShopApplicationWorkflow } from "./constructs/workflow";
 
 export interface ApplicationStackProps extends cdk.StackProps {
   readonly stage: StageName;
+  readonly localStackMappedPort?: string;
 }
 
 export class ApplicationStack extends cdk.Stack {
@@ -28,27 +29,29 @@ export class ApplicationStack extends cdk.Stack {
       }),
     });
 
-    const config = stageConfig(props.stage);
-    const parameters = applicationParameters(this, config);
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
+    });
+    const parameters = applicationParameters(this);
+    const stageName = config.stage;
 
     this.templateOptions.description = "Aura Historia application stack";
 
-    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", parameters.artifactBucketName);
-    const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", parameters.mailTemplateBucketName);
+    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
+    const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", MAIL_TEMPLATE_BUCKET_NAME);
 
     const storage = new Storage(this, "Storage", {
       config,
-      stageName: parameters.stageName,
+      stageName,
     });
 
     const queues = new Queues(this, "Queues", {
       config,
-      stageName: parameters.stageName,
+      stageName,
     });
 
     const search = new Search(this, "Search", {
       config,
-      externalEndpointUrl: parameters.opensearchEndpointUrl,
     });
 
     const lambdas = new Lambdas(this, "Lambdas", {
@@ -63,20 +66,15 @@ export class ApplicationStack extends cdk.Stack {
 
     const identity = new Identity(this, "Identity", {
       config,
-      stageName: parameters.stageName,
+      stageName,
       postConfirmationLambda: lambdas.functions.postConfirmation,
     });
-    addUserPoolEnvironment(
-      lambdas.functions,
-      identity.userPool.userPoolId,
-      identity.publicClient.userPoolClientId,
-      identity.adminClient.userPoolClientId,
-    );
+    addUserPoolEnvironment(lambdas.functions, identity.userPool.userPoolId, identity.publicClient.userPoolClientId);
     grantCognitoAdminAccess(lambdas.functions, identity.userPool.userPoolArn);
 
     const workflow = new PartnerShopApplicationWorkflow(this, "PartnerShopApplicationWorkflow", {
       config,
-      stageName: parameters.stageName,
+      stageName,
       worker: lambdas.functions.partnerShopApplicationWorkflow,
     });
     lambdas.functions.partnerShopApplicationApi.addEnvironment(
@@ -98,7 +96,6 @@ export class ApplicationStack extends cdk.Stack {
 
     const eventing = new Eventing(this, "Eventing", {
       config,
-      parameters,
       table: storage.table,
       queues: queues.catalog,
       functions: lambdas.functions,
@@ -106,14 +103,14 @@ export class ApplicationStack extends cdk.Stack {
 
     const api = new BackendHttpApi(this, "HttpApi", {
       config,
-      stageName: parameters.stageName,
+      stageName,
       functions: lambdas.functions,
       identity,
     });
 
     const observability = new Observability(this, "Observability", {
       config,
-      stageName: parameters.stageName,
+      stageName,
       api: api.api,
       table: storage.table,
       functions: lambdas.functions,
@@ -152,10 +149,6 @@ function outputs(
   new cdk.CfnOutput(stack, "CognitoUserPoolClientPublicId", {
     value: resources.identity.publicClient.userPoolClientId,
   });
-  new cdk.CfnOutput(stack, "CognitoUserPoolClientAdminId", {
-    value: resources.identity.adminClient.userPoolClientId,
-  });
-
   new cdk.CfnOutput(stack, "ApiGatewayEndpointUrl", { value: resources.api.endpointUrl });
   new cdk.CfnOutput(stack, "DynamodbTable1Name", { value: resources.storage.table.tableName });
   new cdk.CfnOutput(stack, "OpensearchDomainName", { value: resources.search.domainName });

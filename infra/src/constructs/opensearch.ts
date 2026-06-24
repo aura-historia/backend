@@ -6,7 +6,6 @@ import type { StageConfig } from "../config";
 
 export interface SearchProps {
   readonly config: StageConfig;
-  readonly externalEndpointUrl: string;
 }
 
 export class Search extends Construct {
@@ -47,7 +46,7 @@ export class Search extends Construct {
         DomainArn: this.domain.attrArn,
       });
     } else {
-      this.endpointUrl = props.externalEndpointUrl;
+      this.endpointUrl = props.config.opensearchEndpointUrl;
       this.domainArnForIam = cdk.Stack.of(this).formatArn({
         service: "es",
         resource: "domain",

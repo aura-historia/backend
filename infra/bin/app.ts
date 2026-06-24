@@ -14,8 +14,10 @@ if (!isStageName(stageContext)) {
 
 const defaultStackName = `application-${stageContext}`;
 const stackName = app.node.tryGetContext("stackName") ?? process.env.STACK_NAME ?? defaultStackName;
+const localStackMappedPort = app.node.tryGetContext("localStackMappedPort") ?? process.env.LOCALSTACK_MAPPED_PORT;
 
 new ApplicationStack(app, stackName, {
   stage: stageContext,
   stackName,
+  localStackMappedPort,
 });

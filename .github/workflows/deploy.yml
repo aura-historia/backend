@@ -283,19 +283,7 @@ jobs:
             --no-asset-metadata \
             --no-version-reporting \
             --no-notices \
-            --parameters ArtifactBucket=${{ vars.S3_BINARY_ARTIFACTS_BUCKET_NAME }} \
-            --parameters ResourceBucket=${{ vars.S3_RESOURCE_ARTIFACTS_BUCKET_NAME }} \
-            --parameters MailTemplateBucket=${{ vars.S3_MAIL_TEMPLATE_BUCKET_NAME }} \
-            --parameters CommitSHA=${{ env.DEPLOY_COMMIT_SHA }} \
-            --parameters OpenSearchEndpointUrl=${{ vars.OPENSEARCH_ENDPOINT_URL }} \
-            --parameters StripeEventBusName=${{ vars.STRIPE_EVENT_BUS_NAME }} \
-            --parameters ShopifyEventBusName=${{ vars.SHOPIFY_EVENT_BUS_NAME }} \
-            --parameters StripeProProductId=${{ vars.STRIPE_PRO_PRODUCT_ID }} \
-            --parameters StripeUltimateProductId=${{ vars.STRIPE_ULTIMATE_PRODUCT_ID }} \
-            --parameters StripeProMonthlyPriceId=${{ vars.STRIPE_PRO_MONTHLY_PRICE_ID }} \
-            --parameters StripeProYearlyPriceId=${{ vars.STRIPE_PRO_YEARLY_PRICE_ID }} \
-            --parameters StripeUltimateMonthlyPriceId=${{ vars.STRIPE_ULTIMATE_MONTHLY_PRICE_ID }} \
-            --parameters StripeUltimateYearlyPriceId=${{ vars.STRIPE_ULTIMATE_YEARLY_PRICE_ID }}
+            --parameters CommitSHA=${{ env.DEPLOY_COMMIT_SHA }}
 
   aws-smoking-test:
     name: AWS Smoking-Test

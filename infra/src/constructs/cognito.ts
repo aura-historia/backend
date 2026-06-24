@@ -1,6 +1,8 @@
 import * as cdk from "aws-cdk-lib";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 
@@ -13,7 +15,6 @@ export interface IdentityProps {
 export class Identity extends Construct {
   readonly userPool: cognito.UserPool;
   readonly publicClient: cognito.UserPoolClient;
-  readonly adminClient: cognito.UserPoolClient;
   readonly domain: cognito.UserPoolDomain;
 
   constructor(scope: Construct, id: string, props: IdentityProps) {
@@ -37,7 +38,7 @@ export class Identity extends Construct {
       },
       userVerification: {
         emailSubject: "Verify your email",
-        emailBody: "Your verification code is {####}",
+        emailBody: verificationEmailBody(),
       },
       removalPolicy: props.config.removalPolicy,
     });
@@ -53,34 +54,19 @@ export class Identity extends Construct {
       idTokenValidity: cdk.Duration.hours(1),
       refreshTokenValidity: cdk.Duration.days(30),
       supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+      authFlows: {
+        userPassword: true,
+        userSrp: true,
+      },
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-        callbackUrls: ["http://localhost:3000"],
-        logoutUrls: ["http://localhost:3000"],
+        callbackUrls: props.config.cognitoCallbackUrls,
+        logoutUrls: props.config.cognitoLogoutUrls,
       },
       readAttributes: new cognito.ClientAttributes().withStandardAttributes({
         email: true,
         emailVerified: true,
-      }),
-    });
-
-    this.adminClient = this.userPool.addClient("PrimaryUserPoolClientAdmin", {
-      userPoolClientName: `primary-userpool-client-admin-${props.stageName}`,
-      generateSecret: false,
-      preventUserExistenceErrors: true,
-      enableTokenRevocation: true,
-      accessTokenValidity: cdk.Duration.hours(1),
-      idTokenValidity: cdk.Duration.hours(1),
-      refreshTokenValidity: cdk.Duration.days(30),
-      authFlows: {
-        adminUserPassword: true,
-      },
-      readAttributes: new cognito.ClientAttributes().withStandardAttributes({
-        email: true,
-      }),
-      writeAttributes: new cognito.ClientAttributes().withStandardAttributes({
-        email: true,
       }),
     });
 
@@ -90,4 +76,8 @@ export class Identity extends Construct {
       },
     });
   }
+}
+
+function verificationEmailBody(): string {
+  return fs.readFileSync(path.join(__dirname, "..", "templates", "cognito-verification-email.html"), "utf8");
 }

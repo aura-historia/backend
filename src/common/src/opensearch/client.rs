@@ -27,8 +27,7 @@ pub async fn load_transport() -> Result<Transport, lambda_runtime::Error> {
     //  2. `:4566` → `:{LOCALSTACK_MAPPED_PORT}`
     //     LocalStack listens on a randomly chosen free port on the host (not on the
     //     fixed internal container port 4566). `LOCALSTACK_MAPPED_PORT` carries that
-    //     port and is injected into every Lambda via the CloudFormation parameter
-    //     `LocalStackMappedPort`.
+    //     port and is injected into every Lambda from CDK synth context.
     //  3. `https://` → `http://`
     //     The CloudFormation `!Sub "https://…"` produces an HTTPS URL, but LocalStack's
     //     OpenSearch proxy is plain HTTP.

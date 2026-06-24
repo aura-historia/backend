@@ -5,9 +5,19 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
+import { ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 import type { Search } from "./opensearch";
 import type { QueueCatalog } from "./queues";
+
+interface LambdaEnvironmentContext {
+  readonly config: StageConfig;
+  readonly commitSha: string;
+  readonly mailTemplateBucket: s3.IBucket;
+  readonly table: dynamodb.Table;
+  readonly queues: QueueCatalog;
+  readonly search: Search;
+}
 
 interface LambdaDefinition {
   readonly id: string;
@@ -15,6 +25,7 @@ interface LambdaDefinition {
   readonly memorySize: number;
   readonly timeoutSeconds: number;
   readonly skipEphemeral?: boolean;
+  readonly environment?: (context: LambdaEnvironmentContext) => Record<string, string>;
 }
 
 const LAMBDA_DEFINITIONS = {
@@ -23,42 +34,64 @@ const LAMBDA_DEFINITIONS = {
     binaryName: "cloudwatch-log-retention-lambda",
     memorySize: 128,
     timeoutSeconds: 10,
+    environment: () => ({}),
   },
   newsletterApi: {
     id: "NewsletterApiLambda",
     binaryName: "newsletter-api",
     memorySize: 256,
     timeoutSeconds: 10,
+    environment: (context) => ({
+      ...baseEnvironment(context),
+      STAGE: context.config.stage,
+      ZOHO_ACCOUNTS_URL: secretOrTest(context.config, "zoho-accounts-url", "https://accounts.zoho.eu"),
+      ZOHO_CAMPAIGNS_URL: secretOrTest(context.config, "zoho-campaigns-url", "https://campaigns.zoho.eu"),
+      ZOHO_CLIENT_ID: secretOrTest(context.config, "zoho-client-id", "test-zoho-client-id"),
+      ZOHO_CLIENT_SECRET: secretOrTest(context.config, "zoho-client-secret", "test-zoho-client-secret"),
+      ZOHO_LIST_KEY: secretOrTest(context.config, "zoho-list-key", "test-zoho-list-key"),
+      ZOHO_REFRESH_TOKEN: secretOrTest(context.config, "zoho-refresh-token", "test-zoho-refresh-token"),
+    }),
   },
   notificationApi: {
     id: "NotificationApiLambda",
     binaryName: "notification-api",
     memorySize: 256,
     timeoutSeconds: 10,
+    environment: stageEnvironment,
   },
   notificationSend: {
     id: "NotificationSendLambda",
     binaryName: "notification-send",
     memorySize: 512,
     timeoutSeconds: 60,
+    environment: mailTemplateEnvironment,
   },
   oauthApi: {
     id: "OAuthApiLambda",
     binaryName: "oauth-api",
     memorySize: 128,
     timeoutSeconds: 10,
+    environment: (context) => withLocalStackPort(context.config, stageEnvironment(context)),
   },
   partnerShopApplicationApi: {
     id: "PartnerShopApplicationApiLambda",
     binaryName: "partner-shop-application-api",
     memorySize: 256,
     timeoutSeconds: 10,
+    environment: stageEnvironment,
   },
   partnerShopApplicationWorkflow: {
     id: "PartnerShopApplicationStepFunctionLambda",
     binaryName: "partner-shop-application-lambda",
     memorySize: 256,
     timeoutSeconds: 30,
+    environment: (context) => ({
+      ...baseEnvironment(context),
+      COMMIT_SHA: context.commitSha,
+      GOOGLE_GEOCODING_API_KEY: secretOrTest(context.config, "google-geocoding-api-key", "test-key"),
+      S3_BUCKET_NAME_TEMPLATES: context.mailTemplateBucket.bucketName,
+      STAGE_NAME: context.config.stage,
+    }),
   },
   postConfirmation: {
     id: "PrimaryUserPoolPostConfirmationLambda",
@@ -71,108 +104,241 @@ const LAMBDA_DEFINITIONS = {
     binaryName: "product-api",
     memorySize: 512,
     timeoutSeconds: 10,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          ...(context.config.isEphemeral
+            ? { GEMINI_API_KEY: "test-key" }
+            : { GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(context.config, "google-application-credentials") }),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+        }),
+      ),
   },
   productApiPartner: {
     id: "ProductApiPartnerLambda",
     binaryName: "product-api-partner",
     memorySize: 512,
     timeoutSeconds: 10,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          ASYNC_PRODUCT_COMMAND_QUEUE_URL: context.queues.productPartnerIngest.queue.queueUrl,
+          ...(context.config.isEphemeral
+            ? {}
+            : {
+                GEMINI_API_KEY: ssmSecret(context.config, "gemini-api-key"),
+                GOOGLE_GEOCODING_API_KEY: ssmSecret(context.config, "google-geocoding-api-key"),
+              }),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+        }),
+      ),
   },
   productMaterializeOpenSearch: {
     id: "ProductMaterializeOpenSearchLambda",
     binaryName: "product-lambda-materialize-opensearch",
     memorySize: 512,
     timeoutSeconds: 60,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+        }),
+      ),
   },
   productPartnerIngest: {
     id: "ProductPartnerIngestLambda",
     binaryName: "product-lambda-ingest-partner-products",
     memorySize: 512,
     timeoutSeconds: 30,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
+          GOOGLE_GEOCODING_API_KEY: secretOrTest(context.config, "google-geocoding-api-key", "test-key"),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+        }),
+      ),
   },
   productPipelineEmbedText: {
     id: "ProductPipelineEmbedTextLambda",
     binaryName: "product-pipeline-embed-text",
     memorySize: 512,
     timeoutSeconds: 60,
+    environment: (context) =>
+      context.config.isEphemeral
+        ? { ...baseEnvironment(context), GEMINI_API_KEY: "test-key" }
+        : { ...baseEnvironment(context), GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(context.config, "google-application-credentials") },
   },
   productPipelineTranslate: {
     id: "ProductPipelineTranslateLambda",
     binaryName: "product-pipeline-translate",
     memorySize: 512,
     timeoutSeconds: 60,
+    environment: (context) => ({
+      ...baseEnvironment(context),
+      GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
+      STAGE: context.config.stage,
+    }),
   },
   productUpdateNotifyUser: {
     id: "ProductUpdateNotifyUserLambda",
     binaryName: "product-lambda-update-notify-user",
     memorySize: 512,
     timeoutSeconds: 60,
+    environment: mailTemplateEnvironment,
   },
   productWatchlistApi: {
     id: "ProductWatchlistApiLambda",
     binaryName: "product-watchlist-api",
     memorySize: 256,
     timeoutSeconds: 10,
+    environment: stageEnvironment,
   },
   searchFilterApi: {
     id: "SearchFilterApiLambda",
     binaryName: "search-filter-api",
     memorySize: 512,
     timeoutSeconds: 10,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
+          ...(context.config.isEphemeral
+            ? {}
+            : { GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(context.config, "google-application-credentials") }),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+        }),
+      ),
   },
   searchFilterOpenSearchSync: {
     id: "SearchFilterOpenSearchSyncLambda",
     binaryName: "search-filter-lambda-opensearch-sync",
     memorySize: 256,
     timeoutSeconds: 30,
+    environment: openSearchWorkerEnvironment,
   },
   searchFilterPercolateProduct: {
     id: "SearchFilterPercolateProductLambda",
     binaryName: "search-filter-lambda-percolate-product",
     memorySize: 512,
     timeoutSeconds: 60,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          COMMIT_SHA: context.commitSha,
+          GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          S3_BUCKET_NAME_TEMPLATES: context.mailTemplateBucket.bucketName,
+          STAGE_NAME: context.config.stage,
+        }),
+      ),
   },
   shopApi: {
     id: "ShopApiLambda",
     binaryName: "shop-api",
     memorySize: 512,
     timeoutSeconds: 10,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          GOOGLE_GEOCODING_API_KEY: secretOrTest(context.config, "google-geocoding-api-key", "test-key"),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+        }),
+      ),
   },
   shopOpenSearchIndex: {
     id: "ShopOpenSearchIndexLambda",
     binaryName: "shop-lambda-opensearch-index",
     memorySize: 256,
     timeoutSeconds: 30,
+    environment: openSearchWorkerEnvironment,
   },
   shopify: {
     id: "ShopifyLambda",
     binaryName: "shopify-lambda",
     memorySize: 256,
     timeoutSeconds: 30,
+    environment: (context) =>
+      withOpenSearchCredentials(context.config, {
+        ...baseEnvironment(context),
+        GEMINI_API_KEY: secretOrTest(context.config, "gemini-api-key", "test-key"),
+        GOOGLE_GEOCODING_API_KEY: secretOrTest(context.config, "google-geocoding-api-key", "test-key"),
+        OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+      }),
   },
   stripeApi: {
     id: "StripeApiLambda",
     binaryName: "stripe-api",
     memorySize: 256,
     timeoutSeconds: 10,
+    environment: (context) => ({
+      ...baseEnvironment(context),
+      STAGE: context.config.stage,
+      ...(context.config.isEphemeral ? {} : { STRIPE_API_KEY: ssmSecret(context.config, "stripe-api-key") }),
+      STRIPE_CHECKOUT_CANCEL_URL: context.config.stripeCheckoutCancelUrl,
+      STRIPE_CHECKOUT_SUCCESS_URL: context.config.stripeCheckoutSuccessUrl,
+      STRIPE_PORTAL_RETURN_URL: context.config.stripePortalReturnUrl,
+      STRIPE_PRO_MONTHLY_PRICE_ID: context.config.stripeProMonthlyPriceId,
+      STRIPE_PRO_YEARLY_PRICE_ID: context.config.stripeProYearlyPriceId,
+      STRIPE_ULTIMATE_MONTHLY_PRICE_ID: context.config.stripeUltimateMonthlyPriceId,
+      STRIPE_ULTIMATE_YEARLY_PRICE_ID: context.config.stripeUltimateYearlyPriceId,
+    }),
   },
   stripe: {
     id: "StripeLambda",
     binaryName: "stripe-lambda",
     memorySize: 256,
     timeoutSeconds: 30,
+    environment: (context) => ({
+      ...baseEnvironment(context),
+      STRIPE_PRO_PRODUCT_ID: context.config.stripeProProductId,
+      STRIPE_ULTIMATE_PRODUCT_ID: context.config.stripeUltimateProductId,
+    }),
   },
   userApi: {
     id: "UserApiLambda",
     binaryName: "user-api",
     memorySize: 256,
     timeoutSeconds: 10,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          ...(context.config.isEphemeral
+            ? {}
+            : { GOOGLE_GEOCODING_API_KEY: ssmSecret(context.config, "google-geocoding-api-key") }),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+        }),
+      ),
   },
   userOpenSearchIndex: {
     id: "UserOpenSearchIndexLambda",
     binaryName: "user-lambda-index-opensearch",
     memorySize: 256,
     timeoutSeconds: 30,
+    environment: openSearchWorkerEnvironment,
   },
   userTierUpdate: {
     id: "UserTierUpdateLambda",
@@ -185,6 +351,22 @@ const LAMBDA_DEFINITIONS = {
     binaryName: "webhook-api",
     memorySize: 512,
     timeoutSeconds: 10,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          ASYNC_PRODUCT_COMMAND_QUEUE_URL: context.queues.productPartnerIngest.queue.queueUrl,
+          ...(context.config.isEphemeral
+            ? {}
+            : {
+                GEMINI_API_KEY: ssmSecret(context.config, "gemini-api-key"),
+                GOOGLE_GEOCODING_API_KEY: ssmSecret(context.config, "google-geocoding-api-key"),
+              }),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+        }),
+      ),
   },
   fxRateSync: {
     id: "FxRateSyncLambda",
@@ -192,6 +374,10 @@ const LAMBDA_DEFINITIONS = {
     memorySize: 128,
     timeoutSeconds: 10,
     skipEphemeral: true,
+    environment: (context) => ({
+      ...baseEnvironment(context),
+      FXRATES_API_TOKEN: ssmValue("/fxratesapi/prod/api-token"),
+    }),
   },
 } as const satisfies Record<string, LambdaDefinition>;
 
@@ -216,6 +402,14 @@ export class Lambdas extends Construct {
     super(scope, id);
 
     const functions = {} as Partial<Record<LambdaKey, lambda.Function>>;
+    const environmentContext: LambdaEnvironmentContext = {
+      config: props.config,
+      commitSha: props.parameters.commitSha,
+      mailTemplateBucket: props.mailTemplateBucket,
+      table: props.table,
+      queues: props.queues,
+      search: props.search,
+    };
 
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
       if (props.config.isEphemeral && definition.skipEphemeral) {
@@ -223,18 +417,18 @@ export class Lambdas extends Construct {
       }
 
       functions[key] = new lambda.Function(this, definition.id, {
-        functionName: `${definition.binaryName}-${props.parameters.stageName}`,
+        functionName: `${definition.binaryName}-${props.config.stage}`,
         runtime: lambda.Runtime.PROVIDED_AL2023,
         architecture: lambda.Architecture.X86_64,
         handler: "lib.handler",
         code: lambda.Code.fromBucket(
           props.artifactBucket,
-          `${definition.binaryName}-${props.parameters.stageName}-${props.parameters.commitSha}.zip`,
+          `${definition.binaryName}-${props.config.stage}-${props.parameters.commitSha}.zip`,
         ),
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         ephemeralStorageSize: cdk.Size.mebibytes(512),
-        environment: environmentFor(key, props),
+        environment: definition.environment?.(environmentContext) ?? baseEnvironment(environmentContext),
       });
     }
 
@@ -243,227 +437,36 @@ export class Lambdas extends Construct {
   }
 }
 
-function environmentFor(key: LambdaKey, props: LambdasProps): Record<string, string> {
-  const base = {
-    DYNAMODB_TABLE_NAME: props.table.tableName,
+function baseEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    DYNAMODB_TABLE_NAME: context.table.tableName,
   };
-  const stage = props.parameters.stage;
-  const stageName = props.parameters.stageName;
-  const commitSha = props.parameters.commitSha;
-  const opensearchEndpoint = props.search.endpointUrl;
-  const localStackPort = props.parameters.localStackMappedPort;
-  const mailBucket = props.mailTemplateBucket.bucketName;
+}
 
-  switch (key) {
-    case "cloudWatchLogRetention":
-      return {};
-    case "newsletterApi":
-      return {
-        ...base,
-        STAGE: stage,
-        ZOHO_ACCOUNTS_URL: secretOrTest(props.config, "zoho-accounts-url", "https://accounts.zoho.eu"),
-        ZOHO_CAMPAIGNS_URL: secretOrTest(props.config, "zoho-campaigns-url", "https://campaigns.zoho.eu"),
-        ZOHO_CLIENT_ID: secretOrTest(props.config, "zoho-client-id", "test-zoho-client-id"),
-        ZOHO_CLIENT_SECRET: secretOrTest(props.config, "zoho-client-secret", "test-zoho-client-secret"),
-        ZOHO_LIST_KEY: secretOrTest(props.config, "zoho-list-key", "test-zoho-list-key"),
-        ZOHO_REFRESH_TOKEN: secretOrTest(props.config, "zoho-refresh-token", "test-zoho-refresh-token"),
-      };
-    case "notificationApi":
-    case "productWatchlistApi":
-      return { ...base, STAGE: stage };
-    case "notificationSend":
-    case "productUpdateNotifyUser":
-      return {
-        ...base,
-        COMMIT_SHA: commitSha,
-        S3_BUCKET_NAME_TEMPLATES: mailBucket,
-        STAGE_NAME: stageName,
-      };
-    case "oauthApi":
-      return withLocalStackPort(props.config, { ...base, STAGE: stage }, localStackPort);
-    case "partnerShopApplicationApi":
-      return { ...base, STAGE: stage };
-    case "partnerShopApplicationWorkflow":
-      return {
-        ...base,
-        COMMIT_SHA: commitSha,
-        GOOGLE_GEOCODING_API_KEY: secretOrTest(props.config, "google-geocoding-api-key", "test-key"),
-        S3_BUCKET_NAME_TEMPLATES: mailBucket,
-        STAGE_NAME: stageName,
-      };
-    case "postConfirmation":
-      return base;
-    case "productApi":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          ...base,
-          ...(props.config.isEphemeral
-            ? { GEMINI_API_KEY: "test-key" }
-            : { GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(props.config, "google-application-credentials") }),
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          STAGE: stage,
-        }),
-        localStackPort,
-      );
-    case "productApiPartner":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          ...base,
-          ASYNC_PRODUCT_COMMAND_QUEUE_URL: props.queues.productPartnerIngest.queue.queueUrl,
-          ...(props.config.isEphemeral
-            ? {}
-            : {
-                GEMINI_API_KEY: ssmSecret(props.config, "gemini-api-key"),
-                GOOGLE_GEOCODING_API_KEY: ssmSecret(props.config, "google-geocoding-api-key"),
-              }),
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          STAGE: stage,
-        }),
-        localStackPort,
-      );
-    case "productMaterializeOpenSearch":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          ...base,
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          STAGE: stage,
-        }),
-        localStackPort,
-      );
-    case "productPartnerIngest":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          ...base,
-          GEMINI_API_KEY: secretOrTest(props.config, "gemini-api-key", "test-key"),
-          GOOGLE_GEOCODING_API_KEY: secretOrTest(props.config, "google-geocoding-api-key", "test-key"),
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          STAGE: stage,
-        }),
-        localStackPort,
-      );
-    case "productPipelineEmbedText":
-      return props.config.isEphemeral
-        ? { ...base, GEMINI_API_KEY: "test-key" }
-        : { ...base, GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(props.config, "google-application-credentials") };
-    case "productPipelineTranslate":
-      return {
-        ...base,
-        GEMINI_API_KEY: secretOrTest(props.config, "gemini-api-key", "test-key"),
-        STAGE: stage,
-      };
-    case "searchFilterApi":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          ...base,
-          GEMINI_API_KEY: secretOrTest(props.config, "gemini-api-key", "test-key"),
-          ...(props.config.isEphemeral ? {} : { GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(props.config, "google-application-credentials") }),
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          STAGE: stage,
-        }),
-        localStackPort,
-      );
-    case "searchFilterOpenSearchSync":
-    case "shopOpenSearchIndex":
-    case "userOpenSearchIndex":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          STAGE: stage,
-        }),
-        localStackPort,
-      );
-    case "searchFilterPercolateProduct":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          ...base,
-          COMMIT_SHA: commitSha,
-          GEMINI_API_KEY: secretOrTest(props.config, "gemini-api-key", "test-key"),
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          S3_BUCKET_NAME_TEMPLATES: mailBucket,
-          STAGE_NAME: stageName,
-        }),
-        localStackPort,
-      );
-    case "shopApi":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          ...base,
-          GOOGLE_GEOCODING_API_KEY: secretOrTest(props.config, "google-geocoding-api-key", "test-key"),
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          STAGE: stage,
-        }),
-        localStackPort,
-      );
-    case "shopify":
-      return withOpenSearchCredentials(props.config, {
-        ...base,
-        GEMINI_API_KEY: secretOrTest(props.config, "gemini-api-key", "test-key"),
-        GOOGLE_GEOCODING_API_KEY: secretOrTest(props.config, "google-geocoding-api-key", "test-key"),
-        OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-      });
-    case "stripeApi":
-      return {
-        ...base,
-        STAGE: stage,
-        ...(props.config.isEphemeral ? {} : { STRIPE_API_KEY: ssmSecret(props.config, "stripe-api-key") }),
-        STRIPE_CHECKOUT_CANCEL_URL: props.config.stripeCheckoutCancelUrl,
-        STRIPE_CHECKOUT_SUCCESS_URL: props.config.stripeCheckoutSuccessUrl,
-        STRIPE_PORTAL_RETURN_URL: props.config.stripePortalReturnUrl,
-        STRIPE_PRO_MONTHLY_PRICE_ID: props.parameters.stripeProMonthlyPriceId,
-        STRIPE_PRO_YEARLY_PRICE_ID: props.parameters.stripeProYearlyPriceId,
-        STRIPE_ULTIMATE_MONTHLY_PRICE_ID: props.parameters.stripeUltimateMonthlyPriceId,
-        STRIPE_ULTIMATE_YEARLY_PRICE_ID: props.parameters.stripeUltimateYearlyPriceId,
-      };
-    case "stripe":
-      return {
-        ...base,
-        STRIPE_PRO_PRODUCT_ID: props.parameters.stripeProProductId,
-        STRIPE_ULTIMATE_PRODUCT_ID: props.parameters.stripeUltimateProductId,
-      };
-    case "userApi":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          ...base,
-          ...(props.config.isEphemeral ? {} : { GOOGLE_GEOCODING_API_KEY: ssmSecret(props.config, "google-geocoding-api-key") }),
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          STAGE: stage,
-        }),
-        localStackPort,
-      );
-    case "userTierUpdate":
-      return base;
-    case "webhookApi":
-      return withLocalStackPort(
-        props.config,
-        withOpenSearchCredentials(props.config, {
-          ...base,
-          ASYNC_PRODUCT_COMMAND_QUEUE_URL: props.queues.productPartnerIngest.queue.queueUrl,
-          ...(props.config.isEphemeral
-            ? {}
-            : {
-                GEMINI_API_KEY: ssmSecret(props.config, "gemini-api-key"),
-                GOOGLE_GEOCODING_API_KEY: ssmSecret(props.config, "google-geocoding-api-key"),
-              }),
-          OPENSEARCH_ENDPOINT_URL: opensearchEndpoint,
-          STAGE: stage,
-        }),
-        localStackPort,
-      );
-    case "fxRateSync":
-      return {
-        ...base,
-        FXRATES_API_TOKEN: "{{resolve:ssm:/fxratesapi/prod/api-token}}",
-      };
-  }
+function stageEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    ...baseEnvironment(context),
+    STAGE: context.config.stage,
+  };
+}
+
+function mailTemplateEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    ...baseEnvironment(context),
+    COMMIT_SHA: context.commitSha,
+    S3_BUCKET_NAME_TEMPLATES: context.mailTemplateBucket.bucketName,
+    STAGE_NAME: context.config.stage,
+  };
+}
+
+function openSearchWorkerEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return withLocalStackPort(
+    context.config,
+    withOpenSearchCredentials(context.config, {
+      OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+      STAGE: context.config.stage,
+    }),
+  );
 }
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaCatalog): void {
@@ -521,12 +524,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaCatalog): void
   );
 }
 
-export function addUserPoolEnvironment(
-  functions: LambdaCatalog,
-  userPoolId: string,
-  publicClientId: string,
-  adminClientId: string,
-): void {
+export function addUserPoolEnvironment(functions: LambdaCatalog, userPoolId: string, publicClientId: string): void {
   const userPoolEnvUsers = [
     functions.newsletterApi,
     functions.productApi,
@@ -538,7 +536,6 @@ export function addUserPoolEnvironment(
   for (const fn of userPoolEnvUsers) {
     fn.addEnvironment("USER_POOL_ID", userPoolId);
     fn.addEnvironment("USER_POOL_PUBLIC_CLIENT_ID", publicClientId);
-    fn.addEnvironment("USER_POOL_ADMIN_CLIENT_ID", adminClientId);
   }
 
   functions.userApi.addEnvironment("COGNITO_USER_POOL_ID", userPoolId);
@@ -572,19 +569,19 @@ function withOpenSearchCredentials(config: StageConfig, env: Record<string, stri
 
   return {
     ...env,
-    OPENSEARCH_USERNAME: `{{resolve:ssm:/opensearch/${config.stage}/username}}`,
-    OPENSEARCH_PASSWORD: `{{resolve:ssm:/opensearch/${config.stage}/password}}`,
+    OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/username`),
+    OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/password`),
   };
 }
 
-function withLocalStackPort(config: StageConfig, env: Record<string, string>, localStackPort: string): Record<string, string> {
+function withLocalStackPort(config: StageConfig, env: Record<string, string>): Record<string, string> {
   if (!config.isEphemeral) {
     return env;
   }
 
   return {
     ...env,
-    LOCALSTACK_MAPPED_PORT: localStackPort,
+    LOCALSTACK_MAPPED_PORT: config.localStackMappedPort,
   };
 }
 
@@ -593,5 +590,5 @@ function secretOrTest(config: StageConfig, name: string, testValue: string): str
 }
 
 function ssmSecret(config: StageConfig, name: string): string {
-  return `{{resolve:ssm:/secrets/${config.stage}/${name}}}`;
+  return ssmValue(`/secrets/${config.stage}/${name}`);
 }

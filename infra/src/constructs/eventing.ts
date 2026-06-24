@@ -7,13 +7,11 @@ import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as pipes from "aws-cdk-lib/aws-pipes";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
-import type { ApplicationParameters } from "../parameters";
 import type { LambdaCatalog } from "./lambdas";
 import type { QueueCatalog, QueueKey } from "./queues";
 
 export interface EventingProps {
   readonly config: StageConfig;
-  readonly parameters: ApplicationParameters;
   readonly table: dynamodb.Table;
   readonly queues: QueueCatalog;
   readonly functions: LambdaCatalog;
@@ -27,23 +25,25 @@ export class Eventing extends Construct {
   constructor(scope: Construct, id: string, props: EventingProps) {
     super(scope, id);
 
+    const stageName = props.config.stage;
+
     this.dynamoDbEventBus = new events.EventBus(this, "DynamoDbEventBus", {
-      eventBusName: `dynamodb-event-bus-${props.parameters.stageName}`,
+      eventBusName: `dynamodb-event-bus-${stageName}`,
     });
 
     this.stripeEventBus = props.config.isEphemeral
       ? new events.EventBus(this, "StripeEventBus", {
-          eventBusName: `stripe-event-bus-${props.parameters.stageName}`,
+          eventBusName: props.config.stripeEventBusName,
         })
-      : events.EventBus.fromEventBusName(this, "StripeEventBus", props.parameters.stripeEventBusName);
+      : events.EventBus.fromEventBusName(this, "StripeEventBus", props.config.stripeEventBusName);
 
     this.shopifyEventBus = props.config.isEphemeral
       ? new events.EventBus(this, "ShopifyEventBus", {
-          eventBusName: `shopify-event-bus-${props.parameters.stageName}`,
+          eventBusName: props.config.shopifyEventBusName,
         })
-      : events.EventBus.fromEventBusName(this, "ShopifyEventBus", props.parameters.shopifyEventBusName);
+      : events.EventBus.fromEventBusName(this, "ShopifyEventBus", props.config.shopifyEventBusName);
 
-    createDynamoDbStreamPipe(this, props.table, this.dynamoDbEventBus, props.parameters.stageName);
+    createDynamoDbStreamPipe(this, props.table, this.dynamoDbEventBus, stageName);
     createDynamoDbRules(this, props.table, this.dynamoDbEventBus, props.queues);
     createPartnerEventRules(this, this.stripeEventBus, this.shopifyEventBus, props.functions, props.queues);
     createCloudWatchLogRetentionRule(this, props.functions);

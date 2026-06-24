@@ -1,4 +1,3 @@
-import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
@@ -15,7 +14,7 @@ export class Storage extends Construct {
     super(scope, id);
 
     this.table = new dynamodb.Table(this, "TableOne", {
-      tableName: cdk.Fn.sub("table_1-${StageName}"),
+      tableName: `table_1-${props.stageName}`,
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
