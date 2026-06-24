@@ -38,7 +38,7 @@ export class Observability extends Construct {
     apiAlarm(this, props.stageName, "ApiLatencyAlarm", "IntegrationLatency", props.api, 3000, 2, "Average").addAlarmAction(alarmAction);
 
     dynamoAlarm(this, props.stageName, "TableOneSystemErrorsAlarm", "SystemErrors", props.table, 1, 1).addAlarmAction(alarmAction);
-    dynamoAlarm(this, props.stageName, "TableOneThrottledRequestsAlarm", "UserErrors", props.table, 5, 1).addAlarmAction(alarmAction);
+    dynamoAlarm(this, props.stageName, "TableOneThrottledRequestsAlarm", "ThrottledRequests", props.table, 5, 1).addAlarmAction(alarmAction);
     dynamoAlarm(this, props.stageName, "TableOneConditionalCheckFailedRequestsAlarm", "ConditionalCheckFailedRequests", props.table, 100, 2).addAlarmAction(alarmAction);
 
     for (const [key, fn] of Object.entries(props.functions) as [LambdaKey, lambda.Function | undefined][]) {
