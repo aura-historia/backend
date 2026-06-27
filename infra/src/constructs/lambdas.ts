@@ -28,7 +28,11 @@ interface LambdaDefinition {
   readonly environment?: (context: LambdaEnvironmentContext) => Record<string, string>;
 }
 
-const LAMBDA_DEFINITIONS = {
+function defineLambdaDefinitions<T extends Record<string, LambdaDefinition>>(definitions: T): T {
+  return definitions;
+}
+
+const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   cloudWatchLogRetention: {
     id: "CloudWatchLogRetentionLambda",
     binaryName: "cloudwatch-log-retention-lambda",
@@ -379,7 +383,7 @@ const LAMBDA_DEFINITIONS = {
       FXRATES_API_TOKEN: ssmValue("/fxratesapi/prod/api-token"),
     }),
   },
-} as const satisfies Record<string, LambdaDefinition>;
+} as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
 export type LambdaCatalog = Partial<Record<LambdaKey, lambda.Function>> &

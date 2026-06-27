@@ -42,7 +42,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
 
       - name: Install CDK dependencies
         run: npm --prefix infra ci
@@ -173,7 +173,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "26"
 
       - name: Cache cargo-lambda and Zig
         uses: actions/cache@v6
