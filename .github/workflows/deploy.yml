@@ -56,7 +56,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
 
       - name: Install CDK dependencies
         run: npm --prefix infra ci
@@ -215,7 +215,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
 
       - name: Install MJML
         run: npm install -g mjml
@@ -261,7 +261,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
 
       - name: Install CDK dependencies
         run: npm --prefix infra ci
