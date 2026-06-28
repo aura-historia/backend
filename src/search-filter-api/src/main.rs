@@ -83,6 +83,9 @@ async fn main() -> Result<(), Error> {
                 &vertex_ai_location,
             )))
         } else {
+            error!(
+                "No embedding service configured. Set GOOGLE_APPLICATION_CREDENTIALS or run in LocalStack."
+            );
             None
         };
     let notification_service = NotificationServiceImpl::new(
