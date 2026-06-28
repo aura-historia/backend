@@ -1,6 +1,7 @@
 use crate::core::user_search_filter::EnhancedSearchDescription;
-use common::enhanced_match_reason::EnhancedMatchReason;
 use common::language::domain::Language;
+use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider};
+use common::{enhanced_match_reason::EnhancedMatchReason, logging::log_llm_invocation};
 use llm::{
     backends::google::{GooglePlatform, GoogleServiceTier},
     chat::{ChatMessage, ImageMime},
@@ -10,7 +11,7 @@ use product::core::product_image::ProductImage;
 use product::core::title::Title;
 use tracing::{debug, warn};
 
-const DEFAULT_ENHANCED_SEARCH_MATCH_MODEL: &str = "gemini-2.5-flash-lite";
+const DEFAULT_ENHANCED_SEARCH_MATCH_MODEL: &str = "gemini-3.1-flash-lite";
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnhancedSearchMatchError {
@@ -154,7 +155,15 @@ impl EnhancedSearchMatchService for EnhancedSearchMatchServiceImpl {
             "Requesting enhanced search match evaluation."
         );
 
+        let started_at = std::time::Instant::now();
         let response = self.llm.chat(&messages).await?;
+        log_llm_invocation(
+            LlmOperation::ProductEnhancedSearchDescriptionMatching,
+            LlmProvider::Google,
+            LlmModel::Gemini31FlashLite,
+            started_at.elapsed(),
+            llm_metrics(response.usage(), Some(GeminiServiceTier::Standard)),
+        );
 
         let response_text = response.text().ok_or_else(|| {
             EnhancedSearchMatchError::InvalidResponse("Empty response from LLM".to_string())
@@ -212,6 +221,32 @@ fn parse_image_mime_from_content_type(content_type: &str) -> Option<ImageMime> {
         "image/gif" => Some(ImageMime::GIF),
         "image/webp" => Some(ImageMime::WEBP),
         _ => None,
+    }
+}
+
+fn llm_metrics(
+    usage: Option<llm::chat::Usage>,
+    service_tier: Option<common::logging::GeminiServiceTier>,
+) -> common::logging::LlmInvocationMetrics {
+    let Some(usage) = usage else {
+        return common::logging::LlmInvocationMetrics {
+            service_tier,
+            ..Default::default()
+        };
+    };
+
+    common::logging::LlmInvocationMetrics {
+        service_tier,
+        prompt_tokens: Some(usage.prompt_tokens),
+        completion_tokens: Some(usage.completion_tokens),
+        total_tokens: Some(usage.total_tokens),
+        cached_prompt_tokens: usage
+            .prompt_tokens_details
+            .and_then(|details| details.cached_tokens),
+        reasoning_tokens: usage
+            .completion_tokens_details
+            .and_then(|details| details.reasoning_tokens),
+        ..Default::default()
     }
 }
 
