@@ -47,6 +47,7 @@ async fn should_update_search_filter_record() {
         currency: None,
         updated_by: common::actor::record::ActorRecord::System,
         updated,
+        last_hybrid_search_matched: None,
     };
     let _ = repository
         .update_user_search_filter_record(&record.user_id, &record.user_search_filter_id, update)

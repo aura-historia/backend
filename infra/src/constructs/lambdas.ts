@@ -232,9 +232,19 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
   searchFilterOpenSearchSync: {
     id: "SearchFilterOpenSearchSyncLambda",
     binaryName: "search-filter-lambda-opensearch-sync",
-    memorySize: 256,
-    timeoutSeconds: 30,
-    environment: openSearchWorkerEnvironment,
+    memorySize: 512,
+    timeoutSeconds: 60,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+          ...(context.config.isEphemeral
+            ? {}
+            : { GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(context.config, "google-application-credentials") }),
+        }),
+      ),
   },
   searchFilterPercolateProduct: {
     id: "SearchFilterPercolateProductLambda",

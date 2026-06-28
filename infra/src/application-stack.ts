@@ -11,6 +11,7 @@ import { Eventing } from "./constructs/eventing";
 import { addUserPoolEnvironment, grantCognitoAdminAccess, Lambdas } from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
 import { Search } from "./constructs/opensearch";
+import { PeriodicSearchFilterMatching } from "./constructs/periodic-matching";
 import { Queues } from "./constructs/queues";
 import { Storage } from "./constructs/storage";
 import { PartnerShopApplicationWorkflow } from "./constructs/workflow";
@@ -61,6 +62,14 @@ export class ApplicationStack extends cdk.Stack {
       mailTemplateBucket,
       table: storage.table,
       queues: queues.catalog,
+      search,
+    });
+
+    new PeriodicSearchFilterMatching(this, "PeriodicSearchFilterMatching", {
+      config,
+      commitSha: parameters.commitSha,
+      table: storage.table,
+      mailTemplateBucket,
       search,
     });
 

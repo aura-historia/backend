@@ -2,13 +2,15 @@ use crate::core::user_search_filter::EnhancedSearchDescription;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::language::domain::Language;
 use llm::{
-    backends::google::GooglePlatform,
+    backends::google::{GooglePlatform, GoogleServiceTier},
     chat::{ChatMessage, ImageMime},
 };
 use product::core::description::Description;
 use product::core::product_image::ProductImage;
 use product::core::title::Title;
 use tracing::{debug, warn};
+
+const DEFAULT_ENHANCED_SEARCH_MATCH_MODEL: &str = "gemini-2.5-flash-lite";
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnhancedSearchMatchError {
@@ -48,14 +50,18 @@ pub struct EnhancedSearchMatchServiceImpl {
 
 impl EnhancedSearchMatchServiceImpl {
     pub fn new(api_key: &str) -> Self {
-        let llm = llm::builder::LLMBuilder::new()
+        Self::new_with_model(api_key, DEFAULT_ENHANCED_SEARCH_MATCH_MODEL, false)
+    }
+
+    pub fn new_with_model(api_key: &str, model: &str, flex: bool) -> Self {
+        let mut builder = llm::builder::LLMBuilder::new()
             .backend(llm::builder::LLMBackend::Google)
             .google_platform(GooglePlatform::GeminiEnterpriseAgent {
                 project_id: "aura-historia".to_owned(),
                 region: Some("europe-west3".to_owned()),
             })
             .api_key(api_key)
-            .model("gemini-2.5-flash-lite")
+            .model(model)
             .temperature(0.0)
             .max_tokens(256)
             .timeout_seconds(30)
@@ -75,7 +81,11 @@ impl EnhancedSearchMatchServiceImpl {
                 match: no\n\n\
                 The reason must be compact and user-facing. Keep it to one or two sentences. \
                 Do not include any additional text or explanations.",
-            )
+            );
+        if flex {
+            builder = builder.google_service_tier(GoogleServiceTier::Flex);
+        }
+        let llm = builder
             .build()
             .expect("Failed to initialize LLM provider with valid configuration");
         Self {

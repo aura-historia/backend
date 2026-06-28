@@ -67,6 +67,62 @@ async fn should_update_user_search_filter_document_when_indexing_same_id_again()
 }
 
 #[localstack_test(services = [OpenSearch()])]
+async fn should_index_user_search_filter_document_with_query_embedding() {
+    let client = get_opensearch_client().await;
+    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
+
+    let mut expected = unique_document();
+    expected.embedding = Some(embedding(25));
+
+    repository.index_document(expected.clone()).await.unwrap();
+    refresh_index("user_search_filters").await;
+
+    let actual: UserSearchFilterDocument =
+        read_by_id("user_search_filters", expected.user_search_filter_id).await;
+
+    assert_eq!(actual.embedding, Some(embedding(25)));
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_update_query_embedding_when_indexing_same_filter_again() {
+    let client = get_opensearch_client().await;
+    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
+
+    let mut first = unique_document();
+    first.embedding = Some(embedding(11));
+    let mut second = first.clone();
+    second.embedding = Some(embedding(77));
+    second.updated = datetime!(2024-02-03 12:00:00 UTC);
+
+    repository.index_document(first).await.unwrap();
+    repository.index_document(second.clone()).await.unwrap();
+    refresh_index("user_search_filters").await;
+
+    let actual: UserSearchFilterDocument =
+        read_by_id("user_search_filters", second.user_search_filter_id).await;
+
+    assert_eq!(actual.embedding, Some(embedding(77)));
+}
+
+#[localstack_test(services = [OpenSearch()])]
+async fn should_get_user_search_filter_document_with_query_embedding() {
+    let client = get_opensearch_client().await;
+    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
+
+    let mut expected = unique_document();
+    expected.embedding = Some(embedding(33));
+    repository.index_document(expected.clone()).await.unwrap();
+    refresh_index("user_search_filters").await;
+
+    let actual = repository
+        .get_document(&expected.user_search_filter_id)
+        .await
+        .unwrap();
+
+    assert_eq!(actual, Some(expected));
+}
+
+#[localstack_test(services = [OpenSearch()])]
 async fn should_delete_user_search_filter_document() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -811,7 +867,21 @@ fn base_record() -> UserSearchFilterRecord {
         updated_by: common::actor::record::ActorRecord::System,
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
+        last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
     }
+}
+
+fn unique_document() -> UserSearchFilterDocument {
+    let mut document = exact_document();
+    document.user_search_filter_id = UserSearchFilterId::new();
+    document.user_id = UserId::new();
+    document
+}
+
+fn embedding(slot: usize) -> Vec<f32> {
+    let mut embedding = vec![0.0_f32; 768];
+    embedding[slot] = 1.0;
+    embedding
 }
 
 fn exact_document() -> UserSearchFilterDocument {
@@ -977,6 +1047,7 @@ fn base_query_record() -> UserSearchFilterRecord {
         updated_by: common::actor::record::ActorRecord::System,
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
+        last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
     }
 }
 

@@ -1,5 +1,7 @@
 {
     "settings": {
+        "index.knn": true,
+        "knn.algo_param.ef_search": 128,
         "analysis": {
             "filter": {
                 "english_stop": {
@@ -165,6 +167,26 @@
             "query": {
                 "type": "percolator"
             },
+            "embedding": {
+                "type": "knn_vector",
+                "dimension": 768,
+                "method": {
+                    "engine": "faiss",
+                    "space_type": "cosinesimil",
+                    "name": "hnsw",
+                    "parameters": {
+                        "m": 32,
+                        "ef_construction": 512,
+                        "encoder": {
+                            "name": "sq",
+                            "parameters": {
+                                "type": "fp16",
+                                "clip": false
+                            }
+                        }
+                    }
+                }
+            },
             "search": {
                 "type": "object",
                 "enabled": true
@@ -304,6 +326,10 @@
                 "format": "strict_date_time"
             },
             "updated": {
+                "type": "date",
+                "format": "strict_date_time"
+            },
+            "lastHybridSearchMatched": {
                 "type": "date",
                 "format": "strict_date_time"
             },

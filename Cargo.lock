@@ -31,6 +31,7 @@ dependencies = [
  "reqwest 0.12.28",
  "search-filter",
  "search-filter-api",
+ "search-filter-periodic-match",
  "serde",
  "serde_json",
  "serial_test",
@@ -250,6 +251,7 @@ dependencies = [
  "search-filter",
  "search-filter-api",
  "search-filter-lambda",
+ "search-filter-periodic-match",
  "shop",
  "shop-api",
  "shop-lambda",
@@ -6546,11 +6548,13 @@ dependencies = [
  "fake",
  "lambda_runtime",
  "opensearch",
+ "product-pipeline-embed-text",
  "search-filter",
  "serde_dynamo",
  "serde_json",
  "serial_test",
  "test-api",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -6590,6 +6594,32 @@ dependencies = [
  "tracing-subscriber",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "search-filter-periodic-match"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
+ "common",
+ "fake",
+ "futures-util",
+ "mockall",
+ "notification",
+ "product",
+ "search-filter",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tracing",
+ "user",
 ]
 
 [[package]]
