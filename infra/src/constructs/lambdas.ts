@@ -238,11 +238,9 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       withLocalStackPort(
         context.config,
         withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
           OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
           STAGE: context.config.stage,
-          ...(context.config.isEphemeral
-            ? {}
-            : { GOOGLE_APPLICATION_CREDENTIALS: ssmSecret(context.config, "google-application-credentials") }),
         }),
       ),
   },

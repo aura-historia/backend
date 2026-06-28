@@ -3531,11 +3531,8 @@ async fn should_embed_search_filter_and_create_match_when_periodic_hybrid_matchi
         .unwrap();
     refresh_index("user_search_filters").await;
 
-    let document = search_filter_opensearch_repository
-        .get_document(&posted.user_search_filter_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let document: UserSearchFilterDocument =
+        read_by_id("user_search_filters", posted.user_search_filter_id).await;
     let embedding = document
         .embedding
         .clone()

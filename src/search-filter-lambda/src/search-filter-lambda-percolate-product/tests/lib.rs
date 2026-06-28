@@ -64,6 +64,7 @@ fn mk_search_filter_record_with_state(
         user_search_filter_id: filter_id,
         name: "Integration Test Filter".into(),
         enhanced_search_description: None,
+        embedding: None,
         notifications: true,
         state,
         product_query: Vec::new(),

@@ -180,6 +180,7 @@ fn search_filter_state_update(state: ResourceStateRecord) -> UserSearchFilterRec
         notifications: None,
         state: Some(state),
         enhanced_search_description: None,
+        embedding: None,
         product_query: None,
         shop_name_query: None,
         exclude_shop_name_query: None,

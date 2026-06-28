@@ -105,24 +105,6 @@ async fn should_update_query_embedding_when_indexing_same_filter_again() {
 }
 
 #[localstack_test(services = [OpenSearch()])]
-async fn should_get_user_search_filter_document_with_query_embedding() {
-    let client = get_opensearch_client().await;
-    let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
-
-    let mut expected = unique_document();
-    expected.embedding = Some(embedding(33));
-    repository.index_document(expected.clone()).await.unwrap();
-    refresh_index("user_search_filters").await;
-
-    let actual = repository
-        .get_document(&expected.user_search_filter_id)
-        .await
-        .unwrap();
-
-    assert_eq!(actual, Some(expected));
-}
-
-#[localstack_test(services = [OpenSearch()])]
 async fn should_delete_user_search_filter_document() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -840,6 +822,7 @@ fn base_record() -> UserSearchFilterRecord {
         user_search_filter_id,
         name: "imperial filter".into(),
         enhanced_search_description: None,
+        embedding: None,
         notifications: true,
         state: ResourceStateRecord::Active,
         product_query: vec!["renaissance cabinet".try_into().unwrap()],
@@ -1020,6 +1003,7 @@ fn base_query_record() -> UserSearchFilterRecord {
         user_search_filter_id,
         name: "text-only filter".into(),
         enhanced_search_description: None,
+        embedding: None,
         notifications: true,
         state: ResourceStateRecord::Active,
         product_query: Vec::new(),

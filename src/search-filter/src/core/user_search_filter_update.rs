@@ -160,6 +160,7 @@ impl From<(UserSearchFilterUpdate, Actor)> for UserSearchFilterRecordUpdate {
             state: update.state.map(ResourceStateRecord::from),
             product_query: update.product_query,
             enhanced_search_description: update.enhanced_search_description.map(Into::into),
+            embedding: None,
             shop_name_query: update.shop_name_query,
             exclude_shop_name_query: update.exclude_shop_name_query,
             seller_name_query: update.seller_name_query,
