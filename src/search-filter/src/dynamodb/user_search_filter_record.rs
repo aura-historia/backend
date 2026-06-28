@@ -2,6 +2,7 @@ use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use common::actor::record::ActorRecord;
 use common::distance::data::GeoDistanceQueryData;
+use common::product_id::ProductId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::record::ResourceStateRecord;
@@ -43,6 +44,8 @@ pub struct UserSearchFilterRecord {
     // dim=768 via google/gemini-embedding-2
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f32>>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub exclude_product_id_query: HashSet<ProductId>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_name_query: HashSet<ShopName>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -142,6 +145,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 currency: record.currency.into(),
                 product_query: record.product_query,
                 enhanced_search_description: record.enhanced_search_description.map(Into::into),
+                exclude_product_id_query: record.exclude_product_id_query.into(),
                 shop_name_query: record.shop_name_query.into(),
                 exclude_shop_name_query: record.exclude_shop_name_query.into(),
                 seller_name_query: record.seller_name_query.into(),
@@ -201,6 +205,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
                 .enhanced_search_description
                 .map(Into::into),
             embedding: user_search_filter.embedding,
+            exclude_product_id_query: user_search_filter.search.exclude_product_id_query.into(),
             shop_name_query: user_search_filter.search.shop_name_query.into(),
             exclude_shop_name_query: user_search_filter.search.exclude_shop_name_query.into(),
             seller_name_query: user_search_filter.search.seller_name_query.into(),
@@ -277,6 +282,7 @@ mod fake {
                 product_query: config.fake_with_rng(rng),
                 enhanced_search_description: config.fake_with_rng(rng),
                 embedding: None,
+                exclude_product_id_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),

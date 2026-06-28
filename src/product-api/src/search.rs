@@ -250,6 +250,7 @@ mod tests {
             currency: common::currency::data::CurrencyData::Eur,
             product_query: vec!["chair".try_into().unwrap()],
             enhanced_search_description: None,
+            exclude_product_id_query: Default::default(),
             shop_name_query: Default::default(),
             exclude_shop_name_query: Default::default(),
             seller_name_query: Default::default(),

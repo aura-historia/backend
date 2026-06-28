@@ -140,10 +140,25 @@ impl<'a> PeriodicMatcherServiceImpl<'a> {
         }
 
         let matched_at = OffsetDateTime::now_utc();
+        let existing_matches = self
+            .user_search_filter_service
+            .find_search_filter_product_matches_for_filter(
+                &filter.user_id,
+                &filter.user_search_filter_id,
+                &None,
+                None,
+            )
+            .await?;
+        let exclude_product_ids = existing_matches
+            .into_iter()
+            .filter(|product_match| product_match.created >= filter.last_hybrid_search_matched)
+            .map(|product_match| product_match.product_id)
+            .collect();
         let product_search = periodic_hybrid_search(
             &filter.search,
             &enhanced_description,
             filter.last_hybrid_search_matched,
+            exclude_product_ids,
         )?;
         let embedding = filter.embedding.as_deref().ok_or(
             PeriodicMatcherError::MissingSearchFilterEmbedding(filter.user_search_filter_id),
@@ -466,8 +481,10 @@ fn periodic_hybrid_search(
     search: &ProductSearch,
     enhanced_description: &EnhancedSearchDescription,
     last_matched: OffsetDateTime,
+    exclude_product_ids: HashSet<common::product_id::ProductId>,
 ) -> Result<ProductSearch, PeriodicMatcherError> {
     let mut search = search_since_last_match(search, last_matched);
+    search.exclude_product_id_query.extend(exclude_product_ids);
     let enhanced_query = enhanced_description.as_ref().try_into()?;
     if !search
         .product_query
@@ -607,6 +624,30 @@ mod tests {
             });
     }
 
+    fn expect_existing_matches_for_filter(
+        user_search_filter_service: &mut MockUserSearchFilterService,
+        filter: UserSearchFilter,
+        matches: Vec<SearchFilterProductMatch>,
+    ) {
+        user_search_filter_service
+            .expect_find_search_filter_product_matches_for_filter()
+            .times(1)
+            .return_once(move |user_id, search_filter_id, sort, cursor| {
+                assert_eq!(*user_id, filter.user_id);
+                assert_eq!(*search_filter_id, filter.user_search_filter_id);
+                assert_eq!(*sort, None);
+                assert_eq!(cursor, None);
+                Box::pin(async move { Ok(matches) })
+            });
+    }
+
+    fn expect_no_existing_matches_for_filter(
+        user_search_filter_service: &mut MockUserSearchFilterService,
+        filter: UserSearchFilter,
+    ) {
+        expect_existing_matches_for_filter(user_search_filter_service, filter, vec![]);
+    }
+
     fn expect_watermark_update(
         user_search_filter_service: &mut MockUserSearchFilterService,
         filter: UserSearchFilter,
@@ -632,6 +673,7 @@ mod tests {
 
         let mut user_search_filter_service = MockUserSearchFilterService::default();
         expect_single_filter_scan(&mut user_search_filter_service, filter.clone());
+        expect_no_existing_matches_for_filter(&mut user_search_filter_service, filter.clone());
         expect_watermark_update(&mut user_search_filter_service, filter.clone());
 
         let mut query_product_service = MockQueryProductService::default();
@@ -703,6 +745,7 @@ mod tests {
 
         let mut user_search_filter_service = MockUserSearchFilterService::default();
         expect_single_filter_scan(&mut user_search_filter_service, filter.clone());
+        expect_no_existing_matches_for_filter(&mut user_search_filter_service, filter.clone());
         expect_watermark_update(&mut user_search_filter_service, filter.clone());
         let filter_for_existing_check = filter.clone();
         let product_for_existing_check = product.clone();
@@ -864,7 +907,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_evaluate_duplicate_candidate_but_not_persist_it_again() {
+    async fn should_exclude_recently_matched_product_before_llm_evaluation() {
         let enhanced_description = "duplicate antique lamp";
         let filter = mk_filter(enhanced_description);
         let product = mk_product("duplicate antique lamp");
@@ -878,10 +921,13 @@ mod tests {
         existing_match.user_search_filter_id = filter.user_search_filter_id;
         existing_match.shop_id = product.shop_id;
         existing_match.shops_product_id = product.shops_product_id.clone();
-        user_search_filter_service
-            .expect_find_search_filter_product_match()
-            .times(1)
-            .return_once(move |_, _, _, _| Box::pin(async move { Ok(Some(existing_match)) }));
+        existing_match.product_id = product.product_id;
+        existing_match.created = filter.last_hybrid_search_matched;
+        expect_existing_matches_for_filter(
+            &mut user_search_filter_service,
+            filter.clone(),
+            vec![existing_match],
+        );
         user_search_filter_service
             .expect_count_user_search_filter_matches_for_this_month()
             .never();
@@ -889,17 +935,22 @@ mod tests {
             .expect_create_search_filter_product_matches()
             .never();
 
-        let product_for_search = product.clone();
+        let excluded_product_id = product.product_id;
         let mut query_product_service = MockQueryProductService::default();
         query_product_service
             .expect_search_products_hybrid()
             .times(1)
-            .return_once(move |_, _, _| {
+            .return_once(move |search, _, _| {
+                assert!(
+                    search
+                        .exclude_product_id_query
+                        .contains(&excluded_product_id)
+                );
                 Box::pin(async move {
                     Ok(CursoredResult {
-                        items: vec![product_for_search],
+                        items: vec![],
                         cursor: Cursor {
-                            size: 1,
+                            size: 0,
                             search_after: None,
                         },
                         total: None,
@@ -908,17 +959,7 @@ mod tests {
             });
 
         let mut enhanced_search_match_service = MockEnhancedSearchMatchService::default();
-        enhanced_search_match_service
-            .expect_evaluate()
-            .times(1)
-            .returning(|_, _, _, _, _| {
-                Box::pin(async {
-                    Ok(EnhancedSearchMatchResult {
-                        matches: true,
-                        reason: Some(EnhancedMatchReason::from("duplicate still evaluated")),
-                    })
-                })
-            });
+        enhanced_search_match_service.expect_evaluate().never();
 
         let mut notification_service = MockNotificationService::default();
         notification_service.expect_create_notification().never();
@@ -951,6 +992,10 @@ mod tests {
 
         let mut user_search_filter_service = MockUserSearchFilterService::default();
         expect_single_filter_scan(&mut user_search_filter_service, filter.clone());
+        user_search_filter_service
+            .expect_find_search_filter_product_matches_for_filter()
+            .times(MAX_ATTEMPTS)
+            .returning(|_, _, _, _| Box::pin(async { Ok(vec![]) }));
         user_search_filter_service
             .expect_update_user_search_filter()
             .never();
@@ -1022,6 +1067,7 @@ mod tests {
                 let page = pages.lock().unwrap().pop_front().unwrap();
                 Box::pin(async move { Ok(page) })
             });
+        expect_no_existing_matches_for_filter(&mut user_search_filter_service, filter.clone());
         expect_watermark_update(&mut user_search_filter_service, filter.clone());
 
         let mut query_product_service = MockQueryProductService::default();
@@ -1103,8 +1149,13 @@ mod tests {
             .with_product_query("short bm25 query".try_into().unwrap());
         let enhanced = EnhancedSearchDescription::from("very specific antique gold ring");
 
-        let periodic =
-            periodic_hybrid_search(&search, &enhanced, datetime!(2026-05-10 12:00 UTC)).unwrap();
+        let periodic = periodic_hybrid_search(
+            &search,
+            &enhanced,
+            datetime!(2026-05-10 12:00 UTC),
+            HashSet::new(),
+        )
+        .unwrap();
 
         assert_eq!(periodic.product_query.len(), 2);
         assert_eq!(periodic.product_query[0].as_ref(), "short bm25 query");

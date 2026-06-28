@@ -76,6 +76,7 @@ fn mk_search_filter_record_with_state(
         exclude_shop_slug_id_query: HashSet::new(),
         seller_slug_id_query: HashSet::new(),
         exclude_seller_slug_id_query: HashSet::new(),
+        exclude_product_id_query: HashSet::new(),
         shop_type_query: HashSet::new(),
         country_query: HashSet::new(),
         continent_query: HashSet::new(),

@@ -1642,6 +1642,7 @@ paths:
 
         Additional optional filters from `ProductSearchData` are also supported as query parameters
         using the same field names:
+        - `excludeProductId`
         - `shopName`
         - `excludeShopName`
         - `sellerName`
@@ -1690,6 +1691,19 @@ paths:
               type: string
               minLength: 1
           example: [test, example]
+        - name: excludeProductId
+          in: query
+          required: false
+          description: Optional product IDs to exclude from results.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+            uniqueItems: true
+          example: ["550e8400-e29b-41d4-a716-446655440000"]
         - name: shopName
           in: query
           required: false
@@ -2152,6 +2166,7 @@ paths:
               language: "en"
               currency: "USD"
               productQuery: ["antique clock", "vintage clock"]
+              excludeProductId: ["550e8400-e29b-41d4-a716-446655440000"]
               shopName: ["Antique Store", "Vintage Gallery"]
               country: ["DE"]
               continent: ["EUROPE"]
@@ -11891,6 +11906,15 @@ components:
             Whitespace is trimmed and the value is silently truncated to 1000 characters if longer.
           maxLength: 1000
           example: "Golden cufflinks from the Art Deco period, preferably from French workshops"
+        excludeProductId:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Optional product IDs to exclude from search results.
+          uniqueItems: true
+          default: []
+          example: ["550e8400-e29b-41d4-a716-446655440000"]
         shopName:
           type: array
           items:
