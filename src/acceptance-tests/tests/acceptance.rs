@@ -3382,7 +3382,8 @@ async fn should_post_get_patch_delete_search_filter() {
         .unwrap();
 
     // POST
-    let expected = Faker.fake::<PostUserSearchFilterData>();
+    let mut expected = Faker.fake::<PostUserSearchFilterData>();
+    expected.search.enhanced_search_description = None;
     let post_url = format!(
         "{}/api/v1/me/search-filters",
         get_cfn_output().api_gateway_endpoint_url,

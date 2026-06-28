@@ -1,18 +1,22 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
 use common::{
     api::{
-        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder, error::ApiError,
-        error_code::BAD_QUERY_PARAMETER_VALUE,
+        api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseBuilder,
+        error::ApiError,
+        error_code::{BAD_QUERY_PARAMETER_VALUE, INTERNAL_SERVER_ERROR},
     },
     currency::data::api::extract_currency_query,
     language::data::api::extract_language_query,
-    pagination::cursor::{CursoredResult, api::JsonCursoredData},
+    pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData},
     personalized::{Personalized, api::PersonalizedData},
     user_id::api::extract_user_id_request_context,
     user_search_filter_id::api::extract_user_search_filter_id_path,
 };
 use lambda_runtime::LambdaEvent;
-use product::core::user_state::SearchFilterUserState;
+use product::core::{
+    product_search::{EnhancedSearchDescription, ProductSearch},
+    user_state::SearchFilterUserState,
+};
 use product::data::{
     get_summary_data::GetProductSummaryData, user_state_data::ProductUserStateData,
 };
@@ -66,9 +70,47 @@ pub async fn handle(
     product_search.language = language.into();
     product_search.currency = currency.into();
 
-    let search_result = query_service
-        .search_products_with_percolator_query(&product_search, PREVIEW_SIZE)
-        .await?;
+    let has_enhanced_search_description = search_filter
+        .search
+        .enhanced_search_description
+        .as_ref()
+        .is_some_and(|description| !description.as_ref().trim().is_empty());
+
+    let mut search_result = if has_enhanced_search_description {
+        let embedding = search_filter.embedding.as_deref().ok_or_else(|| {
+            ApiError::internal_server_error(
+                INTERNAL_SERVER_ERROR,
+                format!(
+                    "Search filter '{}' has enhanced_search_description but no stored embedding.",
+                    search_filter.user_search_filter_id
+                )
+                .into(),
+            )
+        })?;
+        let preview_search = hybrid_preview_search(
+            &product_search,
+            search_filter
+                .search
+                .enhanced_search_description
+                .as_ref()
+                .expect("guarded above"),
+        )?;
+        query_service
+            .search_products_hybrid(
+                &preview_search,
+                embedding,
+                &Some(Cursor {
+                    size: PREVIEW_SIZE,
+                    search_after: None,
+                }),
+            )
+            .await?
+    } else {
+        query_service
+            .search_products_with_percolator_query(&product_search, PREVIEW_SIZE)
+            .await?
+    };
+    search_result.cursor.search_after = None;
 
     // Personalize all products for the authenticated user
     let personalized = personalization_service
@@ -165,6 +207,26 @@ pub async fn handle(
         .build())
 }
 
+fn hybrid_preview_search(
+    search: &ProductSearch,
+    enhanced_description: &EnhancedSearchDescription,
+) -> Result<ProductSearch, ApiError> {
+    let mut search = search.clone();
+    let enhanced_description = enhanced_description.as_ref();
+    if !search
+        .product_query
+        .iter()
+        .any(|query| query.as_ref() == enhanced_description)
+    {
+        search.product_query.push(
+            enhanced_description
+                .try_into()
+                .map_err(|err| ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE, Box::new(err)))?,
+        );
+    }
+    Ok(search)
+}
+
 fn convert_to_summary_response(
     personalized: Vec<
         common::personalized::Personalized<
@@ -213,6 +275,7 @@ mod tests {
     fn filter_without_enhanced_description() -> UserSearchFilter {
         let mut filter: UserSearchFilter = Faker.fake();
         filter.search.enhanced_search_description = None;
+        filter.embedding = None;
         filter
     }
 
@@ -221,6 +284,7 @@ mod tests {
         let mut filter: UserSearchFilter = Faker.fake();
         filter.search.enhanced_search_description =
             Some(EnhancedSearchDescription::from("golden cufflinks"));
+        filter.embedding = Some(vec![0.42; 768]);
         filter
     }
 
@@ -231,6 +295,7 @@ mod tests {
             .expect_find_user_search_filter()
             .return_once(|_, _| Box::pin(async { Ok(filter_without_enhanced_description()) }));
         let mut query_service = MockQueryProductService::default();
+        query_service.expect_search_products_hybrid().never();
         query_service
             .expect_search_products_with_percolator_query()
             .return_once(|_, _| {
@@ -285,7 +350,20 @@ mod tests {
         let mut query_service = MockQueryProductService::default();
         query_service
             .expect_search_products_with_percolator_query()
-            .return_once(|_, _| {
+            .never();
+        query_service
+            .expect_search_products_hybrid()
+            .withf(|search, embedding, cursor| {
+                search
+                    .product_query
+                    .iter()
+                    .any(|query| query.as_ref() == "golden cufflinks")
+                    && embedding == vec![0.42; 768].as_slice()
+                    && cursor
+                        .as_ref()
+                        .is_some_and(|cursor| cursor.size == 10 && cursor.search_after.is_none())
+            })
+            .return_once(|_, _, _| {
                 Box::pin(async {
                     Ok(CursoredResult {
                         items: fake::vec![LocalizedProductView; 2],
