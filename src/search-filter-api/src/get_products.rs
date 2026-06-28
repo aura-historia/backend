@@ -12,6 +12,7 @@ use common::{
     user_id::api::extract_user_id_request_context,
     user_search_filter_id::api::extract_user_search_filter_id_path,
 };
+use futures_util::{StreamExt, stream};
 use lambda_runtime::LambdaEvent;
 use product::core::{
     product_search::{EnhancedSearchDescription, ProductSearch},
@@ -126,61 +127,72 @@ pub async fn handle(
         &search_filter.search.enhanced_search_description
     {
         if let Some(match_service) = enhanced_match_service {
-            let mut result_items = Vec::with_capacity(personalized.len());
-            for p in personalized {
-                let title = p.item.title.payload.clone();
-                let description = p
-                    .item
-                    .description
-                    .as_ref()
-                    .map(|d| d.payload.clone())
-                    .unwrap_or_else(|| product::core::description::Description::from(""));
-                let images: Vec<_> = p.item.images.iter().take(5).cloned().collect();
+            let concurrency = personalized.len().max(1);
+            let mut evaluated_items = stream::iter(personalized.into_iter().enumerate())
+                .map(|(index, p)| async move {
+                    let title = p.item.title.payload.clone();
+                    let description = p
+                        .item
+                        .description
+                        .as_ref()
+                        .map(|d| d.payload.clone())
+                        .unwrap_or_else(|| product::core::description::Description::from(""));
+                    let images: Vec<_> = p.item.images.iter().take(5).cloned().collect();
 
-                let match_evaluation = match match_service
-                    .evaluate(
-                        enhanced_desc,
-                        &title,
-                        &description,
-                        filter_language,
-                        &images,
-                    )
-                    .await
-                {
-                    Ok(result) if result.matches => SearchFilterUserState {
-                        matched: true,
-                        match_reason: result.reason,
-                        ..Default::default()
-                    },
-                    Ok(_) => {
-                        continue;
-                    }
-                    Err(err) => {
-                        warn!(
-                            error = %err,
-                            productId = %p.item.product_id,
-                            "Enhanced search match evaluation failed. Returning product without match reason."
-                        );
-                        SearchFilterUserState::default()
-                    }
-                };
+                    let match_evaluation = match match_service
+                        .evaluate(
+                            enhanced_desc,
+                            &title,
+                            &description,
+                            filter_language,
+                            &images,
+                        )
+                        .await
+                    {
+                        Ok(result) if result.matches => SearchFilterUserState {
+                            matched: true,
+                            match_reason: result.reason,
+                            ..Default::default()
+                        },
+                        Ok(_) => {
+                            return None;
+                        }
+                        Err(err) => {
+                            warn!(
+                                error = %err,
+                                productId = %p.item.product_id,
+                                "Enhanced search match evaluation failed. Returning product without match reason."
+                            );
+                            SearchFilterUserState::default()
+                        }
+                    };
 
-                let consent = p
-                    .user_state
-                    .as_ref()
-                    .map(|s| s.prohibited_content.consent)
-                    .unwrap_or(false);
-                let user_state = p.user_state.map(|mut state| {
-                    state.search_filter = match_evaluation;
-                    state
-                });
+                    let consent = p
+                        .user_state
+                        .as_ref()
+                        .map(|s| s.prohibited_content.consent)
+                        .unwrap_or(false);
+                    let user_state = p.user_state.map(|mut state| {
+                        state.search_filter = match_evaluation;
+                        state
+                    });
 
-                result_items.push(Personalized {
-                    item: GetProductSummaryData::from_view(p.item, consent),
-                    user_state: user_state.map(ProductUserStateData::from),
-                });
-            }
-            result_items
+                    Some((
+                        index,
+                        Personalized {
+                            item: GetProductSummaryData::from_view(p.item, consent),
+                            user_state: user_state.map(ProductUserStateData::from),
+                        },
+                    ))
+                })
+                .buffer_unordered(concurrency)
+                .collect::<Vec<_>>()
+                .await;
+            evaluated_items.sort_by_key(|item| item.as_ref().map(|(index, _)| *index));
+            evaluated_items
+                .into_iter()
+                .filter_map(|item| item.map(|(_, item)| item))
+                .collect()
         } else {
             // EnhancedSearchDescription present but no match service available — fall through
             // to standard mapping so the endpoint still works without the optional

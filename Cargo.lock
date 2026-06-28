@@ -6506,6 +6506,7 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
+ "futures-util",
  "geo",
  "http 1.4.2",
  "isocountry",
