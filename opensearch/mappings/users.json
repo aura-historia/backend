@@ -4,9 +4,7 @@
             "normalizer": {
                 "lowercase_normalizer": {
                     "type": "custom",
-                    "filter": [
-                        "lowercase"
-                    ]
+                    "filter": ["lowercase"]
                 }
             }
         }
@@ -125,7 +123,14 @@
             },
             "partnerShops": {
                 "type": "keyword"
+            },
+            "createdBy": {
+                "type": "keyword"
+            },
+            "updatedBy": {
+                "type": "keyword"
             }
-        }
+        },
+        "dynamic": "strict"
     }
 }
