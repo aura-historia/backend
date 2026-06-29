@@ -236,8 +236,6 @@ fn build_lambdas() {
             "--exclude",
             "smoking-tests",
             "--exclude",
-            "staging-data",
-            "--exclude",
             "staging-tests",
             "--exclude",
             "ci-determinator",
