@@ -157,7 +157,7 @@ itertools = "0.15.0"
 lambda_runtime = "1.2.1"
 libc = "0.2.186"
 ctrlc = { version = "3.5.2", features = ["termination"] }
-mockall = "0.14.0"
+mockall = "0.15.0"
 mrml = { version = "6.0.1", default-features = false, features = ["parse", "render"] }
 opensearch = { version = "2.4.0", default-features = false, features = [
     "aws-auth",
