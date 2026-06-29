@@ -123,6 +123,12 @@
             },
             "partnerShops": {
                 "type": "keyword"
+            },
+            "createdBy": {
+                "type": "keyword"
+            },
+            "updatedBy": {
+                "type": "keyword"
             }
         },
         "dynamic": "strict"

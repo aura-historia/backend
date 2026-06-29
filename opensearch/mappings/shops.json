@@ -83,6 +83,12 @@
             "partnerStatus": {
                 "type": "keyword"
             },
+            "createdBy": {
+                "type": "keyword"
+            },
+            "updatedBy": {
+                "type": "keyword"
+            },
             "created": {
                 "type": "date",
                 "format": "strict_date_time"

@@ -439,6 +439,12 @@
                 "type": "date",
                 "format": "strict_date_time"
             },
+            "createdBy": {
+                "type": "keyword"
+            },
+            "updatedBy": {
+                "type": "keyword"
+            },
             "structuredAddressAddressline": {
                 "type": "text",
                 "fields": {
