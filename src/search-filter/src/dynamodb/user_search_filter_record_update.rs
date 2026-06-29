@@ -32,6 +32,8 @@ pub struct UserSearchFilterRecordUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enhanced_search_description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding: Option<Vec<f32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shop_name_query: Option<HashSet<ShopName>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude_shop_name_query: Option<HashSet<ShopName>>,
@@ -92,6 +94,12 @@ pub struct UserSearchFilterRecordUpdate {
     pub updated_by: ActorRecord,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub last_hybrid_search_matched: Option<OffsetDateTime>,
 }
 
 impl DynamoDbUpdate for UserSearchFilterRecordUpdate {}
@@ -111,6 +119,7 @@ mod fake {
                 state: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 enhanced_search_description: config.fake_with_rng(rng),
+                embedding: None,
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
@@ -133,6 +142,7 @@ mod fake {
                 currency: config.fake_with_rng(rng),
                 updated_by: config.fake_with_rng(rng),
                 updated: OffsetDateTime::now_utc(),
+                last_hybrid_search_matched: Some(OffsetDateTime::now_utc()),
             }
         }
     }

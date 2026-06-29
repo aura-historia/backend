@@ -53,6 +53,8 @@ fn search_filter_record(
         updated_by: Actor::User(user.user_id),
         created,
         updated: created,
+        last_hybrid_search_matched: created,
+        embedding: None,
     };
     filter.into()
 }

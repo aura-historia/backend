@@ -28,6 +28,7 @@ pub struct ScraperCandidate {
     pub shop_id: ShopId,
     pub shop_name: String,
     pub shop_type: ShopType,
+    pub url_pattern: Option<String>,
     pub url: Url,
     /// SHA-256 hash of the HTML `<main>` fragment (or full HTML) from the last successful scrape.
     /// Used for quick whole-page change detection before field-level comparison.
@@ -293,6 +294,7 @@ struct ScraperCandidateRow {
     shop_id: uuid::Uuid,
     shop_name: String,
     shop_type: Option<String>,
+    url_pattern: Option<String>,
     url: String,
     last_scraped_hash: Option<String>,
     last_scraped_price: Option<String>,
@@ -307,7 +309,7 @@ struct ScraperCandidateRow {
 
 const SCRAPER_CANDIDATE_QUERY: &str = r#"
     SELECT
-        su.shop_id, s.shop_name, s.shop_type, su.url,
+        su.shop_id, s.shop_name, s.shop_type, s.url_pattern, su.url,
         su.last_scraped_hash,
         su.last_scraped_price,
         su.last_scraped_price_estimate_min,
@@ -367,6 +369,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 shop_id: ShopId::from(row.shop_id),
                 shop_name: row.shop_name,
                 shop_type,
+                url_pattern: row.url_pattern,
                 url,
                 last_scraped_hash: row.last_scraped_hash,
                 last_scraped_price: row.last_scraped_price,
@@ -712,6 +715,7 @@ mod tests {
             shop_id: ShopId::new(),
             shop_name: "Test".to_string(),
             shop_type: ShopType::CommercialDealer,
+            url_pattern: None,
             url: base_url(),
             last_scraped_hash: Some(hash.to_string()),
             last_scraped_price: None,
@@ -741,6 +745,7 @@ mod tests {
             shop_id: ShopId::new(),
             shop_name: "Test".to_string(),
             shop_type: ShopType::CommercialDealer,
+            url_pattern: None,
             url: base_url(),
             last_scraped_hash: Some("somehash".to_string()),
             last_scraped_price: snap.price.clone(),
@@ -772,6 +777,7 @@ mod tests {
             shop_id: ShopId::new(),
             shop_name: "Test".to_string(),
             shop_type: shop::core::shop_type::ShopType::CommercialDealer,
+            url_pattern: None,
             url: base_url(),
         };
         assert!(has_product_changed(&candidate, &product));
@@ -832,5 +838,10 @@ mod tests {
         assert!(SCRAPER_CANDIDATE_QUERY.contains("crawler_reviews cr"));
         assert!(SCRAPER_CANDIDATE_QUERY.contains("cr.artifact_type = 'PRODUCT_SCHEMA'"));
         assert!(SCRAPER_CANDIDATE_QUERY.contains("cr.status = 'PENDING_REVIEW'"));
+    }
+
+    #[test]
+    fn scraper_candidate_query_includes_shop_url_pattern() {
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("s.url_pattern"));
     }
 }

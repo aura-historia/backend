@@ -1,6 +1,6 @@
 # DynamoDB Partition Layout
 
-Single-table design. Table name pattern: `table_1-{stage}-v2` (e.g. `table_1-dev-v2`).
+Single-table design. Table name pattern: `table_1-{stage}` (e.g. `table_1-dev`).
 
 Stream: `NEW_IMAGE`, feeds the `DynamoDbEventBus` via an EventBridge Pipe.
 

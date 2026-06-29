@@ -34,6 +34,7 @@ pub trait ScraperService: Send + Sync {
         &self,
         shop_id: &ShopId,
         url: &Url,
+        product_url_pattern: Option<&str>,
         last_scraped_hash: Option<&str>,
     ) -> Result<Option<ScrapedProduct>, ScraperError>;
 }

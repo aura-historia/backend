@@ -8,8 +8,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "src/**"
-      - "cfn/dev.yaml"
-      - "cfn/prod.yaml"
+      - "infra/**"
       - "mjml/**"
   pull_request:
     paths:
@@ -17,7 +16,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "src/**"
-      - "cfn/ephemeral.yaml"
+      - "infra/**"
       - "opensearch/**"
       - "mjml/**"
 
@@ -29,31 +28,33 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_TEST_DEBUG: 0
-  CLOUDFORMATION_TEMPLATE_PATH:
-    ${{ github.event_name == 'pull_request' && 'cfn/ephemeral.yaml'
-    || github.ref == 'refs/heads/prod' && 'cfn/prod.yaml'
-    || github.ref == 'refs/heads/develop' && 'cfn/dev.yaml' }}
   LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_API_KEY }}
 
 jobs:
-  cfn-lint:
-    name: Lint CloudFormation
+  infra-test:
+    name: Test CDK infrastructure
     permissions:
       contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          python-version: "3.12"
+          node-version: 26
 
-      - name: Install cfn-lint
-        run: pip install -r cfn/lint/requirements.txt
+      - name: Install CDK dependencies
+        run: npm --prefix infra ci
 
-      - name: Run cfn-lint for '${{ env.CLOUDFORMATION_TEMPLATE_PATH }}'
-        run: cfn-lint --non-zero-exit-code error ${{ env.CLOUDFORMATION_TEMPLATE_PATH }}
+      - name: Type-check CDK app
+        run: npm --prefix infra run build
+
+      - name: Test CDK app
+        run: npm --prefix infra test
+
+      - name: Synthesize all stacks
+        run: npm --prefix infra run synth:all
 
   lint:
     name: Lint Workspace
@@ -172,10 +173,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "26"
 
       - name: Cache cargo-lambda and Zig
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/cargo-lambda
@@ -193,6 +194,13 @@ jobs:
           if ! command -v cargo-lambda >/dev/null 2>&1; then
             cargo install cargo-lambda
           fi
+
+      - name: Install CDK dependencies
+        run: npm --prefix infra ci
+
+      - name: Type-check CDK app
+        run: npm --prefix infra run build
+
       - name: Test acceptance-tests
         run: cargo test --locked --package acceptance-tests -- --nocapture
 

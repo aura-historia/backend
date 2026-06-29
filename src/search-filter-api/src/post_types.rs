@@ -94,6 +94,7 @@ mod tests {
                 currency: CurrencyData::Eur,
                 product_query: vec!["Boop".try_into().unwrap()],
                 enhanced_search_description: Some("a filter for peppino".into()),
+                exclude_product_id_query: Default::default(),
                 shop_name_query: [ShopName::from("Baap")].into(),
                 exclude_shop_name_query: [ShopName::from("baddlebap")].into(),
                 seller_name_query: Default::default(),

@@ -32,7 +32,7 @@ async fn should_try_next_existing_schema_when_first_schema_has_fixable_normaliza
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let first_schema = minimal_schema();
     let second_schema = minimal_schema();
@@ -83,7 +83,11 @@ async fn should_try_next_existing_schema_when_first_schema_has_fixable_normaliza
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         result.product.shops_product_id,
         ShopsProductId::from("SKU-42")
@@ -99,7 +103,7 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let first_schema = minimal_schema();
     let mut second_schema = minimal_schema();
@@ -127,9 +131,8 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
     schema_svc
         .expect_append_single_schema()
         .once()
-        .withf(move |_, prompt_source, failed_schema, last_error| {
-            *prompt_source == SchemaPromptSource::YamlProjection
-                && failed_schema == &Some(&second_schema)
+        .withf(move |_, failed_schema, last_error| {
+            failed_schema == &Some(&second_schema)
                 && matches!(
                     last_error,
                     Some(ApplySchemaError::Title(ExtractionError::NoElementMatched {
@@ -137,7 +140,7 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
                     })) if selector == "title"
                 )
         })
-        .returning(move |_, _, _, _| {
+        .returning(move |_, _, _| {
             Box::pin(async {
                 Ok(generated_schemas(
                     vec![minimal_schema()],
@@ -189,7 +192,11 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         result.product.shops_product_id,
         ShopsProductId::from("SKU-42")
@@ -205,7 +212,7 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let existing_schema = minimal_schema();
     let schema = ShopsProductSchema {
@@ -226,9 +233,8 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
     schema_svc
         .expect_append_single_schema()
         .once()
-        .withf(move |_, prompt_source, failed_schema, last_error| {
-            *prompt_source == SchemaPromptSource::YamlProjection
-                && failed_schema == &Some(&existing_schema_for_append)
+        .withf(move |_, failed_schema, last_error| {
+            failed_schema == &Some(&existing_schema_for_append)
                 && matches!(
                     last_error,
                     Some(ApplySchemaError::Title(ExtractionError::NoElementMatched {
@@ -236,7 +242,7 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
                     })) if selector == "title"
                 )
         })
-        .returning(move |_, _, _, _| {
+        .returning(move |_, _, _| {
             let s = minimal_schema();
             Box::pin(async move {
                 Ok(generated_schemas(
@@ -289,7 +295,11 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         result.product.shops_product_id,
         ShopsProductId::from("SKU-42")
@@ -305,7 +315,7 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let mut schema_svc = MockProductSchemaService::new();
@@ -343,7 +353,7 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(matches!(err, ScraperError::NormalizationError(_)));
 }
 
@@ -368,7 +378,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
         let html = html.clone();
-        Box::pin(async move { Ok(html) })
+        Box::pin(async move { Ok(fetch_result(html)) })
     });
 
     let schema = shops_product_schema(id);
@@ -408,7 +418,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap();
+    let result = service.scrape(&id, &url, None, None).await.unwrap();
     assert!(result.is_some());
 }
 
@@ -432,7 +442,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate_without_sche
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
         let html = html.clone();
-        Box::pin(async move { Ok(html) })
+        Box::pin(async move { Ok(fetch_result(html)) })
     });
 
     let mut product_schema = minimal_schema();
@@ -484,7 +494,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate_without_sche
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap();
+    let result = service.scrape(&id, &url, None, None).await.unwrap();
     assert!(result.is_some());
 }
 
@@ -497,7 +507,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let text_rule = |selector: &str| ExtractionRule {
         selector: CssSelector::from(selector),
@@ -544,30 +554,12 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
             Box::pin(async move { Ok(Some(s)) })
         });
 
-    let append_call_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    schema_svc.expect_append_single_schema().times(2).returning(
-        move |_, prompt_source, failed_schema, last_error| {
-            let append_call_count = append_call_count.clone();
-            let failed_schema = failed_schema.cloned();
-            let last_error = last_error.cloned();
+    schema_svc.expect_append_single_schema().once().returning(
+        move |_, failed_schema, last_error| {
+            assert!(failed_schema.is_none());
+            assert!(last_error.is_none());
             let expected_bad_appended = bad_appended.clone();
             Box::pin(async move {
-                let call = append_call_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-
-                match call {
-                    1 => {
-                        assert_eq!(prompt_source, SchemaPromptSource::YamlProjection);
-                        assert!(failed_schema.is_none());
-                        assert!(last_error.is_none());
-                    }
-                    2 => {
-                        assert_eq!(prompt_source, SchemaPromptSource::CleanedHtmlFallback);
-                        assert_eq!(failed_schema, Some(expected_bad_appended.clone()));
-                        assert!(last_error.is_some());
-                    }
-                    _ => panic!("unexpected append attempt count: {call}"),
-                }
-
                 Ok(generated_schemas(
                     vec![expected_bad_appended],
                     SchemaLlmEvaluationConfidence::High,
@@ -579,7 +571,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
 
     let norm_svc = MockProductNormalizationService::new();
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_budget_increment(&mut cand_svc, 2);
+    expect_budget_increment(&mut cand_svc, 1);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -590,11 +582,11 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(matches!(
         err,
         ScraperError::SchemaRegenerationExhausted {
-            attempts: 2,
+            attempts: 1,
             last_error: ApplySchemaError::Title(ExtractionError::NoElementMatched { ref selector }),
             ..
         } if selector == "non-existent-title-2"
@@ -614,7 +606,7 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     // Schema is found in DB — no schema-gen LLM call on the obtain path.
     let existing_schema = minimal_schema();
@@ -632,11 +624,10 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    // `append_single_schema` is called once for YAML and once for cleaned HTML.
     schema_svc
         .expect_append_single_schema()
-        .times(2)
-        .returning(|_, _, _, _| {
+        .once()
+        .returning(|_, _, _| {
             Box::pin(async {
                 Ok(generated_schemas(
                     vec![minimal_schema()],
@@ -647,18 +638,17 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
     // Schema is never persisted because normalization never succeeds.
     schema_svc.expect_save_product_schemas().never();
 
-    // All 3 normalize calls return TitleEmpty (fixable) so the loop runs to exhaustion.
+    // Both normalize calls return TitleEmpty (fixable) so the single repair attempt is exhausted.
     let mut norm_svc = MockProductNormalizationService::new();
     norm_svc
         .expect_normalize()
-        .times(3) // 1 initial + 2 retry attempts
+        .times(2) // 1 initial + 1 retry attempt
         .returning(|_, _, _| {
             Box::pin(async { Err(normalization_failure(NormalizationError::TitleEmpty, 0)) })
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    // 2 schema-generation LLM calls (one per attempt).
-    expect_budget_increment(&mut cand_svc, 2);
+    expect_budget_increment(&mut cand_svc, 1);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -669,12 +659,12 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(
         matches!(
             err,
             ScraperError::NormalizationFixExhausted {
-                attempts: 2,
+                attempts: 1,
                 last_norm_error: NormalizationError::TitleEmpty,
                 ..
             }

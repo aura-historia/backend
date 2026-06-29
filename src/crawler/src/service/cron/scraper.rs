@@ -161,6 +161,7 @@ async fn scrape_candidate(
         .scrape(
             &candidate.shop_id,
             &candidate.url,
+            candidate.url_pattern.as_deref(),
             candidate.last_scraped_hash.as_deref(),
         )
         .await
@@ -652,7 +653,7 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -683,7 +684,7 @@ mod tests {
             .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service.expect_scrape().returning(|_, url, _| {
+        scraper_service.expect_scrape().returning(|_, url, _, _| {
             let url = url.clone();
             Box::pin(async move {
                 Err(ScraperError::HttpError {
@@ -726,7 +727,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .once()
-            .returning(|_, url, _| {
+            .returning(|_, url, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
                     Err(ScraperError::HttpError {
@@ -767,7 +768,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .once()
-            .returning(|_, url, _| {
+            .returning(|_, url, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
                     Err(ScraperError::HttpError {
@@ -819,7 +820,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(2)
-            .returning(move |_, url, _| {
+            .returning(move |_, url, _, _| {
                 let url = url.clone();
                 let attempt = scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
@@ -883,7 +884,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(2)
-            .returning(move |_, url, _| {
+            .returning(move |_, url, _, _| {
                 let url = url.clone();
                 let attempt = scrape_count_for_mock.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
@@ -934,7 +935,7 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|shop_id, url, _| {
+            .returning(|shop_id, url, _, _| {
                 let url = url.clone();
                 let shop_id = *shop_id;
                 Box::pin(async move {
@@ -996,7 +997,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .once()
-            .returning(|_, url, _| {
+            .returning(|_, url, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
                     Err(ScraperError::PendingSchemaReview {
@@ -1040,7 +1041,7 @@ mod tests {
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .returning(|_, url, _| {
+            .returning(|_, url, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
                     Err(ScraperError::NormalizationFixExhausted {
@@ -1086,7 +1087,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(2)
-            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let job = scraper_job(
             CrawlerCronConfig::default(),
@@ -1209,12 +1210,15 @@ mod tests {
             });
 
         let mut scraper_service = MockScraperService::new();
-        scraper_service.expect_scrape().once().returning(|_, _, _| {
-            Box::pin(async {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                Ok(None)
-            })
-        });
+        scraper_service
+            .expect_scrape()
+            .once()
+            .returning(|_, _, _, _| {
+                Box::pin(async {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    Ok(None)
+                })
+            });
 
         let job = scraper_job(
             CrawlerCronConfig {
@@ -1252,7 +1256,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(1)
-            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let lock_manager = Arc::new(LocalLockManager::new());
         let prelocked = url::Url::parse("https://domain-a.com/product/1").unwrap();
@@ -1304,7 +1308,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(3)
-            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
 
         let job = scraper_job(
             CrawlerCronConfig::default(),

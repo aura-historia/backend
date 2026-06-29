@@ -1,0 +1,28 @@
+{
+    "name": "aura-historia-infra",
+    "version": "0.1.0",
+    "private": true,
+    "bin": {
+        "aura-historia-infra": "bin/app.ts"
+    },
+    "scripts": {
+        "build": "tsc --noEmit",
+        "cdk": "cdk",
+        "synth": "cdk synth --no-path-metadata --no-asset-metadata --no-version-reporting --no-notices",
+        "synth:all": "npm run synth -- --context stage=dev >/dev/null && npm run synth -- --context stage=prod >/dev/null && npm run synth -- --context stage=ephemeral >/dev/null",
+        "test": "jest --runInBand"
+    },
+    "dependencies": {
+        "aws-cdk-lib": "2.260.0",
+        "constructs": "10.6.0"
+    },
+    "devDependencies": {
+        "@types/jest": "30.0.0",
+        "@types/node": "26.0.1",
+        "aws-cdk": "2.1128.1",
+        "jest": "30.4.2",
+        "ts-jest": "29.4.11",
+        "ts-node": "10.9.2",
+        "typescript": "6.0.3"
+    }
+}

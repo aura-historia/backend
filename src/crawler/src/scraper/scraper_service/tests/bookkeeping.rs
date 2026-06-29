@@ -9,7 +9,7 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -67,7 +67,11 @@ async fn should_persist_scraped_state_before_marking_url_as_scraped() {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(result.product.state, ProductState::Sold);
     assert!(!result.snapshot.state.is_empty());

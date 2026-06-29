@@ -64,6 +64,7 @@ fn mk_search_filter_record_with_state(
         user_search_filter_id: filter_id,
         name: "Integration Test Filter".into(),
         enhanced_search_description: None,
+        embedding: None,
         notifications: true,
         state,
         product_query: Vec::new(),
@@ -75,6 +76,7 @@ fn mk_search_filter_record_with_state(
         exclude_shop_slug_id_query: HashSet::new(),
         seller_slug_id_query: HashSet::new(),
         exclude_seller_slug_id_query: HashSet::new(),
+        exclude_product_id_query: HashSet::new(),
         shop_type_query: HashSet::new(),
         country_query: HashSet::new(),
         continent_query: HashSet::new(),
@@ -91,6 +93,7 @@ fn mk_search_filter_record_with_state(
         updated_by: ActorRecord::User(user_id),
         created: datetime!(2024-01-01 00:00:00 UTC),
         updated: datetime!(2024-01-02 00:00:00 UTC),
+        last_hybrid_search_matched: datetime!(2024-01-02 00:00:00 UTC),
     }
 }
 

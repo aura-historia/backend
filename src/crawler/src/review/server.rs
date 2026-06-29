@@ -428,6 +428,7 @@ impl ReviewServer {
         self.html_fetcher
             .fetch(&url)
             .await
+            .map(|fetched| fetched.html)
             .map_err(|err| live_fetch_error(page, &err))
     }
 
@@ -445,6 +446,7 @@ impl ReviewServer {
         self.html_fetcher
             .fetch(&url)
             .await
+            .map(|fetched| fetched.html)
             .map_err(|err| live_url_fetch_error(raw_url, &err))
     }
 }

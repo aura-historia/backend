@@ -23,6 +23,9 @@ pub struct UserSearchFilterDocument {
     pub state: ResourceStateDocument,
     pub search: ProductSearchDocument,
     pub query: ProductPercolatorQuery,
+    // dim=768 via google/gemini-embedding-2
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub embedding: Option<Vec<f32>>,
     pub created_by: ActorDocument,
     pub updated_by: ActorDocument,
 
@@ -31,6 +34,16 @@ pub struct UserSearchFilterDocument {
 
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+
+    #[serde(
+        with = "time::serde::rfc3339",
+        default = "default_last_hybrid_search_matched"
+    )]
+    pub last_hybrid_search_matched: OffsetDateTime,
+}
+
+fn default_last_hybrid_search_matched() -> OffsetDateTime {
+    OffsetDateTime::UNIX_EPOCH
 }
 
 impl UserSearchFilterDocument {
@@ -52,6 +65,8 @@ impl From<UserSearchFilterDocument> for UserSearchFilter {
             updated_by: document.updated_by.into(),
             created: document.created,
             updated: document.updated,
+            last_hybrid_search_matched: document.last_hybrid_search_matched,
+            embedding: document.embedding,
         }
     }
 }
@@ -70,10 +85,12 @@ impl TryFrom<UserSearchFilterRecord> for UserSearchFilterDocument {
             state: user_search_filter.state.into(),
             search: user_search_filter.search.clone().into(),
             query,
+            embedding: user_search_filter.embedding,
             created_by: user_search_filter.created_by.into(),
             updated_by: user_search_filter.updated_by.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
+            last_hybrid_search_matched: user_search_filter.last_hybrid_search_matched,
         };
         Ok(user_search_filter_doc)
     }

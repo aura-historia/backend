@@ -57,7 +57,8 @@ export AWS_REGION=eu-central-1
 export LOCALSTACK_AUTH_TOKEN=[your_localstack_pro_token]
 cargo test --workspace --test integration --all-features --exclude acceptance-tests
 
-# Run acceptance tests (full Cloudformation-Stack via Localstack)
+# Run acceptance tests (full CDK-synthesized stack via LocalStack)
+npm --prefix infra install
 cargo test --package acceptance-tests
 ```
 

@@ -129,8 +129,11 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `created` / `updated`             | TIMESTAMPTZ              |                                                                                 |
 
 `shop_urls.last_scraped_state` is crawler-owned URL metadata in Postgres. The scraper updates it after successful
-normalization and uses it for crawler-side candidate selection. The downstream product backend receives the same
-normalized availability separately through product upsert commands; that persistence path is related but distinct.
+normalization and uses it for crawler-side candidate selection. If a product URL redirects to a same-host final URL that
+does not match the shop's persisted `shops.url_pattern`, the scraper marks the original URL as `REMOVED` before schema
+extraction so it is excluded from future scrape candidates. If no valid product URL pattern exists, only homepage/root
+redirects are treated as removal to avoid false positives. The downstream product backend receives normalized
+availability separately through product upsert commands; that persistence path is related but distinct.
 
 **Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop
 registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from
@@ -158,10 +161,10 @@ Caches the LLM-generated CSS selector schemas for each shop. One row per shop.
 | `product_schema`      | JSONB       | Serialized array of `ProductCssSelectorSchema` variants (legacy single-object payloads are still readable) |
 | `created` / `updated` | TIMESTAMPTZ |                                                                                                            |
 
-If no cached schema variant applies to a product page, the scraper enters append-and-retry mode: each attempt generates
-one schema for the current page, re-applies only newly appended candidate schemas for that attempt, and persists only
-when one applies. Non-applicable generated schemas are discarded. Existing schema variants are never fully replaced.
-Persisted sets are deduplicated.
+If no cached schema variant applies to a product page, the scraper enters append-and-retry mode: it makes one
+YAML-projection repair call to generate a schema for the current page, re-applies only newly appended candidate schemas,
+and persists only when one applies. Non-applicable generated schemas are discarded. Existing schema variants are never
+fully replaced. Persisted sets are deduplicated.
 
 Approved `PRODUCT_SCHEMA` reviews can also update this table from the Crawler Review Console. Those edits are trusted
 operator hotfixes: field edits, schema ordering, added/deleted schemas, and full JSON saves apply to
@@ -322,6 +325,8 @@ ORDER BY su.last_scraped NULLS FIRST
 
 `SOLD` and `REMOVED` are intentionally excluded from future scrape candidates. `UNKNOWN` remains eligible so newly
 discovered URLs can be re-scraped until the crawler resolves them to a concrete state.
+The actual candidate projection also carries `shops.url_pattern` so the scraper can validate post-fetch redirects
+against the shop's known product URL shape.
 
 ### Shop registration upsert
 

@@ -277,8 +277,10 @@ per-URL retry loop before returning failure to cron.
 `src/scraper/scraper_service.rs`:
 
 ```
-scrape(shop_id, url, last_scraped_hash)
- ├── HtmlFetcher::fetch(url)                  — download raw HTML
+scrape(shop_id, url, product_url_pattern, last_scraped_hash)
+ ├── HtmlFetcher::fetch(url)                  — download raw HTML and capture the final URL after redirects
+ ├── if product URL redirected to a same-host URL that does not match the shop product URL pattern
+ │    └── mark URL as REMOVED and stop before schema extraction
  ├── current_hash = SHA-256(<main> fragment) if present, else SHA-256(full HTML)
  ├── if <main> present AND current_hash == last_scraped_hash
  │    └── touch_scraped(current_hash) and return None      — page unchanged, skip extraction
@@ -290,14 +292,13 @@ scrape(shop_id, url, last_scraped_hash)
  ├── try cached schema variants in order
  │    ├── first applicable variant → RawExtractedProduct
  │    └── none applies → [append-and-retry loop]
-	 │         ├── fixed prompt-source attempts: YAML projection, then cleaned HTML fallback
-	 │         │    ├── attempt 1: LLM generates ONE schema from the current page YAML projection
-	 │         │    ├── attempt 2: LLM gets cleaned HTML plus previous failed schema + extraction error
+	 │         ├── one YAML-projection repair attempt
+	 │         │    ├── LLM generates ONE schema from the current page YAML projection
  │         │    ├── in-memory candidate = existing schemas + generated schema
  │         │    ├── re-apply only schemas not already known to fail in this loop
  │         │    ├── if one applies → dedupe schema set, persist, continue
- │         │    └── if none apply → discard generated schema and retry
- │         └── if attempts exhausted → return SchemaRegenerationExhausted
+ │         │    └── if none apply → discard generated schema
+ │         └── if repair fails → return SchemaRegenerationExhausted
  ├── ProductNormalizationService::normalize(raw, url)
  │    ├── state: ProductStateMappingService::get_state_mapping(raw.state)
  │    │    ├── [guard] len > MAX_STATE_RAW_LEN (512 bytes)?
@@ -347,20 +348,25 @@ full JSON on an approved `PRODUCT_SCHEMA` review updates the live `shops_product
 review's candidate payload for audit readability, and appends a `manual_schema_edits` entry to
 `crawler_reviews.validation_summary`.
 
+Redirect guard: when `HtmlFetcher` follows redirects, the scraper compares the normalized original URL with the final
+URL. Equivalent canonical redirects continue normally. If the final URL differs and the shop has a valid persisted
+`shops.url_pattern`, the final URL must still match that product pattern; otherwise the original product URL is marked
+`REMOVED` before hashing, schema extraction, normalization, or product push. Without a valid pattern, the scraper only
+applies the conservative homepage/root redirect guard to avoid false removals.
+
 **Append-on-miss flow** — triggered when no cached schema variant applies during scrape:
 
 ```
 [append-on-miss flow]
  ├── ProductSchemaService::append_single_schema(domain, html, failed_schema?, last_error?)
-	 │    ├── attempt 1: LLM generates a single schema from the YAML projection
-	 │    ├── attempt 2: LLM receives cleaned HTML plus previous failed generated schema + extraction error
- │    │        Prompt emphasizes: "single schema for one page, for append/retry"
+ │    │        Prompt uses the current page YAML projection and emphasizes:
+ │    │        "single schema for one page, for append/retry"
  │    ├── append to existing variant set in memory
  │    └── return expanded ShopsProductSchema candidate
  │
  ├── retry only newly appended schemas (exclude known failed by content)
  │    ├── matches now? → persist expanded set and continue
-	 │    └── still no match → discard generated schema and try the next prompt source
+ │    └── still no match → discard generated schema and return SchemaRegenerationExhausted
 ```
 
 This enables heterogeneous shops (with multiple page layouts) to dynamically accumulate schema variants without full
@@ -371,12 +377,9 @@ persistence, schemas are deduplicated.
 synchronous helper that parses the HTML, applies the schema, and returns — ensuring no `Html` value is live when any
 `.await` point is reached.
 
-**Attempt budget and observability**: the append-and-retry loop uses the fixed YAML projection then cleaned HTML
-fallback
-sequence. When both attempts are exhausted, scraping returns `SchemaRegenerationExhausted`, cron persists the failure
-and
-writes a cooldown (`next_retry_at`) so the URL is skipped for a backoff window. Every schema-generation LLM call
-increments
+**Budget and observability**: the append-and-retry loop performs one YAML-projection schema-generation call. If the
+generated schema does not apply, scraping returns `SchemaRegenerationExhausted`, cron persists the failure and writes a
+cooldown (`next_retry_at`) so the URL is skipped for a backoff window. Every schema-generation LLM call increments
 `shops.llm_calls_count`.
 
 **Hard LLM budget stop**: shop-scoped LLM calls are tracked in `shops.llm_calls_count` (URL pattern classification +

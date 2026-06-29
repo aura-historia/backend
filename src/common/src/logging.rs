@@ -139,6 +139,7 @@ pub enum LlmOperation {
     ProductTitleTranslation,
     ProductEmbedding,
     ProductQueryEmbedding,
+    ProductEnhancedSearchDescriptionMatching,
     SellerShopDisambiguation,
     CrawlerUrlClassification,
     CrawlerProductSchemaGeneration,
@@ -153,6 +154,9 @@ impl LlmOperation {
             Self::ProductTitleTranslation => "PRODUCT_TITLE_TRANSLATION",
             Self::ProductEmbedding => "PRODUCT_EMBEDDING",
             Self::ProductQueryEmbedding => "PRODUCT_QUERY_EMBEDDING",
+            Self::ProductEnhancedSearchDescriptionMatching => {
+                "PRODUCT_ENHANCED_SEARCH_DESCRIPTION_MATCHING"
+            }
             Self::SellerShopDisambiguation => "SELLER_SHOP_DISAMBIGUATION",
             Self::CrawlerUrlClassification => "CRAWLER_URL_CLASSIFICATION",
             Self::CrawlerProductSchemaGeneration => "CRAWLER_PRODUCT_SCHEMA_GENERATION",
@@ -193,6 +197,7 @@ impl std::fmt::Display for LlmProvider {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmModel {
     Gemini25FlashLite,
+    Gemini31FlashLite,
     GeminiEmbedding2Preview0325,
     GeminiEmbedding2,
     Configured,
@@ -202,6 +207,7 @@ impl LlmModel {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Gemini25FlashLite => "gemini-2.5-flash-lite",
+            Self::Gemini31FlashLite => "gemini-3.1-flash-lite",
             Self::GeminiEmbedding2Preview0325 => "gemini-embedding-2-preview-03-25",
             Self::GeminiEmbedding2 => "gemini-embedding-2",
             Self::Configured => "CONFIGURED",

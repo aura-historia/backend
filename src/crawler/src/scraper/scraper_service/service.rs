@@ -36,7 +36,19 @@ const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Appl
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait HtmlFetcher: Send + Sync {
-    async fn fetch(&self, url: &Url) -> Result<String, FetchError>;
+    async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchedHtml {
+    pub html: String,
+    pub final_url: Url,
+}
+
+impl FetchedHtml {
+    pub fn new(html: String, final_url: Url) -> Self {
+        Self { html, final_url }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +172,7 @@ impl ReqwestHtmlFetcher {
         sleep(delay).await;
     }
 
-    async fn fetch_once(&self, url: &Url) -> Result<String, FetchAttemptError> {
+    async fn fetch_once(&self, url: &Url) -> Result<FetchedHtml, FetchAttemptError> {
         let domain = url.host_str().map(str::to_owned);
         self.wait_for_domain_slot(domain.as_deref()).await;
 
@@ -192,13 +204,16 @@ impl ReqwestHtmlFetcher {
                 retry_after,
             })?;
 
-        response.text().await.map_err(|err| FetchAttemptError {
+        let final_url = response.url().clone();
+        let html = response.text().await.map_err(|err| FetchAttemptError {
             error: FetchError::Network {
                 kind: classify_reqwest_error(&err),
                 details: err.to_string(),
             },
             retry_after: None,
-        })
+        })?;
+
+        Ok(FetchedHtml::new(html, final_url))
     }
 
     fn record_domain_latency(&self, domain: Option<&str>, latency: Duration) {
@@ -225,7 +240,7 @@ fn retry_after_delay(header: &reqwest::header::HeaderValue) -> Option<Duration> 
 
 #[async_trait::async_trait]
 impl HtmlFetcher for ReqwestHtmlFetcher {
-    async fn fetch(&self, url: &Url) -> Result<String, FetchError> {
+    async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
         for attempt in 1..=self.retry_policy.max_attempts {
             match self.fetch_once(url).await {
                 Ok(html) => return Ok(html),
@@ -489,9 +504,10 @@ mod tests {
             throttle_config(Duration::ZERO),
         );
 
-        let html = fetcher.fetch(&url).await.unwrap();
+        let fetched = fetcher.fetch(&url).await.unwrap();
 
-        assert_eq!(html, "<html>ok</html>");
+        assert_eq!(fetched.html, "<html>ok</html>");
+        assert_eq!(fetched.final_url, url);
     }
 
     #[tokio::test]
@@ -506,9 +522,10 @@ mod tests {
         );
 
         let started = Instant::now();
-        let html = fetcher.fetch(&url).await.unwrap();
+        let fetched = fetcher.fetch(&url).await.unwrap();
 
-        assert_eq!(html, "<html>ok</html>");
+        assert_eq!(fetched.html, "<html>ok</html>");
+        assert_eq!(fetched.final_url, url);
         assert!(started.elapsed() >= Duration::from_millis(20));
     }
 }

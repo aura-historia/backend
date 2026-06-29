@@ -2,6 +2,7 @@ use crate::core::user_search_filter::UserSearchFilter;
 use crate::core::user_search_filter_name::UserSearchFilterName;
 use common::actor::record::ActorRecord;
 use common::distance::data::GeoDistanceQueryData;
+use common::product_id::ProductId;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::record::ResourceStateRecord;
@@ -40,6 +41,11 @@ pub struct UserSearchFilterRecord {
     pub product_query: Vec<TextQuery<1>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enhanced_search_description: Option<String>,
+    // dim=768 via google/gemini-embedding-2
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding: Option<Vec<f32>>,
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub exclude_product_id_query: HashSet<ProductId>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub shop_name_query: HashSet<ShopName>,
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
@@ -103,6 +109,11 @@ pub struct UserSearchFilterRecord {
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
+    #[serde(
+        with = "time::serde::rfc3339",
+        default = "default_last_hybrid_search_matched"
+    )]
+    pub last_hybrid_search_matched: OffsetDateTime,
 }
 
 pub fn mk_pk(user_id: &UserId) -> String {
@@ -111,6 +122,10 @@ pub fn mk_pk(user_id: &UserId) -> String {
 
 fn default_notifications() -> bool {
     true
+}
+
+fn default_last_hybrid_search_matched() -> OffsetDateTime {
+    OffsetDateTime::UNIX_EPOCH
 }
 
 pub fn mk_sk(search_filter_id: &UserSearchFilterId) -> String {
@@ -130,6 +145,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                 currency: record.currency.into(),
                 product_query: record.product_query,
                 enhanced_search_description: record.enhanced_search_description.map(Into::into),
+                exclude_product_id_query: record.exclude_product_id_query.into(),
                 shop_name_query: record.shop_name_query.into(),
                 exclude_shop_name_query: record.exclude_shop_name_query.into(),
                 seller_name_query: record.seller_name_query.into(),
@@ -167,6 +183,8 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
             updated_by: record.updated_by.into(),
             created: record.created,
             updated: record.updated,
+            last_hybrid_search_matched: record.last_hybrid_search_matched,
+            embedding: record.embedding,
         }
     }
 }
@@ -186,6 +204,8 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
                 .search
                 .enhanced_search_description
                 .map(Into::into),
+            embedding: user_search_filter.embedding,
+            exclude_product_id_query: user_search_filter.search.exclude_product_id_query.into(),
             shop_name_query: user_search_filter.search.shop_name_query.into(),
             exclude_shop_name_query: user_search_filter.search.exclude_shop_name_query.into(),
             seller_name_query: user_search_filter.search.seller_name_query.into(),
@@ -234,6 +254,7 @@ impl From<UserSearchFilter> for UserSearchFilterRecord {
             updated_by: user_search_filter.updated_by.into(),
             created: user_search_filter.created,
             updated: user_search_filter.updated,
+            last_hybrid_search_matched: user_search_filter.last_hybrid_search_matched,
         }
     }
 }
@@ -260,6 +281,8 @@ mod fake {
                 state: ResourceStateRecord::Active,
                 product_query: config.fake_with_rng(rng),
                 enhanced_search_description: config.fake_with_rng(rng),
+                embedding: None,
+                exclude_product_id_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),
@@ -284,6 +307,7 @@ mod fake {
                 updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
+                last_hybrid_search_matched: OffsetDateTime::now_utc(),
             }
         }
     }

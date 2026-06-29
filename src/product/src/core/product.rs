@@ -18,6 +18,7 @@ use crate::core::product_event::{
     ProductPolicyEvent,
 };
 use crate::core::product_image::ProductImage;
+use crate::core::product_search::ProductSearch;
 use crate::core::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
 use crate::core::title::Title;
 use common::actor::domain::Actor;
@@ -748,6 +749,27 @@ impl Product {
         }
         descriptions
     }
+
+    pub fn embedding_text(search: &ProductSearch) -> Option<String> {
+        let mut parts: Vec<String> = search
+            .product_query
+            .iter()
+            .map(|query| query.as_ref().trim().to_owned())
+            .collect();
+
+        if let Some(enhanced_description) = &search.enhanced_search_description {
+            let enhanced_description = enhanced_description.as_ref().trim();
+            if !enhanced_description.is_empty() {
+                parts.push(enhanced_description.to_owned());
+            }
+        }
+
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("\n"))
+        }
+    }
 }
 
 impl HasKey for Product {
@@ -921,6 +943,31 @@ mod tests {
 
     fn image_set(images: impl IntoIterator<Item = ProductImage>) -> IndexSet<ProductImage> {
         images.into_iter().collect()
+    }
+
+    #[test]
+    fn should_build_embedding_text_from_query_and_enhanced_description() {
+        let search = ProductSearch::new(Language::En, Currency::Eur)
+            .with_product_query("antique vase".try_into().unwrap())
+            .with_enhanced_search_description(
+                crate::core::product_search::EnhancedSearchDescription::from(
+                    "blue ceramic with floral pattern",
+                ),
+            );
+
+        let actual = Product::embedding_text(&search);
+
+        assert_eq!(
+            actual.as_deref(),
+            Some("antique vase\nblue ceramic with floral pattern")
+        );
+    }
+
+    #[test]
+    fn should_return_none_for_embedding_text_when_search_has_no_text() {
+        let search = ProductSearch::new(Language::En, Currency::Eur);
+
+        assert_eq!(Product::embedding_text(&search), None);
     }
 
     #[test]

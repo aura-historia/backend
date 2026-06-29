@@ -26,7 +26,7 @@ pub async fn handler(
         .request
         .user_attributes
         .get("email")
-        .expect("shouldn't miss user-attribute 'email' which is required according to our Cloudformation-Code for Cognito")
+        .expect("shouldn't miss user-attribute 'email' which is required by Cognito infrastructure")
         .to_owned()
         .try_into()
         .expect("shouldn't fail parsing user-attribute 'email' as valid E-Mail because Cognito forces validity on sign-up");

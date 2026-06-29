@@ -38,12 +38,7 @@ async fn main() -> Result<(), Error> {
         std::env::var("USER_POOL_ID").expect("shouldn't fail loading env-var 'USER_POOL_ID'");
     let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")
         .expect("shouldn't fail loading env-var 'USER_POOL_PUBLIC_CLIENT_ID'");
-    let user_pool_admin_client_id = std::env::var("USER_POOL_ADMIN_CLIENT_ID")
-        .expect("shouldn't fail loading env-var 'USER_POOL_ADMIN_CLIENT_ID'");
-    let user_pool_client_ids = [
-        user_pool_public_client_id.as_str(),
-        user_pool_admin_client_id.as_str(),
-    ];
+    let user_pool_client_ids = [user_pool_public_client_id.as_str()];
     // Hybrid (BM25 + kNN, OpenSearch-native RRF) search is opt-in via
     // `GOOGLE_APPLICATION_CREDENTIALS`. When unset, the lambda falls back to the
     // existing pure-BM25 query path so the lambda continues to work in

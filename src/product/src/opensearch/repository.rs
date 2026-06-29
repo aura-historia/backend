@@ -555,6 +555,13 @@ pub fn build_filter_clauses(
     let mut filter = Vec::with_capacity(16);
 
     // ---------- Exclusions ----------
+    if !search.exclude_product_id_query.is_empty() {
+        must_not.push(json!({
+            "terms": {
+                ProductDocumentSerdeField::ProductId.as_str(): search.exclude_product_id_query.iter().map(|v| v.to_string()).collect::<Vec<_>>()
+            }
+        }));
+    }
     if !search.exclude_shop_name_query.is_empty() {
         must_not.push(json!({
             "terms": {
@@ -895,6 +902,20 @@ mod tests {
             actual
                 .pointer("/bool/must/0/bool/should/1/bool/must/0/bool/should/0/multi_match/query"),
             Some(&json!("Virgin Mary oil painting"))
+        );
+    }
+
+    #[test]
+    fn should_build_search_query_with_excluded_product_ids() {
+        let excluded_product_id = ProductId::new();
+        let mut search = ProductSearch::new(Language::En, Currency::Eur);
+        search.exclude_product_id_query = [excluded_product_id].into_iter().collect();
+
+        let actual = build_search_query(&search).unwrap();
+
+        assert_eq!(
+            actual.pointer("/bool/must_not/0/terms/productId"),
+            Some(&json!([excluded_product_id.to_string()]))
         );
     }
 

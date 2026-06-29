@@ -28,7 +28,10 @@ impl IntegrationTestService for S3 {
 #[cfg(feature = "cloudformation")]
 mod mail_templates {
     use crate::localstack::get_aws_config;
-    use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
+    use aws_sdk_s3::{
+        error::ProvideErrorMetadata,
+        types::{BucketLocationConstraint, CreateBucketConfiguration},
+    };
     use futures::stream::{self, StreamExt};
     use std::path::PathBuf;
     use tokio::sync::OnceCell;
@@ -36,14 +39,14 @@ mod mail_templates {
 
     /// The S3 bucket name used by Lambdas to fetch compiled mail templates.
     ///
-    /// Must match the `S3_BUCKET_NAME_TEMPLATES` value hard-coded in
-    /// `cfn/ephemeral.yaml`.
+    /// Must match the `S3_BUCKET_NAME_TEMPLATES` value synthesized by the
+    /// CDK ephemeral stack.
     const MAIL_TEMPLATE_BUCKET: &str = "aura-historia-mail-templates-eu-central-1";
 
-    /// Stage name injected into the S3 key prefix.
+    /// Stage injected into the S3 key prefix.
     ///
-    /// Mirrors `STAGE_NAME` in [`crate::cloudformation`].
-    const STAGE_NAME: &str = "acceptance";
+    /// Mirrors `STAGE` in [`crate::cloudformation`].
+    const STAGE: &str = "ephemeral";
 
     /// Commit SHA injected into the S3 key prefix.
     ///
@@ -102,9 +105,9 @@ mod mail_templates {
     /// HTML with [`mrml`], and uploads the result.
     ///
     /// The S3 key for each template is
-    /// `{STAGE_NAME}/{COMMIT_SHA}/{dir}/{lang}.html`
+    /// `{STAGE}/{COMMIT_SHA}/{dir}/{lang}.html`
     /// where `{dir}/{lang}` equals [`MailTemplate::as_s3_blob_str`], e.g.
-    /// `acceptance/local/mjml/watchlist/product-update/price/en.html`.
+    /// `ephemeral/local/mjml/watchlist/product-update/price/en.html`.
     pub(super) async fn create_bucket_and_upload() {
         create_mail_template_bucket().await;
         compile_and_upload_templates().await;
@@ -112,7 +115,8 @@ mod mail_templates {
 
     async fn create_mail_template_bucket() {
         let s3 = get_s3_client().await;
-        s3.create_bucket()
+        match s3
+            .create_bucket()
             .bucket(MAIL_TEMPLATE_BUCKET)
             .create_bucket_configuration(
                 CreateBucketConfiguration::builder()
@@ -121,8 +125,20 @@ mod mail_templates {
             )
             .send()
             .await
-            .expect("shouldn't fail creating mail template S3 bucket");
-        debug!("Created S3 mail template bucket '{MAIL_TEMPLATE_BUCKET}'.");
+        {
+            Ok(_) => debug!("Created S3 mail template bucket '{MAIL_TEMPLATE_BUCKET}'."),
+            Err(error) if is_bucket_already_owned_error(&error) => {
+                debug!("S3 mail template bucket '{MAIL_TEMPLATE_BUCKET}' already exists.");
+            }
+            Err(error) => panic!("shouldn't fail creating mail template S3 bucket: {error}"),
+        };
+    }
+
+    fn is_bucket_already_owned_error(error: &impl ProvideErrorMetadata) -> bool {
+        matches!(
+            error.code(),
+            Some("BucketAlreadyOwnedByYou" | "BucketAlreadyExists")
+        )
     }
 
     async fn compile_and_upload_templates() {
@@ -139,12 +155,12 @@ mod mail_templates {
                     mjml_path.display()
                 );
 
-                // Derive S3 key: {STAGE_NAME}/{COMMIT_SHA}/{dir}/{lang}.html
-                // e.g. "acceptance/local/mjml/watchlist/product-update/price/de.html"
+                // Derive S3 key: {STAGE}/{COMMIT_SHA}/{dir}/{lang}.html
+                // e.g. "ephemeral/local/mjml/watchlist/product-update/price/de.html"
                 let without_ext = template_rel_path
                     .strip_suffix(".mjml")
                     .expect("template path should end with .mjml");
-                let s3_key = format!("{STAGE_NAME}/{COMMIT_SHA}/{without_ext}.html");
+                let s3_key = format!("{STAGE}/{COMMIT_SHA}/{without_ext}.html");
 
                 (mjml_path, s3_key)
             })

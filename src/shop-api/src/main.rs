@@ -32,12 +32,7 @@ async fn main() -> Result<(), Error> {
         std::env::var("USER_POOL_ID").expect("shouldn't fail loading env-var 'USER_POOL_ID'");
     let user_pool_public_client_id = std::env::var("USER_POOL_PUBLIC_CLIENT_ID")
         .expect("shouldn't fail loading env-var 'USER_POOL_PUBLIC_CLIENT_ID'");
-    let user_pool_admin_client_id = std::env::var("USER_POOL_ADMIN_CLIENT_ID")
-        .expect("shouldn't fail loading env-var 'USER_POOL_ADMIN_CLIENT_ID'");
-    let user_pool_client_ids = [
-        user_pool_public_client_id.as_str(),
-        user_pool_admin_client_id.as_str(),
-    ];
+    let user_pool_client_ids = [user_pool_public_client_id.as_str()];
 
     let dynamodb = Client::new(&aws_config);
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);

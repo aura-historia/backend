@@ -55,6 +55,8 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
             updated_by: common::actor::domain::Actor::User(user_id),
             created: time::OffsetDateTime::now_utc(),
             updated: time::OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: time::OffsetDateTime::now_utc(),
+            embedding: None,
         };
         repository
             .put_user_search_filter_record(filter.clone().into())
@@ -141,6 +143,8 @@ async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
             updated_by: common::actor::domain::Actor::User(user_id),
             created: time::OffsetDateTime::now_utc(),
             updated: time::OffsetDateTime::now_utc(),
+            last_hybrid_search_matched: time::OffsetDateTime::now_utc(),
+            embedding: None,
         };
         repository
             .put_user_search_filter_record(filter.clone().into())
