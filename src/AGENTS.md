@@ -32,6 +32,8 @@
 - New `src` doc go at crate root. No module doc unless module become crate boundary.
 - Update nearest doc when crate purpose, route, event, env var, dependency edge, test flow, or child index change.
 - If REST endpoint, payload, auth, or error behavior change, update `docs/swagger.yaml` and `docs/CHANGELOG.md`.
+- If relevant DynamoDB structure change, update `docs/dynamodb/table_1.md`
+- If relevant event structure or flow change, update `docs/evenst/flow.md`
 - If new Lambda appear, wire deploy, `src/ci-determinator`, `src/test-api/src/cloudformation.rs`, and `infra/` when needed.
 
 ## Work Guidance
