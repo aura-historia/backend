@@ -352,6 +352,64 @@ async fn should_create_match_and_notification_when_filter_matches_product() {
     );
 }
 
+/// Excluded shop name on the filter blocks percolation match end-to-end.
+#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+async fn should_not_create_match_or_notification_when_filter_excludes_product_shop_name() {
+    let ddb = get_dynamodb_client().await;
+    let os = get_opensearch_client().await;
+
+    let product_repo = ProductDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let sf_ddb_repo = UserSearchFilterDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let sf_os_repo = UserSearchFilterOpenSearchRepositoryImpl::new(os);
+    let user_repo = UserDynamoDbRepositoryImpl::new(ddb, "table_1");
+    let user_service = UserServiceImpl::new(&user_repo);
+    let get_product_service = GetProductServiceImpl::new(&product_repo);
+    let enhanced_service = MockEnhancedSearchMatchService::default();
+
+    let sf_service =
+        UserSearchFilterServiceImpl::with_opensearch(&sf_ddb_repo, &user_service, &sf_os_repo);
+
+    let shop_id = ShopId::new();
+    let shops_product_id = ShopsProductId::new();
+    let product_record = mk_product_record(shop_id, &shops_product_id);
+    product_repo
+        .put_product_records([product_record.clone()].into())
+        .await
+        .unwrap();
+
+    let user_id = create_user(&user_service, "exclude-shop-name@test.com").await;
+    let filter_id = UserSearchFilterId::new();
+    let mut filter_record = mk_search_filter_record(user_id, filter_id);
+    filter_record.exclude_shop_name_query =
+        HashSet::from_iter([product_record.shop_name.clone().into()]);
+    index_filter(&sf_os_repo, filter_record).await;
+
+    let notification_service = MockNotificationService::default();
+
+    let matcher = ProductMatcherServiceImpl::new(
+        &sf_service,
+        &get_product_service,
+        &enhanced_service,
+        &user_service,
+    );
+
+    let event_record = mk_state_change_event_record(&product_record);
+    let body = mk_event_bridge_body(&event_record);
+    let event = mk_sqs_event(vec![mk_sqs_message(&body)]);
+
+    let response = handler(&matcher, &notification_service, &sf_service, event)
+        .await
+        .unwrap();
+
+    assert!(response.batch_item_failures.is_empty());
+
+    let persisted_match = sf_service
+        .find_search_filter_product_match(&user_id, &filter_id, &shop_id, &shops_product_id)
+        .await
+        .unwrap();
+    assert!(persisted_match.is_none());
+}
+
 /// No percolation match → no match records and no notifications.
 #[localstack_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_not_create_match_or_notification_when_no_filter_matches() {
