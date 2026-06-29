@@ -236,8 +236,6 @@ fn build_lambdas() {
             "--exclude",
             "smoking-tests",
             "--exclude",
-            "staging-tests",
-            "--exclude",
             "ci-determinator",
         ])
         .current_dir(workspace_dir)

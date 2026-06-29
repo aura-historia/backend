@@ -7,8 +7,8 @@
 ## Core Design
 
 - Parent test crate for AWS smoke and staging suites.
-- Child crates: `aws-tests-common`, `smoking-tests`, `staging-tests`.
-- Main neighbors: `aws-tests-common`, `smoking-tests`, `staging-tests`.
+- Child crates: `aws-tests-common`, `smoking-tests`.
+- Main neighbors: `aws-tests-common`, `smoking-tests`.
 - Parent crate exists to group child executables or suites and keep their map discoverable.
 
 ## Ownership
@@ -37,4 +37,3 @@
 
 - `src/aws-tests/src/aws-tests-common/AGENTS.md` — `aws-tests-common` crate.
 - `src/aws-tests/src/smoking-tests/AGENTS.md` — `smoking-tests` crate.
-- `src/aws-tests/src/staging-tests/AGENTS.md` — `staging-tests` crate.

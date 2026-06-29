@@ -1031,15 +1031,33 @@ version = "0.1.0"
 dependencies = [
  "aws-tests-common",
  "smoking-tests",
- "staging-tests",
 ]
 
 [[package]]
 name = "aws-tests-common"
 version = "0.1.0"
 dependencies = [
+ "aws-config",
+ "aws-sdk-cognitoidentityprovider",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sqs",
+ "common",
+ "fake",
+ "notification",
+ "opensearch",
+ "product",
+ "product-watchlist",
+ "reqwest 0.12.28",
+ "search-filter",
  "serde",
  "serde_json",
+ "shop",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "user",
+ "uuid",
 ]
 
 [[package]]
@@ -7666,51 +7684,6 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
-
-[[package]]
-name = "staging-tests"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-cognitoidentityprovider",
- "aws-sdk-dynamodb",
- "aws-sdk-sqs",
- "aws-tests-common",
- "common",
- "fake",
- "futures-util",
- "http 1.4.2",
- "notification",
- "notification-api",
- "opensearch",
- "product",
- "product-api",
- "product-watchlist",
- "product-watchlist-api",
- "reqwest 0.12.28",
- "search-filter",
- "search-filter-api",
- "serde",
- "serde_json",
- "serial_test",
- "shop",
- "staging-tests-macros",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "user",
- "uuid",
-]
-
-[[package]]
-name = "staging-tests-macros"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn 2.0.118",
-]
 
 [[package]]
 name = "static_assertions"
