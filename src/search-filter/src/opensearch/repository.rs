@@ -159,6 +159,26 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
                 }
             }));
         }
+        if let Some(has_enhanced_search_description) = search.has_enhanced_search_description {
+            let exists_query = json!({
+                "bool": {
+                    "should": [
+                        { "exists": { "field": "enhancedSearchDescription" } },
+                        { "exists": { "field": "search.enhancedSearchDescription" } }
+                    ],
+                    "minimum_should_match": 1
+                }
+            });
+            if has_enhanced_search_description {
+                filter.push(exists_query);
+            } else {
+                filter.push(json!({
+                    "bool": {
+                        "must_not": [exists_query]
+                    }
+                }));
+            }
+        }
 
         let mut body = json!({
             "query": {
@@ -167,6 +187,7 @@ impl<'a> UserSearchFilterOpenSearchRepository for UserSearchFilterOpenSearchRepo
                 }
             },
             "sort": [
+                { "lastHybridSearchMatched": { "order": "asc", "missing": "_first" } },
                 { "userSearchFilterId": { "order": "asc" } }
             ]
         });

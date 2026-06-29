@@ -2,6 +2,7 @@ use common::currency::domain::Currency;
 use common::distance::domain::GeoDistanceQuery;
 use common::language::domain::Language;
 use common::price::domain::MonetaryAmount;
+use common::product_id::ProductId;
 use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
@@ -24,6 +25,7 @@ pub struct ProductSearch {
     pub currency: Currency,
     pub product_query: Vec<TextQuery<1>>,
     pub enhanced_search_description: Option<EnhancedSearchDescription>,
+    pub exclude_product_id_query: AnyOfQuery<ProductId>,
     pub shop_name_query: AnyOfQuery<ShopName>,
     pub exclude_shop_name_query: AnyOfQuery<ShopName>,
     pub seller_name_query: AnyOfQuery<ShopName>,
@@ -51,6 +53,7 @@ impl ProductSearch {
             currency,
             product_query: Vec::new(),
             enhanced_search_description: None,
+            exclude_product_id_query: AnyOfQuery::default(),
             shop_name_query: AnyOfQuery::default(),
             exclude_shop_name_query: AnyOfQuery::default(),
             seller_name_query: AnyOfQuery::default(),
@@ -82,6 +85,14 @@ impl ProductSearch {
         enhanced_search_description: EnhancedSearchDescription,
     ) -> Self {
         self.enhanced_search_description = Some(enhanced_search_description);
+        self
+    }
+
+    pub fn with_exclude_product_id_query(
+        mut self,
+        exclude_product_id_query: AnyOfQuery<ProductId>,
+    ) -> Self {
+        self.exclude_product_id_query = exclude_product_id_query;
         self
     }
 
@@ -209,6 +220,7 @@ pub mod faker {
                 currency: config.fake_with_rng(rng),
                 product_query: config.fake_with_rng(rng),
                 enhanced_search_description: None,
+                exclude_product_id_query: config.fake_with_rng(rng),
                 shop_name_query: config.fake_with_rng(rng),
                 exclude_shop_name_query: config.fake_with_rng(rng),
                 seller_name_query: config.fake_with_rng(rng),

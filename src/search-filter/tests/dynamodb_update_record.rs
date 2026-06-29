@@ -24,6 +24,7 @@ async fn should_update_search_filter_record() {
         notifications: None,
         state: None,
         enhanced_search_description: None,
+        embedding: Some(vec![0.7, 0.8, 0.9]),
         product_query: Some(vec!["boopel boop doop".try_into().unwrap()]),
         shop_name_query: None,
         exclude_shop_name_query: None,
@@ -47,6 +48,7 @@ async fn should_update_search_filter_record() {
         currency: None,
         updated_by: common::actor::record::ActorRecord::System,
         updated,
+        last_hybrid_search_matched: None,
     };
     let _ = repository
         .update_user_search_filter_record(&record.user_id, &record.user_search_filter_id, update)
@@ -56,6 +58,7 @@ async fn should_update_search_filter_record() {
     let mut expected = record.clone();
     expected.name = "my cool name".into();
     expected.product_query = vec!["boopel boop doop".try_into().unwrap()];
+    expected.embedding = Some(vec![0.7, 0.8, 0.9]);
     expected.updated_by = common::actor::record::ActorRecord::System;
     expected.updated = updated;
 

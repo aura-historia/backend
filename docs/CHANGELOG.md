@@ -6,6 +6,14 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-06-28 - Add Product ID Exclusion to Product Search
+
+### Added
+
+- **`ProductSearchData.excludeProductId`**
+  - New optional array of product IDs for excluding specific products from search results.
+  - Supported by product search requests and saved search filter create/response payloads.
+
 ## 2026-06-17 - Move Enhanced Search Description Into Product Search & Product Search Accepts Multiple Text Queries
 
 ### Changed

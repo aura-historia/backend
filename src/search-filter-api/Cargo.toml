@@ -8,6 +8,7 @@ common = { workspace = true, features = ["api", "opensearch"] }
 search-filter = { workspace = true, features = ["data", "service", "dynamodb"] }
 shop = { workspace = true, features = ["dynamodb"] }
 product = { workspace = true, features = ["data", "service", "dynamodb", "opensearch"] }
+product-pipeline-embed-text = { workspace = true }
 geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
@@ -25,6 +26,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 http = { workspace = true }
 time = { workspace = true }
+futures-util = { workspace = true }
 
 # Optional
 fake = { workspace = true, optional = true }
@@ -45,4 +47,4 @@ search-filter = { workspace = true, features = ["test-data"] }
 
 [features]
 default = []
-test-data = ["common/test-data", "fake"]
+test-data = ["common/test-data", "fake", "product/test-data", "shop/test-data", "geo/test-data"]

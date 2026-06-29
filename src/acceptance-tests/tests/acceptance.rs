@@ -1,5 +1,6 @@
 use aws_tests_common::get_cfn_output;
 use base64::Engine;
+use common::enhanced_match_reason::EnhancedMatchReason;
 use common::execution_state::data::ExecutionStateData;
 use common::oauth_client_id::OAuthClientId;
 use common::personalized::api::PersonalizedData;
@@ -10,7 +11,11 @@ use common::{
     event::Event,
     event_id::EventId,
     has_key::HasKey,
-    language::data::LanguageData,
+    language::{
+        data::LanguageData,
+        document::{LanguageDocument, TextDocument},
+        domain::Language,
+    },
     pagination::{cursor::api::TimeCursoredData, page::api::PaginatedData},
     price::domain::{FixedFxRate, FxRate, Price},
     product_id::{ProductKey, api::ProductKeyData},
@@ -28,6 +33,10 @@ use notification::{
     dynamodb::{
         notification_record::NotificationRecord,
         repository::{NotificationDynamoDbRepository, NotificationDynamoDbRepositoryImpl},
+    },
+    service::{
+        noop_adapters::{NoopS3Adapter, NoopSesAdapter},
+        notification_service::NotificationServiceImpl,
     },
 };
 use notification_api::notification_get::EventIdCursoredData;
@@ -75,9 +84,15 @@ use product::{
         prohibited_content_record::ProhibitedContentRecord,
         repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
+    opensearch::{
+        product_document::ProductDocument,
+        product_state_document::ProductStateDocument,
+        repository::{ProductOpenSearchRepository, ProductOpenSearchRepositoryImpl},
+    },
     service::{
         command_service::{CommandProductService, CommandProductServiceImpl},
         product_command::{CreateProductCommand, UpdateProductCommand},
+        query_service::QueryProductServiceImpl,
     },
 };
 use product_watchlist::dynamodb::repository::{
@@ -87,14 +102,30 @@ use product_watchlist_api::watchlist_patch::WatchlistProductPatch;
 use search_filter::{
     core::user_search_filter_name::UserSearchFilterName,
     data::user_search_filter_data::UserSearchFilterData,
-    dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl,
-    opensearch::user_search_filter_document::UserSearchFilterDocument,
-    service::user_search_filter_service::{UserSearchFilterService, UserSearchFilterServiceImpl},
+    dynamodb::repository::{
+        UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
+    },
+    opensearch::{
+        repository::{
+            UserSearchFilterOpenSearchRepository, UserSearchFilterOpenSearchRepositoryImpl,
+        },
+        user_search_filter_document::UserSearchFilterDocument,
+    },
+    service::{
+        enhanced_search_match_service::{
+            EnhancedSearchMatchResult, MockEnhancedSearchMatchService,
+        },
+        user_search_filter_service::{UserSearchFilterService, UserSearchFilterServiceImpl},
+    },
 };
 use search_filter_api::{
     patch_product_match::PatchUserSearchFilterMatchData,
     patch_types::{PatchProductSearchData, PatchUserSearchFilterData},
     post_types::PostUserSearchFilterData,
+};
+use search_filter_periodic_match::{
+    DEFAULT_LLM_CONCURRENCY, PeriodicMatcherResult, PeriodicMatcherService,
+    PeriodicMatcherServiceImpl,
 };
 use serde::de::DeserializeOwned;
 use shop::core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
@@ -1079,6 +1110,34 @@ async fn wait_until_document_deleted(user_search_filter_id: impl Into<String>) {
         "Expected search-filter document '{}' to be deleted from OpenSearch, but it still existed.",
         user_search_filter_id
     );
+}
+
+fn localstack_query_embedding() -> Vec<f32> {
+    vec![0.42; 768]
+}
+
+fn make_periodic_acceptance_product_document(
+    title: &str,
+    embedding: Vec<f32>,
+    updated: OffsetDateTime,
+) -> ProductDocument {
+    let mut product: ProductDocument = Faker.fake();
+    product.title_native = TextDocument {
+        text: title.to_string(),
+        language: LanguageDocument::En,
+    };
+    product.title_en = Some(title.to_string());
+    product.embedding = Some(embedding);
+    product.state = ProductStateDocument::Available;
+    product.shop_type = shop::opensearch::shop_type_document::ShopTypeDocument::CommercialDealer;
+    product.url = url::Url::parse("https://example.com/periodic-product").unwrap();
+    product.view_url = url::Url::parse(
+        "https://example.com/periodic-product?utm_source=aura_historia&utm_medium=referral",
+    )
+    .unwrap();
+    product.created = updated;
+    product.updated = updated;
+    product
 }
 
 async fn emit_create_log_group_cloudtrail_event(log_group_name: &str) {
@@ -3323,7 +3382,8 @@ async fn should_post_get_patch_delete_search_filter() {
         .unwrap();
 
     // POST
-    let expected = Faker.fake::<PostUserSearchFilterData>();
+    let mut expected = Faker.fake::<PostUserSearchFilterData>();
+    expected.search.enhanced_search_description = None;
     let post_url = format!(
         "{}/api/v1/me/search-filters",
         get_cfn_output().api_gateway_endpoint_url,
@@ -3410,6 +3470,183 @@ async fn should_post_get_patch_delete_search_filter() {
         .await
         .unwrap();
     assert_eq!(404, get_after_delete.status());
+}
+
+#[localstack_test(services = [Cloudformation()])]
+async fn should_embed_search_filter_and_create_match_when_periodic_hybrid_matching_runs() {
+    let cfn = get_cfn_output();
+    let user = create_random_test_user().await;
+    let user_id = UserId::from(user.sub);
+    let user_ctx = request_context_for_user(user_id);
+    let user_repository =
+        UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, &cfn.dynamodb_table_1_name);
+    let user_service = user::service::user_service::UserServiceImpl::new(&user_repository);
+    user_service
+        .update_user(
+            &user_ctx,
+            &user_id,
+            UpdateUserCommand {
+                tier: Some(UserTier::Ultimate),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let post_url = format!("{}/api/v1/me/search-filters", cfn.api_gateway_endpoint_url,);
+    let post_response = reqwest::Client::new()
+        .post(post_url)
+        .bearer_auth(&user.access_token)
+        .json(&serde_json::json!({
+            "name": "Periodic porcelain alerts",
+            "search": {
+                "language": "en",
+                "currency": "EUR",
+                "productQuery": ["rare porcelain vase"],
+                "enhancedSearchDescription": "blue floral porcelain vase"
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(201, post_response.status());
+    let posted = post_response.json::<UserSearchFilterData>().await.unwrap();
+
+    let search_filter_dynamodb_repository = UserSearchFilterDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &cfn.dynamodb_table_1_name,
+    );
+    let search_filter_opensearch_repository =
+        UserSearchFilterOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+
+    let persisted_filter = search_filter_dynamodb_repository
+        .get_user_search_filter_record(&user_id, &posted.user_search_filter_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut document: UserSearchFilterDocument = persisted_filter.try_into().unwrap();
+    document.embedding = Some(localstack_query_embedding());
+    search_filter_opensearch_repository
+        .index_document(document.clone())
+        .await
+        .unwrap();
+    refresh_index("user_search_filters").await;
+
+    let document: UserSearchFilterDocument =
+        read_by_id("user_search_filters", posted.user_search_filter_id).await;
+    let embedding = document
+        .embedding
+        .clone()
+        .expect("search-filter OpenSearch document should store a query embedding");
+    assert_eq!(768, embedding.len());
+    assert!(
+        embedding.iter().any(|value| value.abs() > 0.000_1),
+        "search-filter OpenSearch document should store a non-zero query embedding"
+    );
+
+    let product_opensearch_repository =
+        ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let product = make_periodic_acceptance_product_document(
+        "Rare porcelain vase with blue floral decoration",
+        localstack_query_embedding(),
+        document.last_hybrid_search_matched + time::Duration::days(1),
+    );
+    let product_insert = product_opensearch_repository
+        .create_product_documents(vec![product.clone()])
+        .await
+        .unwrap();
+    assert!(!product_insert.errors);
+    refresh_index("products").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let search_filter_service = UserSearchFilterServiceImpl::with_opensearch(
+        &search_filter_dynamodb_repository,
+        &user_service,
+        &search_filter_opensearch_repository,
+    );
+    let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
+    let notification_repository = NotificationDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &cfn.dynamodb_table_1_name,
+    );
+    let noop_ses_adapter = NoopSesAdapter;
+    let noop_s3_adapter = NoopS3Adapter;
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses_adapter,
+        &noop_s3_adapter,
+        "test-bucket",
+        "test-stage",
+        "test-sha",
+    );
+    let expected_reason = EnhancedMatchReason::from("It is the requested blue porcelain vase.");
+    let mut enhanced_search_match_service = MockEnhancedSearchMatchService::default();
+    let expected_reason_for_llm = expected_reason.clone();
+    enhanced_search_match_service
+        .expect_evaluate()
+        .times(1)
+        .return_once(move |description, _, _, language, _| {
+            assert_eq!(description.as_ref(), "blue floral porcelain vase");
+            assert_eq!(language, Language::En);
+            Box::pin(async move {
+                Ok(EnhancedSearchMatchResult {
+                    matches: true,
+                    reason: Some(expected_reason_for_llm),
+                })
+            })
+        });
+
+    let matcher = PeriodicMatcherServiceImpl::new(
+        &search_filter_service,
+        &query_product_service,
+        &enhanced_search_match_service,
+        &notification_service,
+        &user_service,
+        DEFAULT_LLM_CONCURRENCY,
+    );
+
+    let result = matcher.match_active_filters().await.unwrap();
+
+    assert_eq!(
+        result,
+        PeriodicMatcherResult {
+            filters_processed: 1,
+            matches_created: 1,
+            notifications_created: 1,
+            filters_failed: 0,
+        }
+    );
+
+    let persisted_match = search_filter_dynamodb_repository
+        .get_user_search_filter_match_record(
+            &user_id,
+            &posted.user_search_filter_id,
+            &product.shop_id,
+            &product.shops_product_id,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(product.product_id, persisted_match.product_id);
+    assert_eq!(
+        Some(expected_reason.as_ref()),
+        persisted_match.enhanced_match_reason.as_deref()
+    );
+    assert!(
+        notification_repository
+            .get_notification_record(&user_id, &product.event_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+
+    let updated_filter = search_filter_dynamodb_repository
+        .get_user_search_filter_record(&user_id, &posted.user_search_filter_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(updated_filter.last_hybrid_search_matched > document.last_hybrid_search_matched);
 }
 
 #[localstack_test(services = [Cloudformation()])]

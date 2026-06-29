@@ -90,3 +90,22 @@ async fn should_return_some_when_partition_non_empty_and_filter_id_exists() {
 
     assert_eq!(expected, actual);
 }
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_return_embedding_when_record_has_embedding() {
+    let repository = get_repository().await;
+    let mut expected = Faker.fake::<UserSearchFilterRecord>();
+    expected.embedding = Some(vec![0.1, 0.2, 0.3]);
+    repository
+        .put_user_search_filter_record(expected.clone())
+        .await
+        .unwrap();
+
+    let actual = repository
+        .get_user_search_filter_record(&expected.user_id, &expected.user_search_filter_id)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(expected, actual);
+}

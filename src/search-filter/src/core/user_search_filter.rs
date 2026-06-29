@@ -20,6 +20,8 @@ pub struct UserSearchFilter {
     pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+    pub last_hybrid_search_matched: OffsetDateTime,
+    pub embedding: Option<Vec<f32>>,
 }
 
 #[cfg(feature = "test-data")]
@@ -40,6 +42,8 @@ mod faker {
                 updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
+                last_hybrid_search_matched: OffsetDateTime::now_utc(),
+                embedding: config.fake_with_rng(rng),
             }
         }
     }

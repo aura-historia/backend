@@ -163,6 +163,29 @@ describe("ApplicationStack", () => {
     ).toBe(true);
   });
 
+  test("dev schedules periodic search-filter matching on Fargate", () => {
+    const template = synthesize("dev");
+
+    template.resourceCountIs("AWS::ECS::TaskDefinition", 1);
+    template.hasResourceProperties("AWS::Events::Rule", {
+      ScheduleExpression: "cron(0 15 * * ? *)",
+    });
+    template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+      Cpu: "1024",
+      Family: "search-filter-periodic-match-dev",
+      Memory: "2048",
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Name: "search-filter-periodic-match",
+          Environment: Match.arrayWith([
+            Match.objectLike({ Name: "GEMINI_MODEL", Value: "gemini-3.1-flash-lite" }),
+            Match.objectLike({ Name: "PERIODIC_MATCH_LLM_CONCURRENCY", Value: "50" }),
+          ]),
+        }),
+      ]),
+    });
+  });
+
   test("ephemeral creates LocalStack-only resources", () => {
     const template = synthesize("ephemeral");
 
@@ -177,6 +200,7 @@ describe("ApplicationStack", () => {
       },
       0,
     );
+    template.resourceCountIs("AWS::ECS::TaskDefinition", 0);
     template.hasResourceProperties("AWS::OpenSearchService::Domain", {
       DomainName: "test-domain",
       DomainEndpointOptions: {
