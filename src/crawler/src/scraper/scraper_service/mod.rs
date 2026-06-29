@@ -19,6 +19,6 @@ pub use auto_throttle::{ScraperAutoThrottle, ScraperAutoThrottleConfig};
 pub use domain::errors::ScraperError;
 pub use domain::product::{MockScraperService, ScrapedProduct, ScraperService};
 pub use service::{
-    DEFAULT_MAX_LLM_CALLS_PER_SHOP, DEFAULT_SCHEMA_SEED_PAGES, FetchError, HtmlFetcher,
-    MockHtmlFetcher, ReqwestHtmlFetcher, SchemaLlmReviewMode, ScraperServiceImpl,
+    DEFAULT_MAX_LLM_CALLS_PER_SHOP, DEFAULT_SCHEMA_SEED_PAGES, FetchError, FetchedHtml,
+    HtmlFetcher, MockHtmlFetcher, ReqwestHtmlFetcher, SchemaLlmReviewMode, ScraperServiceImpl,
 };

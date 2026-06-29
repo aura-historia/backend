@@ -129,8 +129,11 @@ Every URL the spider has ever seen. Shared between the spider (writes) and the s
 | `created` / `updated`             | TIMESTAMPTZ              |                                                                                 |
 
 `shop_urls.last_scraped_state` is crawler-owned URL metadata in Postgres. The scraper updates it after successful
-normalization and uses it for crawler-side candidate selection. The downstream product backend receives the same
-normalized availability separately through product upsert commands; that persistence path is related but distinct.
+normalization and uses it for crawler-side candidate selection. If a product URL redirects to a same-host final URL that
+does not match the shop's persisted `shops.url_pattern`, the scraper marks the original URL as `REMOVED` before schema
+extraction so it is excluded from future scrape candidates. If no valid product URL pattern exists, only homepage/root
+redirects are treated as removal to avoid false positives. The downstream product backend receives normalized
+availability separately through product upsert commands; that persistence path is related but distinct.
 
 **Domain linkage**: `domain_id` is a direct FK to `shop_domains`. When a domain is removed from a shop during the shop
 registration sync, all URLs discovered from that domain are automatically cascade-deleted — preventing the scraper from
@@ -322,6 +325,8 @@ ORDER BY su.last_scraped NULLS FIRST
 
 `SOLD` and `REMOVED` are intentionally excluded from future scrape candidates. `UNKNOWN` remains eligible so newly
 discovered URLs can be re-scraped until the crawler resolves them to a concrete state.
+The actual candidate projection also carries `shops.url_pattern` so the scraper can validate post-fetch redirects
+against the shop's known product URL shape.
 
 ### Shop registration upsert
 

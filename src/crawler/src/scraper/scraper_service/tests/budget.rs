@@ -10,7 +10,7 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let mut schema_svc = MockProductSchemaService::new();
     schema_svc
@@ -35,7 +35,7 @@ async fn should_return_llm_budget_exceeded_when_increment_is_rejected_on_schema_
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(matches!(
         err,
         ScraperError::LlmBudgetExceeded {
@@ -58,7 +58,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -108,7 +108,11 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_uses
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(result.product.state, ProductState::Available);
 }
 
@@ -124,7 +128,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let schema_for_create = schema.product_schemas.first().cloned().unwrap();
@@ -186,7 +190,7 @@ async fn should_return_llm_budget_exceeded_when_normalization_llm_call_exceeds_c
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(
         matches!(err, ScraperError::LlmBudgetExceeded { .. }),
         "expected LlmBudgetExceeded, got {err:?}"
@@ -203,7 +207,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = ShopsProductSchema {
         shop_id: id,
@@ -253,7 +257,11 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service.scrape(&id, &url, None).await.unwrap().unwrap();
+    let result = service
+        .scrape(&id, &url, None, None)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(result.product.state, ProductState::Available);
 }
 
@@ -266,7 +274,7 @@ async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_excee
     fetcher
         .expect_fetch()
         .once()
-        .returning(|_| Box::pin(async { Ok(sample_html()) }));
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     let schema = shops_product_schema(id);
     let mut schema_svc = MockProductSchemaService::new();
@@ -300,7 +308,7 @@ async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_excee
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let err = service.scrape(&id, &url, None).await.unwrap_err();
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
     assert!(
         matches!(err, ScraperError::LlmBudgetExceeded { .. }),
         "expected LlmBudgetExceeded, got {err:?}"

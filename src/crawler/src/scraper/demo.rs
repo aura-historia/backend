@@ -191,7 +191,7 @@ async fn main() {
                 url = %url
             );
             match service
-                .scrape(&shop_id, &url, None)
+                .scrape(&shop_id, &url, None, None)
                 .instrument(scrape_span)
                 .await
             {

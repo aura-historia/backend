@@ -156,10 +156,11 @@ async fn main() {
     eprintln!("Fetching: {url}");
 
     let fetcher = ReqwestHtmlFetcher::new();
-    let html = fetcher.fetch(&url).await.unwrap_or_else(|e| {
+    let fetched = fetcher.fetch(&url).await.unwrap_or_else(|e| {
         eprintln!("Error: fetch failed: {e}");
         std::process::exit(1);
     });
+    let html = fetched.html;
 
     std::fs::write(&output_path, &html).unwrap_or_else(|e| {
         eprintln!("Error: could not write to '{}': {e}", output_path.display());
