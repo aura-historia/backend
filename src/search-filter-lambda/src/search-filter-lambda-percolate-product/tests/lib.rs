@@ -879,11 +879,25 @@ async fn should_process_enrichment_event_without_failure_when_in_stream() {
         &user_service,
     );
 
-    let mut enrichment_record: product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord = Faker.fake();
-    enrichment_record.product_id = product_record.product_id;
-    enrichment_record.shop_id = shop_id;
-    enrichment_record.seller_id = shop_id;
-    enrichment_record.shops_product_id = shops_product_id;
+    let event_id = common::event_id::EventId::new();
+    let enrichment_record = product::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord {
+        pk: product::dynamodb::product_event_record::enrichment::mk_pk(&shop_id, &shops_product_id),
+        sk: product::dynamodb::product_event_record::enrichment::mk_sk(&event_id),
+        product_id: product_record.product_id,
+        event_id,
+        event_type: product::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord::EnrichmentEmbedded,
+        event_type_schema_version: 0,
+        shop_id,
+        seller_id: shop_id,
+        shops_product_id,
+        source_language: None,
+        target_language: None,
+        target: None,
+        embedding: Some(vec![0.0; 768]),
+        native_title: None,
+        native_title_language: None,
+        timestamp: OffsetDateTime::now_utc(),
+    };
     let body = mk_event_bridge_body_enrichment(&enrichment_record);
     let event = mk_sqs_event(vec![mk_sqs_message(&body)]);
 

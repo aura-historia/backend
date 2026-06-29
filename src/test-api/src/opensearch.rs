@@ -306,6 +306,35 @@ fn check_status_allow_not_found(response: &Response) -> Result<(), Error> {
     Ok(())
 }
 
+async fn ensure_index_exists(
+    client: &Client,
+    index: &'static str,
+    mapping: serde_json::Value,
+) -> Result<(), Error> {
+    let exists_response = client
+        .indices()
+        .exists(IndicesExistsParts::Index(&[index]))
+        .send()
+        .await?;
+    check_status_allow_not_found(&exists_response)?;
+
+    if exists_response.status_code().is_success() {
+        debug!("OpenSearch index '{index}' already exists, skipping creation");
+    } else {
+        debug!("OpenSearch index '{index}' does not exist, creating it");
+        client
+            .indices()
+            .create(opensearch::indices::IndicesCreateParts::Index(index))
+            .body(mapping)
+            .send()
+            .await?
+            .error_for_status_code()?;
+    }
+
+    refresh_index(index).await;
+    Ok(())
+}
+
 /// Registers the hybrid search pipeline on the local OpenSearch cluster.
 ///
 /// Uses [`HYBRID_SEARCH_PIPELINE_NAME`] as the pipeline ID so it matches what
@@ -378,119 +407,40 @@ async fn register_hybrid_search_pipeline(client: &Client) {
     };
 }
 
-async fn set_up_indices() -> Result<Response, Error> {
+async fn set_up_indices() -> Result<(), Error> {
     let client = get_opensearch_client().await;
 
     // Register the native-hybrid RRF search pipeline before creating indices.
     register_hybrid_search_pipeline(client).await;
 
-    // Index 'products'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["products"]))
-        .send()
-        .await?;
-    check_status_allow_not_found(&exists_response)?;
+    ensure_index_exists(
+        client,
+        "products",
+        mapping_with_inline_synonyms(PRODUCTS_INDEX_MAPPING_STR),
+    )
+    .await?;
+    ensure_index_exists(
+        client,
+        "shops",
+        serde_json::from_str::<serde_json::Value>(SHOPS_INDEX_MAPPING_STR)
+            .expect("shouldn't fail parsing SHOPS_INDEX_MAPPING_STR as serde_json::Value"),
+    )
+    .await?;
+    ensure_index_exists(
+        client,
+        "user_search_filters",
+        mapping_with_inline_synonyms(USER_SEARCH_FILTER_INDEX_MAPPING_STR),
+    )
+    .await?;
+    ensure_index_exists(
+        client,
+        "users",
+        serde_json::from_str::<serde_json::Value>(USERS_INDEX_MAPPING_STR)
+            .expect("shouldn't fail parsing USERS_INDEX_MAPPING_STR as serde_json::Value"),
+    )
+    .await?;
 
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'products' already exists, skipping creation");
-        // Return a mock response since index exists
-        return Ok(exists_response);
-    }
-
-    debug!("OpenSearch index 'products' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("products"))
-        .body(mapping_with_inline_synonyms(PRODUCTS_INDEX_MAPPING_STR))
-        .send()
-        .await?
-        .error_for_status_code()?;
-
-    // Index 'shops'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["shops"]))
-        .send()
-        .await?;
-    check_status_allow_not_found(&exists_response)?;
-
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'shops' already exists, skipping creation");
-        // Return a mock response since index exists
-        return Ok(exists_response);
-    }
-
-    debug!("OpenSearch index 'shops' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("shops"))
-        .body(
-            serde_json::from_str::<serde_json::Value>(SHOPS_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing SHOPS_INDEX_MAPPING_STR as serde_json::Value"),
-        )
-        .send()
-        .await?
-        .error_for_status_code()?;
-
-    // Index 'user_search_filter'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["user_search_filters"]))
-        .send()
-        .await?;
-    check_status_allow_not_found(&exists_response)?;
-
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'user_search_filter' already exists, skipping creation");
-        return Ok(exists_response);
-    }
-
-    debug!("OpenSearch index 'user_search_filter' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index(
-            "user_search_filters",
-        ))
-        .body(mapping_with_inline_synonyms(
-            USER_SEARCH_FILTER_INDEX_MAPPING_STR,
-        ))
-        .send()
-        .await?
-        .error_for_status_code()?;
-
-    // Index 'users'
-    let exists_response = client
-        .indices()
-        .exists(IndicesExistsParts::Index(&["users"]))
-        .send()
-        .await?;
-    check_status_allow_not_found(&exists_response)?;
-
-    if exists_response.status_code().is_success() {
-        debug!("OpenSearch index 'users' already exists, skipping creation");
-        return Ok(exists_response);
-    }
-
-    debug!("OpenSearch index 'users' does not exist, creating it");
-
-    get_opensearch_client()
-        .await
-        .indices()
-        .create(opensearch::indices::IndicesCreateParts::Index("users"))
-        .body(
-            serde_json::from_str::<serde_json::Value>(USERS_INDEX_MAPPING_STR)
-                .expect("shouldn't fail parsing USERS_INDEX_MAPPING_STR as serde_json::Value"),
-        )
-        .send()
-        .await?
-        .error_for_status_code()
+    Ok(())
 }
 
 /// Clears all documents from every standard index to ensure test isolation.

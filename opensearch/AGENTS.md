@@ -1,0 +1,35 @@
+# DOX
+
+## Purpose
+
+- Own shared OpenSearch assets outside Rust crates.
+
+## Core Design
+
+- `analysis/` hold synonym lists. `mappings/` hold index mappings for products, shops, users, and filters.
+- Runtime crates and infra depend on these files staying aligned with actual indexed documents.
+
+## Ownership
+
+- This doc rule `opensearch/**`.
+- Schema and analyzer drift hurt search hard. Treat change as contract change.
+
+## Local Contracts
+
+- Read root, then here, before edit.
+- If mapping or analysis change, update code, infra, and docs that depend on it.
+- Keep index names, field names, analyzers, and locale assets consistent.
+
+## Work Guidance
+
+- Think caveman. Talk caveman. Few word.
+- Search contract first. Fancy later.
+
+## Verification
+
+- Read touched mapping or synonym file whole.
+- Check matching Rust and infra references.
+
+## Child DOX Index
+
+- None.
