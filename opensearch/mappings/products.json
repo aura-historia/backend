@@ -493,6 +493,7 @@
             "geoAddress": {
                 "type": "geo_point"
             }
-        }
+        },
+        "dynamic": "strict"
     }
 }
