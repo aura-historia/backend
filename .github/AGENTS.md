@@ -1,24 +1,34 @@
+# DOX
+
 ## Purpose
 
 - Own GitHub automation and workflow files.
 
+## Core Design
+
+- `workflows/` drive integrate, deploy, sonar, and repo automation.
+- Workflow change can change CI gate, deploy path, or DOX contract for many crates.
+
 ## Ownership
 
 - This doc rule `.github/**`.
-- It keeps `workflows/` and repo automation config.
+- Keep workflow names, triggers, permissions, cache use, and called scripts honest.
 
 ## Local Contracts
 
 - Read root, then here, before edit.
-- Update this file when workflow shape or automation rules change.
+- Update this file when workflow shape or automation contract change.
+- If workflow starts checking new crate or asset, make sure owning doc say so too.
 
 ## Work Guidance
 
 - Think caveman. Talk caveman. Few word.
-- Keep workflow names, triggers, and jobs honest.
+- CI truth matter. No stale job, path, or secret name.
 
 ## Verification
 
+- Read changed workflow end to end.
+- Run touched local command when practical.
 
 ## Child DOX Index
 

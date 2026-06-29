@@ -1,25 +1,35 @@
+# DOX
+
 ## Purpose
 
-- Own public docs, OpenAPI, and static site files.
+- Own public docs, changelog, OpenAPI, and static site files.
+
+## Core Design
+
+- `swagger.yaml` be public REST contract. 
+- `CHANGELOG.md` tell API change by pull request.
 
 ## Ownership
 
 - This doc rule `docs/**`.
-- It keeps `crawler/`, `dynamodb/`, `events/`, `index.html`, and `swagger.yaml`.
+- Keep public docs aligned with shipped behavior. No wish-doc.
 
 ## Local Contracts
 
 - Read root, then here, before edit.
-- Update this file when docs shape, publish flow, or durable rules change.
+- If endpoint, payload, auth, error, or behavior change, update `docs/swagger.yaml` and `docs/CHANGELOG.md`.
+- Update design docs when durable event flow or storage contract change.
 
 ## Work Guidance
 
 - Think caveman. Talk caveman. Few word.
-- Keep docs true to real behavior.
 - Kill stale docs fast.
+- Public contract first. Example after.
 
 ## Verification
 
+- Diff API docs against code paths you changed.
+- Check changed YAML or markdown render for obvious break.
 
 ## Child DOX Index
 

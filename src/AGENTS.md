@@ -1,8 +1,24 @@
+# DOX
+
 ## Purpose
 
 - Own Rust workspace map.
 - Own `src/lib.rs` and `src/opensearch/`.
-- Point work to crate docs.
+- Hold global Rust work rules for all crates under `src/`.
+
+## Core Design
+
+- Workspace split by job: domain libs hold rules, `*-api` crates speak HTTP, `*-lambda` crates speak event/runtime, test crates prove behavior.
+- Keep reusable logic in domain or service modules. Handler `main.rs`, route files, and Lambda bootstrap stay thin.
+- Shared OpenSearch assets under `src/opensearch/` stay governed here unless they grow own durable boundary.
+- Crate submodule-design
+  - core: domain logic and business rules
+  - data: REST-API payloads
+  - dynamodb: DynamoDB payloads
+  - opensearch: OpenSearch payloads
+  - service: service glue, orchestration, and cross-crate integration
+- DynamoDB is primary datastore and source-of-truth, OpenSearch is re-computable read-optimized view, specifically for search and discovery. Kept in sync primarily via event-driven architecture through AWS Event Bridge + SQS + Lambda.
+- Cognito is only Identity-Provider. User-Details and User-Profile are stored in DynamoDB.
 
 ## Ownership
 
@@ -12,20 +28,45 @@
 
 ## Local Contracts
 
-- Read `AGENTS.md`, then here, then crate doc, before edit.
-- New `src` doc go at crate root. No module doc.
-- Update nearest doc when crate map, shared assets, workflow, or child index change.
+- Read root, then here, then crate doc, before edit.
+- New `src` doc go at crate root. No module doc unless module become crate boundary.
+- Update nearest doc when crate purpose, route, event, env var, dependency edge, test flow, or child index change.
+- If REST endpoint, payload, auth, or error behavior change, update `docs/swagger.yaml` and `docs/CHANGELOG.md`.
+- If new Lambda appear, wire deploy, `src/ci-determinator`, `src/test-api/src/cloudformation.rs`, and `infra/` when needed.
 
 ## Work Guidance
 
 - Think caveman. Talk caveman. Few word.
-- Keep change inside one crate when can.
-- Shared `src/opensearch/` assets stay here unless they grow own boundary.
+- Match crate pattern. Keep cross-crate bleed low.
+- Prefer targeted package edits and tests first. Grow wider only when change cross crate.
+- Use `rstest` when table test fit. Use `fake::Dummy<fake::Faker>` test data when crate support it.
+- Test names should say what happen and when, like `should_*_when_*` (optional suffix `_for_*`).
+- Prefer functional-style code. 
+- Avoid `unsafe` and `unsafe`-like patterns like `unwrap`, `expect`, and `panic!`. Use `Result` and `Option` instead. 
+- Never swallow errors (e.g. `.ok()`). Use `?` operator to propagate errors. Use `thiserror` with well-typed error-enums.
+- Apply semi-strict Domain-Driven Design (DDD) principles. Keep domain logic in domain modules, and keep service modules thin. Avoid anemic models. Make use of newtypes.
+
+## Build And Validate
+
+- Fast path: `cargo check -p <crate>`
+- Workspace check: `cargo check --workspace`
+- Format: `cargo fmt --all -- --check`
+- Lint: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- Unit tests: `cargo test -p <crate> --all-features` or `cargo test --workspace --lib --all-features`
+- LocalStack integration need Docker. Acceptance tests be heavy; run when task asks or risk says so.
+- Run integration-tests (tests folder) only for targetted crates. 
+
+## Runtime Guidance
+
+- Init executable logging with `common::logging::init_logging()`.
+- Keep logs compact & structured for CloudWatch-Analysis. Error log mean real fire. Expected failure be `warn` or lower.
+- Do not hide business rules in handler glue. Parse, auth, and map in edge crate; real rule live deeper.
+- Keep env var names, queue names, and event shapes stable and documented in nearest crate doc.
 
 ## Verification
 
 - Whole workspace: `cargo check --workspace`
-- Tight crate check: `cargo check -p <crate>`
+- Whole unit tests: `cargo test --workspace --lib --all-features`
 
 ## Child DOX Index
 

@@ -5,6 +5,12 @@
 - Own repo DOX rail.
 - Own root files: `Cargo.toml`, `Cargo.lock`, `README.md`, `LICENSE`, `.cargo/`, repo config.
 
+## Core Design
+
+- Repo be Rust workspace for AWS serverless backend.
+- `src/` hold crates. `infra/` shape cloud. `docs/` hold public contract. `mjml/` and `opensearch/` hold shared assets.
+- Domain crates keep rules. API and Lambda crates stay thin around transport and runtime glue.
+
 ## Ownership
 
 - This file rule whole repo.

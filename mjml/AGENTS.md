@@ -1,24 +1,33 @@
+# DOX
+
 ## Purpose
 
 - Own MJML email templates.
 
+## Core Design
+
+- Templates grouped by feature: partner application, search filter, watchlist.
+- Notification code render these assets. Template names and variables be durable contract.
+
 ## Ownership
 
 - This doc rule `mjml/**`.
-- It keeps `partner-application/`, `search-filter/`, and `watchlist/`.
+- Keep template structure and referenced partial data aligned with notification code.
 
 ## Local Contracts
 
 - Read root, then here, before edit.
-- Update this file when template layout or durable template rules change.
+- If template variable or file path change, update caller code and tests.
+- Keep copy, locale, and layout differences intentional.
 
 ## Work Guidance
 
 - Think caveman. Talk caveman. Few word.
-- Keep shared email structure simple and repeatable.
+- Email must read clean in real inbox, not just source.
 
 ## Verification
 
+- Review rendered markup path in touched notification flow when practical.
 
 ## Child DOX Index
 

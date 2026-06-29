@@ -1,6 +1,15 @@
+# DOX
+
 ## Purpose
 
-- Own `search-filter-lambda` crate and child crate map.
+- Own `search-filter-lambda` crate.
+
+## Core Design
+
+- Parent crate for async search filter workers.
+- Child crates: `search-filter-lambda-opensearch-sync`, `search-filter-lambda-percolate-product`.
+- Main neighbors: `search-filter-lambda-opensearch-sync`, `search-filter-lambda-percolate-product`.
+- Parent crate exists to group child executables or suites and keep their map discoverable.
 
 ## Ownership
 
@@ -12,12 +21,13 @@
 
 - Read `AGENTS.md`, `src/AGENTS.md`, then here, before edit.
 - New doc only for child crate. No module doc.
-- Update this file when crate contract or child index change.
+- Update this file when crate contract, route/event shape, env vars, or child index change.
+- Keep child crate list honest. Shared parent glue stay tiny.
 
 ## Work Guidance
 
 - Think caveman. Talk caveman. Few word.
-- Match crate pattern. Keep cross-crate bleed low.
+- Parent crate own map and shared glue. Real work live in child crates.
 
 ## Verification
 

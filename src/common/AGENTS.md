@@ -1,6 +1,15 @@
+# DOX
+
 ## Purpose
 
 - Own `common` crate.
+
+## Core Design
+
+- Shared primitives, IDs, logging, AWS helpers, and cross-crate utilities.
+- As lean as possible.
+- Root modules: `actor`, `currency`, `distance`, `api`, `batch`, `domain`, `enhanced_match_reason`, `dynamodb_update`, `dynamodb_stream`, `error`, `event`, `event_id`, `execution_state`, `fake`, `has_key`, `language`, `localized`, `logging`, `mergeable`, `product_id`, `product_slug_id`, `product_state`, `oauth_client_id`, `opensearch`, `pagination`, `partner_shop_application_id`, `personalized`, `price`, `query`, `resource_state`, `seller_slug_id`, `serde`, `shop_id`, `shop_name`, `shop_slug_id`, `shops_product_id`, `slug_id`, `sort`, `string_newtype`, `stripe_customer_id`, `user_id`, `user_search_filter_id`, `user_search_filter_name`, `utm`, `uuid_newtype`, `year`.
+- Library crate. Keep domain, persistence, and service seams explicit.
 
 ## Ownership
 
@@ -12,16 +21,19 @@
 
 - Read `AGENTS.md`, `src/AGENTS.md`, then here, before edit.
 - New doc only for child crate. No module doc.
-- Update this file when crate contract or child index change.
+- Update this file when crate contract, route/event shape, env vars, or child index change.
+- Keep business rules here, not leaked into callers.
 
 ## Work Guidance
 
 - Think caveman. Talk caveman. Few word.
-- Match crate pattern. Keep cross-crate bleed low.
+- Service and repository split stay clean.
+- Keep transport and runtime glue out of domain core.
 
 ## Verification
 
 - `cargo check -p common`
+- `cargo test -p common --all-features`
 
 ## Child DOX Index
 
