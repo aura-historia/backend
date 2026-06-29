@@ -1,0 +1,28 @@
+## Purpose
+
+- Own `product-pipeline-translate` crate.
+
+## Ownership
+
+- This doc rule `src/product-pipeline/src/product-pipeline-translate/**`.
+- Parent doc: `src/product-pipeline/AGENTS.md`.
+- No child doc below.
+
+## Local Contracts
+
+- Read `AGENTS.md`, `src/product-pipeline/AGENTS.md`, then here, before edit.
+- New doc only for child crate. No module doc.
+- Update this file when crate contract or child index change.
+
+## Work Guidance
+
+- Think caveman. Talk caveman. Few word.
+- Match crate pattern. Keep cross-crate bleed low.
+
+## Verification
+
+- `cargo check -p product-pipeline-translate`
+
+## Child DOX Index
+
+- None.
