@@ -25,9 +25,7 @@ export class ApplicationStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApplicationStackProps) {
     super(scope, id, {
       ...props,
-      synthesizer: new cdk.DefaultStackSynthesizer({
-        generateBootstrapVersionRule: false,
-      }),
+      synthesizer: new cdk.LegacyStackSynthesizer(),
     });
 
     const config = stageConfig(props.stage, {

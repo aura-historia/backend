@@ -9,17 +9,19 @@ type CfnResource = {
   readonly Properties?: Record<string, any>;
 };
 
-function synthesize(stage: StageName): Template {
+function createStack(stage: StageName): ApplicationStack {
   const app = new cdk.App({
     analyticsReporting: false,
   });
 
-  const stack = new ApplicationStack(app, `application-${stage}`, {
+  return new ApplicationStack(app, `application-${stage}`, {
     stage,
     stackName: `application-${stage}`,
   });
+}
 
-  return Template.fromStack(stack);
+function synthesize(stage: StageName): Template {
+  return Template.fromStack(createStack(stage));
 }
 
 function resourcesOfType(json: TemplateJson, type: string): Array<[string, CfnResource]> {
@@ -96,6 +98,10 @@ describe("ApplicationStack", () => {
     expect(json.Outputs?.NotificationSendQueueUrl).toBeDefined();
     expect(json.Outputs?.StripeEventBusName).toBeDefined();
     expect(json.Outputs?.ShopifyEventBusName).toBeDefined();
+  });
+
+  test.each(STAGES)("uses legacy synthesizer for %s", (stage) => {
+    expect(createStack(stage).synthesizer).toBeInstanceOf(cdk.LegacyStackSynthesizer);
   });
 
   test("prod enables production safeguards", () => {
