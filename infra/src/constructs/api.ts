@@ -2,7 +2,6 @@ import * as cdk from "aws-cdk-lib";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
-import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
@@ -209,15 +208,6 @@ export class BackendHttpApi extends Construct {
         methods: [definition.method],
         integration,
         authorizer: definition.authenticated ? authorizer : undefined,
-      });
-    }
-
-    for (const lambdaKey of integrationsByLambda.keys()) {
-      props.functions[lambdaKey]?.addPermission(`${lambdaKey}ApiGatewayInvoke`, {
-        principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
-        sourceArn: cdk.Fn.sub("arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*/*/api/v1*", {
-          ApiId: this.api.apiId,
-        }),
       });
     }
 

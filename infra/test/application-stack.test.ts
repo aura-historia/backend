@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { ApplicationStack } from "../src/application-stack";
+import { createApplicationStacks, type ApplicationStageStacks } from "../src/application-stack";
 import { ARTIFACT_BUCKET_NAME, STAGES, type StageName } from "../src/config";
 
 type TemplateJson = ReturnType<Template["toJSON"]>;
@@ -8,24 +8,80 @@ type CfnResource = {
   readonly Type?: string;
   readonly Properties?: Record<string, any>;
 };
+type StageTemplates = {
+  readonly data: Template;
+  readonly compute: Template;
+  readonly api: Template;
+  readonly observability?: Template;
+};
 
-function createStack(stage: StageName): ApplicationStack {
+function createStacks(stage: StageName): ApplicationStageStacks {
   const app = new cdk.App({
     analyticsReporting: false,
   });
 
-  return new ApplicationStack(app, `application-${stage}`, {
+  return createApplicationStacks(app, {
     stage,
-    stackName: `application-${stage}`,
+    stackNamePrefix: `application-${stage}`,
   });
 }
 
-function synthesize(stage: StageName): Template {
-  return Template.fromStack(createStack(stage));
+function synthesize(stage: StageName): StageTemplates {
+  const stacks = createStacks(stage);
+  return {
+    data: Template.fromStack(stacks.data),
+    compute: Template.fromStack(stacks.compute),
+    api: Template.fromStack(stacks.api),
+    observability: stacks.observability ? Template.fromStack(stacks.observability) : undefined,
+  };
+}
+
+function templateList(templates: StageTemplates): Template[] {
+  return [templates.data, templates.compute, templates.api, templates.observability].filter((template): template is Template => !!template);
 }
 
 function resourcesOfType(json: TemplateJson, type: string): Array<[string, CfnResource]> {
   return Object.entries((json.Resources ?? {}) as Record<string, CfnResource>).filter(([, resource]) => resource.Type === type);
+}
+
+function allResourcesOfType(templates: StageTemplates, type: string): Array<[string, CfnResource]> {
+  return templateList(templates).flatMap((template) => resourcesOfType(template.toJSON(), type));
+}
+
+function resourceCount(templates: StageTemplates, type: string): number {
+  return allResourcesOfType(templates, type).length;
+}
+
+function resourcePropertiesCount(templates: StageTemplates, type: string, properties: unknown): number {
+  return templateList(templates).reduce((count, template) => {
+    const before = count;
+    try {
+      template.resourcePropertiesCountIs(type, properties, 0);
+      return before;
+    } catch {
+      return before + resourcesOfType(template.toJSON(), type).filter(([, resource]) => {
+        try {
+          Template.fromJSON({ Resources: { Candidate: resource } }).hasResourceProperties(type, properties);
+          return true;
+        } catch {
+          return false;
+        }
+      }).length;
+    }
+  }, 0);
+}
+
+function hasResourceProperties(templates: StageTemplates, type: string, properties: unknown): void {
+  for (const template of templateList(templates)) {
+    try {
+      template.hasResourceProperties(type, properties);
+      return;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`No ${type} resource matched ${JSON.stringify(properties)}`);
 }
 
 function apiCorsOrigins(json: TemplateJson): readonly string[] {
@@ -39,17 +95,7 @@ function lambdaNames(json: TemplateJson): Set<string> {
   );
 }
 
-function functionNameByLogicalId(json: TemplateJson): Map<string, string> {
-  return new Map(
-    resourcesOfType(json, "AWS::Lambda::Function").map(([logicalId, resource]) => [
-      logicalId,
-      resource.Properties?.FunctionName as string,
-    ]),
-  );
-}
-
 function lambdaMetricAlarmFunctionNames(json: TemplateJson, metricName: string): Set<string> {
-  const namesByLogicalId = functionNameByLogicalId(json);
   const names = new Set<string>();
 
   for (const [, alarm] of resourcesOfType(json, "AWS::CloudWatch::Alarm")) {
@@ -64,53 +110,61 @@ function lambdaMetricAlarmFunctionNames(json: TemplateJson, metricName: string):
 
     if (typeof value === "string") {
       names.add(value);
-    } else if (value?.Ref && namesByLogicalId.has(value.Ref)) {
-      names.add(namesByLogicalId.get(value.Ref)!);
     }
   }
 
   return names;
 }
 
-describe("ApplicationStack", () => {
+describe("Application stacks", () => {
   test.each(STAGES)("synthesizes the %s stack contract", (stage) => {
-    const template = synthesize(stage);
+    const templates = synthesize(stage);
 
-    template.resourceCountIs("AWS::DynamoDB::Table", 1);
-    template.resourceCountIs("AWS::Cognito::UserPool", 1);
-    template.resourceCountIs("AWS::Cognito::UserPoolClient", 1);
-    template.resourceCountIs("AWS::ApiGatewayV2::Api", 1);
-    template.resourceCountIs("AWS::ApiGatewayV2::Route", 71);
-    template.resourceCountIs("AWS::ApiGatewayV2::Integration", 12);
-    template.resourceCountIs("AWS::SQS::Queue", 24);
-    template.resourceCountIs("AWS::Lambda::EventSourceMapping", 12);
-    template.resourceCountIs("AWS::StepFunctions::StateMachine", 1);
-    template.resourceCountIs("AWS::Pipes::Pipe", 1);
+    expect(resourceCount(templates, "AWS::DynamoDB::Table")).toBe(1);
+    expect(resourceCount(templates, "AWS::Cognito::UserPool")).toBe(1);
+    expect(resourceCount(templates, "AWS::Cognito::UserPoolClient")).toBe(1);
+    expect(resourceCount(templates, "AWS::ApiGatewayV2::Api")).toBe(1);
+    expect(resourceCount(templates, "AWS::ApiGatewayV2::Route")).toBe(71);
+    expect(resourceCount(templates, "AWS::ApiGatewayV2::Integration")).toBe(12);
+    expect(resourceCount(templates, "AWS::SQS::Queue")).toBe(24);
+    expect(resourceCount(templates, "AWS::Lambda::EventSourceMapping")).toBe(12);
+    expect(resourceCount(templates, "AWS::StepFunctions::StateMachine")).toBe(1);
+    expect(resourceCount(templates, "AWS::Pipes::Pipe")).toBe(1);
 
-    const json = template.toJSON();
-    expect(Object.keys(json.Parameters ?? {})).toEqual(["CommitSHA"]);
-    expect(json.Resources?.CDKMetadata).toBeUndefined();
-    expect(json.Outputs?.ApiGatewayEndpointUrl).toBeDefined();
-    expect(json.Outputs?.DynamodbTable1Name).toBeDefined();
-    expect(json.Outputs?.CognitoUserPoolId).toBeDefined();
-    expect(json.Outputs?.CognitoUserPoolClientPublicId).toBeDefined();
-    expect(json.Outputs?.CognitoUserPoolClientAdminId).toBeUndefined();
-    expect(json.Outputs?.NotificationSendQueueUrl).toBeDefined();
-    expect(json.Outputs?.StripeEventBusName).toBeDefined();
-    expect(json.Outputs?.ShopifyEventBusName).toBeDefined();
+    expect(Object.keys(templates.compute.toJSON().Parameters ?? {})).toEqual(["CommitSHA"]);
+    expect(templates.data.toJSON().Parameters).toBeUndefined();
+    expect(templates.api.toJSON().Parameters).toBeUndefined();
+    for (const template of templateList(templates)) {
+      expect(template.toJSON().Resources?.CDKMetadata).toBeUndefined();
+    }
+    expect(templates.api.toJSON().Outputs?.ApiGatewayEndpointUrl).toBeDefined();
+    expect(templates.data.toJSON().Outputs?.DynamodbTable1Name).toBeDefined();
+    expect(templates.compute.toJSON().Outputs?.CognitoUserPoolId).toBeDefined();
+    expect(templates.compute.toJSON().Outputs?.CognitoUserPoolClientPublicId).toBeDefined();
+    expect(templates.compute.toJSON().Outputs?.CognitoUserPoolClientAdminId).toBeUndefined();
+    expect(templates.data.toJSON().Outputs?.NotificationSendQueueUrl).toBeDefined();
+    expect(templates.compute.toJSON().Outputs?.StripeEventBusName).toBeDefined();
+    expect(templates.compute.toJSON().Outputs?.ShopifyEventBusName).toBeDefined();
   });
 
   test.each(STAGES)("uses CLI credentials synthesizer for %s", (stage) => {
-    expect(createStack(stage).synthesizer).toBeInstanceOf(cdk.CliCredentialsStackSynthesizer);
+    const stacks = createStacks(stage);
+
+    expect(stacks.data.synthesizer).toBeInstanceOf(cdk.CliCredentialsStackSynthesizer);
+    expect(stacks.compute.synthesizer).toBeInstanceOf(cdk.CliCredentialsStackSynthesizer);
+    expect(stacks.api.synthesizer).toBeInstanceOf(cdk.CliCredentialsStackSynthesizer);
+    if (stacks.observability) {
+      expect(stacks.observability.synthesizer).toBeInstanceOf(cdk.CliCredentialsStackSynthesizer);
+    }
   });
 
   test("prod enables production safeguards", () => {
-    const template = synthesize("prod");
+    const templates = synthesize("prod");
 
-    template.resourceCountIs("AWS::OpenSearchService::Domain", 0);
-    template.resourceCountIs("AWS::SNS::Topic", 1);
-    template.resourcePropertiesCountIs("AWS::CloudWatch::Alarm", {}, 47);
-    template.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
+    expect(resourceCount(templates, "AWS::OpenSearchService::Domain")).toBe(0);
+    expect(resourceCount(templates, "AWS::SNS::Topic")).toBe(1);
+    expect(resourcePropertiesCount(templates, "AWS::CloudWatch::Alarm", {})).toBe(47);
+    templates.api.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
       DefaultRouteSettings: Match.objectLike({
         DetailedMetricsEnabled: true,
         ThrottlingBurstLimit: 5000,
@@ -120,19 +174,21 @@ describe("ApplicationStack", () => {
         Format: Match.stringLikeRegexp("requestId"),
       }),
     });
-    template.hasOutput("AlarmNotificationTopicArn", {});
+    expect(templates.observability?.toJSON().Outputs?.AlarmNotificationTopicArn).toBeDefined();
   });
 
   test("all prod Lambdas have error alarms", () => {
-    const json = synthesize("prod").toJSON();
+    const templates = synthesize("prod");
 
-    expect(lambdaMetricAlarmFunctionNames(json, "Errors")).toEqual(lambdaNames(json));
+    expect(lambdaMetricAlarmFunctionNames(templates.observability!.toJSON(), "Errors")).toEqual(
+      lambdaNames(templates.compute.toJSON()),
+    );
   });
 
   test("all prod API Lambdas have throttle alarms", () => {
-    const json = synthesize("prod").toJSON();
+    const templates = synthesize("prod");
 
-    expect(lambdaMetricAlarmFunctionNames(json, "Throttles")).toEqual(
+    expect(lambdaMetricAlarmFunctionNames(templates.observability!.toJSON(), "Throttles")).toEqual(
       new Set([
         "newsletter-api-prod",
         "notification-api-prod",
@@ -151,15 +207,15 @@ describe("ApplicationStack", () => {
   });
 
   test("dev omits production-only resources but keeps scheduled fx-rate sync", () => {
-    const template = synthesize("dev");
+    const templates = synthesize("dev");
 
-    template.resourceCountIs("AWS::OpenSearchService::Domain", 0);
-    template.resourceCountIs("AWS::SNS::Topic", 0);
-    template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
-    template.hasResourceProperties("AWS::Events::Rule", {
+    expect(resourceCount(templates, "AWS::OpenSearchService::Domain")).toBe(0);
+    expect(resourceCount(templates, "AWS::SNS::Topic")).toBe(0);
+    expect(resourceCount(templates, "AWS::CloudWatch::Alarm")).toBe(0);
+    hasResourceProperties(templates, "AWS::Events::Rule", {
       ScheduleExpression: "cron(0 6,18 * * ? *)",
     });
-    const resources = template.toJSON().Resources ?? {};
+    const resources = templates.compute.toJSON().Resources ?? {};
     expect(
       Object.values(resources).some(
         (resource: any) =>
@@ -170,13 +226,13 @@ describe("ApplicationStack", () => {
   });
 
   test("dev schedules periodic search-filter matching on Fargate", () => {
-    const template = synthesize("dev");
+    const templates = synthesize("dev");
 
-    template.resourceCountIs("AWS::ECS::TaskDefinition", 1);
-    template.hasResourceProperties("AWS::Events::Rule", {
+    expect(resourceCount(templates, "AWS::ECS::TaskDefinition")).toBe(1);
+    hasResourceProperties(templates, "AWS::Events::Rule", {
       ScheduleExpression: "cron(0 15 * * ? *)",
     });
-    template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+    hasResourceProperties(templates, "AWS::ECS::TaskDefinition", {
       Cpu: "1024",
       Family: "search-filter-periodic-match-dev",
       Memory: "2048",
@@ -193,21 +249,17 @@ describe("ApplicationStack", () => {
   });
 
   test("ephemeral creates LocalStack-only resources", () => {
-    const template = synthesize("ephemeral");
+    const templates = synthesize("ephemeral");
 
-    template.resourceCountIs("AWS::OpenSearchService::Domain", 1);
-    template.resourceCountIs("AWS::Events::EventBus", 3);
-    template.resourceCountIs("AWS::SNS::Topic", 0);
-    template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
-    template.resourcePropertiesCountIs(
-      "AWS::Lambda::Function",
-      {
-        FunctionName: Match.stringLikeRegexp("fxrate-lambda"),
-      },
-      0,
-    );
-    template.resourceCountIs("AWS::ECS::TaskDefinition", 0);
-    template.hasResourceProperties("AWS::OpenSearchService::Domain", {
+    expect(resourceCount(templates, "AWS::OpenSearchService::Domain")).toBe(1);
+    expect(resourceCount(templates, "AWS::Events::EventBus")).toBe(3);
+    expect(resourceCount(templates, "AWS::SNS::Topic")).toBe(0);
+    expect(resourceCount(templates, "AWS::CloudWatch::Alarm")).toBe(0);
+    expect(resourcePropertiesCount(templates, "AWS::Lambda::Function", {
+      FunctionName: Match.stringLikeRegexp("fxrate-lambda"),
+    })).toBe(0);
+    expect(resourceCount(templates, "AWS::ECS::TaskDefinition")).toBe(0);
+    templates.data.hasResourceProperties("AWS::OpenSearchService::Domain", {
       DomainName: "test-domain",
       DomainEndpointOptions: {
         CustomEndpointEnabled: true,
@@ -217,9 +269,9 @@ describe("ApplicationStack", () => {
   });
 
   test("lambda artifacts are selected by stage and deploy commit SHA", () => {
-    const template = synthesize("dev");
+    const templates = synthesize("dev");
 
-    template.hasResourceProperties("AWS::Lambda::Function", {
+    templates.compute.hasResourceProperties("AWS::Lambda::Function", {
       Code: {
         S3Bucket: ARTIFACT_BUCKET_NAME,
         S3Key: {
@@ -237,49 +289,49 @@ describe("ApplicationStack", () => {
   });
 
   test("critical API routes are configured with expected auth", () => {
-    const template = synthesize("ephemeral");
+    const templates = synthesize("ephemeral");
 
-    template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+    templates.api.hasResourceProperties("AWS::ApiGatewayV2::Route", {
       RouteKey: "GET /api/v1/products",
       AuthorizationType: "NONE",
     });
-    template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+    templates.api.hasResourceProperties("AWS::ApiGatewayV2::Route", {
       RouteKey: "GET /api/v1/me/account",
       AuthorizationType: "JWT",
       AuthorizerId: Match.anyValue(),
     });
-    template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+    templates.api.hasResourceProperties("AWS::ApiGatewayV2::Route", {
       RouteKey: "POST /api/v1/webhooks/woocommerce/{shopId}",
       AuthorizationType: "NONE",
     });
   });
 
   test("prod CORS is restricted while non-prod remains permissive", () => {
-    expect(apiCorsOrigins(synthesize("prod").toJSON())).toEqual([
+    expect(apiCorsOrigins(synthesize("prod").api.toJSON())).toEqual([
       "https://aura-historia.com",
       "https://admin.shopify.com",
       "https://partners.shopify.com",
       "https://shopify.com",
       "https://*.myshopify.com",
     ]);
-    expect(apiCorsOrigins(synthesize("dev").toJSON())).toEqual(["*"]);
-    expect(apiCorsOrigins(synthesize("ephemeral").toJSON())).toEqual(["*"]);
+    expect(apiCorsOrigins(synthesize("dev").api.toJSON())).toEqual(["*"]);
+    expect(apiCorsOrigins(synthesize("ephemeral").api.toJSON())).toEqual(["*"]);
   });
 
   test("Cognito uses public-client OAuth URLs and HTML verification email", () => {
-    const prodTemplate = synthesize("prod");
-    const devTemplate = synthesize("dev");
+    const prodTemplates = synthesize("prod");
+    const devTemplates = synthesize("dev");
 
-    prodTemplate.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+    prodTemplates.compute.hasResourceProperties("AWS::Cognito::UserPoolClient", {
       CallbackURLs: ["https://aura-historia.com/"],
       ExplicitAuthFlows: Match.arrayWith(["ALLOW_USER_PASSWORD_AUTH", "ALLOW_USER_SRP_AUTH"]),
       LogoutURLs: ["https://aura-historia.com/"],
     });
-    devTemplate.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+    devTemplates.compute.hasResourceProperties("AWS::Cognito::UserPoolClient", {
       CallbackURLs: ["http://localhost:3000", "https://stage.aura-historia.com/"],
       LogoutURLs: ["http://localhost:3000", "https://stage.aura-historia.com/"],
     });
-    prodTemplate.hasResourceProperties("AWS::Cognito::UserPool", {
+    prodTemplates.compute.hasResourceProperties("AWS::Cognito::UserPool", {
       VerificationMessageTemplate: Match.objectLike({
         EmailSubject: "Verify your email",
         EmailMessage: Match.stringLikeRegexp("<p class=\\\"greeting\\\">Verify your email</p>"),
@@ -288,9 +340,9 @@ describe("ApplicationStack", () => {
   });
 
   test("real stages resolve external integration settings from SSM", () => {
-    const prodJson = JSON.stringify(synthesize("prod").toJSON());
-    const devJson = JSON.stringify(synthesize("dev").toJSON());
-    const ephemeralJson = JSON.stringify(synthesize("ephemeral").toJSON());
+    const prodJson = JSON.stringify(templateList(synthesize("prod")).map((template) => template.toJSON()));
+    const devJson = JSON.stringify(templateList(synthesize("dev")).map((template) => template.toJSON()));
+    const ephemeralJson = JSON.stringify(templateList(synthesize("ephemeral")).map((template) => template.toJSON()));
 
     expect(prodJson).toContain("{{resolve:ssm:/opensearch/prod/endpoint-url}}");
     expect(prodJson).toContain("{{resolve:ssm:/eventbridge/prod/stripe-event-bus-name}}");
@@ -308,9 +360,9 @@ describe("ApplicationStack", () => {
   });
 
   test("partner application callback tokens use wildcard authorization", () => {
-    const template = synthesize("ephemeral");
+    const templates = synthesize("ephemeral");
 
-    template.hasResourceProperties("AWS::IAM::Policy", {
+    templates.compute.hasResourceProperties("AWS::IAM::Policy", {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
@@ -324,7 +376,7 @@ describe("ApplicationStack", () => {
         ]),
       },
     });
-    template.hasResourceProperties("AWS::IAM::Policy", {
+    templates.compute.hasResourceProperties("AWS::IAM::Policy", {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
@@ -339,16 +391,12 @@ describe("ApplicationStack", () => {
   });
 
   test("queues are created with dead-letter queues", () => {
-    const template = synthesize("ephemeral");
+    const templates = synthesize("ephemeral");
 
-    template.resourcePropertiesCountIs(
-      "AWS::SQS::Queue",
-      {
-        RedrivePolicy: Match.anyValue(),
-      },
-      12,
-    );
-    template.hasResourceProperties("AWS::SQS::Queue", {
+    expect(resourcePropertiesCount(templates, "AWS::SQS::Queue", {
+      RedrivePolicy: Match.anyValue(),
+    })).toBe(12);
+    templates.data.hasResourceProperties("AWS::SQS::Queue", {
       RedrivePolicy: Match.objectLike({
         maxReceiveCount: 5,
       }),

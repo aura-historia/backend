@@ -95,8 +95,8 @@ export const QUEUE_DEFINITIONS = {
 export type QueueKey = keyof typeof QUEUE_DEFINITIONS;
 
 export interface QueuePair {
-  readonly queue: sqs.Queue;
-  readonly deadLetterQueue: sqs.Queue;
+  readonly queue: sqs.IQueue;
+  readonly deadLetterQueue: sqs.IQueue;
 }
 
 export type QueueCatalog = Record<QueueKey, QueuePair>;
@@ -114,14 +114,14 @@ export class Queues extends Construct {
 
     const entries = Object.entries(QUEUE_DEFINITIONS).map(([key, definition]) => {
       const deadLetterQueue = new sqs.Queue(this, `${definition.id}DeadLetterQueue`, {
-        queueName: `${definition.deadLetterQueueName}-${props.stageName}`,
+        queueName: stageQueueName(definition.deadLetterQueueName, props.stageName),
         retentionPeriod: cdk.Duration.days(14),
         encryption: hasManagedSse(definition) ? sqs.QueueEncryption.SQS_MANAGED : undefined,
         removalPolicy: props.config.removalPolicy,
       });
 
       const queue = new sqs.Queue(this, `${definition.id}Queue`, {
-        queueName: `${definition.queueName}-${props.stageName}`,
+        queueName: stageQueueName(definition.queueName, props.stageName),
         visibilityTimeout: cdk.Duration.seconds(definition.visibilityTimeoutSeconds),
         deadLetterQueue: {
           queue: deadLetterQueue,
@@ -136,6 +136,41 @@ export class Queues extends Construct {
 
     this.catalog = Object.fromEntries(entries) as QueueCatalog;
   }
+}
+
+export function importQueueCatalog(scope: Construct, id: string, stageName: string): QueueCatalog {
+  const importScope = new Construct(scope, id);
+  const entries = Object.entries(QUEUE_DEFINITIONS).map(([key, definition]) => {
+    const queueName = stageQueueName(definition.queueName, stageName);
+    const deadLetterQueueName = stageQueueName(definition.deadLetterQueueName, stageName);
+
+    return [
+      key,
+      {
+        queue: importQueue(importScope, `${definition.id}QueueImport`, queueName),
+        deadLetterQueue: importQueue(importScope, `${definition.id}DeadLetterQueueImport`, deadLetterQueueName),
+      },
+    ];
+  });
+
+  return Object.fromEntries(entries) as QueueCatalog;
+}
+
+function importQueue(scope: Construct, id: string, queueName: string): sqs.IQueue {
+  return sqs.Queue.fromQueueAttributes(scope, id, {
+    queueArn: cdk.Stack.of(scope).formatArn({
+      service: "sqs",
+      resource: queueName,
+    }),
+    queueName,
+    queueUrl: cdk.Fn.sub("https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}", {
+      QueueName: queueName,
+    }),
+  });
+}
+
+function stageQueueName(baseName: string, stageName: string): string {
+  return `${baseName}-${stageName}`;
 }
 
 function hasManagedSse(definition: (typeof QUEUE_DEFINITIONS)[QueueKey]): boolean {

@@ -7,11 +7,11 @@
 
 ## Core Design
 
-- One stack compose focused constructs: storage, queues, search, lambdas, eventing, API, workflow, identity, observability.
-- `src/application-stack.ts` wire big pieces. Keep it orchestration-only.
+- CDK app composes focused stacks: data, compute, API, and prod observability.
+- `src/application-stack.ts` wire stack set and public outputs. Keep it orchestration-only.
 - `src/config.ts` own stage drift. Same stack shape for `prod`, `dev`, `ephemeral`. Difference must be on purpose.
 - Prefer typed definition maps for repeated resources like Lambdas and queues. No copy-paste forests.
-- CloudFormation input surface stay tiny. Deploy version come from `CommitSHA`. Secrets and external IDs come from SSM dynamic refs. Fixed shared buckets stay fixed.
+- CloudFormation input surface stay tiny. Compute deploy version come from `CommitSHA`. Secrets and external IDs come from SSM dynamic refs. Fixed shared buckets stay fixed.
 - Infra own runtime glue: env vars, triggers, schedules, IAM, queue wiring, outputs, retention, alarms. Rust crates own business rules.
 
 ## Ownership
