@@ -1,8 +1,0 @@
-[package]
-name = "staging-data"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-staging-tests = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }

@@ -16,11 +16,15 @@ const INDEX_NAME: &str = "user_search_filters";
 fn build_percolate_request_body(
     product_document: &ProductDocument,
 ) -> Result<serde_json::Value, serde_json::Error> {
-    let document_value = serde_json::to_value(product_document).map_err(|err| {
+    let mut document_value = serde_json::to_value(product_document).map_err(|err| {
         serde_json::Error::custom(format!(
             "Failed serializing ProductDocument with error '{err}'."
         ))
     })?;
+
+    if let Some(document) = document_value.as_object_mut() {
+        document.remove("embedding");
+    }
 
     Ok(json!({
         "query": {
@@ -234,5 +238,19 @@ mod tests {
             Some(&json!("query"))
         );
         assert!(actual.pointer("/query/percolate/document").is_some());
+    }
+
+    #[test]
+    fn should_exclude_embedding_from_percolate_document() {
+        let mut product_document: ProductDocument = Faker.fake();
+        product_document.embedding = Some(vec![0.0; 768]);
+
+        let actual = build_percolate_request_body(&product_document).unwrap();
+
+        assert!(
+            actual
+                .pointer("/query/percolate/document/embedding")
+                .is_none()
+        );
     }
 }

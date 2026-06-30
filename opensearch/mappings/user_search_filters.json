@@ -189,7 +189,145 @@
             },
             "search": {
                 "type": "object",
-                "enabled": true
+                "enabled": true,
+                "properties": {
+                    "language": {
+                        "type": "keyword"
+                    },
+                    "currency": {
+                        "type": "keyword"
+                    },
+                    "productQuery": {
+                        "type": "keyword"
+                    },
+                    "enhancedSearchDescription": {
+                        "type": "keyword"
+                    },
+                    "excludeProductId": {
+                        "type": "keyword"
+                    },
+                    "shopName": {
+                        "type": "keyword"
+                    },
+                    "excludeShopName": {
+                        "type": "keyword"
+                    },
+                    "sellerName": {
+                        "type": "keyword"
+                    },
+                    "excludeSellerName": {
+                        "type": "keyword"
+                    },
+                    "shopSlugId": {
+                        "type": "keyword"
+                    },
+                    "excludeShopSlugId": {
+                        "type": "keyword"
+                    },
+                    "sellerSlugId": {
+                        "type": "keyword"
+                    },
+                    "excludeSellerSlugId": {
+                        "type": "keyword"
+                    },
+                    "shopType": {
+                        "type": "keyword"
+                    },
+                    "country": {
+                        "type": "keyword"
+                    },
+                    "continent": {
+                        "type": "keyword"
+                    },
+                    "geoAddress": {
+                        "type": "object",
+                        "properties": {
+                            "lat": {
+                                "type": "double"
+                            },
+                            "lon": {
+                                "type": "double"
+                            },
+                            "distance": {
+                                "type": "object",
+                                "properties": {
+                                    "amount": {
+                                        "type": "double"
+                                    },
+                                    "unit": {
+                                        "type": "keyword"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "price": {
+                        "type": "object",
+                        "properties": {
+                            "min": {
+                                "type": "unsigned_long"
+                            },
+                            "max": {
+                                "type": "unsigned_long"
+                            }
+                        }
+                    },
+                    "state": {
+                        "type": "keyword"
+                    },
+                    "created": {
+                        "type": "object",
+                        "properties": {
+                            "min": {
+                                "type": "date",
+                                "format": "strict_date_time"
+                            },
+                            "max": {
+                                "type": "date",
+                                "format": "strict_date_time"
+                            }
+                        }
+                    },
+                    "updated": {
+                        "type": "object",
+                        "properties": {
+                            "min": {
+                                "type": "date",
+                                "format": "strict_date_time"
+                            },
+                            "max": {
+                                "type": "date",
+                                "format": "strict_date_time"
+                            }
+                        }
+                    },
+                    "auctionStart": {
+                        "type": "object",
+                        "properties": {
+                            "min": {
+                                "type": "date",
+                                "format": "strict_date_time"
+                            },
+                            "max": {
+                                "type": "date",
+                                "format": "strict_date_time"
+                            }
+                        }
+                    },
+                    "auctionEnd": {
+                        "type": "object",
+                        "properties": {
+                            "min": {
+                                "type": "date",
+                                "format": "strict_date_time"
+                            },
+                            "max": {
+                                "type": "date",
+                                "format": "strict_date_time"
+                            }
+                        }
+                    }
+                }
             },
             "shopName": {
                 "type": "keyword"
@@ -341,7 +479,211 @@
             },
             "geoAddress": {
                 "type": "geo_point"
+            },
+            "notifications": {
+                "type": "boolean"
+            },
+            "createdBy": {
+                "type": "keyword"
+            },
+            "updatedBy": {
+                "type": "keyword"
+            },
+            "productId": {
+                "type": "keyword"
+            },
+            "productSlugId": {
+                "type": "keyword"
+            },
+            "shopSlugId": {
+                "type": "keyword"
+            },
+            "sellerSlugId": {
+                "type": "keyword"
+            },
+            "eventId": {
+                "type": "keyword"
+            },
+            "shopId": {
+                "type": "keyword"
+            },
+            "sellerId": {
+                "type": "keyword"
+            },
+            "shopsProductId": {
+                "type": "keyword"
+            },
+            "url": {
+                "type": "keyword"
+            },
+            "viewUrl": {
+                "type": "keyword"
+            },
+            "structuredAddressAddressline": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressAddresslineExtra": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressLocality": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressRegion": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "structuredAddressPostalCode": {
+                "type": "text",
+                "fields": {
+                    "keyword": {
+                        "type": "keyword",
+                        "ignore_above": 256
+                    }
+                }
+            },
+            "priceEstimateMinEur": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinUsd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinGbp": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinAud": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinCad": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinNzd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinCny": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinBrl": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinPln": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinTry": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinJpy": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinCzk": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinRub": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinAed": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinSar": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinHkd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinSgd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMinChf": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxEur": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxUsd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxGbp": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxAud": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxCad": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxNzd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxCny": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxBrl": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxPln": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxTry": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxJpy": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxCzk": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxRub": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxAed": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxSar": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxHkd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxSgd": {
+                "type": "unsigned_long"
+            },
+            "priceEstimateMaxChf": {
+                "type": "unsigned_long"
+            },
+            "images": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "keyword"
+                    },
+                    "prohibitedContent": {
+                        "type": "keyword"
+                    }
+                }
             }
-        }
+        },
+        "dynamic": "strict"
     }
 }

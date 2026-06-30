@@ -2,7 +2,12 @@ import * as cdk from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { ARTIFACT_BUCKET_NAME, MAIL_TEMPLATE_BUCKET_NAME, type StageName } from "./config";
+import {
+  ARTIFACT_BUCKET_NAME,
+  CLOUDFORMATION_STAGING_BUCKET_NAME,
+  MAIL_TEMPLATE_BUCKET_NAME,
+  type StageName,
+} from "./config";
 import { stageConfig } from "./config";
 import { applicationParameters } from "./parameters";
 import { BackendHttpApi } from "./constructs/api";
@@ -25,8 +30,9 @@ export class ApplicationStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApplicationStackProps) {
     super(scope, id, {
       ...props,
-      synthesizer: new cdk.DefaultStackSynthesizer({
-        generateBootstrapVersionRule: false,
+      synthesizer: new cdk.CliCredentialsStackSynthesizer({
+        fileAssetsBucketName: CLOUDFORMATION_STAGING_BUCKET_NAME,
+        bucketPrefix: `${props.stage}/`,
       }),
     });
 

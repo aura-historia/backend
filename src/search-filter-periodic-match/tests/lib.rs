@@ -219,3 +219,114 @@ async fn should_persist_match_and_notification_when_periodic_matcher_uses_stored
         .unwrap();
     assert!(updated_filter.last_hybrid_search_matched > filter.last_hybrid_search_matched);
 }
+
+#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+async fn should_not_create_match_when_periodic_matcher_filter_excludes_product_shop_name() {
+    let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let user_service = UserServiceImpl::new(&user_repository);
+    let search_filter_dynamodb_repository =
+        UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let search_filter_opensearch_repository =
+        UserSearchFilterOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let search_filter_service = UserSearchFilterServiceImpl::with_opensearch(
+        &search_filter_dynamodb_repository,
+        &user_service,
+        &search_filter_opensearch_repository,
+    );
+    let product_opensearch_repository =
+        ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
+    let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
+    let notification_repository =
+        NotificationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
+    let noop_ses_adapter = NoopSesAdapter;
+    let noop_s3_adapter = NoopS3Adapter;
+    let notification_service = NotificationServiceImpl::new(
+        &notification_repository,
+        &user_service,
+        &noop_ses_adapter,
+        &noop_s3_adapter,
+        "test-bucket",
+        "test-stage",
+        "test-sha",
+    );
+
+    let mut user: User = Faker.fake();
+    user.tier = UserTier::Ultimate;
+    user.language = Some(Language::En);
+    user.currency = Some(Currency::Eur);
+    user_repository
+        .put_user_record(user.clone().into())
+        .await
+        .unwrap();
+
+    let query_embedding = one_hot_embedding(84);
+    let product = make_product_doc(
+        "Rare porcelain vase with blue floral decoration",
+        query_embedding.clone(),
+        datetime!(2026-05-11 12:00 UTC),
+    );
+    product_opensearch_repository
+        .create_product_documents(vec![product.clone()])
+        .await
+        .unwrap();
+    refresh_index("products").await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    let mut filter = make_search_filter(&user, query_embedding.clone());
+    filter.search = filter.search.with_exclude_shop_name_query(
+        std::collections::HashSet::from_iter([product.shop_name.clone().into()]).into(),
+    );
+    let filter_record = UserSearchFilterRecord::from(filter.clone());
+    search_filter_dynamodb_repository
+        .put_user_search_filter_record(filter_record.clone())
+        .await
+        .unwrap();
+
+    let mut filter_document: UserSearchFilterDocument = filter_record.try_into().unwrap();
+    filter_document.embedding = Some(query_embedding);
+    search_filter_opensearch_repository
+        .index_document(filter_document)
+        .await
+        .unwrap();
+    refresh_index("user_search_filters").await;
+
+    let enhanced_search_match_service = MockEnhancedSearchMatchService::default();
+
+    let matcher = PeriodicMatcherServiceImpl::new(
+        &search_filter_service,
+        &query_product_service,
+        &enhanced_search_match_service,
+        &notification_service,
+        &user_service,
+        DEFAULT_LLM_CONCURRENCY,
+    );
+
+    let result = matcher.match_active_filters().await.unwrap();
+
+    assert_eq!(
+        result,
+        PeriodicMatcherResult {
+            filters_processed: 1,
+            matches_created: 0,
+            notifications_created: 0,
+            filters_failed: 0,
+        }
+    );
+
+    let persisted_match = search_filter_dynamodb_repository
+        .get_user_search_filter_match_record(
+            &filter.user_id,
+            &filter.user_search_filter_id,
+            &product.shop_id,
+            &product.shops_product_id,
+        )
+        .await
+        .unwrap();
+    assert!(persisted_match.is_none());
+
+    let persisted_notification = notification_repository
+        .get_notification_record(&filter.user_id, &product.event_id)
+        .await
+        .unwrap();
+    assert!(persisted_notification.is_none());
+}
