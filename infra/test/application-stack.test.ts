@@ -100,8 +100,8 @@ describe("ApplicationStack", () => {
     expect(json.Outputs?.ShopifyEventBusName).toBeDefined();
   });
 
-  test.each(STAGES)("uses legacy synthesizer for %s", (stage) => {
-    expect(createStack(stage).synthesizer).toBeInstanceOf(cdk.LegacyStackSynthesizer);
+  test.each(STAGES)("uses CLI credentials synthesizer for %s", (stage) => {
+    expect(createStack(stage).synthesizer).toBeInstanceOf(cdk.CliCredentialsStackSynthesizer);
   });
 
   test("prod enables production safeguards", () => {

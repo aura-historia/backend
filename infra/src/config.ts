@@ -5,6 +5,7 @@ export type StageName = (typeof STAGES)[number];
 
 export const ARTIFACT_BUCKET_NAME = "aura-historia-binary-artifacts-eu-central-1";
 export const MAIL_TEMPLATE_BUCKET_NAME = "aura-historia-mail-templates-eu-central-1";
+export const CLOUDFORMATION_STAGING_BUCKET_NAME = "aura-historia-cfn-artifcats-eu-central-1";
 
 const LOCALHOST_CALLBACK_URL = "http://localhost:3000";
 const STAGE_FRONTEND_URL = "https://stage.aura-historia.com/";

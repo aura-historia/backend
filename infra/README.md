@@ -45,10 +45,12 @@ Deployments should use `cdk deploy` without hotswap. CI uses CloudFormation
 change sets (`--method change-set`) so stack updates keep CloudFormation's normal
 all-or-nothing rollback semantics.
 
-Deployments do not require a CDK bootstrap stack in the target account/region.
-`src/application-stack.ts` uses `LegacyStackSynthesizer` because Lambda ZIPs and
-scheduled Fargate images are referenced as prebuilt S3/ECR artifacts keyed by
-`CommitSHA`, not as CDK-managed assets.
+Deployments do not require a full CDK bootstrap stack in the target account/region.
+`src/application-stack.ts` uses `CliCredentialsStackSynthesizer` with the existing
+staging bucket `aura-historia-cfn-artifcats-eu-central-1`. CDK uploads large
+CloudFormation templates and any future file assets under the stage prefix
+(`${stage}/`). Lambda ZIPs and scheduled Fargate images are still referenced as
+prebuilt S3/ECR artifacts keyed by `CommitSHA`, not as CDK-managed assets.
 
 Rollback is performed by redeploying a previous `CommitSHA` parameter value. Lambda
 ZIP keys and mail-template prefixes include that SHA, so CDK points the stack back
