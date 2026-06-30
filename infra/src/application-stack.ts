@@ -246,6 +246,11 @@ export class ApplicationApiStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, "ApiGatewayEndpointUrl", { value: this.api.endpointUrl });
+    if (this.api.distribution) {
+      new cdk.CfnOutput(this, "ApiCloudFrontDistributionDomainName", {
+        value: this.api.distribution.attrDomainName,
+      });
+    }
   }
 }
 

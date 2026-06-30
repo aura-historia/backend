@@ -138,6 +138,11 @@ describe("Application stacks", () => {
       expect(template.toJSON().Resources?.CDKMetadata).toBeUndefined();
     }
     expect(templates.api.toJSON().Outputs?.ApiGatewayEndpointUrl).toBeDefined();
+    if (stage === "ephemeral") {
+      expect(templates.api.toJSON().Outputs?.ApiCloudFrontDistributionDomainName).toBeUndefined();
+    } else {
+      expect(templates.api.toJSON().Outputs?.ApiCloudFrontDistributionDomainName).toBeDefined();
+    }
     expect(templates.data.toJSON().Outputs?.DynamodbTable1Name).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.CognitoUserPoolId).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.CognitoUserPoolClientPublicId).toBeDefined();
@@ -156,6 +161,65 @@ describe("Application stacks", () => {
     if (stacks.observability) {
       expect(stacks.observability.synthesizer).toBeInstanceOf(cdk.CliCredentialsStackSynthesizer);
     }
+  });
+
+  test("real stages configure custom API domains through CloudFront", () => {
+    const prodTemplates = synthesize("prod");
+    const devTemplates = synthesize("dev");
+    const ephemeralTemplates = synthesize("ephemeral");
+
+    prodTemplates.api.hasResourceProperties("AWS::ApiGatewayV2::Api", {
+      DisableExecuteApiEndpoint: true,
+    });
+    prodTemplates.api.hasResourceProperties("AWS::ApiGatewayV2::DomainName", {
+      DomainName: "api.aura-historia.com",
+      DomainNameConfigurations: Match.arrayWith([
+        Match.objectLike({
+          CertificateArn: "{{resolve:ssm:/certificates/prod/api-regional-certificate-arn}}",
+          EndpointType: "REGIONAL",
+          SecurityPolicy: "TLS_1_2",
+        }),
+      ]),
+      RoutingMode: "API_MAPPING_ONLY",
+    });
+    prodTemplates.api.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        Aliases: ["api.aura-historia.com"],
+        Comment: "prod api",
+        DefaultCacheBehavior: Match.objectLike({
+          CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+          OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3",
+          ViewerProtocolPolicy: "redirect-to-https",
+        }),
+        CacheBehaviors: Match.arrayWith([
+          Match.objectLike({
+            CachePolicyId: "4cc15a8a-d715-48a4-82b8-cc0b614638fe",
+            FunctionAssociations: Match.arrayWith([
+              Match.objectLike({ EventType: "viewer-request" }),
+            ]),
+            PathPattern: "/api/*",
+          }),
+        ]),
+        ViewerCertificate: Match.objectLike({
+          AcmCertificateArn: "{{resolve:ssm:/certificates/prod/api-cloudfront-certificate-arn}}",
+          MinimumProtocolVersion: "TLSv1.2_2021",
+          SslSupportMethod: "sni-only",
+        }),
+        WebACLId: "{{resolve:ssm:/cloudfront/prod/api-web-acl-arn}}",
+      }),
+    });
+
+    devTemplates.api.hasResourceProperties("AWS::ApiGatewayV2::DomainName", {
+      DomainName: "api.dev.aura-historia.com",
+    });
+    devTemplates.api.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        Aliases: ["api.dev.aura-historia.com"],
+        Comment: "dev api",
+      }),
+    });
+    expect(resourceCount(ephemeralTemplates, "AWS::CloudFront::Distribution")).toBe(0);
+    expect(resourceCount(ephemeralTemplates, "AWS::ApiGatewayV2::DomainName")).toBe(0);
   });
 
   test("prod enables production safeguards", () => {
@@ -332,10 +396,48 @@ describe("Application stacks", () => {
       LogoutURLs: ["http://localhost:3000", "https://stage.aura-historia.com/"],
     });
     prodTemplates.compute.hasResourceProperties("AWS::Cognito::UserPool", {
+      AccountRecoverySetting: {
+        RecoveryMechanisms: [
+          {
+            Name: "verified_email",
+            Priority: 1,
+          },
+        ],
+      },
+      EmailConfiguration: {
+        ConfigurationSet: "my-first-configuration-set",
+        EmailSendingAccount: "DEVELOPER",
+        From: "Aura Historia <auth@notify.aura-historia.com>",
+        ReplyToEmailAddress: "contact@aura-historia.com",
+        SourceArn: {
+          "Fn::Sub": [
+            "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${IdentityDomain}",
+            { IdentityDomain: "notify.aura-historia.com" },
+          ],
+        },
+      },
+      UserPoolAddOns: {
+        AdvancedSecurityMode: "ENFORCED",
+      },
+      UserPoolTier: "PLUS",
       VerificationMessageTemplate: Match.objectLike({
         EmailSubject: "Verify your email",
         EmailMessage: Match.stringLikeRegexp("<p class=\\\"greeting\\\">Verify your email</p>"),
       }),
+    });
+    prodTemplates.compute.hasResourceProperties("AWS::Cognito::UserPoolIdentityProvider", {
+      ProviderName: "Facebook",
+      ProviderType: "Facebook",
+      ProviderDetails: Match.objectLike({
+        api_version: "v20.0",
+        authorize_scopes: "email",
+        client_id: "{{resolve:ssm:/cognito/prod/facebook-client-id}}",
+        client_secret: "{{resolve:ssm-secure:/secrets/prod/facebook-client-secret}}",
+      }),
+      AttributeMapping: {
+        email: "email",
+        username: "id",
+      },
     });
   });
 
@@ -349,10 +451,19 @@ describe("Application stacks", () => {
     expect(prodJson).toContain("{{resolve:ssm:/eventbridge/prod/shopify-event-bus-name}}");
     expect(prodJson).toContain("{{resolve:ssm:/stripe/prod/pro-monthly-price-id}}");
     expect(prodJson).toContain("{{resolve:ssm:/stripe/prod/ultimate-yearly-price-id}}");
+    expect(prodJson).toContain("{{resolve:ssm:/certificates/prod/api-regional-certificate-arn}}");
+    expect(prodJson).toContain("{{resolve:ssm:/certificates/prod/api-cloudfront-certificate-arn}}");
+    expect(prodJson).toContain("{{resolve:ssm:/cloudfront/prod/api-web-acl-arn}}");
+    expect(prodJson).toContain("{{resolve:ssm:/cognito/prod/facebook-client-id}}");
+    expect(prodJson).toContain("{{resolve:ssm-secure:/secrets/prod/facebook-client-secret}}");
 
     expect(devJson).toContain("{{resolve:ssm:/opensearch/dev/endpoint-url}}");
     expect(devJson).toContain("{{resolve:ssm:/eventbridge/dev/stripe-event-bus-name}}");
     expect(devJson).toContain("{{resolve:ssm:/stripe/dev/pro-product-id}}");
+    expect(devJson).toContain("{{resolve:ssm:/certificates/dev/api-regional-certificate-arn}}");
+    expect(devJson).toContain("{{resolve:ssm:/certificates/dev/api-cloudfront-certificate-arn}}");
+    expect(devJson).toContain("{{resolve:ssm:/cloudfront/dev/api-web-acl-arn}}");
+    expect(devJson).toContain("{{resolve:ssm:/cognito/dev/facebook-client-id}}");
 
     expect(ephemeralJson).not.toContain("/opensearch/ephemeral/endpoint-url");
     expect(ephemeralJson).toContain("stripe-event-bus-ephemeral");

@@ -19,8 +19,8 @@ src/config.ts              # stage configuration, fixed buckets, SSM dynamic ref
 src/parameters.ts          # deployment artifact version input
 src/templates/             # synth-time templates, e.g. Cognito verification email HTML
 src/constructs/            # focused infrastructure modules
-  api.ts                   # HTTP API Gateway routes, CORS, JWT authorizer
-  cognito.ts               # Cognito user pool, public client, hosted UI domain
+  api.ts                   # HTTP API Gateway routes, domain, CloudFront, CORS, JWT authorizer
+  cognito.ts               # Cognito user pool, public client, IdPs, hosted UI domain
   eventing.ts              # EventBridge buses/rules, SQS mappings, Pipes
   lambdas.ts               # Lambda definitions, env vars, IAM grants
   observability.ts         # prod-only alarms and alarm topic
@@ -45,7 +45,7 @@ Synth creates these stacks per stage:
 
 - `application-{stage}-data` — DynamoDB, SQS, and LocalStack OpenSearch
 - `application-{stage}-compute` — Lambdas, Cognito, workflow, eventing, schedules
-- `application-{stage}-api` — HTTP API Gateway routes, integrations, authorizer
+- `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
 
 Deployments should use `cdk deploy --all` without hotswap. CI uses
@@ -95,6 +95,11 @@ and `dev`:
 /stripe/{stage}/pro-yearly-price-id
 /stripe/{stage}/ultimate-monthly-price-id
 /stripe/{stage}/ultimate-yearly-price-id
+/certificates/{stage}/api-regional-certificate-arn
+/certificates/{stage}/api-cloudfront-certificate-arn
+/cloudfront/{stage}/api-web-acl-arn
+/cognito/{stage}/facebook-client-id
+/secrets/{stage}/facebook-client-secret
 /secrets/{stage}/gemini-api-key
 /secrets/{stage}/google-application-credentials
 /secrets/{stage}/google-geocoding-api-key
