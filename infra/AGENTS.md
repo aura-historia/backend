@@ -42,6 +42,7 @@
 - Pipeline workers be explicit about concurrency and long-running cost. For heavy queue workers, visibility timeout should be around `6x` Lambda timeout unless real reason says otherwise.
 - Scheduled sync jobs should fail fast, not camp for long timeouts.
 - Ephemeral stage should mock or localize third-party integration when possible.
+- Ephemeral API may add LocalStack-only broad invoke grants for path-param routes; real stages stay tighter.
 - Keep prod-only alarms and noisy observability out of lower stages unless signal justify cost.
 
 ## Verification

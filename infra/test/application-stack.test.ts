@@ -138,6 +138,19 @@ describe("Application stacks", () => {
     expect(JSON.stringify(json)).not.toContain("Fn::ImportValue");
   });
 
+  test("ephemeral API broadens path-parameter Lambda invokes for LocalStack", () => {
+    const json = synthesizeSingleEphemeralStack().toJSON();
+    const permissions = resourcesOfType(json, "AWS::Lambda::Permission").filter(([id]) =>
+      id.includes("LocalStackPathParameterInvoke"),
+    );
+
+    expect(permissions).toHaveLength(10);
+    for (const [, permission] of permissions) {
+      expect(permission.Properties?.Principal).toBe("apigateway.amazonaws.com");
+      expect(JSON.stringify(permission.Properties?.SourceArn)).toContain("/*/*/*");
+    }
+  });
+
   test.each(STAGES)("synthesizes the %s stack contract", (stage) => {
     const templates = synthesize(stage);
 

@@ -3,6 +3,7 @@ import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
@@ -198,6 +199,7 @@ export class BackendHttpApi extends Construct {
     );
 
     const integrationsByLambda = new Map<LambdaKey, integrations.HttpLambdaIntegration>();
+    const localStackPathParameterLambdas = new Map<LambdaKey, NonNullable<LambdaCatalog[LambdaKey]>>();
     for (const definition of ROUTES) {
       const targetFunction = props.functions[definition.lambda];
       if (!targetFunction) {
@@ -219,12 +221,27 @@ export class BackendHttpApi extends Construct {
         integration,
         authorizer: definition.authenticated ? authorizer : undefined,
       });
+
+      if (props.config.isEphemeral && definition.path.includes("{")) {
+        localStackPathParameterLambdas.set(definition.lambda, targetFunction);
+      }
     }
+
+    this.grantLocalStackPathParameterInvokes(localStackPathParameterLambdas);
 
     this.configureCustomDomain(props);
     this.distribution = this.configureCloudFront(props);
 
     this.endpointUrl = props.config.apiEndpointUrl ?? `${this.api.apiEndpoint}/${props.stageName}`;
+  }
+
+  private grantLocalStackPathParameterInvokes(functions: Map<LambdaKey, NonNullable<LambdaCatalog[LambdaKey]>>): void {
+    for (const [lambdaKey, targetFunction] of functions) {
+      targetFunction.addPermission(`${lambdaKey}LocalStackPathParameterInvoke`, {
+        principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
+        sourceArn: this.api.arnForExecuteApi("*", "/*"),
+      });
+    }
   }
 
   private configureCustomDomain(props: HttpApiProps): apigwv2.CfnDomainName | undefined {
