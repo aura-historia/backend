@@ -7,11 +7,11 @@
 
 ## Core Design
 
-- One stack compose focused constructs: storage, queues, search, lambdas, eventing, API, workflow, identity, observability.
-- `src/application-stack.ts` wire big pieces. Keep it orchestration-only.
+- CDK app composes focused stacks: data, compute, API, and prod observability.
+- `src/application-stack.ts` wire stack set and public outputs. Keep it orchestration-only.
 - `src/config.ts` own stage drift. Same stack shape for `prod`, `dev`, `ephemeral`. Difference must be on purpose.
 - Prefer typed definition maps for repeated resources like Lambdas and queues. No copy-paste forests.
-- CloudFormation input surface stay tiny. Deploy version come from `CommitSHA`. Secrets and external IDs come from SSM dynamic refs. Fixed shared buckets stay fixed.
+- CloudFormation input surface stay tiny. Compute deploy version come from `CommitSHA`. Secrets and external IDs come from SSM dynamic refs. Fixed shared buckets stay fixed.
 - Infra own runtime glue: env vars, triggers, schedules, IAM, queue wiring, outputs, retention, alarms. Rust crates own business rules.
 
 ## Ownership
@@ -42,6 +42,7 @@
 - Pipeline workers be explicit about concurrency and long-running cost. For heavy queue workers, visibility timeout should be around `6x` Lambda timeout unless real reason says otherwise.
 - Scheduled sync jobs should fail fast, not camp for long timeouts.
 - Ephemeral stage should mock or localize third-party integration when possible.
+- Ephemeral API may add LocalStack-only broad invoke grants for path-param routes; real stages stay tighter.
 - Keep prod-only alarms and noisy observability out of lower stages unless signal justify cost.
 
 ## Verification

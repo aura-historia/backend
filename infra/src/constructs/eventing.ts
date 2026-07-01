@@ -5,16 +5,17 @@ import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as pipes from "aws-cdk-lib/aws-pipes";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
-import type { LambdaCatalog } from "./lambdas";
+import type { LambdaFunctions } from "./lambdas";
 import type { QueueCatalog, QueueKey } from "./queues";
 
 export interface EventingProps {
   readonly config: StageConfig;
   readonly table: dynamodb.Table;
   readonly queues: QueueCatalog;
-  readonly functions: LambdaCatalog;
+  readonly functions: LambdaFunctions;
 }
 
 export class Eventing extends Construct {
@@ -246,7 +247,9 @@ function addDynamoDbRule(
   });
 
   for (const targetQueue of props.targets) {
-    rule.addTarget(new targets.SqsQueue(props.queues[targetQueue].queue));
+    const queue = props.queues[targetQueue].queue;
+    rule.addTarget(new targets.SqsQueue(queue));
+    allowEventRuleToSendToQueue(scope, `${id}${targetQueue}QueuePolicy`, rule, queue);
   }
 }
 
@@ -254,10 +257,10 @@ function createPartnerEventRules(
   scope: Construct,
   stripeEventBus: events.IEventBus,
   shopifyEventBus: events.IEventBus,
-  functions: LambdaCatalog,
+  functions: LambdaFunctions,
   queues: QueueCatalog,
 ): void {
-  new events.Rule(scope, "ShopifyEventRule", {
+  const shopifyRule = new events.Rule(scope, "ShopifyEventRule", {
     eventBus: shopifyEventBus,
     eventPattern: {
       detail: {
@@ -268,6 +271,7 @@ function createPartnerEventRules(
     },
     targets: [new targets.SqsQueue(queues.shopify.queue)],
   });
+  allowEventRuleToSendToQueue(scope, "ShopifyEventRuleQueuePolicy", shopifyRule, queues.shopify.queue);
 
   new events.Rule(scope, "StripeEventRule", {
     eventBus: stripeEventBus,
@@ -284,7 +288,31 @@ function createPartnerEventRules(
   });
 }
 
-function createCloudWatchLogRetentionRule(scope: Construct, functions: LambdaCatalog): void {
+function allowEventRuleToSendToQueue(scope: Construct, id: string, rule: events.Rule, queue: sqs.IQueue): void {
+  new sqs.CfnQueuePolicy(scope, id, {
+    queues: [queue.queueUrl],
+    policyDocument: {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Principal: {
+            Service: "events.amazonaws.com",
+          },
+          Action: "sqs:SendMessage",
+          Resource: queue.queueArn,
+          Condition: {
+            ArnEquals: {
+              "aws:SourceArn": rule.ruleArn,
+            },
+          },
+        },
+      ],
+    },
+  });
+}
+
+function createCloudWatchLogRetentionRule(scope: Construct, functions: LambdaFunctions): void {
   new events.Rule(scope, "CloudWatchLogGroupCreatedEventRule", {
     eventPattern: {
       source: ["aws.logs"],
@@ -298,7 +326,7 @@ function createCloudWatchLogRetentionRule(scope: Construct, functions: LambdaCat
   });
 }
 
-function createSqsEventSources(functions: LambdaCatalog, queues: QueueCatalog): void {
+function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog): void {
   addSqsEventSource(functions.productPartnerIngest, queues.productPartnerIngest.queue, 10, true, 1);
   addSqsEventSource(functions.searchFilterOpenSearchSync, queues.searchFilterOpenSearchSync.queue, 1, false);
   addSqsEventSource(functions.shopOpenSearchIndex, queues.shopOpenSearchIndex.queue, 1, false);
@@ -315,7 +343,7 @@ function createSqsEventSources(functions: LambdaCatalog, queues: QueueCatalog): 
 
 function addSqsEventSource(
   fn: cdk.aws_lambda.Function,
-  queue: cdk.aws_sqs.Queue,
+  queue: sqs.IQueue,
   batchSize: number,
   reportBatchItemFailures: boolean,
   maxBatchingWindowSeconds?: number,

@@ -7,6 +7,7 @@
 ## Core Design
 
 - `workflows/` drive integrate, deploy, sonar, and repo automation.
+- Deploy workflow deploys split CDK stacks from one stage prefix and merges stack outputs for smoke tests.
 - Workflow change can change CI gate, deploy path, or DOX contract for many crates.
 
 ## Ownership

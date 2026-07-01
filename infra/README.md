@@ -2,8 +2,8 @@
 
 This directory contains the AWS CDK app for the Aura Historia backend.
 
-The application stack is described with CDK constructs and small typed configuration
-objects instead of hand-written CloudFormation templates. The same stack code is
+The application is split into small CDK/CloudFormation stacks with typed
+configuration objects instead of hand-written templates. The same stack code is
 synthesized for:
 
 - `prod` — real AWS production resources, production alarms enabled
@@ -14,13 +14,13 @@ synthesized for:
 
 ```text
 bin/app.ts                 # CDK entrypoint and stage selection
-src/application-stack.ts   # stack composition and public outputs
+src/application-stack.ts   # data, compute, API, observability stack composition
 src/config.ts              # stage configuration, fixed buckets, SSM dynamic refs
 src/parameters.ts          # deployment artifact version input
 src/templates/             # synth-time templates, e.g. Cognito verification email HTML
 src/constructs/            # focused infrastructure modules
-  api.ts                   # HTTP API Gateway routes, CORS, JWT authorizer
-  cognito.ts               # Cognito user pool, public client, hosted UI domain
+  api.ts                   # HTTP API Gateway routes, domain, CloudFront, CORS, JWT authorizer
+  cognito.ts               # Cognito user pool, public client, IdPs, hosted UI domain
   eventing.ts              # EventBridge buses/rules, SQS mappings, Pipes
   lambdas.ts               # Lambda definitions, env vars, IAM grants
   observability.ts         # prod-only alarms and alarm topic
@@ -41,24 +41,31 @@ npm run synth -- --context stage=prod
 npm run synth -- --context stage=ephemeral
 ```
 
-Deployments should use `cdk deploy` without hotswap. CI uses CloudFormation
-change sets (`--method change-set`) so stack updates keep CloudFormation's normal
-all-or-nothing rollback semantics.
+Synth creates these stacks per stage:
+
+- `application-{stage}-data` — DynamoDB, SQS, and LocalStack OpenSearch
+- `application-{stage}-compute` — Lambdas, Cognito, workflow, eventing, schedules
+- `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
+- `application-prod-observability` — prod-only alarms and alarm topic
+
+Deployments should use `cdk deploy --all` without hotswap. CI uses
+CloudFormation change sets (`--method change-set`) so stack updates keep
+CloudFormation's normal rollback semantics.
 
 Deployments do not require a full CDK bootstrap stack in the target account/region.
-`src/application-stack.ts` uses `CliCredentialsStackSynthesizer` with the existing
-staging bucket `aura-historia-cfn-artifcats-eu-central-1`. CDK uploads large
-CloudFormation templates and any future file assets under the stage prefix
-(`${stage}/`). Lambda ZIPs and scheduled Fargate images are still referenced as
-prebuilt S3/ECR artifacts keyed by `CommitSHA`, not as CDK-managed assets.
+Each stack uses `CliCredentialsStackSynthesizer` with the existing staging bucket
+`aura-historia-cfn-artifcats-eu-central-1`. CDK uploads large CloudFormation
+templates and any future file assets under the stage prefix (`${stage}/`). Lambda
+ZIPs and scheduled Fargate images are still referenced as prebuilt S3/ECR
+artifacts keyed by `CommitSHA`, not as CDK-managed assets.
 
-Rollback is performed by redeploying a previous `CommitSHA` parameter value. Lambda
-ZIP keys and mail-template prefixes include that SHA, so CDK points the stack back
-to the previously uploaded artifacts.
+Rollback is performed by redeploying a previous `CommitSHA` parameter value to the
+compute stack. Lambda ZIP keys and mail-template prefixes include that SHA, so CDK
+points compute resources back to the previously uploaded artifacts.
 
 ## Deployment inputs
 
-The synthesized stack intentionally exposes only one CloudFormation parameter:
+Only the compute stack exposes a CloudFormation parameter:
 
 - `CommitSHA` — artifact version to deploy or roll back to
 
@@ -67,8 +74,9 @@ The Lambda artifact and mail-template buckets are fixed in `src/config.ts`:
 - `aura-historia-binary-artifacts-eu-central-1`
 - `aura-historia-mail-templates-eu-central-1`
 
-LocalStack acceptance tests pass the host-mapped edge port as CDK context
-(`localStackMappedPort`) at synth time, not as a CloudFormation parameter.
+LocalStack acceptance tests synthesize one ephemeral stack with CDK context
+`singleStack=true` and pass the host-mapped edge port as `localStackMappedPort`.
+These values are synth-time context, not CloudFormation parameters.
 
 ## Stage-specific SSM parameters
 
@@ -88,6 +96,11 @@ and `dev`:
 /stripe/{stage}/pro-yearly-price-id
 /stripe/{stage}/ultimate-monthly-price-id
 /stripe/{stage}/ultimate-yearly-price-id
+/certificates/{stage}/api-regional-certificate-arn
+/certificates/{stage}/api-cloudfront-certificate-arn
+/cloudfront/{stage}/api-web-acl-arn
+/cognito/{stage}/facebook-client-id
+/secrets/{stage}/facebook-client-secret
 /secrets/{stage}/gemini-api-key
 /secrets/{stage}/google-application-credentials
 /secrets/{stage}/google-geocoding-api-key

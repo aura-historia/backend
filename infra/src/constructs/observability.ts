@@ -3,17 +3,16 @@ import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as actions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as sns from "aws-cdk-lib/aws-sns";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
-import type { LambdaCatalog, LambdaKey } from "./lambdas";
+import { lambdaFunctionName, type LambdaCatalog, type LambdaKey } from "./lambdas";
 
 export interface ObservabilityProps {
   readonly config: StageConfig;
   readonly stageName: string;
   readonly api: apigwv2.HttpApi;
-  readonly table: dynamodb.Table;
+  readonly table: dynamodb.ITable;
   readonly functions: LambdaCatalog;
 }
 
@@ -41,36 +40,45 @@ export class Observability extends Construct {
     dynamoAlarm(this, props.stageName, "TableOneThrottledRequestsAlarm", "ThrottledRequests", props.table, 5, 1).addAlarmAction(alarmAction);
     dynamoAlarm(this, props.stageName, "TableOneConditionalCheckFailedRequestsAlarm", "ConditionalCheckFailedRequests", props.table, 100, 2).addAlarmAction(alarmAction);
 
-    for (const [key, fn] of Object.entries(props.functions) as [LambdaKey, lambda.Function | undefined][]) {
+    for (const [key, fn] of Object.entries(props.functions) as [LambdaKey, unknown][]) {
       if (!fn) {
         continue;
       }
 
-      fn.metricErrors({ period: cdk.Duration.minutes(5), statistic: "Sum" })
-        .createAlarm(this, `${fn.node.id}ErrorAlarm`, {
-          alarmName: `${props.stageName}-${toKebabCase(fn.node.id)}-errors`,
-          alarmDescription: `Alarm when ${fn.node.id} has Lambda errors`,
-          threshold: queueWorkerKeys.has(key) ? 5 : 1,
-          evaluationPeriods: queueWorkerKeys.has(key) ? 1 : 1,
-          comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-        })
+      const functionName = lambdaFunctionName(key, props.config.stage);
+      lambdaAlarm(this, props.stageName, `${key}ErrorAlarm`, "Errors", functionName, queueWorkerKeys.has(key) ? 5 : 1)
         .addAlarmAction(alarmAction);
 
       if (apiLambdaKeys.has(key)) {
-        fn.metricThrottles({ period: cdk.Duration.minutes(5), statistic: "Sum" })
-          .createAlarm(this, `${fn.node.id}ThrottleAlarm`, {
-            alarmName: `${props.stageName}-${toKebabCase(fn.node.id)}-throttles`,
-            alarmDescription: `Alarm when ${fn.node.id} is throttled`,
-            threshold: 1,
-            evaluationPeriods: 1,
-            comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-            treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-          })
-          .addAlarmAction(alarmAction);
+        lambdaAlarm(this, props.stageName, `${key}ThrottleAlarm`, "Throttles", functionName, 1).addAlarmAction(alarmAction);
       }
     }
   }
+}
+
+function lambdaAlarm(
+  scope: Construct,
+  stageName: string,
+  id: string,
+  metricName: string,
+  functionName: string,
+  threshold: number,
+): cloudwatch.Alarm {
+  return new cloudwatch.Alarm(scope, id, {
+    alarmName: `${stageName}-${toKebabCase(functionName)}-${toKebabCase(metricName)}`,
+    alarmDescription: `Alarm when ${functionName} has Lambda ${metricName}`,
+    metric: new cloudwatch.Metric({
+      namespace: "AWS/Lambda",
+      metricName,
+      dimensionsMap: { FunctionName: functionName },
+      statistic: "Sum",
+      period: cdk.Duration.minutes(5),
+    }),
+    threshold,
+    evaluationPeriods: 1,
+    comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+  });
 }
 
 function apiAlarm(
@@ -107,7 +115,7 @@ function dynamoAlarm(
   stageName: string,
   id: string,
   metricName: string,
-  table: dynamodb.Table,
+  table: dynamodb.ITable,
   threshold: number,
   evaluationPeriods: number,
 ): cloudwatch.Alarm {

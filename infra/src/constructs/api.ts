@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
@@ -15,6 +16,10 @@ interface RouteDefinition {
   readonly lambda: LambdaKey;
   readonly authenticated?: boolean;
 }
+
+const CLOUDFRONT_CACHING_DISABLED_POLICY_ID = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad";
+const CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID = "216adef6-5c7f-47e4-b989-5492eafa07d3";
+const CLOUDFRONT_USE_ORIGIN_CACHE_CONTROL_QUERY_STRINGS_POLICY_ID = "4cc15a8a-d715-48a4-82b8-cc0b614638fe";
 
 const ROUTES: readonly RouteDefinition[] = [
   route("PUT", "/api/v1/newsletter-subscriptions", "newsletterApi"),
@@ -110,6 +115,7 @@ export interface HttpApiProps {
 export class BackendHttpApi extends Construct {
   readonly api: apigwv2.HttpApi;
   readonly stage: apigwv2.HttpStage;
+  readonly distribution?: cloudfront.CfnDistribution;
   readonly endpointUrl: string;
 
   constructor(scope: Construct, id: string, props: HttpApiProps) {
@@ -136,6 +142,10 @@ export class BackendHttpApi extends Construct {
         allowOrigins: props.config.apiCorsAllowOrigins,
       },
     });
+    if (props.config.apiDomainName) {
+      const cfnApi = this.api.node.defaultChild as apigwv2.CfnApi;
+      cfnApi.addPropertyOverride("DisableExecuteApiEndpoint", true);
+    }
 
     const logGroup = props.config.enableProductionObservability
       ? new logs.LogGroup(this, "ApiLogGroup", {
@@ -189,6 +199,7 @@ export class BackendHttpApi extends Construct {
     );
 
     const integrationsByLambda = new Map<LambdaKey, integrations.HttpLambdaIntegration>();
+    const localStackPathParameterLambdas = new Map<LambdaKey, NonNullable<LambdaCatalog[LambdaKey]>>();
     for (const definition of ROUTES) {
       const targetFunction = props.functions[definition.lambda];
       if (!targetFunction) {
@@ -210,19 +221,157 @@ export class BackendHttpApi extends Construct {
         integration,
         authorizer: definition.authenticated ? authorizer : undefined,
       });
+
+      if (props.config.isEphemeral && definition.path.includes("{")) {
+        localStackPathParameterLambdas.set(definition.lambda, targetFunction);
+      }
     }
 
-    for (const lambdaKey of integrationsByLambda.keys()) {
-      props.functions[lambdaKey]?.addPermission(`${lambdaKey}ApiGatewayInvoke`, {
-        principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
-        sourceArn: cdk.Fn.sub("arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiId}/*/*/api/v1*", {
-          ApiId: this.api.apiId,
-        }),
-      });
-    }
+    this.grantLocalStackPathParameterInvokes(localStackPathParameterLambdas);
+
+    this.configureCustomDomain(props);
+    this.distribution = this.configureCloudFront(props);
 
     this.endpointUrl = props.config.apiEndpointUrl ?? `${this.api.apiEndpoint}/${props.stageName}`;
   }
+
+  private grantLocalStackPathParameterInvokes(functions: Map<LambdaKey, NonNullable<LambdaCatalog[LambdaKey]>>): void {
+    for (const [lambdaKey, targetFunction] of functions) {
+      targetFunction.addPermission(`${lambdaKey}LocalStackPathParameterInvoke`, {
+        principal: new iam.ServicePrincipal("apigateway.amazonaws.com"),
+        sourceArn: this.api.arnForExecuteApi("*", "/*"),
+      });
+    }
+  }
+
+  private configureCustomDomain(props: HttpApiProps): apigwv2.CfnDomainName | undefined {
+    if (!props.config.apiDomainName || !props.config.apiGatewayCertificateArn) {
+      return undefined;
+    }
+
+    const domain = new apigwv2.CfnDomainName(this, "ApiDomainName", {
+      domainName: props.config.apiDomainName,
+      domainNameConfigurations: [
+        {
+          certificateArn: props.config.apiGatewayCertificateArn,
+          endpointType: "REGIONAL",
+          securityPolicy: "TLS_1_2",
+        },
+      ],
+      routingMode: "API_MAPPING_ONLY",
+    });
+
+    const mapping = new apigwv2.CfnApiMapping(this, "ApiDomainMapping", {
+      apiId: this.api.apiId,
+      domainName: domain.ref,
+      stage: this.stage.stageName,
+    });
+    mapping.addDependency(domain);
+    mapping.addDependency(this.stage.node.defaultChild as apigwv2.CfnStage);
+
+    return domain;
+  }
+
+  private configureCloudFront(props: HttpApiProps): cloudfront.CfnDistribution | undefined {
+    if (!props.config.apiDomainName || !props.config.apiCloudFrontCertificateArn) {
+      return undefined;
+    }
+
+    const authCacheGuard = new cloudfront.CfnFunction(this, "ApiAuthCacheGuardFunction", {
+      name: `api-guard-cache-control-no-cache-when-authenticated-${props.stageName}`,
+      autoPublish: true,
+      functionCode: authCacheGuardFunctionCode(),
+      functionConfig: {
+        comment: "Add an auth cache key for JWT requests.",
+        runtime: "cloudfront-js-2.0",
+      },
+    });
+
+    const originId = "HttpApiOrigin";
+    return new cloudfront.CfnDistribution(this, "ApiDistribution", {
+      distributionConfig: {
+        aliases: [props.config.apiDomainName],
+        cacheBehaviors: [
+          {
+            allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
+            cachedMethods: ["GET", "HEAD", "OPTIONS"],
+            cachePolicyId: CLOUDFRONT_USE_ORIGIN_CACHE_CONTROL_QUERY_STRINGS_POLICY_ID,
+            compress: true,
+            functionAssociations: [
+              {
+                eventType: "viewer-request",
+                functionArn: authCacheGuard.attrFunctionArn,
+              },
+            ],
+            originRequestPolicyId: CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID,
+            pathPattern: "/api/*",
+            targetOriginId: originId,
+            viewerProtocolPolicy: "redirect-to-https",
+          },
+        ],
+        comment: `${props.stageName} api`,
+        defaultCacheBehavior: {
+          allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
+          cachedMethods: ["GET", "HEAD"],
+          cachePolicyId: CLOUDFRONT_CACHING_DISABLED_POLICY_ID,
+          compress: true,
+          originRequestPolicyId: CLOUDFRONT_ALL_VIEWER_ORIGIN_REQUEST_POLICY_ID,
+          targetOriginId: originId,
+          viewerProtocolPolicy: "redirect-to-https",
+        },
+        enabled: true,
+        httpVersion: "http2",
+        ipv6Enabled: true,
+        origins: [
+          {
+            id: originId,
+            domainName: cdk.Fn.select(2, cdk.Fn.split("/", this.api.apiEndpoint)),
+            customOriginConfig: {
+              httpPort: 80,
+              httpsPort: 443,
+              originKeepaliveTimeout: 5,
+              originProtocolPolicy: "https-only",
+              originReadTimeout: 30,
+              originSslProtocols: ["TLSv1.2"],
+            },
+          },
+        ],
+        priceClass: "PriceClass_All",
+        viewerCertificate: {
+          acmCertificateArn: props.config.apiCloudFrontCertificateArn,
+          minimumProtocolVersion: "TLSv1.2_2021",
+          sslSupportMethod: "sni-only",
+        },
+        webAclId: props.config.apiCloudFrontWebAclArn,
+      },
+    });
+  }
+}
+
+function authCacheGuardFunctionCode(): string {
+  return `function handler(event) {
+    var request = event.request;
+    var headers = request.headers;
+    var authHeader = headers.authorization;
+
+    if (authHeader && authHeader.value) {
+        var value = authHeader.value;
+
+        if (value.startsWith("Bearer ")) {
+            var token = value.substring(7);
+
+            if (token.split(".").length === 3) {
+                if (!request.querystring) {
+                    request.querystring = {};
+                }
+
+                request.querystring["__auth"] = { value: "1" };
+            }
+        }
+    }
+
+    return request;
+}`;
 }
 
 function route(

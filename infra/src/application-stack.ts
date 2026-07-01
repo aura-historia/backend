@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -13,11 +14,11 @@ import { applicationParameters } from "./parameters";
 import { BackendHttpApi } from "./constructs/api";
 import { Identity } from "./constructs/cognito";
 import { Eventing } from "./constructs/eventing";
-import { addUserPoolEnvironment, grantCognitoAdminAccess, Lambdas } from "./constructs/lambdas";
+import { addUserPoolEnvironment, grantCognitoAdminAccess, importLambdaCatalog, Lambdas } from "./constructs/lambdas";
 import { Observability } from "./constructs/observability";
 import { Search } from "./constructs/opensearch";
 import { PeriodicSearchFilterMatching } from "./constructs/periodic-matching";
-import { Queues } from "./constructs/queues";
+import { importQueueCatalog, Queues } from "./constructs/queues";
 import { Storage } from "./constructs/storage";
 import { PartnerShopApplicationWorkflow } from "./constructs/workflow";
 
@@ -26,15 +27,122 @@ export interface ApplicationStackProps extends cdk.StackProps {
   readonly localStackMappedPort?: string;
 }
 
-export class ApplicationStack extends cdk.Stack {
+export interface ApplicationStageProps extends cdk.StackProps {
+  readonly stage: StageName;
+  readonly stackNamePrefix?: string;
+  readonly localStackMappedPort?: string;
+}
+
+export interface ApplicationStageStacks {
+  readonly data: ApplicationDataStack;
+  readonly compute: ApplicationComputeStack;
+  readonly api: ApplicationApiStack;
+  readonly observability?: ApplicationObservabilityStack;
+}
+
+export function createApplicationStacks(scope: Construct, props: ApplicationStageProps): ApplicationStageStacks {
+  const stackNamePrefix = props.stackNamePrefix ?? `application-${props.stage}`;
+  const baseProps = stackBaseProps(props);
+
+  const data = new ApplicationDataStack(scope, `${stackNamePrefix}-data`, {
+    ...baseProps,
+    stage: props.stage,
+    localStackMappedPort: props.localStackMappedPort,
+    stackName: `${stackNamePrefix}-data`,
+  });
+
+  const compute = new ApplicationComputeStack(scope, `${stackNamePrefix}-compute`, {
+    ...baseProps,
+    stage: props.stage,
+    localStackMappedPort: props.localStackMappedPort,
+    stackName: `${stackNamePrefix}-compute`,
+    storage: data.storage,
+    queues: data.queues,
+    search: data.search,
+  });
+  compute.addDependency(data);
+
+  const api = new ApplicationApiStack(scope, `${stackNamePrefix}-api`, {
+    ...baseProps,
+    stage: props.stage,
+    localStackMappedPort: props.localStackMappedPort,
+    stackName: `${stackNamePrefix}-api`,
+    identity: compute.identity,
+  });
+  api.addDependency(compute);
+
+  const observability = props.stage === "prod"
+    ? new ApplicationObservabilityStack(scope, `${stackNamePrefix}-observability`, {
+        ...baseProps,
+        stage: props.stage,
+        localStackMappedPort: props.localStackMappedPort,
+        stackName: `${stackNamePrefix}-observability`,
+        api: api.api,
+      })
+    : undefined;
+  observability?.addDependency(api);
+  observability?.addDependency(data);
+  observability?.addDependency(compute);
+
+  return {
+    data,
+    compute,
+    api,
+    observability,
+  };
+}
+
+export class ApplicationDataStack extends cdk.Stack {
+  readonly storage: Storage;
+  readonly queues: Queues;
+  readonly search: Search;
+
   constructor(scope: Construct, id: string, props: ApplicationStackProps) {
-    super(scope, id, {
-      ...props,
-      synthesizer: new cdk.CliCredentialsStackSynthesizer({
-        fileAssetsBucketName: CLOUDFORMATION_STAGING_BUCKET_NAME,
-        bucketPrefix: `${props.stage}/`,
-      }),
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
     });
+    const stageName = config.stage;
+
+    this.templateOptions.description = "Aura Historia data stack";
+
+    this.storage = new Storage(this, "Storage", {
+      config,
+      stageName,
+    });
+
+    this.queues = new Queues(this, "Queues", {
+      config,
+      stageName,
+    });
+
+    this.search = new Search(this, "Search", {
+      config,
+    });
+
+    dataOutputs(this, {
+      storage: this.storage,
+      queues: this.queues,
+      search: this.search,
+    });
+  }
+}
+
+export interface ApplicationComputeStackProps extends ApplicationStackProps {
+  readonly storage: Storage;
+  readonly queues: Queues;
+  readonly search: Search;
+}
+
+export class ApplicationComputeStack extends cdk.Stack {
+  readonly lambdas: Lambdas;
+  readonly identity: Identity;
+  readonly workflow: PartnerShopApplicationWorkflow;
+  readonly eventing: Eventing;
+
+  constructor(scope: Construct, id: string, props: ApplicationComputeStackProps) {
+    super(scope, id, stackProps(props));
 
     const config = stageConfig(props.stage, {
       localStackMappedPort: props.localStackMappedPort,
@@ -42,129 +150,286 @@ export class ApplicationStack extends cdk.Stack {
     const parameters = applicationParameters(this);
     const stageName = config.stage;
 
-    this.templateOptions.description = "Aura Historia application stack";
+    this.templateOptions.description = "Aura Historia compute stack";
 
     const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
     const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", MAIL_TEMPLATE_BUCKET_NAME);
 
-    const storage = new Storage(this, "Storage", {
-      config,
-      stageName,
-    });
-
-    const queues = new Queues(this, "Queues", {
-      config,
-      stageName,
-    });
-
-    const search = new Search(this, "Search", {
-      config,
-    });
-
-    const lambdas = new Lambdas(this, "Lambdas", {
+    this.lambdas = new Lambdas(this, "Lambdas", {
       config,
       parameters,
       artifactBucket,
       mailTemplateBucket,
-      table: storage.table,
-      queues: queues.catalog,
-      search,
+      table: props.storage.table,
+      queues: props.queues.catalog,
+      search: props.search,
     });
 
     new PeriodicSearchFilterMatching(this, "PeriodicSearchFilterMatching", {
       config,
       commitSha: parameters.commitSha,
-      table: storage.table,
+      table: props.storage.table,
       mailTemplateBucket,
-      search,
+      search: props.search,
     });
 
-    const identity = new Identity(this, "Identity", {
+    this.identity = new Identity(this, "Identity", {
       config,
       stageName,
-      postConfirmationLambda: lambdas.functions.postConfirmation,
+      postConfirmationLambda: this.lambdas.functions.postConfirmation,
     });
-    addUserPoolEnvironment(lambdas.functions, identity.userPool.userPoolId, identity.publicClient.userPoolClientId);
-    grantCognitoAdminAccess(lambdas.functions, identity.userPool.userPoolArn);
-
-    const workflow = new PartnerShopApplicationWorkflow(this, "PartnerShopApplicationWorkflow", {
-      config,
-      stageName,
-      worker: lambdas.functions.partnerShopApplicationWorkflow,
-    });
-    lambdas.functions.partnerShopApplicationApi.addEnvironment(
-      "STATE_MACHINE_ARN",
-      workflow.stateMachine.stateMachineArn,
+    addUserPoolEnvironment(
+      this.lambdas.functions,
+      this.identity.userPool.userPoolId,
+      this.identity.publicClient.userPoolClientId,
     );
-    lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
+    grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
+
+    this.workflow = new PartnerShopApplicationWorkflow(this, "PartnerShopApplicationWorkflow", {
+      config,
+      stageName,
+      worker: this.lambdas.functions.partnerShopApplicationWorkflow,
+    });
+    this.lambdas.functions.partnerShopApplicationApi.addEnvironment(
+      "STATE_MACHINE_ARN",
+      this.workflow.stateMachine.stateMachineArn,
+    );
+    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["states:StartExecution", "states:DescribeExecution"],
-        resources: [workflow.stateMachine.stateMachineArn],
+        resources: [this.workflow.stateMachine.stateMachineArn],
       }),
     );
-    lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
+    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["states:SendTaskSuccess", "states:SendTaskFailure", "states:SendTaskHeartbeat"],
         resources: ["*"],
       }),
     );
 
-    const eventing = new Eventing(this, "Eventing", {
+    this.eventing = new Eventing(this, "Eventing", {
       config,
-      table: storage.table,
-      queues: queues.catalog,
-      functions: lambdas.functions,
+      table: props.storage.table,
+      queues: importQueueCatalog(this, "EventingQueueImports", stageName),
+      functions: this.lambdas.functions,
     });
 
-    const api = new BackendHttpApi(this, "HttpApi", {
-      config,
-      stageName,
-      functions: lambdas.functions,
-      identity,
-    });
-
-    const observability = new Observability(this, "Observability", {
-      config,
-      stageName,
-      api: api.api,
-      table: storage.table,
-      functions: lambdas.functions,
-    });
-
-    outputs(this, {
-      api,
-      identity,
-      search,
-      storage,
-      queues,
-      eventing,
-      observability,
+    computeOutputs(this, {
+      identity: this.identity,
+      eventing: this.eventing,
     });
   }
 }
 
-function outputs(
+export interface ApplicationApiStackProps extends ApplicationStackProps {
+  readonly identity: Identity;
+}
+
+export class ApplicationApiStack extends cdk.Stack {
+  readonly api: BackendHttpApi;
+
+  constructor(scope: Construct, id: string, props: ApplicationApiStackProps) {
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
+    });
+    const stageName = config.stage;
+
+    this.templateOptions.description = "Aura Historia API stack";
+
+    this.api = new BackendHttpApi(this, "HttpApi", {
+      config,
+      stageName,
+      functions: importLambdaCatalog(this, "LambdaImports", config),
+      identity: props.identity,
+    });
+
+    new cdk.CfnOutput(this, "ApiGatewayEndpointUrl", { value: this.api.endpointUrl });
+    if (this.api.distribution) {
+      new cdk.CfnOutput(this, "ApiCloudFrontDistributionDomainName", {
+        value: this.api.distribution.attrDomainName,
+      });
+    }
+  }
+}
+
+export class ApplicationEphemeralStack extends cdk.Stack {
+  readonly storage: Storage;
+  readonly queues: Queues;
+  readonly search: Search;
+  readonly lambdas: Lambdas;
+  readonly identity: Identity;
+  readonly workflow: PartnerShopApplicationWorkflow;
+  readonly eventing: Eventing;
+  readonly api: BackendHttpApi;
+
+  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
+    });
+    if (!config.isEphemeral) {
+      throw new Error("ApplicationEphemeralStack only supports the ephemeral stage.");
+    }
+
+    const parameters = applicationParameters(this);
+    const stageName = config.stage;
+
+    this.templateOptions.description = "Aura Historia ephemeral acceptance-test stack";
+
+    this.storage = new Storage(this, "Storage", {
+      config,
+      stageName,
+    });
+    this.queues = new Queues(this, "Queues", {
+      config,
+      stageName,
+    });
+    this.search = new Search(this, "Search", {
+      config,
+    });
+
+    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
+    const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", MAIL_TEMPLATE_BUCKET_NAME);
+
+    this.lambdas = new Lambdas(this, "Lambdas", {
+      config,
+      parameters,
+      artifactBucket,
+      mailTemplateBucket,
+      table: this.storage.table,
+      queues: this.queues.catalog,
+      search: this.search,
+    });
+
+    new PeriodicSearchFilterMatching(this, "PeriodicSearchFilterMatching", {
+      config,
+      commitSha: parameters.commitSha,
+      table: this.storage.table,
+      mailTemplateBucket,
+      search: this.search,
+    });
+
+    this.identity = new Identity(this, "Identity", {
+      config,
+      stageName,
+      postConfirmationLambda: this.lambdas.functions.postConfirmation,
+    });
+    addUserPoolEnvironment(
+      this.lambdas.functions,
+      this.identity.userPool.userPoolId,
+      this.identity.publicClient.userPoolClientId,
+    );
+    grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
+
+    this.workflow = new PartnerShopApplicationWorkflow(this, "PartnerShopApplicationWorkflow", {
+      config,
+      stageName,
+      worker: this.lambdas.functions.partnerShopApplicationWorkflow,
+    });
+    this.lambdas.functions.partnerShopApplicationApi.addEnvironment(
+      "STATE_MACHINE_ARN",
+      this.workflow.stateMachine.stateMachineArn,
+    );
+    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["states:StartExecution", "states:DescribeExecution"],
+        resources: [this.workflow.stateMachine.stateMachineArn],
+      }),
+    );
+    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["states:SendTaskSuccess", "states:SendTaskFailure", "states:SendTaskHeartbeat"],
+        resources: ["*"],
+      }),
+    );
+
+    this.eventing = new Eventing(this, "Eventing", {
+      config,
+      table: this.storage.table,
+      queues: this.queues.catalog,
+      functions: this.lambdas.functions,
+    });
+
+    this.api = new BackendHttpApi(this, "HttpApi", {
+      config,
+      stageName,
+      functions: this.lambdas.functions,
+      identity: this.identity,
+    });
+
+    dataOutputs(this, {
+      storage: this.storage,
+      queues: this.queues,
+      search: this.search,
+    });
+    computeOutputs(this, {
+      identity: this.identity,
+      eventing: this.eventing,
+    });
+    new cdk.CfnOutput(this, "ApiGatewayEndpointUrl", { value: this.api.endpointUrl });
+  }
+}
+
+export interface ApplicationObservabilityStackProps extends ApplicationStackProps {
+  readonly api: BackendHttpApi;
+}
+
+export class ApplicationObservabilityStack extends cdk.Stack {
+  readonly observability: Observability;
+
+  constructor(scope: Construct, id: string, props: ApplicationObservabilityStackProps) {
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
+    });
+    const stageName = config.stage;
+
+    this.templateOptions.description = "Aura Historia observability stack";
+
+    this.observability = new Observability(this, "Observability", {
+      config,
+      stageName,
+      api: props.api.api,
+      table: dynamodb.Table.fromTableName(this, "TableOneImport", `table_1-${stageName}`),
+      functions: importLambdaCatalog(this, "LambdaAlarmImports", config),
+    });
+
+    if (this.observability.alarmTopic) {
+      new cdk.CfnOutput(this, "AlarmNotificationTopicArn", {
+        description: "SNS Topic ARN for CloudWatch alarm notifications",
+        value: this.observability.alarmTopic.topicArn,
+      });
+    }
+  }
+}
+
+function stackBaseProps(props: ApplicationStageProps): cdk.StackProps {
+  const { localStackMappedPort: _localStackMappedPort, stackNamePrefix: _stackNamePrefix, stage: _stage, ...stackProps } = props;
+  return stackProps;
+}
+
+function stackProps(props: ApplicationStackProps): cdk.StackProps {
+  return {
+    ...stackBaseProps(props),
+    synthesizer: new cdk.CliCredentialsStackSynthesizer({
+      fileAssetsBucketName: CLOUDFORMATION_STAGING_BUCKET_NAME,
+      bucketPrefix: `${props.stage}/`,
+    }),
+  };
+}
+
+function dataOutputs(
   stack: cdk.Stack,
   resources: {
-    readonly api: BackendHttpApi;
-    readonly identity: Identity;
     readonly search: Search;
     readonly storage: Storage;
     readonly queues: Queues;
-    readonly eventing: Eventing;
-    readonly observability: Observability;
   },
 ): void {
-  new cdk.CfnOutput(stack, "CognitoHostedUIDomain", {
-    value: cdk.Fn.sub("https://${Domain}.auth.${AWS::Region}.amazoncognito.com", {
-      Domain: resources.identity.domain.domainName,
-    }),
-  });
-  new cdk.CfnOutput(stack, "CognitoUserPoolId", { value: resources.identity.userPool.userPoolId });
-  new cdk.CfnOutput(stack, "CognitoUserPoolClientPublicId", {
-    value: resources.identity.publicClient.userPoolClientId,
-  });
-  new cdk.CfnOutput(stack, "ApiGatewayEndpointUrl", { value: resources.api.endpointUrl });
   new cdk.CfnOutput(stack, "DynamodbTable1Name", { value: resources.storage.table.tableName });
   new cdk.CfnOutput(stack, "OpensearchDomainName", { value: resources.search.domainName });
   new cdk.CfnOutput(stack, "OutputOpensearchEndpointUrl", {
@@ -232,6 +497,24 @@ function outputs(
   new cdk.CfnOutput(stack, "UserOpensearchIndexDeadLetterQueueUrl", {
     value: resources.queues.catalog.userOpenSearchIndex.deadLetterQueue.queueUrl,
   });
+}
+
+function computeOutputs(
+  stack: cdk.Stack,
+  resources: {
+    readonly identity: Identity;
+    readonly eventing: Eventing;
+  },
+): void {
+  new cdk.CfnOutput(stack, "CognitoHostedUIDomain", {
+    value: cdk.Fn.sub("https://${Domain}.auth.${AWS::Region}.amazoncognito.com", {
+      Domain: resources.identity.domain.domainName,
+    }),
+  });
+  new cdk.CfnOutput(stack, "CognitoUserPoolId", { value: resources.identity.userPool.userPoolId });
+  new cdk.CfnOutput(stack, "CognitoUserPoolClientPublicId", {
+    value: resources.identity.publicClient.userPoolClientId,
+  });
 
   new cdk.CfnOutput(stack, "OutputStripeEventBusName", {
     key: "StripeEventBusName",
@@ -241,11 +524,4 @@ function outputs(
     key: "ShopifyEventBusName",
     value: resources.eventing.shopifyEventBus.eventBusName,
   });
-
-  if (resources.observability.alarmTopic) {
-    new cdk.CfnOutput(stack, "AlarmNotificationTopicArn", {
-      description: "SNS Topic ARN for CloudWatch alarm notifications",
-      value: resources.observability.alarmTopic.topicArn,
-    });
-  }
 }

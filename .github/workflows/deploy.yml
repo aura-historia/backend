@@ -38,10 +38,7 @@ env:
   STAGE_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.stage
     || github.ref == 'refs/heads/prod' && 'prod'
     || github.ref == 'refs/heads/develop' && 'dev' }}
-  STACK_NAME:
-    application-${{ github.event_name == 'workflow_dispatch' && inputs.stage
-    || github.ref == 'refs/heads/prod' && 'prod'
-    || github.ref == 'refs/heads/develop' && 'dev' }}
+  STACK_NAME_PREFIX: application-${{ github.event_name == 'workflow_dispatch' && inputs.stage || github.ref == 'refs/heads/prod' && 'prod' || 'dev' }}
   DEPLOY_COMMIT_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.sha }}
 
 jobs:
@@ -280,7 +277,7 @@ jobs:
             --tagging "stage=${{ env.STAGE }}"
 
   aws-cdk-deploy:
-    name: Deploy CDK stack
+    name: Deploy CDK stacks
     if: >-
       ${{
         always()
@@ -321,18 +318,29 @@ jobs:
           role-to-assume: ${{ secrets.CI_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Deploy CDK stack via CloudFormation change set
+      - name: Deploy CDK stacks via CloudFormation change sets
+        shell: bash
         run: |
-          npm --prefix infra run cdk -- deploy ${{ env.STACK_NAME }} \
-            --context stage=${{ env.STAGE }} \
-            --context stackName=${{ env.STACK_NAME }} \
+          set -euo pipefail
+          stacks=(
+            "${STACK_NAME_PREFIX}-data"
+            "${STACK_NAME_PREFIX}-compute"
+            "${STACK_NAME_PREFIX}-api"
+          )
+          if [ "${STAGE}" = "prod" ]; then
+            stacks+=("${STACK_NAME_PREFIX}-observability")
+          fi
+
+          npm --prefix infra run cdk -- deploy "${stacks[@]}" \
+            --context stage="${STAGE}" \
+            --context stackNamePrefix="${STACK_NAME_PREFIX}" \
             --require-approval never \
             --method change-set \
             --no-path-metadata \
             --no-asset-metadata \
             --no-version-reporting \
             --no-notices \
-            --parameters CommitSHA=${{ env.DEPLOY_COMMIT_SHA }}
+            --parameters "${STACK_NAME_PREFIX}-compute:CommitSHA=${DEPLOY_COMMIT_SHA}"
 
   aws-smoking-test:
     name: AWS Smoking-Test
@@ -357,11 +365,20 @@ jobs:
         run: |
           set -euo pipefail
           JSON=$(
-            aws cloudformation describe-stacks \
-              --stack-name ${{ env.STACK_NAME }} \
-              --query 'Stacks[0].Outputs' \
-              --output json \
-            | jq -c 'map({(.OutputKey): .OutputValue}) | add'
+            {
+              aws cloudformation describe-stacks \
+                --stack-name "${STACK_NAME_PREFIX}-data" \
+                --query 'Stacks[0].Outputs' \
+                --output json
+              aws cloudformation describe-stacks \
+                --stack-name "${STACK_NAME_PREFIX}-compute" \
+                --query 'Stacks[0].Outputs' \
+                --output json
+              aws cloudformation describe-stacks \
+                --stack-name "${STACK_NAME_PREFIX}-api" \
+                --query 'Stacks[0].Outputs' \
+                --output json
+            } | jq -cs 'add | map({(.OutputKey): .OutputValue}) | add'
           )
           echo "outputs_json=$JSON" >> "$GITHUB_OUTPUT"
 

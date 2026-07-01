@@ -4,7 +4,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import type { StageConfig } from "../config";
+import type { StageConfig, StageName } from "../config";
 import { ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 import type { Search } from "./opensearch";
@@ -394,7 +394,9 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
 } as const);
 
 export type LambdaKey = keyof typeof LAMBDA_DEFINITIONS;
-export type LambdaCatalog = Partial<Record<LambdaKey, lambda.Function>> &
+export type LambdaCatalog = Partial<Record<LambdaKey, lambda.IFunction>> &
+  Record<Exclude<LambdaKey, "fxRateSync">, lambda.IFunction>;
+export type LambdaFunctions = Partial<Record<LambdaKey, lambda.Function>> &
   Record<Exclude<LambdaKey, "fxRateSync">, lambda.Function>;
 
 export interface LambdasProps {
@@ -408,7 +410,7 @@ export interface LambdasProps {
 }
 
 export class Lambdas extends Construct {
-  readonly functions: LambdaCatalog;
+  readonly functions: LambdaFunctions;
 
   constructor(scope: Construct, id: string, props: LambdasProps) {
     super(scope, id);
@@ -444,7 +446,7 @@ export class Lambdas extends Construct {
       });
     }
 
-    this.functions = functions as LambdaCatalog;
+    this.functions = functions as LambdaFunctions;
     grantRuntimeAccess(props, this.functions);
   }
 }
@@ -481,7 +483,7 @@ function openSearchWorkerEnvironment(context: LambdaEnvironmentContext): Record<
   );
 }
 
-function grantRuntimeAccess(props: LambdasProps, functions: LambdaCatalog): void {
+function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
   for (const [key, fn] of Object.entries(functions) as [LambdaKey, lambda.Function | undefined][]) {
     if (!fn || key === "cloudWatchLogRetention") {
       continue;
@@ -536,7 +538,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaCatalog): void
   );
 }
 
-export function addUserPoolEnvironment(functions: LambdaCatalog, userPoolId: string, publicClientId: string): void {
+export function addUserPoolEnvironment(functions: LambdaFunctions, userPoolId: string, publicClientId: string): void {
   const userPoolEnvUsers = [
     functions.newsletterApi,
     functions.productApi,
@@ -553,7 +555,7 @@ export function addUserPoolEnvironment(functions: LambdaCatalog, userPoolId: str
   functions.userApi.addEnvironment("COGNITO_USER_POOL_ID", userPoolId);
 }
 
-export function grantCognitoAdminAccess(functions: LambdaCatalog, userPoolArn: string): void {
+export function grantCognitoAdminAccess(functions: LambdaFunctions, userPoolArn: string): void {
   const cognitoUsers = [
     functions.newsletterApi,
     functions.oauthApi,
@@ -572,6 +574,29 @@ export function grantCognitoAdminAccess(functions: LambdaCatalog, userPoolArn: s
       }),
     );
   }
+}
+
+export function importLambdaCatalog(scope: Construct, id: string, config: StageConfig): LambdaCatalog {
+  const catalog = {} as Partial<Record<LambdaKey, lambda.IFunction>>;
+  const importScope = new Construct(scope, id);
+
+  for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
+    if (config.isEphemeral && definition.skipEphemeral) {
+      continue;
+    }
+
+    catalog[key] = lambda.Function.fromFunctionName(
+      importScope,
+      `${definition.id}Import`,
+      lambdaFunctionName(key, config.stage),
+    );
+  }
+
+  return catalog as LambdaCatalog;
+}
+
+export function lambdaFunctionName(key: LambdaKey, stage: StageName): string {
+  return `${LAMBDA_DEFINITIONS[key].binaryName}-${stage}`;
 }
 
 function withOpenSearchCredentials(config: StageConfig, env: Record<string, string>): Record<string, string> {

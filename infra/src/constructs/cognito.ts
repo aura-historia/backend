@@ -40,10 +40,31 @@ export class Identity extends Construct {
         emailSubject: "Verify your email",
         emailBody: verificationEmailBody(),
       },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       removalPolicy: props.config.removalPolicy,
     });
 
+    this.configureUserPool(props);
+
     this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, props.postConfirmationLambda);
+
+    const facebookProvider = props.config.cognitoFacebookIdentityProvider
+      ? new cognito.CfnUserPoolIdentityProvider(this, "FacebookIdentityProvider", {
+          userPoolId: this.userPool.userPoolId,
+          providerName: "Facebook",
+          providerType: "Facebook",
+          providerDetails: {
+            api_version: "v20.0",
+            authorize_scopes: "email",
+            client_id: props.config.cognitoFacebookIdentityProvider.clientId,
+            client_secret: props.config.cognitoFacebookIdentityProvider.clientSecret,
+          },
+          attributeMapping: {
+            email: "email",
+            username: "id",
+          },
+        })
+      : undefined;
 
     this.publicClient = this.userPool.addClient("PrimaryUserPoolClientPublic", {
       userPoolClientName: `primary-userpool-client-public-${props.stageName}`,
@@ -53,7 +74,9 @@ export class Identity extends Construct {
       accessTokenValidity: cdk.Duration.hours(1),
       idTokenValidity: cdk.Duration.hours(1),
       refreshTokenValidity: cdk.Duration.days(30),
-      supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+      supportedIdentityProviders: props.config.cognitoFacebookIdentityProvider
+        ? [cognito.UserPoolClientIdentityProvider.COGNITO, cognito.UserPoolClientIdentityProvider.FACEBOOK]
+        : [cognito.UserPoolClientIdentityProvider.COGNITO],
       authFlows: {
         userPassword: true,
         userSrp: true,
@@ -69,12 +92,38 @@ export class Identity extends Construct {
         emailVerified: true,
       }),
     });
+    if (facebookProvider) {
+      this.publicClient.node.addDependency(facebookProvider);
+    }
 
     this.domain = this.userPool.addDomain("PrimaryUserPoolDomain", {
       cognitoDomain: {
         domainPrefix: `primary-userpool-${props.stageName}`,
       },
     });
+  }
+
+  private configureUserPool(props: IdentityProps): void {
+    const cfnUserPool = this.userPool.node.defaultChild as cognito.CfnUserPool;
+
+    if (props.config.cognitoEmail) {
+      cfnUserPool.addPropertyOverride("EmailConfiguration", {
+        ConfigurationSet: props.config.cognitoEmail.configurationSet,
+        EmailSendingAccount: "DEVELOPER",
+        From: props.config.cognitoEmail.from,
+        ReplyToEmailAddress: props.config.cognitoEmail.replyTo,
+        SourceArn: cdk.Fn.sub("arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${IdentityDomain}", {
+          IdentityDomain: props.config.cognitoEmail.identityDomain,
+        }),
+      });
+    }
+
+    if (!props.config.isEphemeral) {
+      cfnUserPool.addPropertyOverride("UserPoolAddOns", {
+        AdvancedSecurityMode: "ENFORCED",
+      });
+      cfnUserPool.addPropertyOverride("UserPoolTier", "PLUS");
+    }
   }
 }
 
