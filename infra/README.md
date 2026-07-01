@@ -74,8 +74,9 @@ The Lambda artifact and mail-template buckets are fixed in `src/config.ts`:
 - `aura-historia-binary-artifacts-eu-central-1`
 - `aura-historia-mail-templates-eu-central-1`
 
-LocalStack acceptance tests pass the host-mapped edge port as CDK context
-(`localStackMappedPort`) at synth time, not as a CloudFormation parameter.
+LocalStack acceptance tests synthesize one ephemeral stack with CDK context
+`singleStack=true` and pass the host-mapped edge port as `localStackMappedPort`.
+These values are synth-time context, not CloudFormation parameters.
 
 ## Stage-specific SSM parameters
 

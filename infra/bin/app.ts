@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { createApplicationStacks } from "../src/application-stack";
+import { ApplicationEphemeralStack, createApplicationStacks } from "../src/application-stack";
 import { isStageName } from "../src/config";
 
 const app = new cdk.App({
@@ -15,9 +15,22 @@ if (!isStageName(stageContext)) {
 const defaultStackNamePrefix = `application-${stageContext}`;
 const stackNamePrefix = app.node.tryGetContext("stackNamePrefix") ?? process.env.STACK_NAME_PREFIX ?? app.node.tryGetContext("stackName") ?? process.env.STACK_NAME ?? defaultStackNamePrefix;
 const localStackMappedPort = app.node.tryGetContext("localStackMappedPort") ?? process.env.LOCALSTACK_MAPPED_PORT;
+const singleStack = app.node.tryGetContext("singleStack") === "true" || process.env.SINGLE_STACK === "true";
 
-createApplicationStacks(app, {
-  stage: stageContext,
-  stackNamePrefix,
-  localStackMappedPort,
-});
+if (singleStack) {
+  if (stageContext !== "ephemeral") {
+    throw new Error("singleStack mode is only supported for the ephemeral stage.");
+  }
+
+  new ApplicationEphemeralStack(app, stackNamePrefix, {
+    stage: stageContext,
+    stackName: stackNamePrefix,
+    localStackMappedPort,
+  });
+} else {
+  createApplicationStacks(app, {
+    stage: stageContext,
+    stackNamePrefix,
+    localStackMappedPort,
+  });
+}

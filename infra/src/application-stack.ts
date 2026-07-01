@@ -254,6 +254,125 @@ export class ApplicationApiStack extends cdk.Stack {
   }
 }
 
+export class ApplicationEphemeralStack extends cdk.Stack {
+  readonly storage: Storage;
+  readonly queues: Queues;
+  readonly search: Search;
+  readonly lambdas: Lambdas;
+  readonly identity: Identity;
+  readonly workflow: PartnerShopApplicationWorkflow;
+  readonly eventing: Eventing;
+  readonly api: BackendHttpApi;
+
+  constructor(scope: Construct, id: string, props: ApplicationStackProps) {
+    super(scope, id, stackProps(props));
+
+    const config = stageConfig(props.stage, {
+      localStackMappedPort: props.localStackMappedPort,
+    });
+    if (!config.isEphemeral) {
+      throw new Error("ApplicationEphemeralStack only supports the ephemeral stage.");
+    }
+
+    const parameters = applicationParameters(this);
+    const stageName = config.stage;
+
+    this.templateOptions.description = "Aura Historia ephemeral acceptance-test stack";
+
+    this.storage = new Storage(this, "Storage", {
+      config,
+      stageName,
+    });
+    this.queues = new Queues(this, "Queues", {
+      config,
+      stageName,
+    });
+    this.search = new Search(this, "Search", {
+      config,
+    });
+
+    const artifactBucket = s3.Bucket.fromBucketName(this, "ArtifactBucketImport", ARTIFACT_BUCKET_NAME);
+    const mailTemplateBucket = s3.Bucket.fromBucketName(this, "MailTemplateBucketImport", MAIL_TEMPLATE_BUCKET_NAME);
+
+    this.lambdas = new Lambdas(this, "Lambdas", {
+      config,
+      parameters,
+      artifactBucket,
+      mailTemplateBucket,
+      table: this.storage.table,
+      queues: this.queues.catalog,
+      search: this.search,
+    });
+
+    new PeriodicSearchFilterMatching(this, "PeriodicSearchFilterMatching", {
+      config,
+      commitSha: parameters.commitSha,
+      table: this.storage.table,
+      mailTemplateBucket,
+      search: this.search,
+    });
+
+    this.identity = new Identity(this, "Identity", {
+      config,
+      stageName,
+      postConfirmationLambda: this.lambdas.functions.postConfirmation,
+    });
+    addUserPoolEnvironment(
+      this.lambdas.functions,
+      this.identity.userPool.userPoolId,
+      this.identity.publicClient.userPoolClientId,
+    );
+    grantCognitoAdminAccess(this.lambdas.functions, this.identity.userPool.userPoolArn);
+
+    this.workflow = new PartnerShopApplicationWorkflow(this, "PartnerShopApplicationWorkflow", {
+      config,
+      stageName,
+      worker: this.lambdas.functions.partnerShopApplicationWorkflow,
+    });
+    this.lambdas.functions.partnerShopApplicationApi.addEnvironment(
+      "STATE_MACHINE_ARN",
+      this.workflow.stateMachine.stateMachineArn,
+    );
+    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["states:StartExecution", "states:DescribeExecution"],
+        resources: [this.workflow.stateMachine.stateMachineArn],
+      }),
+    );
+    this.lambdas.functions.partnerShopApplicationApi.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["states:SendTaskSuccess", "states:SendTaskFailure", "states:SendTaskHeartbeat"],
+        resources: ["*"],
+      }),
+    );
+
+    this.eventing = new Eventing(this, "Eventing", {
+      config,
+      table: this.storage.table,
+      queues: this.queues.catalog,
+      functions: this.lambdas.functions,
+    });
+
+    this.api = new BackendHttpApi(this, "HttpApi", {
+      config,
+      stageName,
+      functions: this.lambdas.functions,
+      identity: this.identity,
+    });
+
+    dataOutputs(this, {
+      storage: this.storage,
+      queues: this.queues,
+      search: this.search,
+    });
+    computeOutputs(this, {
+      identity: this.identity,
+      eventing: this.eventing,
+    });
+    new cdk.CfnOutput(this, "ApiGatewayEndpointUrl", { value: this.api.endpointUrl });
+  }
+}
+
 export interface ApplicationObservabilityStackProps extends ApplicationStackProps {
   readonly api: BackendHttpApi;
 }

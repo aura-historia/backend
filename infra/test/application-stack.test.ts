@@ -1,6 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { createApplicationStacks, type ApplicationStageStacks } from "../src/application-stack";
+import { ApplicationEphemeralStack, createApplicationStacks, type ApplicationStageStacks } from "../src/application-stack";
 import { ARTIFACT_BUCKET_NAME, STAGES, type StageName } from "../src/config";
 
 type TemplateJson = ReturnType<Template["toJSON"]>;
@@ -34,6 +34,13 @@ function synthesize(stage: StageName): StageTemplates {
     api: Template.fromStack(stacks.api),
     observability: stacks.observability ? Template.fromStack(stacks.observability) : undefined,
   };
+}
+
+function synthesizeSingleEphemeralStack(): Template {
+  const app = new cdk.App({
+    analyticsReporting: false,
+  });
+  return Template.fromStack(new ApplicationEphemeralStack(app, "application-ephemeral", { stage: "ephemeral" }));
 }
 
 function templateList(templates: StageTemplates): Template[] {
@@ -117,6 +124,20 @@ function lambdaMetricAlarmFunctionNames(json: TemplateJson, metricName: string):
 }
 
 describe("Application stacks", () => {
+  test("synthesizes the single ephemeral acceptance-test stack", () => {
+    const template = synthesizeSingleEphemeralStack();
+    const json = template.toJSON();
+
+    expect(resourcesOfType(json, "AWS::DynamoDB::Table")).toHaveLength(1);
+    expect(resourcesOfType(json, "AWS::Cognito::UserPool")).toHaveLength(1);
+    expect(resourcesOfType(json, "AWS::ApiGatewayV2::Api")).toHaveLength(1);
+    expect(resourcesOfType(json, "AWS::ApiGatewayV2::Route")).toHaveLength(71);
+    expect(resourcesOfType(json, "AWS::CloudFront::Distribution")).toHaveLength(0);
+    expect(Object.keys(json.Parameters ?? {})).toEqual(["CommitSHA"]);
+    expect(json.Outputs?.ApiGatewayEndpointUrl).toBeDefined();
+    expect(JSON.stringify(json)).not.toContain("Fn::ImportValue");
+  });
+
   test.each(STAGES)("synthesizes the %s stack contract", (stage) => {
     const templates = synthesize(stage);
 

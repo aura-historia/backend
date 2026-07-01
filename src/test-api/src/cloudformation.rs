@@ -379,6 +379,8 @@ fn synthesize_ephemeral_template() -> String {
             "--context",
             "stage=ephemeral",
             "--context",
+            "singleStack=true",
+            "--context",
         ])
         .arg(format!(
             "localStackMappedPort={local_stack_mapped_port}"
