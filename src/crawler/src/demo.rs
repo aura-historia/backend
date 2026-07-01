@@ -155,13 +155,7 @@ fn demo_shops() -> Vec<RegisteredShop> {
             "www.antiquesboutique.com",
             ShopType::Marketplace,
         ),
-        (
-            8,
-            "BADA",
-            "bada",
-            "www.bada.org",
-            ShopType::Marketplace,
-        ),
+        (8, "BADA", "bada", "www.bada.org", ShopType::Marketplace),
         (
             9,
             "Antik und Stil",
