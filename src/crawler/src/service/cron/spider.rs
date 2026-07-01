@@ -289,7 +289,7 @@ impl CrawlerCronJob {
                 let excluded: Vec<uuid::Uuid> = excluded_domain_ids.iter().copied().collect();
                 let candidates = match self
                     .spider_candidates
-                    .get_candidates_excluding(limit, &excluded)
+                    .get_candidates(limit, &excluded)
                     .await
                 {
                     Ok(candidates) => candidates,
@@ -513,7 +513,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
@@ -538,7 +538,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
@@ -565,7 +565,7 @@ mod tests {
 
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, excluded| {
                 let excluded = excluded.to_vec();
                 Box::pin(async move {
@@ -630,7 +630,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
         let scraper_service = MockScraperService::new();
 
@@ -659,7 +659,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
@@ -687,7 +687,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
@@ -711,7 +711,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
@@ -738,7 +738,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
@@ -762,7 +762,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
@@ -786,7 +786,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
@@ -810,7 +810,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
@@ -841,7 +841,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
@@ -865,7 +865,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move {
                     let mut candidate = spider_candidate(expected_domain_id);
@@ -894,7 +894,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
@@ -918,7 +918,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move {
                     let mut candidate = spider_candidate(expected_domain_id);
@@ -955,7 +955,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
@@ -981,7 +981,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
             });
@@ -1017,7 +1017,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
@@ -1060,7 +1060,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let expected_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move {
                     let mut candidate = spider_candidate(expected_domain_id);
@@ -1099,7 +1099,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
@@ -1123,7 +1123,7 @@ mod tests {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let locked_domain_id = uuid::Uuid::new_v4();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move { Ok(vec![spider_candidate(locked_domain_id)]) })
             });
@@ -1133,7 +1133,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();

@@ -13,8 +13,7 @@ pub struct SpiderCandidate {
 #[async_trait]
 #[mockall::automock]
 pub trait SpiderCandidateService: Send + Sync {
-    async fn get_candidates(&self, limit: i64) -> Result<Vec<SpiderCandidate>, sqlx::Error>;
-    async fn get_candidates_excluding(
+    async fn get_candidates(
         &self,
         limit: i64,
         excluded_domain_ids: &[uuid::Uuid],
@@ -50,11 +49,7 @@ struct SpiderCandidateRow {
 
 #[async_trait]
 impl SpiderCandidateService for SpiderCandidateServiceImpl {
-    async fn get_candidates(&self, limit: i64) -> Result<Vec<SpiderCandidate>, sqlx::Error> {
-        self.get_candidates_excluding(limit, &[]).await
-    }
-
-    async fn get_candidates_excluding(
+    async fn get_candidates(
         &self,
         limit: i64,
         excluded_domain_ids: &[uuid::Uuid],

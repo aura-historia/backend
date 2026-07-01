@@ -81,7 +81,7 @@ async fn spider_should_return_empty_when_no_eligible_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         candidates.is_empty(),
@@ -104,7 +104,7 @@ async fn spider_should_return_candidate_with_correct_domain_id_when_never_crawle
     let domain_id =
         insert_shop_with_domain(&pool, shop_id_uuid, "spider-never-crawled.example.com").await;
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert_eq!(candidates.len(), 1);
     assert_eq!(
@@ -136,7 +136,7 @@ async fn spider_should_not_return_candidate_when_recently_crawled() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.domain_id == domain_id),
@@ -165,7 +165,7 @@ async fn spider_should_return_candidate_when_crawled_more_than_7_days_ago() {
     .await
     .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         candidates.iter().any(|c| c.domain_id == domain_id),
@@ -193,7 +193,7 @@ async fn spider_should_not_return_candidate_when_shop_is_inactive() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.domain_id == domain_id),
@@ -221,7 +221,7 @@ async fn spider_should_respect_limit_when_multiple_candidates_exist() {
         .await;
     }
 
-    let candidates = service.get_candidates(2).await.unwrap();
+    let candidates = service.get_candidates(2, &[]).await.unwrap();
 
     assert_eq!(
         candidates.len(),
@@ -258,7 +258,7 @@ async fn spider_should_return_each_domain_separately_for_shop_with_multiple_doma
     let domain_id_b =
         insert_domain_for_shop(&pool, shop_id_uuid, "spider-multi-b.example.com").await;
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     let ids: Vec<uuid::Uuid> = candidates.iter().map(|c| c.domain_id).collect();
     assert!(ids.contains(&domain_id_a), "domain_id_a should be present");
@@ -278,7 +278,7 @@ async fn spider_should_return_correct_shop_id_on_candidate() {
     let shop_id_uuid = uuid::Uuid::new_v4();
     let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "spider-shopid.example.com").await;
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     let candidate = candidates
         .iter()
@@ -317,7 +317,7 @@ async fn spider_should_return_crawl_failure_metadata_on_candidate() {
     .await
     .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
     let candidate = candidates
         .iter()
         .find(|c| c.domain_id == domain_id)
@@ -395,7 +395,7 @@ async fn spider_should_order_never_crawled_before_stale_crawled() {
     .await
     .unwrap();
 
-    let candidates = service.get_candidates(100).await.unwrap();
+    let candidates = service.get_candidates(100, &[]).await.unwrap();
 
     let pos_never = candidates
         .iter()
@@ -441,7 +441,7 @@ async fn scraper_should_return_empty_when_no_eligible_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         candidates.is_empty(),
@@ -469,7 +469,7 @@ async fn scraper_should_return_candidate_when_product_url_never_scraped() {
     )
     .await;
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         candidates
@@ -504,7 +504,7 @@ async fn scraper_should_not_return_candidate_when_recently_scraped() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.url.as_str() == url),
@@ -538,7 +538,7 @@ async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
     .await
     .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         candidates.iter().any(|c| c.url.as_str() == url),
@@ -567,7 +567,7 @@ async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.url == url),
@@ -597,7 +597,7 @@ async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.url.as_str() == url),
@@ -638,7 +638,7 @@ async fn scraper_should_not_return_candidate_when_state_is_excluded() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.url == url_sold),
@@ -695,7 +695,7 @@ async fn scraper_should_return_candidate_for_all_included_states() {
         repo.set_state(&shop_id, &url, state).await.unwrap();
     }
 
-    let candidates = service.get_candidates(10).await.unwrap();
+    let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     for (_, url_str) in &states {
         assert!(
@@ -728,7 +728,7 @@ async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
         .await;
     }
 
-    let candidates = service.get_candidates(3).await.unwrap();
+    let candidates = service.get_candidates(3, &[]).await.unwrap();
 
     assert_eq!(
         candidates.len(),
@@ -766,7 +766,7 @@ async fn scraper_should_order_never_scraped_before_stale() {
     .await
     .unwrap();
 
-    let candidates = service.get_candidates(100).await.unwrap();
+    let candidates = service.get_candidates(100, &[]).await.unwrap();
 
     let pos_never = candidates
         .iter()
@@ -842,7 +842,7 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
     insert_product_url(&pool, shop_id_uuid, domain_id, url_str).await;
 
     // Confirm it is returned before marking
-    let before = service.get_candidates(10).await.unwrap();
+    let before = service.get_candidates(10, &[]).await.unwrap();
     assert!(
         before.iter().any(|c| c.url.as_str() == url_str),
         "URL should appear before mark_as_scraped"
@@ -856,7 +856,7 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
         .unwrap();
 
     // After marking with NOW() timestamp it should no longer appear
-    let after = service.get_candidates(10).await.unwrap();
+    let after = service.get_candidates(10, &[]).await.unwrap();
     assert!(
         !after.iter().any(|c| c.url.as_str() == url_str),
         "URL should not appear after mark_as_scraped"

@@ -458,7 +458,7 @@ impl CrawlerCronJob {
                 let excluded: Vec<String> = excluded_urls.iter().cloned().collect();
                 let candidates = match self
                     .scraper_candidates
-                    .get_candidates_excluding(self.config.scraper_batch_size.max(1), &excluded)
+                    .get_candidates(self.config.scraper_batch_size.max(1), &excluded)
                     .await
                 {
                     Ok(candidates) => candidates,
@@ -483,7 +483,7 @@ impl CrawlerCronJob {
                 }
 
                 if !started {
-                    info!(
+                    debug!(
                         concurrency = scraper_concurrency,
                         "Scraper scheduler pass starting"
                     );
@@ -550,7 +550,7 @@ impl CrawlerCronJob {
             {
                 Ok(usages) => {
                     for usage in usages {
-                        info!(
+                        debug!(
                             shop_name = %usage.shop_name,
                             llm_calls_count = usage.llm_calls_count,
                             llm_calls_cap = self.config.scraper_max_llm_calls_per_shop,
@@ -588,7 +588,7 @@ mod tests {
     fn empty_spider_dependencies() -> (MockSpiderCandidateService, MockSpiderService) {
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         (spider_candidates, MockSpiderService::new())
@@ -639,7 +639,7 @@ mod tests {
     async fn should_run_scraper_candidates_and_push_products() {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| {
                 Box::pin(async {
                     Ok(vec![scraper_candidate(
@@ -668,7 +668,7 @@ mod tests {
     async fn should_mark_fetch_failure_for_retryable_scraper_http_error() {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| {
                 Box::pin(async {
                     Ok(vec![scraper_candidate(
@@ -795,7 +795,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 let first_candidate_url = first_candidate_url.clone();
                 let second_candidate_url = second_candidate_url.clone();
@@ -859,7 +859,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 let first_candidate_url = first_candidate_url.clone();
                 let second_candidate_url = second_candidate_url.clone();
@@ -917,7 +917,7 @@ mod tests {
     async fn should_mark_fetch_failure_for_llm_budget_exceeded_error() {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| {
                 Box::pin(async {
                     Ok(vec![scraper_candidate(
@@ -967,7 +967,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 let mut first = scraper_candidate(
                     "Test Shop",
@@ -1023,7 +1023,7 @@ mod tests {
     async fn should_mark_fetch_failure_for_normalization_fix_exhausted_error() {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| {
                 Box::pin(async {
                     Ok(vec![scraper_candidate(
@@ -1065,7 +1065,7 @@ mod tests {
     async fn should_scrape_candidates_from_multiple_domains() {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| {
                 Box::pin(async {
                     Ok(vec![
@@ -1109,7 +1109,7 @@ mod tests {
         let refill_url_for_candidates = refill_url.clone();
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, excluded| {
                 let excluded = excluded.to_vec();
                 let slow_url = slow_url_for_candidates.clone();
@@ -1147,7 +1147,7 @@ mod tests {
         scraper_service
             .expect_scrape()
             .times(3)
-            .returning(move |_, url, _| {
+            .returning(move |_, url, _, _| {
                 let url = url.clone();
                 let release_slow = Arc::clone(&release_slow_for_mock);
                 let slow_running = Arc::clone(&slow_running_for_mock);
@@ -1198,7 +1198,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 let mut first =
                     scraper_candidate("Same Shop", ShopType::CommercialDealer, first_url.clone());
@@ -1240,7 +1240,7 @@ mod tests {
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(move |_, _| {
                 let locked_url = locked_url.clone();
                 let open_url = open_url.clone();
@@ -1281,7 +1281,7 @@ mod tests {
     async fn should_scrape_all_urls_from_same_domain() {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
-            .expect_get_candidates_excluding()
+            .expect_get_candidates()
             .returning(|_, _| {
                 Box::pin(async {
                     Ok(vec![

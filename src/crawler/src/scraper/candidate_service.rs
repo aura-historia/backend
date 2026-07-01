@@ -173,8 +173,7 @@ pub fn has_product_changed(candidate: &ScraperCandidate, product: &NormalizedPro
 #[async_trait]
 #[mockall::automock]
 pub trait ScraperCandidateService: Send + Sync {
-    async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
-    async fn get_candidates_excluding(
+    async fn get_candidates(
         &self,
         limit: i64,
         excluded_urls: &[String],
@@ -341,11 +340,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
 
 #[async_trait]
 impl ScraperCandidateService for ScraperCandidateServiceImpl {
-    async fn get_candidates(&self, limit: i64) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
-        self.get_candidates_excluding(limit, &[]).await
-    }
-
-    async fn get_candidates_excluding(
+    async fn get_candidates(
         &self,
         limit: i64,
         excluded_urls: &[String],
