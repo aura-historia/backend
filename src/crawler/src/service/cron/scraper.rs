@@ -371,7 +371,7 @@ impl CrawlerCronJob {
         }
 
         let pass_start = tokio::time::Instant::now();
-        let mut excluded_urls: HashSet<String> = HashSet::new();
+        let mut seen_domains: HashSet<String> = HashSet::new();
         let mut active_domains: HashSet<String> = HashSet::new();
         let mut pending_domains: VecDeque<(String, Vec<ScraperCandidate>)> = VecDeque::new();
         let mut join_set: JoinSet<ScheduledScrapeDomainOutcome> = JoinSet::new();
@@ -455,10 +455,17 @@ impl CrawlerCronJob {
                     break;
                 }
 
-                let excluded: Vec<String> = excluded_urls.iter().cloned().collect();
+                let mut excluded_domains: HashSet<String> = seen_domains.clone();
+                excluded_domains.extend(active_domains.iter().cloned());
+                excluded_domains.extend(
+                    pending_domains
+                        .iter()
+                        .map(|(domain, _)| domain.to_ascii_lowercase()),
+                );
+                let excluded_domains: Vec<String> = excluded_domains.into_iter().collect();
                 let candidates = match self
                     .scraper_candidates
-                    .get_candidates(self.config.scraper_batch_size.max(1), &excluded)
+                    .get_candidates(self.config.scraper_batch_size.max(1), &excluded_domains)
                     .await
                 {
                     Ok(candidates) => candidates,
@@ -493,10 +500,8 @@ impl CrawlerCronJob {
                 let mut by_domain: HashMap<String, Vec<ScraperCandidate>> = HashMap::new();
                 for candidate in candidates {
                     unique_shop_ids.insert(candidate.shop_id);
-                    if !excluded_urls.insert(candidate.url.to_string()) {
-                        continue;
-                    }
-                    let domain = candidate.url.host_str().unwrap_or("").to_string();
+                    let domain = candidate.url.host_str().unwrap_or("").to_ascii_lowercase();
+                    seen_domains.insert(domain.clone());
                     by_domain.entry(domain).or_default().push(candidate);
                 }
 
@@ -1110,20 +1115,20 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_, excluded| {
-                let excluded = excluded.to_vec();
+            .returning(move |_, excluded_domains| {
+                let excluded_domains = excluded_domains.to_vec();
                 let slow_url = slow_url_for_candidates.clone();
                 let fast_url = fast_url_for_candidates.clone();
                 let refill_url = refill_url_for_candidates.clone();
                 Box::pin(async move {
-                    if excluded.is_empty() {
+                    if excluded_domains.is_empty() {
                         Ok(vec![
                             scraper_candidate("Slow", ShopType::CommercialDealer, slow_url),
                             scraper_candidate("Fast", ShopType::CommercialDealer, fast_url),
                         ])
-                    } else if excluded.contains(&slow_url.to_string())
-                        && excluded.contains(&fast_url.to_string())
-                        && !excluded.contains(&refill_url.to_string())
+                    } else if excluded_domains.contains(&"domain-a.com".to_string())
+                        && excluded_domains.contains(&"domain-b.com".to_string())
+                        && !excluded_domains.contains(&"domain-c.com".to_string())
                     {
                         Ok(vec![scraper_candidate(
                             "Refill",

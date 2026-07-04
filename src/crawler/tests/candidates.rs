@@ -738,6 +738,55 @@ async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
 }
 
 // ---------------------------------------------------------------------------
+// get_candidates — excluded active domains are NOT returned
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[localstack_test(services = [RDS])]
+async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    let blocked_shop_id_uuid = uuid::Uuid::new_v4();
+    let blocked_domain =
+        insert_shop_with_domain(&pool, blocked_shop_id_uuid, "scraper-blocked.example.com").await;
+    insert_product_url(
+        &pool,
+        blocked_shop_id_uuid,
+        blocked_domain,
+        "https://scraper-blocked.example.com/p/1",
+    )
+    .await;
+
+    let open_shop_id_uuid = uuid::Uuid::new_v4();
+    let open_domain =
+        insert_shop_with_domain(&pool, open_shop_id_uuid, "scraper-open.example.com").await;
+    insert_product_url(
+        &pool,
+        open_shop_id_uuid,
+        open_domain,
+        "https://scraper-open.example.com/p/1",
+    )
+    .await;
+
+    let excluded_domains = vec!["scraper-blocked.example.com".to_string()];
+    let candidates = service.get_candidates(10, &excluded_domains).await.unwrap();
+
+    assert!(
+        !candidates
+            .iter()
+            .any(|c| c.url.host_str() == Some("scraper-blocked.example.com")),
+        "URL from excluded domain should not be returned"
+    );
+    assert!(
+        candidates
+            .iter()
+            .any(|c| c.url.host_str() == Some("scraper-open.example.com")),
+        "URL from non-excluded domain should still be returned"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // get_candidates — ordering: never-scraped before stale
 // ---------------------------------------------------------------------------
 
