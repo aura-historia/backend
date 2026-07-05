@@ -285,7 +285,7 @@ impl CrawlerCronJob {
         loop {
             while join_set.len() < spider_concurrency && !fetch_failed {
                 let open_slots = spider_concurrency - join_set.len();
-                let limit = self.config.spider_batch_size.min(open_slots as i64).max(1);
+                let limit = (open_slots as i64).max(1);
                 let excluded: Vec<uuid::Uuid> = excluded_domain_ids.iter().copied().collect();
                 let candidates = match self
                     .spider_candidates
@@ -637,7 +637,6 @@ mod tests {
         let job = CrawlerCronJob::new(
             CrawlerCronConfig {
                 spider_concurrency: 2,
-                spider_batch_size: 2,
                 ..CrawlerCronConfig::default()
             },
             Arc::new(LocalLockManager::new()),
