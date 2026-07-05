@@ -1,9 +1,5 @@
 use std::sync::Arc;
 
-use regex::Regex;
-use thiserror::Error;
-use tracing::info;
-
 use crate::review::model::ARTIFACT_URL_PATTERN;
 use crate::review::repository::CrawlerReviewRepository;
 use crate::spider::classification::url_classification_service::{
@@ -12,6 +8,9 @@ use crate::spider::classification::url_classification_service::{
 use crate::spider::classification::url_pattern_repository::ShopUrlPatternRepository;
 use crate::spider::utils::url::extract_shop_base_url;
 use common::shop_id::ShopId;
+use regex::Regex;
+use thiserror::Error;
+use tracing::debug;
 
 #[derive(Debug, Error)]
 pub enum UrlPatternServiceError {
@@ -210,9 +209,9 @@ impl UrlPatternService for UrlPatternServiceImpl {
             self.save_pattern_for_shop(shop_id, shop_url, p).await?;
             match extract_shop_base_url(shop_url) {
                 Ok(extracted_domain) => {
-                    info!(domain = %extracted_domain, "Persisted product URL pattern")
+                    debug!(domain = %extracted_domain, "Persisted product URL pattern")
                 }
-                Err(_) => info!(domain = %shop_url, "Persisted product URL pattern"),
+                Err(_) => debug!(domain = %shop_url, "Persisted product URL pattern"),
             }
         }
 

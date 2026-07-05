@@ -288,6 +288,8 @@ async fn scrape_candidate(
                     );
                 }
                 warn!(error = %e, "Scraper run failed");
+            } else if matches!(&e, ScraperError::ProductRemoved { .. }) {
+                debug!(error = %e, "Scraper run failed");
             } else {
                 warn!(error = %e, "Scraper run failed");
             }

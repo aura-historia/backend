@@ -246,7 +246,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
             )));
         }
 
-        info!(
+        debug!(
             schema_count = generated.schemas.len(),
             confidence = ?generated.evaluation.confidence,
             "Generated schema response for append-and-retry"
