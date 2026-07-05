@@ -492,7 +492,7 @@ impl CrawlerCronJob {
                 }
 
                 if !started {
-                    debug!(
+                    info!(
                         concurrency = scraper_concurrency,
                         "Scraper scheduler pass starting"
                     );
@@ -589,8 +589,13 @@ mod tests {
     use crate::spider::service::MockSpiderService;
     use common::shop_id::ShopId;
     use shop::core::shop_type::ShopType;
+    use std::future::Future;
+    use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
+
+    type ScraperCandidateResultFuture =
+        Pin<Box<dyn Future<Output = Result<Vec<ScraperCandidate>, sqlx::Error>> + Send>>;
 
     fn empty_spider_dependencies() -> (MockSpiderCandidateService, MockSpiderService) {
         let mut spider_candidates = MockSpiderCandidateService::new();
@@ -605,6 +610,30 @@ mod tests {
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);
         Box::new(push_service)
+    }
+
+    fn get_candidates_once_by_domain<F>(
+        build_candidates: F,
+    ) -> impl Fn(i64, &[String]) -> ScraperCandidateResultFuture + Send + Sync + 'static
+    where
+        F: Fn() -> Vec<ScraperCandidate> + Send + Sync + 'static,
+    {
+        move |_, excluded_domains| {
+            let excluded_domains: HashSet<String> = excluded_domains.iter().cloned().collect();
+            let candidates = build_candidates();
+            Box::pin(async move {
+                Ok(candidates
+                    .into_iter()
+                    .filter(|candidate| {
+                        candidate
+                            .url
+                            .host_str()
+                            .map(|domain| !excluded_domains.contains(&domain.to_ascii_lowercase()))
+                            .unwrap_or(false)
+                    })
+                    .collect())
+            })
+        }
     }
 
     fn scraper_job(
@@ -647,15 +676,13 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| {
-                Box::pin(async {
-                    Ok(vec![scraper_candidate(
-                        "Test Shop",
-                        ShopType::CommercialDealer,
-                        url::Url::parse("https://example.com/product/1").unwrap(),
-                    )])
-                })
-            });
+            .returning(get_candidates_once_by_domain(|| {
+                vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -676,15 +703,13 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| {
-                Box::pin(async {
-                    Ok(vec![scraper_candidate(
-                        "Test Shop",
-                        ShopType::CommercialDealer,
-                        url::Url::parse("https://example.com/product/1").unwrap(),
-                    )])
-                })
-            });
+            .returning(get_candidates_once_by_domain(|| {
+                vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -803,16 +828,14 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_, _| {
+            .returning(get_candidates_once_by_domain(move || {
                 let first_candidate_url = first_candidate_url.clone();
                 let second_candidate_url = second_candidate_url.clone();
-                Box::pin(async move {
-                    Ok(vec![
-                        scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
-                        scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
-                    ])
-                })
-            });
+                vec![
+                    scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
+                    scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
+                ]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -867,16 +890,14 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_, _| {
+            .returning(get_candidates_once_by_domain(move || {
                 let first_candidate_url = first_candidate_url.clone();
                 let second_candidate_url = second_candidate_url.clone();
-                Box::pin(async move {
-                    Ok(vec![
-                        scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
-                        scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
-                    ])
-                })
-            });
+                vec![
+                    scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
+                    scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
+                ]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -925,15 +946,13 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| {
-                Box::pin(async {
-                    Ok(vec![scraper_candidate(
-                        "Test Shop",
-                        ShopType::CommercialDealer,
-                        url::Url::parse("https://example.com/product/1").unwrap(),
-                    )])
-                })
-            });
+            .returning(get_candidates_once_by_domain(|| {
+                vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -975,7 +994,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_, _| {
+            .returning(get_candidates_once_by_domain(move || {
                 let mut first = scraper_candidate(
                     "Test Shop",
                     ShopType::CommercialDealer,
@@ -988,8 +1007,8 @@ mod tests {
                     second_url_for_candidates.clone(),
                 );
                 second.shop_id = shop_id;
-                Box::pin(async move { Ok(vec![first, second]) })
-            });
+                vec![first, second]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -1031,15 +1050,13 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| {
-                Box::pin(async {
-                    Ok(vec![scraper_candidate(
-                        "Test Shop",
-                        ShopType::CommercialDealer,
-                        url::Url::parse("https://example.com/product/1").unwrap(),
-                    )])
-                })
-            });
+            .returning(get_candidates_once_by_domain(|| {
+                vec![scraper_candidate(
+                    "Test Shop",
+                    ShopType::CommercialDealer,
+                    url::Url::parse("https://example.com/product/1").unwrap(),
+                )]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -1073,22 +1090,20 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| {
-                Box::pin(async {
-                    Ok(vec![
-                        scraper_candidate(
-                            "Shop A",
-                            ShopType::CommercialDealer,
-                            url::Url::parse("https://domain-a.com/product/1").unwrap(),
-                        ),
-                        scraper_candidate(
-                            "Shop B",
-                            ShopType::CommercialDealer,
-                            url::Url::parse("https://domain-b.com/product/2").unwrap(),
-                        ),
-                    ])
-                })
-            });
+            .returning(get_candidates_once_by_domain(|| {
+                vec![
+                    scraper_candidate(
+                        "Shop A",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://domain-a.com/product/1").unwrap(),
+                    ),
+                    scraper_candidate(
+                        "Shop B",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://domain-b.com/product/2").unwrap(),
+                    ),
+                ]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -1206,15 +1221,15 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_, _| {
+            .returning(get_candidates_once_by_domain(move || {
                 let mut first =
                     scraper_candidate("Same Shop", ShopType::CommercialDealer, first_url.clone());
                 first.shop_id = shop_id;
                 let mut second =
                     scraper_candidate("Same Shop", ShopType::CommercialDealer, second_url.clone());
                 second.shop_id = shop_id;
-                Box::pin(async move { Ok(vec![first, second]) })
-            });
+                vec![first, second]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -1248,16 +1263,14 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_, _| {
+            .returning(get_candidates_once_by_domain(move || {
                 let locked_url = locked_url.clone();
                 let open_url = open_url.clone();
-                Box::pin(async move {
-                    Ok(vec![
-                        scraper_candidate("Shop A", ShopType::CommercialDealer, locked_url),
-                        scraper_candidate("Shop A", ShopType::CommercialDealer, open_url),
-                    ])
-                })
-            });
+                vec![
+                    scraper_candidate("Shop A", ShopType::CommercialDealer, locked_url),
+                    scraper_candidate("Shop A", ShopType::CommercialDealer, open_url),
+                ]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -1289,27 +1302,25 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| {
-                Box::pin(async {
-                    Ok(vec![
-                        scraper_candidate(
-                            "Shop",
-                            ShopType::CommercialDealer,
-                            url::Url::parse("https://same-domain.com/product/1").unwrap(),
-                        ),
-                        scraper_candidate(
-                            "Shop",
-                            ShopType::CommercialDealer,
-                            url::Url::parse("https://same-domain.com/product/2").unwrap(),
-                        ),
-                        scraper_candidate(
-                            "Shop",
-                            ShopType::CommercialDealer,
-                            url::Url::parse("https://same-domain.com/product/3").unwrap(),
-                        ),
-                    ])
-                })
-            });
+            .returning(get_candidates_once_by_domain(|| {
+                vec![
+                    scraper_candidate(
+                        "Shop",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://same-domain.com/product/1").unwrap(),
+                    ),
+                    scraper_candidate(
+                        "Shop",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://same-domain.com/product/2").unwrap(),
+                    ),
+                    scraper_candidate(
+                        "Shop",
+                        ShopType::CommercialDealer,
+                        url::Url::parse("https://same-domain.com/product/3").unwrap(),
+                    ),
+                ]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
