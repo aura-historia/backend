@@ -288,6 +288,7 @@ pub struct ScraperServiceImpl {
     pub(crate) review_repository: Option<CrawlerReviewRepository>,
     pub(crate) review_required: bool,
     pub(crate) schema_llm_review_mode: SchemaLlmReviewMode,
+    pub(crate) soft_404_fingerprints_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -368,6 +369,7 @@ impl ScraperServiceImpl {
             review_repository: None,
             review_required: false,
             schema_llm_review_mode: SchemaLlmReviewMode::HumanOnly,
+            soft_404_fingerprints_enabled: !cfg!(test),
         }
     }
 

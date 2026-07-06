@@ -58,6 +58,11 @@ pub struct ShopLlmUsage {
     pub llm_calls_count: i64,
 }
 
+pub struct Soft404Fingerprint {
+    pub fingerprint: String,
+    pub checked_at: OffsetDateTime,
+}
+
 // ---------------------------------------------------------------------------
 // Change detection
 // ---------------------------------------------------------------------------
@@ -211,6 +216,18 @@ pub trait ScraperCandidateService: Send + Sync {
         shop_id: &ShopId,
         url: &Url,
         state: UrlState,
+    ) -> Result<(), sqlx::Error>;
+    async fn get_soft_404_fingerprint(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+    ) -> Result<Option<Soft404Fingerprint>, sqlx::Error>;
+    async fn save_soft_404_fingerprint(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        fingerprint: &str,
+        probe_url: &Url,
     ) -> Result<(), sqlx::Error>;
     async fn mark_fetch_failure(
         &self,
@@ -516,6 +533,65 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(shop_id_uuid)
         .bind(url_str)
         .bind(state_str)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_soft_404_fingerprint(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+    ) -> Result<Option<Soft404Fingerprint>, sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let url_str = url.to_string();
+
+        let row: Option<(Option<String>, Option<OffsetDateTime>)> = sqlx::query_as(
+            "SELECT sd.soft_404_fingerprint, sd.soft_404_checked_at
+             FROM shop_urls su
+             JOIN shop_domains sd ON sd.domain_id = su.domain_id
+             WHERE su.shop_id = $1 AND su.url = $2 AND su.url_class = 'product'",
+        )
+        .bind(shop_id_uuid)
+        .bind(url_str)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.and_then(|(fingerprint, checked_at)| {
+            Some(Soft404Fingerprint {
+                fingerprint: fingerprint?,
+                checked_at: checked_at?,
+            })
+        }))
+    }
+
+    async fn save_soft_404_fingerprint(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        fingerprint: &str,
+        probe_url: &Url,
+    ) -> Result<(), sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let url_str = url.to_string();
+        let probe_url_str = probe_url.to_string();
+
+        sqlx::query(
+            "UPDATE shop_domains sd
+             SET soft_404_fingerprint = $3,
+                 soft_404_probe_url = $4,
+                 soft_404_checked_at = NOW()
+             FROM shop_urls su
+             WHERE su.domain_id = sd.domain_id
+               AND su.shop_id = $1
+               AND su.url = $2
+               AND su.url_class = 'product'",
+        )
+        .bind(shop_id_uuid)
+        .bind(url_str)
+        .bind(fingerprint)
+        .bind(probe_url_str)
         .execute(&self.pool)
         .await?;
 

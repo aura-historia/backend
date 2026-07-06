@@ -2,6 +2,7 @@ use crate::network::policy::NetworkErrorKind;
 use crate::scraper::candidate_service::ProductSnapshot;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::{ScrapedProduct, ScraperService};
+use crate::scraper::scraper_service::pipeline::soft_404::product_removed_when_soft_404;
 use crate::scraper::scraper_service::recovery::normalization_retry::{
     ExistingSchemaSelection, NormalizationRetryContext,
 };
@@ -130,6 +131,8 @@ impl ScraperService for ScraperServiceImpl {
             });
         }
         let html = fetched.html;
+
+        product_removed_when_soft_404(self, shop_id, url, &html).await?;
 
         let has_main = extract_main_fragment(&html).is_some();
         let current_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));
