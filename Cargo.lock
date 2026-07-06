@@ -2172,7 +2172,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5742,9 +5742,9 @@ dependencies = [
 
 [[package]]
 name = "quick-xml"
-version = "0.39.2"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "958f21e8e7ceb5a1aa7fa87fab28e7c75976e0bfe7e23ff069e0a260f894067d"
+checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
 dependencies = [
  "memchr",
  "serde",
@@ -6394,7 +6394,7 @@ dependencies = [
  "security-framework 3.7.0",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7375,14 +7375,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "spider"
-version = "2.52.4"
+version = "2.52.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1038296f580a238af4c578b1b7e13138e24a2eb34b37ddc80c802aaad86de009"
+checksum = "a44ce14f0f6f6f4febf730a9208221f65631d539a4c6c6357b2504d20a9c02e4"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -7420,9 +7420,9 @@ dependencies = [
 
 [[package]]
 name = "spider_agent_types"
-version = "2.52.4"
+version = "2.52.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c38b35bda6e194a1e1fad74130d0b1108676516d51e401e88c9619e5c186df7b"
+checksum = "659ee4eec87b420e64d599b07950a274ada5d2243e604491b1c3cf302ff14723"
 dependencies = [
  "aho-corasick",
  "llm_models_spider",
@@ -9160,7 +9160,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
