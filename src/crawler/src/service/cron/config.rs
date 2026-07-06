@@ -10,7 +10,6 @@ pub struct CrawlerCronConfig {
     pub spider_interval: Duration,
     pub scraper_interval: Duration,
     pub shop_sync_interval: Duration,
-    pub spider_batch_size: i64,
     pub scraper_batch_size: i64,
     /// Number of scraped products to accumulate before flush.
     pub push_batch_size: usize,
@@ -41,7 +40,6 @@ impl Default for CrawlerCronConfig {
             spider_interval: Duration::from_secs(600), // 10 minutes
             scraper_interval: Duration::from_secs(60), // 1 minute
             shop_sync_interval: Duration::from_secs(10800), // 3 hours
-            spider_batch_size: 10,
             scraper_batch_size: 100,
             push_batch_size: 25,
             spider_concurrency: 3,

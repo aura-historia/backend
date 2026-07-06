@@ -180,7 +180,7 @@ impl ScraperService for ScraperServiceImpl {
                 .await?
             }
             ExistingSchemaSelection::NoSchemaApplied { last_error } => {
-                warn!(
+                debug!(
                     domain,
                     schemas = shops_product_schema.product_schemas.len(),
                     error = ?last_error,

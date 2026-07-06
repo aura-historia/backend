@@ -265,7 +265,7 @@ impl SpiderServiceImpl {
 
     #[tracing::instrument(name = "spider_log_progress", skip(self, state))]
     fn log_progress(&self, state: &CrawlRunState) {
-        if state.total_crawled.is_multiple_of(500) {
+        if state.total_crawled.is_multiple_of(1000) {
             info!(
                 total_crawled = state.total_crawled,
                 products_found = state.products_found,

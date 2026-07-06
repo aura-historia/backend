@@ -7,10 +7,10 @@ use crate::scraper::scraper_service::{ScraperError, ScraperService};
 use crate::service::product_push::{ProductPushService, normalize_to_upsert};
 use crate::spider::advisory_lock::{LocalLockManager, ShopLock, UrlLock};
 use common::shop_id::ShopId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
-use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tracing::{Instrument, debug, error, info, warn};
 
@@ -50,6 +50,11 @@ struct ScrapeDomainOutcome {
     succeeded: usize,
     failed: usize,
     skipped: usize,
+}
+
+struct ScheduledScrapeDomainOutcome {
+    domain: String,
+    outcome: ScrapeDomainOutcome,
 }
 
 /// Pushes a batch of `(command, meta)` pairs to the product backend and then
@@ -283,6 +288,8 @@ async fn scrape_candidate(
                     );
                 }
                 warn!(error = %e, "Scraper run failed");
+            } else if matches!(&e, ScraperError::ProductRemoved { .. }) {
+                debug!(error = %e, "Scraper run failed");
             } else {
                 warn!(error = %e, "Scraper run failed");
             }
@@ -356,68 +363,39 @@ async fn scrape_domain_candidates(
 impl CrawlerCronJob {
     #[tracing::instrument(name = "crawler_run_scraper_once", skip(self))]
     pub(super) async fn run_scraper_once(&self) {
-        let total_fetch = (self.config.scraper_concurrency as i64) * self.config.scraper_batch_size;
-
-        let all_candidates = match self.scraper_candidates.get_candidates(total_fetch).await {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(error = %e, "Failed to retrieve scraper candidates");
-                return;
-            }
-        };
-
-        if all_candidates.is_empty() {
-            debug!("No scraper candidates, skipping batch");
-            return;
-        }
-
-        let total = all_candidates.len();
-        let mut unique_shop_ids = std::collections::HashSet::new();
-        for candidate in &all_candidates {
-            unique_shop_ids.insert(candidate.shop_id);
-        }
-        let batch_start = tokio::time::Instant::now();
         let scraper_concurrency = self.config.scraper_concurrency;
         if scraper_concurrency == 0 {
             warn!(
                 scraper_concurrency,
-                "scraper_concurrency is 0, skipping scraper batch"
+                "scraper_concurrency is 0, skipping scraper scheduler pass"
             );
             return;
         }
 
-        info!(
-            candidates = total,
-            concurrency = scraper_concurrency,
-            "Scraper batch starting"
-        );
-
-        let mut by_domain: HashMap<String, Vec<ScraperCandidate>> = HashMap::new();
-        for candidate in all_candidates {
-            let domain = candidate.url.host_str().unwrap_or("").to_string();
-            by_domain.entry(domain).or_default().push(candidate);
-        }
-
-        debug!(domains = by_domain.len(), "Candidates grouped by domain");
-
-        let semaphore = Arc::new(Semaphore::new(scraper_concurrency));
-        let mut join_set: JoinSet<ScrapeDomainOutcome> = JoinSet::new();
+        let pass_start = tokio::time::Instant::now();
+        let mut seen_domains: HashSet<String> = HashSet::new();
+        let mut active_domains: HashSet<String> = HashSet::new();
+        let mut pending_domains: VecDeque<(String, Vec<ScraperCandidate>)> = VecDeque::new();
+        let mut join_set: JoinSet<ScheduledScrapeDomainOutcome> = JoinSet::new();
         let (command_tx, mut command_rx) = mpsc::unbounded_channel::<(
             product::service::product_command::UpsertProductCommand,
             CandidateMeta,
         )>();
 
-        // Track shops with exhausted LLM budgets to avoid repeated logging
         let budget_exhausted_shops = Arc::new(Mutex::new(HashSet::new()));
         let schema_pending_shops = Arc::new(Mutex::new(HashSet::new()));
 
+        let mut unique_shop_ids = HashSet::new();
+        let mut total = 0usize;
         let mut succeeded = 0usize;
         let mut failed = 0usize;
         let mut skipped = 0usize;
+        let mut started = false;
+        let mut no_more_candidates = false;
+
         let push_batch_size = self.config.push_batch_size;
         let push_service = Arc::clone(&self.product_push);
         let scraper_candidates_push = Arc::clone(&self.scraper_candidates);
-
         let push_collector = tokio::spawn(async move {
             let mut pending: Vec<(
                 product::service::product_command::UpsertProductCommand,
@@ -437,71 +415,137 @@ impl CrawlerCronJob {
             }
         });
 
-        for (domain, candidates) in by_domain {
-            let scraper = Arc::clone(&self.scraper_service);
-            let scraper_candidates = Arc::clone(&self.scraper_candidates);
-            let lock_manager = Arc::clone(&self.lock_manager);
-            let permit_pool = Arc::clone(&semaphore);
-            let domain_tx = command_tx.clone();
-            let budget_exhausted_shops = Arc::clone(&budget_exhausted_shops);
-            let schema_pending_shops = Arc::clone(&schema_pending_shops);
-            let span = tracing::info_span!(
-                "scrape_domain",
-                domain = %domain
-            );
+        loop {
+            while join_set.len() < scraper_concurrency {
+                if let Some((domain, candidates)) = pending_domains
+                    .iter()
+                    .position(|(domain, _)| !active_domains.contains(domain))
+                    .and_then(|idx| pending_domains.remove(idx))
+                {
+                    let scraper = Arc::clone(&self.scraper_service);
+                    let scraper_candidates = Arc::clone(&self.scraper_candidates);
+                    let lock_manager = Arc::clone(&self.lock_manager);
+                    let domain_tx = command_tx.clone();
+                    let budget_exhausted_shops = Arc::clone(&budget_exhausted_shops);
+                    let schema_pending_shops = Arc::clone(&schema_pending_shops);
+                    let span = tracing::info_span!("scrape_domain", domain = %domain);
+                    active_domains.insert(domain.clone());
+                    total += candidates.len();
 
-            join_set.spawn(
-                async move {
-                    let Ok(_permit) = permit_pool.acquire_owned().await else {
-                        error!("Scraper semaphore closed unexpectedly");
-                        return ScrapeDomainOutcome {
-                            succeeded: 0,
-                            failed: 1,
-                            skipped: 0,
-                        };
-                    };
+                    join_set.spawn(
+                        async move {
+                            let ctx = ScrapeDomainContext {
+                                scraper,
+                                scraper_candidates,
+                                lock_manager,
+                                command_tx: domain_tx,
+                                budget_exhausted_shops,
+                                schema_pending_shops,
+                            };
 
-                    let ctx = ScrapeDomainContext {
-                        scraper,
-                        scraper_candidates,
-                        lock_manager,
-                        command_tx: domain_tx,
-                        budget_exhausted_shops,
-                        schema_pending_shops,
-                    };
-
-                    scrape_domain_candidates(candidates, ctx).await
-                }
-                .instrument(span),
-            );
-        }
-        drop(command_tx);
-
-        while let Some(joined) = join_set.join_next().await {
-            let outcome = match joined {
-                Ok(outcome) => outcome,
-                Err(e) => {
-                    error!(error = %e, "Scraper domain worker task failed to join");
-                    failed += 1;
+                            ScheduledScrapeDomainOutcome {
+                                domain,
+                                outcome: scrape_domain_candidates(candidates, ctx).await,
+                            }
+                        }
+                        .instrument(span),
+                    );
                     continue;
                 }
-            };
 
-            succeeded += outcome.succeeded;
-            failed += outcome.failed;
-            skipped += outcome.skipped;
+                if no_more_candidates {
+                    break;
+                }
+
+                let mut excluded_domains: HashSet<String> = seen_domains.clone();
+                excluded_domains.extend(active_domains.iter().cloned());
+                excluded_domains.extend(
+                    pending_domains
+                        .iter()
+                        .map(|(domain, _)| domain.to_ascii_lowercase()),
+                );
+                let excluded_domains: Vec<String> = excluded_domains.into_iter().collect();
+                let candidates = match self
+                    .scraper_candidates
+                    .get_candidates(self.config.scraper_batch_size.max(1), &excluded_domains)
+                    .await
+                {
+                    Ok(candidates) => candidates,
+                    Err(e) => {
+                        warn!(error = %e, "Failed to retrieve scraper candidates");
+                        no_more_candidates = true;
+                        break;
+                    }
+                };
+
+                if candidates.is_empty() {
+                    if !started && join_set.is_empty() && pending_domains.is_empty() {
+                        debug!("No scraper candidates, skipping scheduler pass");
+                        drop(command_tx);
+                        if let Err(e) = push_collector.await {
+                            error!(error = %e, "Scraper push collector task failed to join");
+                        }
+                        return;
+                    }
+                    no_more_candidates = true;
+                    break;
+                }
+
+                if !started {
+                    info!(
+                        concurrency = scraper_concurrency,
+                        "Scraper scheduler pass starting"
+                    );
+                    started = true;
+                }
+
+                let mut by_domain: HashMap<String, Vec<ScraperCandidate>> = HashMap::new();
+                for candidate in candidates {
+                    unique_shop_ids.insert(candidate.shop_id);
+                    let domain = candidate.url.host_str().unwrap_or("").to_ascii_lowercase();
+                    seen_domains.insert(domain.clone());
+                    by_domain.entry(domain).or_default().push(candidate);
+                }
+
+                if by_domain.is_empty() {
+                    no_more_candidates = true;
+                    break;
+                }
+
+                debug!(domains = by_domain.len(), "Candidates grouped by domain");
+                pending_domains.extend(by_domain);
+            }
+
+            if join_set.is_empty() {
+                break;
+            }
+
+            match join_set.join_next().await {
+                Some(Ok(scheduled)) => {
+                    active_domains.remove(&scheduled.domain);
+                    succeeded += scheduled.outcome.succeeded;
+                    failed += scheduled.outcome.failed;
+                    skipped += scheduled.outcome.skipped;
+                }
+                Some(Err(e)) => {
+                    error!(error = %e, "Scraper domain worker task failed to join");
+                    failed += 1;
+                }
+                None => break,
+            }
         }
+
+        drop(command_tx);
 
         if let Err(e) = push_collector.await {
             error!(error = %e, "Scraper push collector task failed to join");
             failed += 1;
         }
 
-        let duration_ms = batch_start.elapsed().as_millis() as u64;
-        skipped += total.saturating_sub(succeeded + failed + skipped);
+        let duration_ms = pass_start.elapsed().as_millis() as u64;
         info!(
             total,
-            succeeded, failed, skipped, duration_ms, "Scraper batch complete"
+            succeeded, failed, skipped, duration_ms, "Scraper scheduler pass complete"
         );
 
         #[cfg(not(test))]
@@ -513,7 +557,7 @@ impl CrawlerCronJob {
             {
                 Ok(usages) => {
                     for usage in usages {
-                        info!(
+                        debug!(
                             shop_name = %usage.shop_name,
                             llm_calls_count = usage.llm_calls_count,
                             llm_calls_cap = self.config.scraper_max_llm_calls_per_shop,
@@ -545,14 +589,19 @@ mod tests {
     use crate::spider::service::MockSpiderService;
     use common::shop_id::ShopId;
     use shop::core::shop_type::ShopType;
-    use std::sync::atomic::Ordering;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
+
+    type ScraperCandidateResultFuture =
+        Pin<Box<dyn Future<Output = Result<Vec<ScraperCandidate>, sqlx::Error>> + Send>>;
 
     fn empty_spider_dependencies() -> (MockSpiderCandidateService, MockSpiderService) {
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
             .expect_get_candidates()
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
 
         (spider_candidates, MockSpiderService::new())
     }
@@ -561,6 +610,30 @@ mod tests {
         let mut push_service = MockProductPushService::new();
         push_service.expect_push().times(0);
         Box::new(push_service)
+    }
+
+    fn get_candidates_once_by_domain<F>(
+        build_candidates: F,
+    ) -> impl Fn(i64, &[String]) -> ScraperCandidateResultFuture + Send + Sync + 'static
+    where
+        F: Fn() -> Vec<ScraperCandidate> + Send + Sync + 'static,
+    {
+        move |_, excluded_domains| {
+            let excluded_domains: HashSet<String> = excluded_domains.iter().cloned().collect();
+            let candidates = build_candidates();
+            Box::pin(async move {
+                Ok(candidates
+                    .into_iter()
+                    .filter(|candidate| {
+                        candidate
+                            .url
+                            .host_str()
+                            .map(|domain| !excluded_domains.contains(&domain.to_ascii_lowercase()))
+                            .unwrap_or(false)
+                    })
+                    .collect())
+            })
+        }
     }
 
     fn scraper_job(
@@ -601,15 +674,15 @@ mod tests {
     #[tokio::test]
     async fn should_run_scraper_candidates_and_push_products() {
         let mut scraper_candidates = MockScraperCandidateService::new();
-        scraper_candidates.expect_get_candidates().returning(|_| {
-            Box::pin(async {
-                Ok(vec![scraper_candidate(
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain(|| {
+                vec![scraper_candidate(
                     "Test Shop",
                     ShopType::CommercialDealer,
                     url::Url::parse("https://example.com/product/1").unwrap(),
-                )])
-            })
-        });
+                )]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -628,15 +701,15 @@ mod tests {
     #[tokio::test]
     async fn should_mark_fetch_failure_for_retryable_scraper_http_error() {
         let mut scraper_candidates = MockScraperCandidateService::new();
-        scraper_candidates.expect_get_candidates().returning(|_| {
-            Box::pin(async {
-                Ok(vec![scraper_candidate(
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain(|| {
+                vec![scraper_candidate(
                     "Test Shop",
                     ShopType::CommercialDealer,
                     url::Url::parse("https://example.com/product/1").unwrap(),
-                )])
-            })
-        });
+                )]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -755,16 +828,14 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_| {
+            .returning(get_candidates_once_by_domain(move || {
                 let first_candidate_url = first_candidate_url.clone();
                 let second_candidate_url = second_candidate_url.clone();
-                Box::pin(async move {
-                    Ok(vec![
-                        scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
-                        scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
-                    ])
-                })
-            });
+                vec![
+                    scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
+                    scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
+                ]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -819,16 +890,14 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_| {
+            .returning(get_candidates_once_by_domain(move || {
                 let first_candidate_url = first_candidate_url.clone();
                 let second_candidate_url = second_candidate_url.clone();
-                Box::pin(async move {
-                    Ok(vec![
-                        scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
-                        scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
-                    ])
-                })
-            });
+                vec![
+                    scraper_candidate("Shop", ShopType::CommercialDealer, first_candidate_url),
+                    scraper_candidate("Shop", ShopType::CommercialDealer, second_candidate_url),
+                ]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -875,15 +944,15 @@ mod tests {
     #[tokio::test]
     async fn should_mark_fetch_failure_for_llm_budget_exceeded_error() {
         let mut scraper_candidates = MockScraperCandidateService::new();
-        scraper_candidates.expect_get_candidates().returning(|_| {
-            Box::pin(async {
-                Ok(vec![scraper_candidate(
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain(|| {
+                vec![scraper_candidate(
                     "Test Shop",
                     ShopType::CommercialDealer,
                     url::Url::parse("https://example.com/product/1").unwrap(),
-                )])
-            })
-        });
+                )]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -925,7 +994,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_| {
+            .returning(get_candidates_once_by_domain(move || {
                 let mut first = scraper_candidate(
                     "Test Shop",
                     ShopType::CommercialDealer,
@@ -938,8 +1007,8 @@ mod tests {
                     second_url_for_candidates.clone(),
                 );
                 second.shop_id = shop_id;
-                Box::pin(async move { Ok(vec![first, second]) })
-            });
+                vec![first, second]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -979,15 +1048,15 @@ mod tests {
     #[tokio::test]
     async fn should_mark_fetch_failure_for_normalization_fix_exhausted_error() {
         let mut scraper_candidates = MockScraperCandidateService::new();
-        scraper_candidates.expect_get_candidates().returning(|_| {
-            Box::pin(async {
-                Ok(vec![scraper_candidate(
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain(|| {
+                vec![scraper_candidate(
                     "Test Shop",
                     ShopType::CommercialDealer,
                     url::Url::parse("https://example.com/product/1").unwrap(),
-                )])
-            })
-        });
+                )]
+            }));
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
@@ -1019,9 +1088,10 @@ mod tests {
     #[tokio::test]
     async fn should_scrape_candidates_from_multiple_domains() {
         let mut scraper_candidates = MockScraperCandidateService::new();
-        scraper_candidates.expect_get_candidates().returning(|_| {
-            Box::pin(async {
-                Ok(vec![
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain(|| {
+                vec![
                     scraper_candidate(
                         "Shop A",
                         ShopType::CommercialDealer,
@@ -1032,9 +1102,8 @@ mod tests {
                         ShopType::CommercialDealer,
                         url::Url::parse("https://domain-b.com/product/2").unwrap(),
                     ),
-                ])
-            })
-        });
+                ]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -1052,6 +1121,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_refill_scraper_domain_slot_while_slow_domain_is_running() {
+        let slow_url = url::Url::parse("https://domain-a.com/product/1").unwrap();
+        let fast_url = url::Url::parse("https://domain-b.com/product/1").unwrap();
+        let refill_url = url::Url::parse("https://domain-c.com/product/1").unwrap();
+
+        let slow_url_for_candidates = slow_url.clone();
+        let fast_url_for_candidates = fast_url.clone();
+        let refill_url_for_candidates = refill_url.clone();
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded_domains| {
+                let excluded_domains = excluded_domains.to_vec();
+                let slow_url = slow_url_for_candidates.clone();
+                let fast_url = fast_url_for_candidates.clone();
+                let refill_url = refill_url_for_candidates.clone();
+                Box::pin(async move {
+                    if excluded_domains.is_empty() {
+                        Ok(vec![
+                            scraper_candidate("Slow", ShopType::CommercialDealer, slow_url),
+                            scraper_candidate("Fast", ShopType::CommercialDealer, fast_url),
+                        ])
+                    } else if excluded_domains.contains(&"domain-a.com".to_string())
+                        && excluded_domains.contains(&"domain-b.com".to_string())
+                        && !excluded_domains.contains(&"domain-c.com".to_string())
+                    {
+                        Ok(vec![scraper_candidate(
+                            "Refill",
+                            ShopType::CommercialDealer,
+                            refill_url,
+                        )])
+                    } else {
+                        Ok(vec![])
+                    }
+                })
+            });
+
+        let slow_running = Arc::new(AtomicBool::new(false));
+        let refill_started_while_slow_running = Arc::new(AtomicBool::new(false));
+        let release_slow = Arc::new(tokio::sync::Notify::new());
+        let release_slow_for_mock = Arc::clone(&release_slow);
+        let slow_running_for_mock = Arc::clone(&slow_running);
+        let refill_started_for_mock = Arc::clone(&refill_started_while_slow_running);
+
+        let mut scraper_service = MockScraperService::new();
+        scraper_service
+            .expect_scrape()
+            .times(3)
+            .returning(move |_, url, _, _| {
+                let url = url.clone();
+                let release_slow = Arc::clone(&release_slow_for_mock);
+                let slow_running = Arc::clone(&slow_running_for_mock);
+                let refill_started = Arc::clone(&refill_started_for_mock);
+                let slow_url = slow_url.clone();
+                let fast_url = fast_url.clone();
+                let refill_url = refill_url.clone();
+                Box::pin(async move {
+                    if url == slow_url {
+                        slow_running.store(true, Ordering::SeqCst);
+                        release_slow.notified().await;
+                        slow_running.store(false, Ordering::SeqCst);
+                    } else if url == fast_url {
+                        while !slow_running.load(Ordering::SeqCst) {
+                            tokio::time::sleep(Duration::from_millis(1)).await;
+                        }
+                    } else if url == refill_url {
+                        if slow_running.load(Ordering::SeqCst) {
+                            refill_started.store(true, Ordering::SeqCst);
+                        }
+                        release_slow.notify_one();
+                    }
+                    Ok(None)
+                })
+            });
+
+        let job = scraper_job(
+            CrawlerCronConfig {
+                scraper_concurrency: 2,
+                scraper_batch_size: 2,
+                scraper_domain_delay: Duration::ZERO,
+                ..CrawlerCronConfig::default()
+            },
+            scraper_candidates,
+            scraper_service,
+        );
+
+        job.run_scraper_once().await;
+
+        assert!(refill_started_while_slow_running.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
     async fn should_skip_same_shop_candidate_already_scraping_on_another_domain() {
         let shop_id = ShopId::new();
         let first_url = url::Url::parse("https://domain-a.com/product/1").unwrap();
@@ -1060,15 +1221,15 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_| {
+            .returning(get_candidates_once_by_domain(move || {
                 let mut first =
                     scraper_candidate("Same Shop", ShopType::CommercialDealer, first_url.clone());
                 first.shop_id = shop_id;
                 let mut second =
                     scraper_candidate("Same Shop", ShopType::CommercialDealer, second_url.clone());
                 second.shop_id = shop_id;
-                Box::pin(async move { Ok(vec![first, second]) })
-            });
+                vec![first, second]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -1102,16 +1263,14 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_| {
+            .returning(get_candidates_once_by_domain(move || {
                 let locked_url = locked_url.clone();
                 let open_url = open_url.clone();
-                Box::pin(async move {
-                    Ok(vec![
-                        scraper_candidate("Shop A", ShopType::CommercialDealer, locked_url),
-                        scraper_candidate("Shop A", ShopType::CommercialDealer, open_url),
-                    ])
-                })
-            });
+                vec![
+                    scraper_candidate("Shop A", ShopType::CommercialDealer, locked_url),
+                    scraper_candidate("Shop A", ShopType::CommercialDealer, open_url),
+                ]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service
@@ -1141,9 +1300,10 @@ mod tests {
     #[tokio::test]
     async fn should_scrape_all_urls_from_same_domain() {
         let mut scraper_candidates = MockScraperCandidateService::new();
-        scraper_candidates.expect_get_candidates().returning(|_| {
-            Box::pin(async {
-                Ok(vec![
+        scraper_candidates
+            .expect_get_candidates()
+            .returning(get_candidates_once_by_domain(|| {
+                vec![
                     scraper_candidate(
                         "Shop",
                         ShopType::CommercialDealer,
@@ -1159,9 +1319,8 @@ mod tests {
                         ShopType::CommercialDealer,
                         url::Url::parse("https://same-domain.com/product/3").unwrap(),
                     ),
-                ])
-            })
-        });
+                ]
+            }));
 
         let mut scraper_service = MockScraperService::new();
         scraper_service

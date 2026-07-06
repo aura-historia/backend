@@ -12,7 +12,7 @@ use product::dynamodb::product_state_record::ProductStateRecord;
 use regex::Regex;
 use std::sync::Arc;
 use time::OffsetDateTime;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 // ---------------------------------------------------------------------------
 // Error
@@ -406,7 +406,7 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
 
         // ── Step 3: LLM fallback ─────────────────────────────────────────
         let truncated_raw = if key.len() > 100 { &key[..100] } else { &key };
-        info!(raw = %truncated_raw, "No DB mapping found, asking LLM...");
+        debug!(raw = %truncated_raw, "No DB mapping found, asking LLM...");
         let record = self.create_state_mapping(&key).await?;
 
         // Persist the result so future lookups are instant.
