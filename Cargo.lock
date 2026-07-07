@@ -7377,9 +7377,9 @@ dependencies = [
 
 [[package]]
 name = "spider"
-version = "2.52.7"
+version = "2.52.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a44ce14f0f6f6f4febf730a9208221f65631d539a4c6c6357b2504d20a9c02e4"
+checksum = "9107e021362145cee2fa5db27b2befd6733c891ec1a266b5f591e1264d48985c"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -7417,9 +7417,9 @@ dependencies = [
 
 [[package]]
 name = "spider_agent_types"
-version = "2.52.7"
+version = "2.52.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "659ee4eec87b420e64d599b07950a274ada5d2243e604491b1c3cf302ff14723"
+checksum = "95a8314dadb70a3f9012ac189af3372ec9ccba819a0d8576ac49d851aa326165"
 dependencies = [
  "aho-corasick",
  "llm_models_spider",
