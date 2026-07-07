@@ -436,9 +436,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cloudwatchlogs"
-version = "1.139.0"
+version = "1.140.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fc3c01b7bd640e686bea5d4a3d7c58a3b4293534b36e82dc1bbbad5d98e648c"
+checksum = "35f117ade69acbe265e4cd98985b0d450d1e2352e2a6b94907a9c855fa769c04"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -537,9 +537,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-opensearch"
-version = "1.135.0"
+version = "1.136.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bf1ea1df3cb1b9eb542d841a66087f9bb379c6e2b47dd76bcfe542b0a54ea53"
+checksum = "3829b086fe825e7bfb5616d7ea06daeaddf3305b5d545e6a2d9db0c71fbe687f"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -9151,7 +9151,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
