@@ -12,7 +12,7 @@
 - Main neighbors: `common`, `fxrate`, `product`, `shop`.
 - Main binaries: `server`, `demo`, `demo-spider`, `demo-scraper`, `fetch-fixture`.
 - `service::cron` drive three parallel loops: shop sync, spider, scraper.
-- Spider and scraper cron use global slot schedulers. Refill only schedulable work; scraper excludes domains already seen in the pass when fetching more candidates.
+- Spider and scraper cron use global slot schedulers. Refill only schedulable work; scraper fetch picks random eligible domains, takes up to 100 due URLs per domain by default, and excludes domains already seen in the pass.
 - Shop sync load active shops and domains from upstream shop search into local Postgres.
 - Spider crawl shop domains, discover URLs, infer or refresh shop product regex, and batch-upsert URL metadata.
 - Scraper consume product URLs, fetch HTML, reuse or grow CSS selector schemas, normalize products, and push results onward.
