@@ -26,11 +26,6 @@ export interface CognitoEmailConfig {
   readonly replyTo: string;
 }
 
-export interface CognitoFacebookIdentityProviderConfig {
-  readonly clientId: string;
-  readonly clientSecret: string;
-}
-
 export interface StageConfig {
   readonly stage: StageName;
   readonly isProd: boolean;
@@ -45,7 +40,6 @@ export interface StageConfig {
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
   readonly cognitoEmail: CognitoEmailConfig | undefined;
-  readonly cognitoFacebookIdentityProvider: CognitoFacebookIdentityProviderConfig | undefined;
   readonly opensearchDomainName: string;
   readonly opensearchEndpointUrl: string;
   readonly enableProductionObservability: boolean;
@@ -108,12 +102,6 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
           identityDomain: "notify.aura-historia.com",
           replyTo: "contact@aura-historia.com",
         },
-    cognitoFacebookIdentityProvider: isEphemeral
-      ? undefined
-      : {
-          clientId: ssmValue(`/cognito/${stage}/facebook-client-id`),
-          clientSecret: ssmSecureValue(`/secrets/${stage}/facebook-client-secret`),
-        },
     opensearchDomainName: isEphemeral ? "test-domain" : `aura-historia-${stage}`,
     opensearchEndpointUrl: isEphemeral ? "" : ssmValue(`/opensearch/${stage}/endpoint-url`),
     enableProductionObservability: isProd,
@@ -148,6 +136,3 @@ export function ssmValue(path: string): string {
   return `{{resolve:ssm:${path}}}`;
 }
 
-export function ssmSecureValue(path: string): string {
-  return `{{resolve:ssm-secure:${path}}}`;
-}

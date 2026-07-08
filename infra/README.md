@@ -99,8 +99,6 @@ and `dev`:
 /certificates/{stage}/api-regional-certificate-arn
 /certificates/{stage}/api-cloudfront-certificate-arn
 /cloudfront/{stage}/api-web-acl-arn
-/cognito/{stage}/facebook-client-id
-/secrets/{stage}/facebook-client-secret
 /secrets/{stage}/gemini-api-key
 /secrets/{stage}/google-application-credentials
 /secrets/{stage}/google-geocoding-api-key

@@ -459,20 +459,6 @@ describe("Application stacks", () => {
         EmailMessage: Match.stringLikeRegexp("<p class=\\\"greeting\\\">Verify your email</p>"),
       }),
     });
-    prodTemplates.compute.hasResourceProperties("AWS::Cognito::UserPoolIdentityProvider", {
-      ProviderName: "Facebook",
-      ProviderType: "Facebook",
-      ProviderDetails: Match.objectLike({
-        api_version: "v20.0",
-        authorize_scopes: "email",
-        client_id: "{{resolve:ssm:/cognito/prod/facebook-client-id}}",
-        client_secret: "{{resolve:ssm-secure:/secrets/prod/facebook-client-secret}}",
-      }),
-      AttributeMapping: {
-        email: "email",
-        username: "id",
-      },
-    });
   });
 
   test("real stages resolve external integration settings from SSM", () => {
@@ -488,8 +474,6 @@ describe("Application stacks", () => {
     expect(prodJson).toContain("{{resolve:ssm:/certificates/prod/api-regional-certificate-arn}}");
     expect(prodJson).toContain("{{resolve:ssm:/certificates/prod/api-cloudfront-certificate-arn}}");
     expect(prodJson).toContain("{{resolve:ssm:/cloudfront/prod/api-web-acl-arn}}");
-    expect(prodJson).toContain("{{resolve:ssm:/cognito/prod/facebook-client-id}}");
-    expect(prodJson).toContain("{{resolve:ssm-secure:/secrets/prod/facebook-client-secret}}");
 
     expect(devJson).toContain("{{resolve:ssm:/opensearch/dev/endpoint-url}}");
     expect(devJson).toContain("{{resolve:ssm:/eventbridge/dev/stripe-event-bus-name}}");
@@ -497,7 +481,6 @@ describe("Application stacks", () => {
     expect(devJson).toContain("{{resolve:ssm:/certificates/dev/api-regional-certificate-arn}}");
     expect(devJson).toContain("{{resolve:ssm:/certificates/dev/api-cloudfront-certificate-arn}}");
     expect(devJson).toContain("{{resolve:ssm:/cloudfront/dev/api-web-acl-arn}}");
-    expect(devJson).toContain("{{resolve:ssm:/cognito/dev/facebook-client-id}}");
 
     expect(ephemeralJson).not.toContain("/opensearch/ephemeral/endpoint-url");
     expect(ephemeralJson).toContain("stripe-event-bus-ephemeral");

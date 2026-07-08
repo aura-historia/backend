@@ -48,24 +48,6 @@ export class Identity extends Construct {
 
     this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, props.postConfirmationLambda);
 
-    const facebookProvider = props.config.cognitoFacebookIdentityProvider
-      ? new cognito.CfnUserPoolIdentityProvider(this, "FacebookIdentityProvider", {
-          userPoolId: this.userPool.userPoolId,
-          providerName: "Facebook",
-          providerType: "Facebook",
-          providerDetails: {
-            api_version: "v20.0",
-            authorize_scopes: "email",
-            client_id: props.config.cognitoFacebookIdentityProvider.clientId,
-            client_secret: props.config.cognitoFacebookIdentityProvider.clientSecret,
-          },
-          attributeMapping: {
-            email: "email",
-            username: "id",
-          },
-        })
-      : undefined;
-
     this.publicClient = this.userPool.addClient("PrimaryUserPoolClientPublic", {
       userPoolClientName: `primary-userpool-client-public-${props.stageName}`,
       generateSecret: false,
@@ -74,9 +56,7 @@ export class Identity extends Construct {
       accessTokenValidity: cdk.Duration.hours(1),
       idTokenValidity: cdk.Duration.hours(1),
       refreshTokenValidity: cdk.Duration.days(30),
-      supportedIdentityProviders: props.config.cognitoFacebookIdentityProvider
-        ? [cognito.UserPoolClientIdentityProvider.COGNITO, cognito.UserPoolClientIdentityProvider.FACEBOOK]
-        : [cognito.UserPoolClientIdentityProvider.COGNITO],
+      supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
       authFlows: {
         userPassword: true,
         userSrp: true,
@@ -92,9 +72,6 @@ export class Identity extends Construct {
         emailVerified: true,
       }),
     });
-    if (facebookProvider) {
-      this.publicClient.node.addDependency(facebookProvider);
-    }
 
     this.domain = this.userPool.addDomain("PrimaryUserPoolDomain", {
       cognitoDomain: {
