@@ -524,7 +524,7 @@ impl OAuthService for OAuthServiceImpl<'_> {
                 },
                 &code.user_id,
                 CreateAccessTokenCommand {
-                    name: format!("OAuth client {}", client.client_id).into(),
+                    name: format!("{} (OAuth-Client {})", client.name, client.client_id).into(),
                     scopes: code.scopes,
                     expires: None,
                     origin: AccessTokenOrigin::OAuth {
