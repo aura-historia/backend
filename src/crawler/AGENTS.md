@@ -20,7 +20,7 @@
 - Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
 - Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper feeds backend product push.
 - Locking be two-layer: process-local locks stop duplicate in one process, DB lock/cooldown metadata stop bad overlap and hot-loop retries across runs.
-- LLM use stay bounded and explicit: URL regex inference, product schema generation/append-repair/evaluation, state mapping fallback.
+- LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair, schema evaluation, state mapping fallback.
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.

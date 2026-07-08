@@ -312,6 +312,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = r#"
         SELECT
             su.shop_id, s.shop_name, s.shop_type, s.url_pattern, su.url,
             lower(substring(su.url from '^[a-z][a-z0-9+.-]*://([^/:?#]+)')) AS normalized_host,
+            su.last_scraped,
             su.last_scraped_hash,
             su.last_scraped_price,
             su.last_scraped_price_estimate_min,

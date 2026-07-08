@@ -131,16 +131,7 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
     schema_svc
         .expect_append_single_schema()
         .once()
-        .withf(move |_, failed_schema, last_error| {
-            failed_schema == &Some(&second_schema)
-                && matches!(
-                    last_error,
-                    Some(ApplySchemaError::Title(ExtractionError::NoElementMatched {
-                        selector
-                    })) if selector == "title"
-                )
-        })
-        .returning(move |_, _, _| {
+        .returning(move |_| {
             Box::pin(async {
                 Ok(generated_schemas(
                     vec![minimal_schema()],
@@ -229,20 +220,10 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    let existing_schema_for_append = existing_schema.clone();
     schema_svc
         .expect_append_single_schema()
         .once()
-        .withf(move |_, failed_schema, last_error| {
-            failed_schema == &Some(&existing_schema_for_append)
-                && matches!(
-                    last_error,
-                    Some(ApplySchemaError::Title(ExtractionError::NoElementMatched {
-                        selector
-                    })) if selector == "title"
-                )
-        })
-        .returning(move |_, _, _| {
+        .returning(move |_| {
             let s = minimal_schema();
             Box::pin(async move {
                 Ok(generated_schemas(
@@ -499,7 +480,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate_without_sche
 }
 
 #[tokio::test]
-async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
+async fn should_append_single_schema_without_failed_schema_context() {
     let id = shop_id();
     let url = product_url();
 
@@ -554,10 +535,10 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
             Box::pin(async move { Ok(Some(s)) })
         });
 
-    schema_svc.expect_append_single_schema().once().returning(
-        move |_, failed_schema, last_error| {
-            assert!(failed_schema.is_none());
-            assert!(last_error.is_none());
+    schema_svc
+        .expect_append_single_schema()
+        .once()
+        .returning(move |_| {
             let expected_bad_appended = bad_appended.clone();
             Box::pin(async move {
                 Ok(generated_schemas(
@@ -565,8 +546,7 @@ async fn should_pass_failed_schema_context_on_subsequent_retry_attempts() {
                     SchemaLlmEvaluationConfidence::High,
                 ))
             })
-        },
-    );
+        });
     schema_svc.expect_save_product_schemas().never();
 
     let norm_svc = MockProductNormalizationService::new();
@@ -627,7 +607,7 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
     schema_svc
         .expect_append_single_schema()
         .once()
-        .returning(|_, _, _| {
+        .returning(|_| {
             Box::pin(async {
                 Ok(generated_schemas(
                     vec![minimal_schema()],

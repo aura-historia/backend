@@ -47,10 +47,7 @@ impl ScraperServiceImpl {
 
         self.consume_llm_budget_or_err(shop_id, url).await?;
 
-        let generated = self
-            .schema_service
-            .append_single_schema(html, None, None)
-            .await?;
+        let generated = self.schema_service.append_single_schema(html).await?;
         let Some(generated_schema) = generated.schemas.first().cloned() else {
             return Err(ScraperError::SchemaServiceError(
                 crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(

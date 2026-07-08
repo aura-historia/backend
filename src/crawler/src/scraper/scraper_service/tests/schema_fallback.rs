@@ -135,7 +135,7 @@ async fn should_repair_after_yaml_schema_does_not_cover_raw_html_without_initial
     schema_svc
         .expect_append_single_schema()
         .once()
-        .returning(move |_, _, _| {
+        .returning(move |_| {
             let s = vec![repair_schema.clone()];
             Box::pin(async move { Ok(generated_schemas(s, SchemaLlmEvaluationConfidence::High)) })
         });
