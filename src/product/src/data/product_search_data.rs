@@ -116,6 +116,7 @@ pub struct ProductSearchData {
     pub price_query: Option<RangeQuery<u64>>,
     #[serde(rename = "state", skip_serializing_if = "HashSet::is_empty", default)]
     pub state_query: HashSet<ProductStateData>,
+
     #[serde(
         rename = "created",
         with = "common::query::range_query::range_rfc3339::option",
@@ -182,6 +183,7 @@ impl From<ProductSearch> for ProductSearchData {
                 .into_iter()
                 .map(ProductStateData::from)
                 .collect(),
+
             created_query: search_filter.created_query,
             updated_query: search_filter.updated_query,
             auction_start_query: search_filter.auction_start_query,
@@ -228,6 +230,7 @@ impl From<ProductSearchData> for ProductSearch {
                 .into_iter()
                 .map(ProductState::from)
                 .collect(),
+            lifecycle_query: Default::default(),
             created_query: data.created_query,
             updated_query: data.updated_query,
             auction_start_query: data.auction_start_query,

@@ -88,6 +88,7 @@ jobs:
           - src/product-lambda/src/product-lambda-materialize-opensearch
           - src/product-lambda/src/product-lambda-update-notify-user
           - src/product-lambda/src/product-lambda-ingest-partner-products
+          - src/product-lambda/src/product-lambda-delete-product
           - src/shop-api
           - src/webhook-api
           - src/shop-lambda/src/shop-lambda-opensearch-index

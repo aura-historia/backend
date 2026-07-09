@@ -10,12 +10,15 @@ use crate::core::product_event::enrichment::{
     EmbeddedProductEnrichmentEventPayload, ProductEnrichmentEventPayload,
     TranslationProductEnrichmentEventPayload,
 };
+use crate::core::product_event::lifecycle::{
+    ProductDeletedLifecycleEventPayload, ProductLifecycleEventPayload,
+};
 use crate::core::product_event::policy::{
     ProductPolicyEventPayload, ProhibitedContentProductPolicyEventPayload,
 };
 use crate::core::product_event::{
     ProductDomainEvent, ProductEnrichmentEvent, ProductEvent, ProductEventPayload,
-    ProductPolicyEvent,
+    ProductLifecycleEvent, ProductPolicyEvent,
 };
 use crate::core::product_image::ProductImage;
 use crate::core::product_search::ProductSearch;
@@ -30,6 +33,7 @@ use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{FxRate, MonetaryAmount, Price};
 use common::product_id::{ProductId, ProductKey};
+use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
 use common::seller_slug_id::SellerSlugId;
@@ -70,6 +74,7 @@ pub struct Product {
     pub native_price_estimate_max: Option<Price>,
     pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
     pub state: ProductState,
+    pub lifecycle: ProductLifecycle,
     pub url: Url,
     pub view_url: Url,
     pub images: IndexSet<ProductImage>,
@@ -151,6 +156,29 @@ impl Product {
             event_id: EventId::new(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ProductDomainEventPayload::Created(payload),
+        }
+    }
+
+    pub fn delete(&mut self) -> Option<ProductLifecycleEvent> {
+        if self.lifecycle == ProductLifecycle::Deleted {
+            None
+        } else {
+            let old_lifecycle = self.lifecycle;
+            self.lifecycle = ProductLifecycle::Deleted;
+            Some(Event {
+                aggregate_id: self.product_id,
+                event_id: EventId::new(),
+                timestamp: OffsetDateTime::now_utc(),
+                payload: ProductLifecycleEventPayload::Deleted(
+                    ProductDeletedLifecycleEventPayload {
+                        shop_id: self.shop_id,
+                        seller_id: self.seller_id,
+                        shops_product_id: self.shops_product_id.clone(),
+                        old_lifecycle,
+                        new_lifecycle: ProductLifecycle::Deleted,
+                    },
+                ),
+            })
         }
     }
 
@@ -650,6 +678,11 @@ impl Product {
                     }
                 }
             },
+            ProductEventPayload::ProductLifecycleEvent(payload) => match payload {
+                ProductLifecycleEventPayload::Deleted(p) => {
+                    self.lifecycle = p.new_lifecycle;
+                }
+            },
         }
     }
 
@@ -720,6 +753,7 @@ impl Product {
             price_estimate_min,
             price_estimate_max,
             state: self.state,
+            lifecycle: self.lifecycle,
             url: self.url,
             view_url: self.view_url,
             images: self.images,
@@ -804,6 +838,7 @@ pub struct LocalizedProductView {
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
     pub state: ProductState,
+    pub lifecycle: ProductLifecycle,
     pub url: Url,
     pub view_url: Url,
     pub images: IndexSet<ProductImage>,
@@ -871,6 +906,7 @@ mod faker {
                 native_price_estimate_max,
                 other_price_estimate_max,
                 state: config.fake_with_rng(rng),
+                lifecycle: config.fake_with_rng(rng),
                 url: Url::parse("https://www.example.com/product").unwrap(),
                 view_url: Url::parse(
                     "https://www.example.com/product?utm_source=aura_historia&utm_medium=referral",

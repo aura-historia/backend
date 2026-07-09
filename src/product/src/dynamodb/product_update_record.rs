@@ -1,5 +1,6 @@
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
+use crate::dynamodb::product_event_record::lifecycle::ProductLifecycleEventRecord;
 use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
 use crate::dynamodb::product_image_record::ProductImageRecord;
 use crate::dynamodb::product_state_record::ProductStateRecord;
@@ -7,6 +8,7 @@ use common::dynamodb_update::DynamoDbUpdate;
 use common::event_id::EventId;
 use common::language::record::LanguageRecord;
 use common::price::record::PriceRecord;
+use common::product_lifecycle::record::ProductLifecycleRecord;
 use indexmap::IndexSet;
 use serde::Serialize;
 use serde_fields::SerdeField;
@@ -59,6 +61,8 @@ pub struct ProductRecordUpdate {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ProductStateRecord>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lifecycle: Option<ProductLifecycleRecord>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
@@ -204,6 +208,7 @@ impl Default for ProductRecordUpdate {
             price_sgd: None,
             price_chf: None,
             state: None,
+            lifecycle: None,
             title_de: None,
             title_en: None,
             title_fr: None,
@@ -282,6 +287,7 @@ impl From<ProductDomainEventRecord> for ProductRecordUpdate {
             price_sgd: event.new_price_sgd,
             price_chf: event.new_price_chf,
             state: event.new_state,
+            lifecycle: None,
             title_de: event.title_de,
             title_en: event.title_en,
             title_fr: event.title_fr,
@@ -336,6 +342,17 @@ impl From<ProductDomainEventRecord> for ProductRecordUpdate {
     }
 }
 
+impl From<ProductLifecycleEventRecord> for ProductRecordUpdate {
+    fn from(event: ProductLifecycleEventRecord) -> Self {
+        ProductRecordUpdate {
+            event_id: Some(event.event_id),
+            lifecycle: Some(event.new_lifecycle),
+            updated: event.timestamp,
+            ..ProductRecordUpdate::default()
+        }
+    }
+}
+
 impl From<ProductEnrichmentEventRecord> for ProductRecordUpdate {
     fn from(event: ProductEnrichmentEventRecord) -> Self {
         let mut update = ProductRecordUpdate {
@@ -360,6 +377,7 @@ impl From<ProductEnrichmentEventRecord> for ProductRecordUpdate {
             price_sgd: None,
             price_chf: None,
             state: None,
+            lifecycle: None,
             title_de: None,
             title_en: None,
             title_fr: None,
@@ -527,6 +545,7 @@ mod faker {
                 price_estimate_max_hkd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_max_sgd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_max_chf: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
+                lifecycle: config.fake_with_rng(rng),
                 url: Some(
                     url::Url::parse(&format!(
                         "https://foo.bar/item/{}",

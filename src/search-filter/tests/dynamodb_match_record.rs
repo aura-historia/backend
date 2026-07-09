@@ -1,3 +1,4 @@
+use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
@@ -7,7 +8,7 @@ use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };
 use search_filter::dynamodb::user_search_filter_match_record::{
-    UserSearchFilterMatchRecord, mk_lsi1_sk, mk_pk, mk_sk,
+    UserSearchFilterMatchRecord, mk_gsi2_pk, mk_gsi2_sk, mk_lsi1_sk, mk_pk, mk_sk,
 };
 use search_filter::dynamodb::user_search_filter_match_record_update::UserSearchFilterMatchRecordUpdate;
 use test_api::*;
@@ -204,6 +205,130 @@ async fn should_put_batch_match_records() {
         .unwrap();
 
     assert_eq!(5, actual.len());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_query_match_key_parts_for_product_id() {
+    let repository = get_repository().await;
+    let product_id = ProductId::new();
+    let other_product_id = ProductId::new();
+    let mut expected = Vec::new();
+
+    for _ in 0..3 {
+        let user_id = UserId::new();
+        let search_filter_id = UserSearchFilterId::new();
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
+        record.pk = mk_pk(&user_id);
+        record.sk = mk_sk(&search_filter_id, &shop_id, &shops_product_id);
+        record.gsi2_pk = Some(mk_gsi2_pk(&product_id));
+        record.gsi2_sk = Some(mk_gsi2_sk(&user_id));
+        record.user_id = user_id;
+        record.user_search_filter_id = search_filter_id;
+        record.shop_id = shop_id;
+        record.shops_product_id = shops_product_id.clone();
+        record.product_id = product_id;
+        repository
+            .put_user_search_filter_match_record(record)
+            .await
+            .unwrap();
+        expected.push((user_id, search_filter_id, shop_id, shops_product_id));
+    }
+
+    let mut other = Faker.fake::<UserSearchFilterMatchRecord>();
+    other.product_id = other_product_id;
+    other.gsi2_pk = Some(mk_gsi2_pk(&other_product_id));
+    other.gsi2_sk = Some(mk_gsi2_sk(&other.user_id));
+    repository
+        .put_user_search_filter_match_record(other)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let actual = repository
+        .query_user_search_filter_match_keys_for_product_id(&product_id)
+        .await
+        .unwrap();
+
+    assert_eq!(expected.len(), actual.len());
+    for key in expected {
+        assert!(actual.contains(&key));
+    }
+}
+
+#[localstack_test(services = [DynamoDB()])]
+async fn should_delete_match_records_by_key_parts() {
+    let repository = get_repository().await;
+    let product_id = ProductId::new();
+    let other_product_id = ProductId::new();
+    let mut records = Vec::new();
+
+    for _ in 0..2 {
+        let user_id = UserId::new();
+        let search_filter_id = UserSearchFilterId::new();
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
+        record.pk = mk_pk(&user_id);
+        record.sk = mk_sk(&search_filter_id, &shop_id, &shops_product_id);
+        record.gsi2_pk = Some(mk_gsi2_pk(&product_id));
+        record.gsi2_sk = Some(mk_gsi2_sk(&user_id));
+        record.user_id = user_id;
+        record.user_search_filter_id = search_filter_id;
+        record.shop_id = shop_id;
+        record.shops_product_id = shops_product_id;
+        record.product_id = product_id;
+        repository
+            .put_user_search_filter_match_record(record.clone())
+            .await
+            .unwrap();
+        records.push(record);
+    }
+
+    let mut untouched = Faker.fake::<UserSearchFilterMatchRecord>();
+    untouched.product_id = other_product_id;
+    untouched.gsi2_pk = Some(mk_gsi2_pk(&other_product_id));
+    untouched.gsi2_sk = Some(mk_gsi2_sk(&untouched.user_id));
+    repository
+        .put_user_search_filter_match_record(untouched.clone())
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let keys = repository
+        .query_user_search_filter_match_keys_for_product_id(&product_id)
+        .await
+        .unwrap();
+    repository
+        .delete_user_search_filter_match_records(keys.try_into().unwrap())
+        .await
+        .unwrap();
+
+    for record in records {
+        let actual = repository
+            .get_user_search_filter_match_record(
+                &record.user_id,
+                &record.user_search_filter_id,
+                &record.shop_id,
+                &record.shops_product_id,
+            )
+            .await
+            .unwrap();
+        assert!(actual.is_none());
+    }
+    let actual = repository
+        .get_user_search_filter_match_record(
+            &untouched.user_id,
+            &untouched.user_search_filter_id,
+            &untouched.shop_id,
+            &untouched.shops_product_id,
+        )
+        .await
+        .unwrap();
+    assert!(actual.is_some());
 }
 
 #[localstack_test(services = [DynamoDB()])]

@@ -18,6 +18,13 @@ export const QUEUE_DEFINITIONS = {
     visibilityTimeoutSeconds: 360,
     maxReceiveCount: 5,
   },
+  productDeleteProduct: {
+    id: "ProductDeleteProduct",
+    queueName: "product-lambda-delete-product-queue",
+    deadLetterQueueName: "product-lambda-delete-product-dlq",
+    visibilityTimeoutSeconds: 360,
+    maxReceiveCount: 5,
+  },
   productPartnerIngest: {
     id: "ProductPartnerIngest",
     queueName: "product-lambda-ingest-partner-products-queue",

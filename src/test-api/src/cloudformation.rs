@@ -51,6 +51,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "notification-send",
     "product-lambda-materialize-opensearch",
     "product-lambda-ingest-partner-products",
+    "product-lambda-delete-product",
     "product-pipeline-embed-text",
     "product-pipeline-translate",
     "shop-lambda-opensearch-index",
@@ -174,6 +175,8 @@ impl IntegrationTestService for Cloudformation {
             cfn.product_materialize_opensearch_queue_url.clone(),
             cfn.product_materialize_opensearch_dead_letter_queue_url
                 .clone(),
+            cfn.product_delete_product_queue_url.clone(),
+            cfn.product_delete_product_dead_letter_queue_url.clone(),
             cfn.product_partner_ingest_queue_url.clone(),
             cfn.product_partner_ingest_dead_letter_queue_url.clone(),
             cfn.shop_opensearch_index_queue_url.clone(),

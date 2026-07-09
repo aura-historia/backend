@@ -275,6 +275,9 @@
                     "state": {
                         "type": "keyword"
                     },
+                    "lifecycle": {
+                        "type": "keyword"
+                    },
                     "created": {
                         "type": "object",
                         "properties": {

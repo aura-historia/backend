@@ -3,6 +3,7 @@ use crate::core::product_event::ProductEventLog;
 use crate::dynamodb::product_event_record::ProductEventRecord;
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
+use crate::dynamodb::product_event_record::lifecycle::ProductLifecycleEventRecord;
 use crate::dynamodb::product_record::ProductRecord;
 use crate::dynamodb::product_update_record::ProductRecordUpdate;
 use crate::dynamodb::repository::ProductDynamoDbRepository;
@@ -21,6 +22,7 @@ use common::logging::{LogEventType, LogWriteSource};
 use common::mergeable::Mergeable;
 use common::price::domain::FxRate;
 use common::product_id::ProductKey;
+use common::product_lifecycle::domain::ProductLifecycle;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use fxrate::dynamodb::record::FxRatesRecord;
@@ -41,13 +43,24 @@ pub trait CommandProductService {
         cmds: HashMap<ProductKey, UpdateProductCommand>,
     ) -> HashMap<ProductKey, UpdateProductCommand>;
     async fn upsert(&self, cmds: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand>;
+    async fn delete(&self, product_key: &ProductKey) -> Result<(), DeleteProductCommandError>;
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DeleteProductCommandError {
+    #[error("Product not found")]
+    NotFound,
+    #[error("Failed loading product before delete: {0}")]
+    Load(String),
+    #[error("Failed product delete transaction: {0}")]
+    Persist(String),
 }
 
 pub struct CommandProductServiceImpl<'a> {
     dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-    fx_rate: FxRatesRecord,
-    get_shop_service: &'a (dyn GetShopService + Sync),
-    seller_service: &'a (dyn SellerService + Sync),
+    fx_rate: Option<FxRatesRecord>,
+    get_shop_service: Option<&'a (dyn GetShopService + Sync)>,
+    seller_service: Option<&'a (dyn SellerService + Sync)>,
 }
 
 struct ResolvedShopInformation {
@@ -68,16 +81,43 @@ impl<'a> CommandProductServiceImpl<'a> {
         let fx_rate = fx_rate_service.get_current().await?;
         Ok(Self {
             dynamodb_repository,
-            fx_rate,
-            get_shop_service,
-            seller_service,
+            fx_rate: Some(fx_rate),
+            get_shop_service: Some(get_shop_service),
+            seller_service: Some(seller_service),
         })
+    }
+
+    pub fn new_delete_only(
+        dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
+    ) -> Self {
+        Self {
+            dynamodb_repository,
+            fx_rate: None,
+            get_shop_service: None,
+            seller_service: None,
+        }
+    }
+
+    fn fx_rate(&self) -> &FxRatesRecord {
+        self.fx_rate
+            .as_ref()
+            .expect("fx rate must exist for create, update, and upsert")
+    }
+
+    fn get_shop_service(&self) -> &(dyn GetShopService + Sync) {
+        self.get_shop_service
+            .expect("shop service must exist for create and upsert")
+    }
+
+    fn seller_service(&self) -> &(dyn SellerService + Sync) {
+        self.seller_service
+            .expect("seller service must exist for create and upsert")
     }
 
     fn enrich_price(&self, cmd: &mut CreateProductCommand) {
         if let Some(price) = &cmd.native_price {
             match self
-                .fx_rate
+                .fx_rate()
                 .exchange_all(price.currency, price.monetary_amount)
             {
                 Ok(other) => cmd.other_price = other,
@@ -88,7 +128,7 @@ impl<'a> CommandProductServiceImpl<'a> {
         }
         if let Some(price) = &cmd.native_price_estimate_min {
             match self
-                .fx_rate
+                .fx_rate()
                 .exchange_all(price.currency, price.monetary_amount)
             {
                 Ok(other) => cmd.other_price_estimate_min = other,
@@ -99,7 +139,7 @@ impl<'a> CommandProductServiceImpl<'a> {
         }
         if let Some(price) = &cmd.native_price_estimate_max {
             match self
-                .fx_rate
+                .fx_rate()
                 .exchange_all(price.currency, price.monetary_amount)
             {
                 Ok(other) => cmd.other_price_estimate_max = other,
@@ -114,7 +154,7 @@ impl<'a> CommandProductServiceImpl<'a> {
         &self,
         cmd: &mut CreateProductCommand,
     ) -> Option<ResolvedShopInformation> {
-        let shop = match self.get_shop_service.find_shop(&cmd.shop_id).await {
+        let shop = match self.get_shop_service().find_shop(&cmd.shop_id).await {
             Ok(shop) => shop,
             Err(err) => {
                 warn!(
@@ -137,7 +177,7 @@ impl<'a> CommandProductServiceImpl<'a> {
                 if let Some(raw_name) = cmd.seller_name_raw.as_deref() {
                     let shop_name = ShopName::from(raw_name);
                     match self
-                        .seller_service
+                        .seller_service()
                         .get_seller_shop_details(&shop_name)
                         .await
                     {
@@ -270,6 +310,51 @@ impl<'a> CommandProductServiceImpl<'a> {
 
 #[async_trait]
 impl CommandProductService for CommandProductServiceImpl<'_> {
+    async fn delete(&self, product_key: &ProductKey) -> Result<(), DeleteProductCommandError> {
+        let record = self
+            .dynamodb_repository
+            .get_product_record(&product_key.shop_id, &product_key.shops_product_id)
+            .await
+            .map_err(|err| DeleteProductCommandError::Load(format!("{err:?}")))?
+            .ok_or(DeleteProductCommandError::NotFound)?;
+
+        if ProductLifecycle::from(record.lifecycle) == ProductLifecycle::Deleted {
+            return Ok(());
+        }
+
+        let expected_event_id = record.event_id;
+        let mut product = Product::from(record);
+        let Some(event) = product.delete() else {
+            return Ok(());
+        };
+        let event_record = ProductEventRecord::Lifecycle(ProductLifecycleEventRecord::from(event));
+        let update = match &event_record {
+            ProductEventRecord::Lifecycle(lifecycle) => {
+                ProductRecordUpdate::from(lifecycle.clone())
+            }
+            _ => ProductRecordUpdate::default(),
+        };
+        let event_log = ProductEventLog::from(&event_record)
+            .with_event_type(LogEventType::EntityWrite)
+            .with_write_source(LogWriteSource::ProductCommandService)
+            .with_msg("Persisted product delete transaction.");
+
+        self.dynamodb_repository
+            .transact_write_product_update(
+                vec![event_record],
+                update,
+                product.key(),
+                expected_event_id,
+            )
+            .await
+            .map_err(|err| {
+                warn!(error = ?err, "Failed product delete transaction.");
+                DeleteProductCommandError::Persist(format!("{err:?}"))
+            })?;
+        event_log.log();
+        Ok(())
+    }
+
     async fn create(&self, cmds: Vec<CreateProductCommand>) -> Vec<CreateProductCommand> {
         let mut failures = Vec::new();
 
@@ -428,7 +513,7 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
                         .collect();
 
                     let events =
-                        determine_update_events(&mut working, records.items, &self.fx_rate);
+                        determine_update_events(&mut working, records.items, self.fx_rate());
 
                     // Remaining items in `working` are products not found in DynamoDB —
                     // `determine_update_events` removes matched keys.
@@ -522,7 +607,7 @@ impl CommandProductService for CommandProductServiceImpl<'_> {
 
                     // Determine update events for existing products
                     let update_events =
-                        determine_update_events(&mut update_cmds, records.items, &self.fx_rate);
+                        determine_update_events(&mut update_cmds, records.items, self.fx_rate());
 
                     let mut update_events_by_key: HashMap<ProductKey, Vec<ProductEventRecord>> =
                         HashMap::new();
@@ -644,6 +729,12 @@ fn build_combined_update(event_records: &[ProductEventRecord]) -> ProductRecordU
     };
     for record in event_records {
         match record {
+            ProductEventRecord::Lifecycle(lifecycle) => {
+                let upd = ProductRecordUpdate::from(lifecycle.clone());
+                combined.updated = upd.updated;
+                combined.event_id = upd.event_id.or(combined.event_id);
+                combined.lifecycle = upd.lifecycle.or(combined.lifecycle);
+            }
             ProductEventRecord::Domain(domain) => {
                 let upd = ProductRecordUpdate::from(domain.clone());
                 combined.updated = upd.updated;
@@ -668,6 +759,7 @@ fn build_combined_update(event_records: &[ProductEventRecord]) -> ProductRecordU
                 combined.price_sgd = upd.price_sgd.or(combined.price_sgd);
                 combined.price_chf = upd.price_chf.or(combined.price_chf);
                 combined.state = upd.state.or(combined.state);
+                combined.lifecycle = upd.lifecycle.or(combined.lifecycle);
                 combined.title_de = upd.title_de.or(combined.title_de);
                 combined.title_en = upd.title_en.or(combined.title_en);
                 combined.title_fr = upd.title_fr.or(combined.title_fr);

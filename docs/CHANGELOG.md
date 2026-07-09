@@ -6,6 +6,19 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-07-09 - Add Partner Product Delete
+
+### Added
+
+- **`DELETE /api/v1/shops/{shopId}/products/{shopsProductId}`**
+  - Allows admins and users partnered with the shop to soft-delete a product.
+  - Returns `200 OK` after appending a lifecycle delete event and marking the
+    materialized product record as `DELETED`.
+- **Product lifecycle fields**
+  - Product read response schemas now expose `lifecycle` (`ACTIVE`, `DELETED`).
+  - Product search keeps deleted products hidden by default; lifecycle is not a
+    user-facing search input.
+
 ## 2026-06-28 - Add Product ID Exclusion to Product Search
 
 ### Added

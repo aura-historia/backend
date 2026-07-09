@@ -12,6 +12,7 @@ use common::language::document::TextDocument;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::product_id::{ProductId, ProductKey};
+use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::product_slug_id::ProductSlugId;
 use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
@@ -190,6 +191,7 @@ pub struct ProductDocument {
     pub price_estimate_max_chf: Option<u64>,
 
     pub state: ProductStateDocument,
+    pub lifecycle: ProductLifecycleDocument,
     pub url: Url,
     pub view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
@@ -355,6 +357,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductDocument {
             price_estimate_max_sgd: event_product_document.new_price_estimate_max_sgd,
             price_estimate_max_chf: event_product_document.new_price_estimate_max_chf,
             state,
+            lifecycle: ProductLifecycleDocument::Active,
             url: event_product_document.url.ok_or_else(|| {
                 MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
             })?,
@@ -469,6 +472,7 @@ impl From<ProductRecord> for ProductDocument {
             price_estimate_max_sgd: product_document.price_estimate_max_sgd,
             price_estimate_max_chf: product_document.price_estimate_max_chf,
             state: product_document.state.into(),
+            lifecycle: product_document.lifecycle.into(),
             url: product_document.url.clone(),
             view_url: product_document.view_url,
             images: product_document
@@ -816,6 +820,7 @@ impl From<Product> for ProductDocument {
                 )
                 .map(u64::from),
             state: product.state.into(),
+            lifecycle: product.lifecycle.into(),
             url: product.url,
             view_url: product.view_url,
             images: product
@@ -1055,6 +1060,7 @@ impl From<ProductDocument> for Product {
             native_price_estimate_max: None,
             other_price_estimate_max,
             state: product_document.state.into(),
+            lifecycle: product_document.lifecycle.into(),
             url: product_document.url,
             view_url: product_document.view_url,
             images: product_document
@@ -1170,6 +1176,7 @@ mod faker {
                 price_estimate_max_sgd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_max_chf: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state,
+                lifecycle: config.fake_with_rng(rng),
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
                     config.fake_with_rng::<u16, _>(rng)

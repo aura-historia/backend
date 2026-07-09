@@ -1,11 +1,13 @@
 use crate::dynamodb::product_event_record::domain::ProductDomainEventRecord;
 use crate::dynamodb::product_event_record::enrichment::ProductEnrichmentEventRecord;
+use crate::dynamodb::product_event_record::lifecycle::ProductLifecycleEventRecord;
 use crate::dynamodb::product_event_type_record::enrichment::ProductEnrichmentEventTypeRecord;
 use crate::opensearch::product_image_document::ProductImageDocument;
 use crate::opensearch::product_state_document::ProductStateDocument;
 use common::event_id::EventId;
 use common::language::record::LanguageRecord;
 use common::mergeable::Mergeable;
+use common::product_lifecycle::document::ProductLifecycleDocument;
 use indexmap::IndexSet;
 use serde::Serialize;
 use serde_fields::SerdeField;
@@ -56,6 +58,8 @@ pub struct ProductUpdateDocument {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub state: Option<ProductStateDocument>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub lifecycle: Option<ProductLifecycleDocument>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
@@ -191,6 +195,7 @@ impl Default for ProductUpdateDocument {
             price_sgd: None,
             price_chf: None,
             state: None,
+            lifecycle: None,
             title_de: None,
             title_en: None,
             title_fr: None,
@@ -265,6 +270,7 @@ impl Mergeable for ProductUpdateDocument {
             price_sgd,
             price_chf,
             state,
+            lifecycle,
             title_de,
             title_en,
             title_fr,
@@ -374,6 +380,9 @@ impl Mergeable for ProductUpdateDocument {
         }
         if let Some(state) = state {
             self.state = Some(state);
+        }
+        if let Some(lifecycle) = lifecycle {
+            self.lifecycle = Some(lifecycle);
         }
         if let Some(title_de) = title_de {
             self.title_de = Some(title_de);
@@ -539,6 +548,7 @@ impl From<ProductDomainEventRecord> for ProductUpdateDocument {
             price_hkd: event_record.new_price_hkd,
             price_sgd: event_record.new_price_sgd,
             price_chf: event_record.new_price_chf,
+            lifecycle: None,
             title_de: event_record.title_de,
             title_en: event_record.title_en,
             title_fr: event_record.title_fr,
@@ -589,6 +599,17 @@ impl From<ProductDomainEventRecord> for ProductUpdateDocument {
             state,
             embedding: None,
             updated: event_record.timestamp,
+        }
+    }
+}
+
+impl From<ProductLifecycleEventRecord> for ProductUpdateDocument {
+    fn from(event_record: ProductLifecycleEventRecord) -> Self {
+        ProductUpdateDocument {
+            event_id: Some(event_record.event_id),
+            lifecycle: Some(event_record.new_lifecycle.into()),
+            updated: event_record.timestamp,
+            ..ProductUpdateDocument::default()
         }
     }
 }
@@ -661,6 +682,7 @@ impl From<ProductEnrichmentEventRecord> for ProductUpdateDocument {
             auction_start: None,
             auction_end: None,
             state: None,
+            lifecycle: None,
             embedding: event_record.embedding,
             updated: event_record.timestamp,
         };
@@ -795,6 +817,7 @@ mod faker {
                     None
                 },
                 state,
+                lifecycle: config.fake_with_rng(rng),
                 embedding: None,
                 updated: OffsetDateTime::now_utc(),
             }

@@ -3,6 +3,7 @@ use common::event_id::EventId;
 use common::language::document::{LanguageDocument, TextDocument};
 use common::language::record::LanguageRecord;
 use common::product_id::ProductId;
+use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::product_slug_id::ProductSlugId;
 use common::query::range_query::RangeQuery;
 use common::resource_state::record::ResourceStateRecord;
@@ -964,6 +965,7 @@ fn base_product_document() -> ProductDocument {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://example.com/products/renaissance-cabinet").unwrap(),
         view_url: Url::parse("https://example.com/products/renaissance-cabinet?utm_source=aura_historia&utm_medium=referral").unwrap(),
         images: Default::default(),
@@ -1129,6 +1131,7 @@ fn silver_tea_set_product_document() -> ProductDocument {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://example.com/products/victorian-silver-tea-service").unwrap(),
         view_url: Url::parse("https://example.com/products/victorian-silver-tea-service?utm_source=aura_historia&utm_medium=referral").unwrap(),
         images: Default::default(),
@@ -1303,6 +1306,7 @@ fn ming_vase_product_document() -> ProductDocument {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://example.com/products/ming-dynasty-blue-white-vase").unwrap(),
         view_url: Url::parse("https://example.com/products/ming-dynasty-blue-white-vase?utm_source=aura_historia&utm_medium=referral").unwrap(),
         images: Default::default(),
@@ -1493,6 +1497,7 @@ fn louis_xv_fauteuil_product_document() -> ProductDocument {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://example.com/products/louis-xv-walnut-fauteuil").unwrap(),
         view_url: Url::parse("https://example.com/products/louis-xv-walnut-fauteuil?utm_source=aura_historia&utm_medium=referral").unwrap(),
         images: Default::default(),

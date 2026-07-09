@@ -3,6 +3,7 @@ use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::domain::Language;
+use common::product_lifecycle::domain::ProductLifecycle;
 use notification::core::notification::{NotificationPayload, NotificationSearchFilterPayload};
 use notification::service::command::CreateNotificationCommand;
 use product::core::description::Description;
@@ -163,6 +164,7 @@ impl<'a> ProductMatcherServiceImpl<'a> {
                 native_price_estimate_max: created_payload.native_price_estimate_max,
                 other_price_estimate_max: created_payload.other_price_estimate_max,
                 state: created_payload.state,
+                lifecycle: ProductLifecycle::Active,
                 url: created_payload.url,
                 view_url: created_payload.view_url,
                 images: created_payload.images,

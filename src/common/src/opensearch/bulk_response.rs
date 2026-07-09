@@ -15,6 +15,7 @@ pub struct BulkResponse {
 pub enum BulkItemResult {
     Update { update: BulkOpResult },
     Create { create: BulkOpResult },
+    Delete { delete: BulkOpResult },
 }
 
 impl BulkItemResult {

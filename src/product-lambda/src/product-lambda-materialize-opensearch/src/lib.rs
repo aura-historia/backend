@@ -52,6 +52,11 @@ pub async fn handler(
                 let update = build_enrichment_update(enrichment_record);
                 merge_update(message_id, product_id, update, &mut updates);
             }
+            ProductEventRecord::Lifecycle(lifecycle_record) => {
+                let product_id = lifecycle_record.product_id;
+                let update = ProductUpdateDocument::from(lifecycle_record);
+                merge_update(message_id, product_id, update, &mut updates);
+            }
             ProductEventRecord::Policy(policy_record) => {
                 let product_id = policy_record.product_id;
                 let record_res = product_dynamodb_repository
@@ -214,6 +219,7 @@ fn handle_bulk_response(
             let op_result = match bulk_item_result {
                 BulkItemResult::Create { create } => create,
                 BulkItemResult::Update { update } => update,
+                BulkItemResult::Delete { delete } => delete,
             };
             Some(op_result).filter(|r| r.is_err())
         });

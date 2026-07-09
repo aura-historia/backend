@@ -1,7 +1,10 @@
-use common::{pagination::cursor::Cursor, product_id::ProductId, user_id::UserId};
+use common::{
+    pagination::cursor::Cursor, product_id::ProductId, shop_id::ShopId,
+    shops_product_id::ShopsProductId, user_id::UserId,
+};
 use fake::{Fake, Faker};
 use product_watchlist::dynamodb::{
-    record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk},
+    record::{WatchlistProductRecord, mk_gsi1_pk, mk_gsi1_sk, mk_pk, mk_sk},
     record_update::WatchlistProductRecordUpdate,
     repository::{WatchlistProductDynamoDbRepository, WatchlistProductDynamoDbRepositoryImpl},
 };
@@ -352,6 +355,74 @@ fn should_query_all_users_watching_product() {
         .unwrap();
 
     assert_eq!(42, actual.len());
+}
+
+#[localstack_test(services = [DynamoDB()])]
+fn should_delete_watchlist_records_by_key_parts() {
+    let repository = get_repository().await;
+    let product_id = ProductId::new();
+    let untouched_product_id = ProductId::new();
+
+    let mut records = Vec::new();
+    for _ in 0..3 {
+        let user_id = UserId::new();
+        let shop_id = ShopId::new();
+        let shops_product_id = ShopsProductId::new();
+        let mut record = Faker.fake::<WatchlistProductRecord>();
+        record.pk = mk_pk(&user_id);
+        record.sk = mk_sk(&shop_id, &shops_product_id);
+        record.gsi1_pk = mk_gsi1_pk(&product_id);
+        record.gsi1_sk = mk_gsi1_sk(&user_id);
+        record.user_id = user_id;
+        record.product_id = product_id;
+        record.shop_id = shop_id;
+        record.shops_product_id = shops_product_id;
+        repository
+            .put_watchlist_record(record.clone())
+            .await
+            .unwrap();
+        records.push(record);
+    }
+
+    let mut untouched = Faker.fake::<WatchlistProductRecord>();
+    untouched.product_id = untouched_product_id;
+    untouched.gsi1_pk = mk_gsi1_pk(&untouched_product_id);
+    repository
+        .put_watchlist_record(untouched.clone())
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let queried = repository
+        .query_user_ids_watching_product(&product_id)
+        .await
+        .unwrap();
+    let keys = queried
+        .into_iter()
+        .map(|record| (record.user_id, record.shop_id, record.shops_product_id))
+        .collect::<Vec<_>>();
+    repository
+        .delete_watchlist_records(keys.try_into().unwrap())
+        .await
+        .unwrap();
+
+    for record in records {
+        let actual = repository
+            .get_watchlist_record(&record.user_id, &record.shop_id, &record.shops_product_id)
+            .await
+            .unwrap();
+        assert!(actual.is_none());
+    }
+    let actual = repository
+        .get_watchlist_record(
+            &untouched.user_id,
+            &untouched.shop_id,
+            &untouched.shops_product_id,
+        )
+        .await
+        .unwrap();
+    assert!(actual.is_some());
 }
 
 #[localstack_test(services = [DynamoDB()])]

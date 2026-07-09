@@ -853,6 +853,68 @@ paths:
                 error: "INTERNAL_SERVER_ERROR"
 
   /api/v1/shops/{shopId}/products/{shopsProductId}:
+    delete:
+      summary: Delete product (Partner API)
+      description: |
+        Soft-deletes a product for a shop. The endpoint writes a product lifecycle delete event
+        and marks the materialized DynamoDB product record as `DELETED` before returning `200`.
+
+        Allowed callers are Aura Historia admins and users partnered with the target shop.
+        Aura Historia access tokens must include the `products:write` scope.
+      operationId: deletePartnerProduct
+      tags:
+        - Products
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          description: Unique identifier of the partner shop
+          schema:
+            type: string
+            format: uuid
+        - name: shopsProductId
+          in: path
+          required: true
+          description: Shop's unique identifier for the product
+          schema:
+            type: string
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      responses:
+        "200":
+          description: Product delete accepted and materialized as a soft delete.
+          headers:
+            Access-Control-Allow-Origin:
+              description: CORS header
+              schema:
+                type: string
+              example: "*"
+        "401":
+          description: Unauthorized — the bearer token is missing, invalid, expired, or unknown.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden — caller is neither admin nor partnered with this shop.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found — the specified shop or product does not exist.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Internal server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
     get:
       summary: Get a single product
       description: |
@@ -1909,6 +1971,7 @@ paths:
               $ref: "#/components/schemas/ProductStateData"
             uniqueItems: true
           example: ["AVAILABLE"]
+
         - name: created
           in: query
           required: false
@@ -10993,6 +11056,7 @@ components:
         - shopType
         - title
         - state
+        - lifecycle
         - url
         - viewUrl
         - images
@@ -11067,6 +11131,8 @@ components:
             When null, no pricing information is available for this product.
         state:
           $ref: "#/components/schemas/ProductStateData"
+        lifecycle:
+          $ref: "#/components/schemas/ProductLifecycleData"
         url:
           type: string
           format: uri
@@ -11120,6 +11186,7 @@ components:
         - shopType
         - title
         - state
+        - lifecycle
         - url
         - viewUrl
         - images
@@ -11173,6 +11240,8 @@ components:
           description: Optional product price
         state:
           $ref: "#/components/schemas/ProductStateData"
+        lifecycle:
+          $ref: "#/components/schemas/ProductLifecycleData"
         url:
           type: string
           format: uri
@@ -11668,6 +11737,15 @@ components:
         - UNKNOWN: Product has an unknown state
       example: AVAILABLE
 
+    ProductLifecycleData:
+      type: string
+      enum: [ACTIVE, DELETED]
+      description: |
+        Lifecycle state of the product:
+        - ACTIVE: Product is visible in normal discovery flows
+        - DELETED: Product has been soft-deleted
+      example: ACTIVE
+
     AuctionData:
       type: object
       description: |
@@ -12055,6 +12133,7 @@ components:
           default: []
           nullable: true
           example: ["AVAILABLE"]
+
         created:
           allOf:
             - $ref: "#/components/schemas/RangeQueryDateTime"

@@ -449,6 +449,12 @@ function dataOutputs(
   new cdk.CfnOutput(stack, "ProductMaterializeOpensearchDeadLetterQueueUrl", {
     value: resources.queues.catalog.productMaterializeOpenSearch.deadLetterQueue.queueUrl,
   });
+  new cdk.CfnOutput(stack, "ProductDeleteProductQueueUrl", {
+    value: resources.queues.catalog.productDeleteProduct.queue.queueUrl,
+  });
+  new cdk.CfnOutput(stack, "ProductDeleteProductDeadLetterQueueUrl", {
+    value: resources.queues.catalog.productDeleteProduct.deadLetterQueue.queueUrl,
+  });
   new cdk.CfnOutput(stack, "ProductPartnerIngestQueueUrl", {
     value: resources.queues.catalog.productPartnerIngest.queue.queueUrl,
   });

@@ -265,6 +265,7 @@ mod tests {
             geo_address_distance_query: None,
             price_query: None,
             state_query: Default::default(),
+
             created_query: None,
             updated_query: None,
             auction_start_query: None,

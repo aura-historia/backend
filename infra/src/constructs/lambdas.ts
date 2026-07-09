@@ -158,6 +158,21 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
         }),
       ),
   },
+  productDeleteProduct: {
+    id: "ProductDeleteProductLambda",
+    binaryName: "product-lambda-delete-product",
+    memorySize: 512,
+    timeoutSeconds: 60,
+    environment: (context) =>
+      withLocalStackPort(
+        context.config,
+        withOpenSearchCredentials(context.config, {
+          ...baseEnvironment(context),
+          OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
+          STAGE: context.config.stage,
+        }),
+      ),
+  },
   productPartnerIngest: {
     id: "ProductPartnerIngestLambda",
     binaryName: "product-lambda-ingest-partner-products",
@@ -515,6 +530,7 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     functions.productApi,
     functions.productApiPartner,
     functions.productMaterializeOpenSearch,
+    functions.productDeleteProduct,
     functions.productPartnerIngest,
     functions.searchFilterApi,
     functions.searchFilterOpenSearchSync,

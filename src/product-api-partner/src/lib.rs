@@ -5,22 +5,24 @@ use common::api::{
 };
 use common::shop_id::ShopId;
 use lambda_runtime::LambdaEvent;
+use product::service::command_service::CommandProductService;
 use product_lambda_ingest_partner_products::AsyncProductCommandService;
 use shop::core::partner_shop::PartnerShop;
 use shop::service::get_service::GetShopService;
 use user::{
-    core::access_token::Scope,
+    core::{access_token::Scope, role::UserRole},
     service::{
         authenticator_service::{AuthenticatedPrincipal, AuthenticatorService},
         user_service::UserService,
     },
 };
 
+pub mod delete_product;
 pub mod patch_products;
 pub mod post_products;
 pub mod put_products;
 
-pub async fn authorize_partner_product_request(
+pub async fn authorize_partner_or_admin_product_request(
     headers: &http::HeaderMap,
     shop_id: &ShopId,
     get_shop_service: &(impl GetShopService + Sync),
@@ -46,14 +48,14 @@ pub async fn authorize_partner_product_request(
     };
 
     let user = user_service.find_user(&user_id).await?;
-    if !user.partner_shops.contains(shop_id) {
+    if user.role != UserRole::Admin && !user.partner_shops.contains(shop_id) {
         return Err(ApiError::forbidden(common::api::error_code::FORBIDDEN));
     }
     Ok(get_shop_service.find_partner_shop(shop_id).await?)
 }
 
 #[tracing::instrument(
-    skip(event, get_shop_service, user_service, authenticator_service, async_product_command_service),
+    skip(event, get_shop_service, user_service, authenticator_service, async_product_command_service, command_product_service),
     fields(
         requestId = %event.context.request_id,
         method = event.payload.request_context.http.method.as_str(),
@@ -69,6 +71,7 @@ pub async fn handler(
     user_service: &(impl UserService + Sync),
     authenticator_service: &(impl AuthenticatorService + Sync),
     async_product_command_service: &(impl AsyncProductCommandService + Sync),
+    command_product_service: &(impl CommandProductService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, lambda_runtime::Error> {
     match handle(
         event,
@@ -76,6 +79,7 @@ pub async fn handler(
         user_service,
         authenticator_service,
         async_product_command_service,
+        command_product_service,
     )
     .await
     {
@@ -93,6 +97,7 @@ pub async fn handle(
     user_service: &(impl UserService + Sync),
     authenticator_service: &(impl AuthenticatorService + Sync),
     async_product_command_service: &(impl AsyncProductCommandService + Sync),
+    command_product_service: &(impl CommandProductService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     match event.payload.route_key.as_deref() {
         Some("POST /api/v1/shops/{shopId}/products") => {
@@ -112,6 +117,16 @@ pub async fn handle(
                 user_service,
                 authenticator_service,
                 async_product_command_service,
+            )
+            .await
+        }
+        Some("DELETE /api/v1/shops/{shopId}/products/{shopsProductId}") => {
+            delete_product::handle(
+                event,
+                get_shop_service,
+                user_service,
+                authenticator_service,
+                command_product_service,
             )
             .await
         }
@@ -141,6 +156,7 @@ mod tests {
     use super::*;
     use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
     use lambda_runtime::LambdaEvent;
+    use product::service::command_service::MockCommandProductService;
     use product_lambda_ingest_partner_products::service::MockAsyncProductCommandService;
     use shop::service::get_service::MockGetShopService;
     use user::service::{
@@ -158,6 +174,7 @@ mod tests {
         let event = make_event(Some("GET /unknown"));
         let shop_service = MockGetShopService::default();
         let command_service = MockAsyncProductCommandService::default();
+        let command_product_service = MockCommandProductService::default();
         let user_service = MockUserService::default();
         let authenticator_service = MockAuthenticatorService::default();
 
@@ -167,6 +184,7 @@ mod tests {
             &user_service,
             &authenticator_service,
             &command_service,
+            &command_product_service,
         )
         .await;
         assert!(result.is_err());
@@ -179,6 +197,7 @@ mod tests {
         let event = make_event(None);
         let shop_service = MockGetShopService::default();
         let command_service = MockAsyncProductCommandService::default();
+        let command_product_service = MockCommandProductService::default();
         let user_service = MockUserService::default();
         let authenticator_service = MockAuthenticatorService::default();
 
@@ -188,6 +207,7 @@ mod tests {
             &user_service,
             &authenticator_service,
             &command_service,
+            &command_product_service,
         )
         .await;
         assert!(result.is_err());

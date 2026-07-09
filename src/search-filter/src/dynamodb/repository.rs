@@ -14,12 +14,12 @@ use aws_sdk_dynamodb::{
         query::QueryError,
         update_item::UpdateItemError,
     },
-    types::{AttributeValue, ReturnValue},
+    types::{AttributeValue, DeleteRequest, ReturnValue, WriteRequest},
 };
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{
-    batch::Batch, dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, shop_id::ShopId,
-    shops_product_id::ShopsProductId, user_id::UserId,
+    batch::Batch, dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor,
+    product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
 use std::collections::HashMap;
 use time::{Duration, OffsetDateTime};
@@ -119,6 +119,19 @@ pub trait UserSearchFilterDynamoDbRepository {
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
     ) -> Result<Vec<UserSearchFilterMatchRecord>, SdkError<QueryError, HttpResponse>>;
+
+    async fn query_user_search_filter_match_keys_for_product_id(
+        &self,
+        product_id: &ProductId,
+    ) -> Result<
+        Vec<(UserId, UserSearchFilterId, ShopId, ShopsProductId)>,
+        SdkError<QueryError, HttpResponse>,
+    >;
+
+    async fn delete_user_search_filter_match_records(
+        &self,
+        keys: Batch<(UserId, UserSearchFilterId, ShopId, ShopsProductId), 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>>;
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +169,24 @@ fn compute_lsi1_sk_bounds(
         };
         Ok((match_record::LSI1_SK_LOWER_BOUND.to_string(), upper))
     }
+}
+
+fn parse_match_key_parts(
+    pk: &str,
+    sk: &str,
+) -> Option<(UserId, UserSearchFilterId, ShopId, ShopsProductId)> {
+    let user_id = pk
+        .strip_prefix("user#")
+        .and_then(|value| UserId::try_from(value).ok())?;
+    let rest = sk.strip_prefix("search_filter_match#search_filter#")?;
+    let (search_filter_id, rest) = rest.split_once("#shop_id#")?;
+    let (shop_id, shops_product_id) = rest.split_once("#shops_product_id#")?;
+    Some((
+        user_id,
+        UserSearchFilterId::try_from(search_filter_id).ok()?,
+        ShopId::try_from(shop_id).ok()?,
+        ShopsProductId::raw(shops_product_id).ok()?,
+    ))
 }
 
 #[async_trait::async_trait]
@@ -681,5 +712,74 @@ impl<'a> UserSearchFilterDynamoDbRepository for UserSearchFilterDynamoDbReposito
             })
             .collect::<Vec<_>>();
         Ok(records)
+    }
+
+    async fn query_user_search_filter_match_keys_for_product_id(
+        &self,
+        product_id: &ProductId,
+    ) -> Result<
+        Vec<(UserId, UserSearchFilterId, ShopId, ShopsProductId)>,
+        SdkError<QueryError, HttpResponse>,
+    > {
+        use crate::dynamodb::user_search_filter_match_record as match_record;
+        let keys = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .index_name("gsi2")
+            .key_condition_expression("#gsi2_pk = :gsi2_pk_val")
+            .expression_attribute_names("#gsi2_pk", "gsi2_pk")
+            .expression_attribute_values(
+                ":gsi2_pk_val",
+                AttributeValue::S(match_record::mk_gsi2_pk(product_id)),
+            )
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|qo| qo.items.unwrap_or_default())
+            .filter_map(|mut item| {
+                let pk = item
+                    .remove("pk")
+                    .and_then(|value| value.as_s().ok().cloned());
+                let sk = item
+                    .remove("sk")
+                    .and_then(|value| value.as_s().ok().cloned());
+                match (pk, sk) {
+                    (Some(pk), Some(sk)) => parse_match_key_parts(&pk, &sk),
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+        Ok(keys)
+    }
+
+    async fn delete_user_search_filter_match_records(
+        &self,
+        keys: Batch<(UserId, UserSearchFilterId, ShopId, ShopsProductId), 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>> {
+        use crate::dynamodb::user_search_filter_match_record as match_record;
+        let mut requests = Vec::with_capacity(keys.len());
+        for (user_id, search_filter_id, shop_id, shops_product_id) in keys {
+            let delete = DeleteRequest::builder()
+                .key("pk", AttributeValue::S(match_record::mk_pk(&user_id)))
+                .key(
+                    "sk",
+                    AttributeValue::S(match_record::mk_sk(
+                        &search_filter_id,
+                        &shop_id,
+                        &shops_product_id,
+                    )),
+                )
+                .build()
+                .map_err(SdkError::construction_failure)?;
+            requests.push(WriteRequest::builder().delete_request(delete).build());
+        }
+        self.client
+            .batch_write_item()
+            .set_request_items(Some(HashMap::from([(self.table.clone(), requests)])))
+            .send()
+            .await
     }
 }

@@ -127,6 +127,7 @@ mod tests {
     use common::language::domain::Language;
     use common::localized::Localized;
     use common::personalized::Personalized;
+    use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_state::domain::ProductState;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
@@ -196,6 +197,7 @@ mod tests {
                     price_estimate_min: None,
                     price_estimate_max: None,
                     state: ProductState::Listed,
+                    lifecycle: ProductLifecycle::Active,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     view_url: Url::parse(
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
@@ -264,6 +266,7 @@ mod tests {
                     price_estimate_min: None,
                     price_estimate_max: None,
                     state: ProductState::Listed,
+                    lifecycle: ProductLifecycle::Active,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     view_url: Url::parse(
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
@@ -338,6 +341,7 @@ mod tests {
                     price_estimate_min: None,
                     price_estimate_max: None,
                     state: ProductState::Listed,
+                    lifecycle: ProductLifecycle::Active,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     view_url: Url::parse(
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
@@ -525,6 +529,7 @@ mod tests {
                     price_estimate_min: None,
                     price_estimate_max: None,
                     state: ProductState::Listed,
+                    lifecycle: ProductLifecycle::Active,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     view_url: Url::parse(
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
@@ -605,6 +610,7 @@ mod tests {
                     price_estimate_min: None,
                     price_estimate_max: None,
                     state: ProductState::Sold,
+                    lifecycle: ProductLifecycle::Active,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     view_url: Url::parse(
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
@@ -684,6 +690,7 @@ mod tests {
                     price_estimate_min: None,
                     price_estimate_max: None,
                     state: ProductState::Removed,
+                    lifecycle: ProductLifecycle::Active,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     view_url: Url::parse(
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",
@@ -764,6 +771,7 @@ mod tests {
                     price_estimate_min: None,
                     price_estimate_max: None,
                     state: ProductState::Listed,
+                    lifecycle: ProductLifecycle::Active,
                     url: Url::parse("https://foo.com/boop").unwrap(),
                     view_url: Url::parse(
                         "https://foo.com/boop?utm_source=aura_historia&utm_medium=referral",

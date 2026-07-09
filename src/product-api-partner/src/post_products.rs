@@ -20,7 +20,7 @@ pub async fn handle(
     async_product_command_service: &(impl AsyncProductCommandService + Sync),
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let shop_id = extract_shop_id_path(&event.payload.path_parameters)?;
-    let partner_shop = crate::authorize_partner_product_request(
+    let partner_shop = crate::authorize_partner_or_admin_product_request(
         &event.payload.headers,
         &shop_id,
         get_shop_service,

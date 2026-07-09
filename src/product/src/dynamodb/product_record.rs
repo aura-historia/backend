@@ -15,6 +15,7 @@ use common::localized::Localized;
 use common::price::domain::Price;
 use common::price::record::PriceRecord;
 use common::product_id::{ProductId, ProductKey};
+use common::product_lifecycle::record::ProductLifecycleRecord;
 use common::product_slug_id::ProductSlugId;
 use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
@@ -201,6 +202,7 @@ pub struct ProductRecord {
     pub price_estimate_max_chf: Option<u64>,
 
     pub state: ProductStateRecord,
+    pub lifecycle: ProductLifecycleRecord,
     pub url: Url,
     pub view_url: Url,
     #[serde(skip_serializing_if = "IndexSet::is_empty", default)]
@@ -479,6 +481,7 @@ impl From<ProductRecord> for Product {
             native_price_estimate_max: record.price_estimate_max_native.map(Price::from),
             other_price_estimate_max,
             state: record.state.into(),
+            lifecycle: record.lifecycle.into(),
             url: record.url.clone(),
             view_url: record.view_url,
             images: record.images.into_iter().map(ProductImage::from).collect(),
@@ -605,6 +608,7 @@ impl TryFrom<ProductDomainEventRecord> for ProductRecord {
             state: event_record.new_state.ok_or_else(|| {
                 MissingPersistenceField::new(field!(new_state@ProductDomainEventRecord))
             })?,
+            lifecycle: ProductLifecycleRecord::Active,
             url: event_record.url.ok_or_else(|| {
                 MissingPersistenceField::new(field!(url@ProductDomainEventRecord))
             })?,
@@ -743,6 +747,7 @@ mod faker {
                 price_estimate_max_sgd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_max_chf: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state,
+                lifecycle: config.fake_with_rng(rng),
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
                     config.fake_with_rng::<u16, _>(rng)

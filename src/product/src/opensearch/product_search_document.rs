@@ -2,6 +2,7 @@ use crate::core::product_search::{EnhancedSearchDescription, ProductSearch};
 use crate::opensearch::product_state_document::ProductStateDocument;
 use common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery};
 use common::product_id::ProductId;
+use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::seller_slug_id::SellerSlugId;
@@ -140,6 +141,12 @@ pub struct ProductSearchDocument {
     #[serde(rename = "state", skip_serializing_if = "HashSet::is_empty", default)]
     pub state_query: HashSet<ProductStateDocument>,
     #[serde(
+        rename = "lifecycle",
+        skip_serializing_if = "HashSet::is_empty",
+        default
+    )]
+    pub lifecycle_query: HashSet<ProductLifecycleDocument>,
+    #[serde(
         rename = "created",
         with = "common::query::range_query::range_rfc3339::option",
         default,
@@ -205,6 +212,11 @@ impl From<ProductSearch> for ProductSearchDocument {
                 .into_iter()
                 .map(ProductStateDocument::from)
                 .collect(),
+            lifecycle_query: search
+                .lifecycle_query
+                .into_iter()
+                .map(ProductLifecycleDocument::from)
+                .collect(),
             created_query: search.created_query,
             updated_query: search.updated_query,
             auction_start_query: search.auction_start_query,
@@ -247,6 +259,11 @@ impl From<ProductSearchDocument> for ProductSearch {
                 .price_query
                 .map(|query| query.map(MonetaryAmount::from)),
             state_query: document.state_query.into_iter().map(Into::into).collect(),
+            lifecycle_query: document
+                .lifecycle_query
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             created_query: document.created_query,
             updated_query: document.updated_query,
             auction_start_query: document.auction_start_query,

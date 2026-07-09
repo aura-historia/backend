@@ -15,7 +15,8 @@ consumed by a Lambda function.
 | `DynamoDbEventBus` | EventBridge Bus | Central routing bus for all DynamoDB stream events |
 | `TableOneStreamToEventBusPipe` | EventBridge Pipe | Filters DynamoDB stream records and publishes to the event bus |
 | `ProductMaterializeDynamoDbQ` | SQS + Lambda | Writes materialized product view to DynamoDB |
-| `ProductMaterializeOpenSearchQ` | SQS + Lambda | Indexes products in OpenSearch |
+| `ProductMaterializeOpenSearchQ` | SQS + Lambda | Indexes product updates in OpenSearch, including lifecycle |
+| `ProductDeleteProductQ` | SQS + Lambda | Deletes product from OpenSearch and removes watchlist/search-filter matches |
 | `ProductUpdateNotifyUserQ` | SQS + Lambda | Notifies watchlist users on price/state changes |
 | `SearchFilterPercolateProductQ` | SQS + Lambda | Matches products against saved search filters, notifies users |
 | `ProductPipelineTranslateQ` | SQS + Lambda | Translates product titles and descriptions (ML, GPU) |
@@ -31,7 +32,7 @@ consumed by a Lambda function.
 
 ```mermaid
 flowchart TD
-    API["Partner API\n(POST/PATCH/PUT /api/v1/shops/{shopId}/products)"]
+    API["Partner API\n(POST/PATCH/PUT/DELETE products)"]
     DB[("DynamoDB\ntable_1")]
     PIPE["EventBridge Pipe\nTableOneStreamToEventBusPipe"]
     BUS["EventBridge Bus\nDynamoDbEventBus"]
@@ -41,8 +42,9 @@ flowchart TD
     PIPE -->|"filtered INSERT/MODIFY/REMOVE"| BUS
 
     %% Materialization
-    BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* (INSERT)"| MatDDB["ProductMaterializeDynamoDbQ\n→ Lambda\n(write materialized view)"]
-    BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* (INSERT)"| MatOS["ProductMaterializeOpenSearchQ\n→ Lambda\n(index in OpenSearch)"]
+    BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* / LIFECYCLE_* (INSERT)"| MatDDB["ProductMaterializeDynamoDbQ\n→ Lambda\n(write materialized view)"]
+    BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* / LIFECYCLE_* (INSERT)"| MatOS["ProductMaterializeOpenSearchQ\n→ Lambda\n(index in OpenSearch)"]
+    BUS -->|"LIFECYCLE_DELETED (INSERT)"| DeleteProduct["ProductDeleteProductQ\n→ Lambda\n(delete OpenSearch + cleanup user records)"]
 
     %% User notifications (only price & state changes)
     BUS -->|"DOMAIN_PRICE_* / DOMAIN_STATE_* (INSERT)"| NotifyUser["ProductUpdateNotifyUserQ\n→ Lambda\n(notify watchlist users)"]
@@ -85,6 +87,7 @@ stateDiagram-v2
     [*] --> DOMAIN_URL_CHANGED
     [*] --> DOMAIN_IMAGES_CHANGED
     [*] --> DOMAIN_AUCTION_TIME_CHANGED
+    [*] --> LIFECYCLE_DELETED
 
     DOMAIN_CREATED --> ENRICHMENT_EMBEDDED
     ENRICHMENT_EMBEDDED --> ENRICHMENT_TRANSLATED_TITLE

@@ -27,6 +27,7 @@ pub mod localized;
 pub mod logging;
 pub mod mergeable;
 pub mod product_id;
+pub mod product_lifecycle;
 pub mod product_slug_id;
 pub mod product_state;
 

@@ -8,6 +8,7 @@ use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
 use common::product_id::{ProductId, ProductKey};
+use common::product_lifecycle::data::ProductLifecycleData;
 use common::product_slug_id::ProductSlugId;
 use common::shop_id::ShopId;
 use common::shop_slug_id::ShopSlugId;
@@ -41,6 +42,7 @@ pub struct GetProductData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<PricingData>,
     pub state: ProductStateData,
+    pub lifecycle: ProductLifecycleData,
     pub url: Url,
     pub view_url: Url,
     #[serde(default)]
@@ -107,6 +109,7 @@ impl GetProductData {
             description: product_view.description.map(LocalizedTextData::from),
             price,
             state: product_view.state.into(),
+            lifecycle: product_view.lifecycle.into(),
             url: product_view.url,
             view_url: product_view.view_url,
             images: product_view

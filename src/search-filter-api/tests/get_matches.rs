@@ -21,7 +21,7 @@ use search_filter::dynamodb::repository::{
     UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
 };
 use search_filter::dynamodb::user_search_filter_match_record::{
-    UserSearchFilterMatchRecord, mk_lsi1_sk, mk_lsi2_sk, mk_pk, mk_sk,
+    UserSearchFilterMatchRecord, mk_gsi2_pk, mk_gsi2_sk, mk_lsi1_sk, mk_lsi2_sk, mk_pk, mk_sk,
 };
 use search_filter::service::user_search_filter_service::{
     UserSearchFilterService, UserSearchFilterServiceImpl,
@@ -123,6 +123,8 @@ async fn seed_match_records(
                 &product_record.shops_product_id,
             ),
             lsi1_sk: mk_lsi1_sk(&created),
+            gsi2_pk: Some(mk_gsi2_pk(&product_record.product_id)),
+            gsi2_sk: Some(mk_gsi2_sk(user_id)),
             lsi2_sk: Some(mk_lsi2_sk(
                 &product_record.shop_id,
                 &product_record.shops_product_id,
