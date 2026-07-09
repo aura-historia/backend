@@ -135,7 +135,7 @@ impl IntegrationTestService for Cloudformation {
                 Ses().set_up().await;
                 deploy_stack().await;
                 extract_and_set_cfn_outputs().await;
-                crate::OpenSearch().set_up().await;
+                crate::opensearch::set_up_after_cloudformation().await;
             })
             .await;
     }

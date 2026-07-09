@@ -110,8 +110,8 @@ pub fn localstack_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_block = &input_fn.block;
 
     let expanded = quote! {
-        #[tokio::test]
         #[test_api::serial]
+        #[tokio::test]
         async fn #fn_name() {
             use std::collections::HashSet;
 
