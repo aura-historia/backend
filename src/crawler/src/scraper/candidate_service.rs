@@ -175,7 +175,8 @@ pub fn has_product_changed(candidate: &ScraperCandidate, product: &NormalizedPro
 pub trait ScraperCandidateService: Send + Sync {
     async fn get_candidates(
         &self,
-        limit: i64,
+        domain_limit: i64,
+        urls_per_domain: i64,
         excluded_domains: &[String],
     ) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
     /// Returns a random sample of product URLs for a shop (excluding the current
@@ -307,48 +308,84 @@ struct ScraperCandidateRow {
 }
 
 const SCRAPER_CANDIDATE_QUERY: &str = r#"
+    WITH eligible_urls AS (
+        SELECT
+            su.shop_id, s.shop_name, s.shop_type, s.url_pattern, su.url,
+            lower(substring(su.url from '^[a-z][a-z0-9+.-]*://([^/:?#]+)')) AS normalized_host,
+            su.last_scraped,
+            su.last_scraped_hash,
+            su.last_scraped_price,
+            su.last_scraped_price_estimate_min,
+            su.last_scraped_price_estimate_max,
+            su.last_scraped_url,
+            su.last_scraped_images_hash,
+            su.last_scraped_auction_start,
+            su.last_scraped_auction_end,
+            su.last_scraped_state
+        FROM shop_urls su
+        JOIN shops s ON s.shop_id = su.shop_id
+        WHERE s.active = TRUE
+          AND s.llm_calls_count < $3
+          AND su.url_class = 'product'
+          AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
+          AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
+          AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM crawler_reviews cr
+              WHERE cr.shop_id = su.shop_id
+                AND cr.artifact_type = 'PRODUCT_SCHEMA'
+                AND cr.status = 'PENDING_REVIEW'
+          )
+          AND NOT (
+              lower(substring(su.url from '^[a-z][a-z0-9+.-]*://([^/:?#]+)')) = ANY($4)
+          )
+    ),
+    selected_domains AS (
+        SELECT normalized_host
+        FROM eligible_urls
+        WHERE normalized_host IS NOT NULL
+        GROUP BY normalized_host
+        ORDER BY random()
+        LIMIT $1
+    ),
+    ranked_urls AS (
+        SELECT
+            eu.*,
+            row_number() OVER (
+                PARTITION BY eu.normalized_host
+                ORDER BY eu.last_scraped NULLS FIRST, eu.url
+            ) AS domain_url_rank
+        FROM eligible_urls eu
+        JOIN selected_domains sd ON sd.normalized_host = eu.normalized_host
+    )
     SELECT
-        su.shop_id, s.shop_name, s.shop_type, s.url_pattern, su.url,
-        su.last_scraped_hash,
-        su.last_scraped_price,
-        su.last_scraped_price_estimate_min,
-        su.last_scraped_price_estimate_max,
-        su.last_scraped_url,
-        su.last_scraped_images_hash,
-        su.last_scraped_auction_start,
-        su.last_scraped_auction_end,
-        su.last_scraped_state
-    FROM shop_urls su
-    JOIN shops s ON s.shop_id = su.shop_id
-    WHERE s.active = TRUE
-      AND s.llm_calls_count < $2
-      AND su.url_class = 'product'
-      AND su.last_scraped_state IN ('AVAILABLE', 'UNKNOWN', 'LISTED', 'RESERVED')
-      AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
-      AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
-      AND NOT EXISTS (
-          SELECT 1
-          FROM crawler_reviews cr
-          WHERE cr.shop_id = su.shop_id
-            AND cr.artifact_type = 'PRODUCT_SCHEMA'
-            AND cr.status = 'PENDING_REVIEW'
-      )
-      AND NOT (
-          lower(substring(su.url from '^[a-z][a-z0-9+.-]*://([^/:?#]+)')) = ANY($3)
-      )
-    ORDER BY su.last_scraped NULLS FIRST
-    LIMIT $1
+        shop_id, shop_name, shop_type, url_pattern, url,
+        last_scraped_hash,
+        last_scraped_price,
+        last_scraped_price_estimate_min,
+        last_scraped_price_estimate_max,
+        last_scraped_url,
+        last_scraped_images_hash,
+        last_scraped_auction_start,
+        last_scraped_auction_end,
+        last_scraped_state
+    FROM ranked_urls
+    WHERE domain_url_rank <= $2
+    ORDER BY normalized_host, domain_url_rank, url
     "#;
 
 #[async_trait]
 impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(
         &self,
-        limit: i64,
+        domain_limit: i64,
+        urls_per_domain: i64,
         excluded_domains: &[String],
     ) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(SCRAPER_CANDIDATE_QUERY)
-            .bind(limit)
+            .bind(domain_limit)
+            .bind(urls_per_domain)
             .bind(self.max_llm_calls_per_shop)
             .bind(excluded_domains)
             .fetch_all(&self.pool)

@@ -539,7 +539,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
 
@@ -631,7 +631,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
         let scraper_service = MockScraperService::new();
 
         let job = CrawlerCronJob::new(
@@ -687,7 +687,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
 
@@ -738,7 +738,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
 
@@ -786,7 +786,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
 
@@ -841,7 +841,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
 
@@ -894,7 +894,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
 
@@ -955,7 +955,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
 
@@ -1017,7 +1017,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
 
@@ -1099,7 +1099,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
 
@@ -1133,7 +1133,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(|_, _| Box::pin(async { Ok(vec![]) }));
+            .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
 
         let scraper_service = MockScraperService::new();
         let lock_manager = Arc::new(LocalLockManager::new());

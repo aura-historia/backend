@@ -6,6 +6,7 @@ use crawler::spider::classification::url_metadata::{UrlClass, UrlState};
 use crawler::spider::classification::url_metadata_repository::{
     UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
+use std::collections::HashMap;
 use test_api::*;
 
 const RDS: Rds = Rds {
@@ -441,7 +442,7 @@ async fn scraper_should_return_empty_when_no_eligible_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
     assert!(
         candidates.is_empty(),
@@ -469,7 +470,7 @@ async fn scraper_should_return_candidate_when_product_url_never_scraped() {
     )
     .await;
 
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
     assert!(
         candidates
@@ -504,7 +505,7 @@ async fn scraper_should_not_return_candidate_when_recently_scraped() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.url.as_str() == url),
@@ -538,7 +539,7 @@ async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
     .await
     .unwrap();
 
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
     assert!(
         candidates.iter().any(|c| c.url.as_str() == url),
@@ -567,7 +568,7 @@ async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.url == url),
@@ -597,7 +598,7 @@ async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.url.as_str() == url),
@@ -638,7 +639,7 @@ async fn scraper_should_not_return_candidate_when_state_is_excluded() {
         .await
         .unwrap();
 
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
     assert!(
         !candidates.iter().any(|c| c.url == url_sold),
@@ -695,7 +696,7 @@ async fn scraper_should_return_candidate_for_all_included_states() {
         repo.set_state(&shop_id, &url, state).await.unwrap();
     }
 
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
 
     for (_, url_str) in &states {
         assert!(
@@ -728,13 +729,174 @@ async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
         .await;
     }
 
-    let candidates = service.get_candidates(3, &[]).await.unwrap();
+    let candidates = service.get_candidates(10, 3, &[]).await.unwrap();
 
     assert_eq!(
         candidates.len(),
         3,
-        "get_candidates(3) should return at most 3 results"
+        "get_candidates(10, 3) should return at most 3 URLs from one selected domain"
     );
+}
+
+// ---------------------------------------------------------------------------
+// get_candidates - random domain-fair fetching caps domains and URLs per domain
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[localstack_test(services = [RDS])]
+async fn scraper_should_cap_domains_and_urls_per_domain_when_fetching_candidates() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    let hot_shop_id_uuid = uuid::Uuid::new_v4();
+    let hot_domain = insert_shop_with_domain(&pool, hot_shop_id_uuid, "fair-hot.example.com").await;
+    for i in 0..10u32 {
+        insert_product_url(
+            &pool,
+            hot_shop_id_uuid,
+            hot_domain,
+            &format!("https://fair-hot.example.com/p/{i}"),
+        )
+        .await;
+    }
+
+    for domain_idx in 0..4u32 {
+        let shop_id_uuid = uuid::Uuid::new_v4();
+        let domain_name = format!("fair-cold-{domain_idx}.example.com");
+        let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, &domain_name).await;
+        for url_idx in 0..4u32 {
+            insert_product_url(
+                &pool,
+                shop_id_uuid,
+                domain_id,
+                &format!("https://{domain_name}/p/{url_idx}"),
+            )
+            .await;
+        }
+    }
+
+    let candidates = service.get_candidates(3, 2, &[]).await.unwrap();
+
+    let mut counts_by_host: HashMap<String, usize> = HashMap::new();
+    for candidate in &candidates {
+        let host = candidate
+            .url
+            .host_str()
+            .expect("candidate URL should have host")
+            .to_string();
+        *counts_by_host.entry(host).or_default() += 1;
+    }
+
+    assert!(
+        counts_by_host.len() <= 3,
+        "candidate fetch should select at most 3 domains"
+    );
+    assert!(
+        counts_by_host.values().all(|count| *count <= 2),
+        "candidate fetch should select at most 2 URLs per domain"
+    );
+    assert!(
+        candidates.len() <= 6,
+        "candidate fetch should return at most N * M URLs"
+    );
+    assert!(
+        counts_by_host
+            .get("fair-hot.example.com")
+            .copied()
+            .unwrap_or(0)
+            <= 2,
+        "hot domain must not fill the whole fetch"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// get_candidates - selected domain set changes across repeated calls
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[localstack_test(services = [RDS])]
+async fn scraper_should_randomize_selected_domains_across_repeated_fetches() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    for i in 0..10u32 {
+        let shop_id_uuid = uuid::Uuid::new_v4();
+        let domain_name = format!("random-domain-{i}.example.com");
+        let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, &domain_name).await;
+        insert_product_url(
+            &pool,
+            shop_id_uuid,
+            domain_id,
+            &format!("https://{domain_name}/p/1"),
+        )
+        .await;
+    }
+
+    let mut observed_sets: std::collections::HashSet<Vec<String>> =
+        std::collections::HashSet::new();
+    for _ in 0..20 {
+        let candidates = service.get_candidates(3, 1, &[]).await.unwrap();
+        let mut hosts: Vec<String> = candidates
+            .iter()
+            .filter_map(|candidate| candidate.url.host_str().map(str::to_string))
+            .collect();
+        hosts.sort();
+        observed_sets.insert(hosts);
+    }
+
+    assert!(
+        observed_sets.len() > 1,
+        "random domain selection should not return the same host set every time"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// get_candidates - selected URLs inside one domain are oldest first
+// ---------------------------------------------------------------------------
+
+#[serial]
+#[localstack_test(services = [RDS])]
+async fn scraper_should_order_urls_within_selected_domain_by_oldest_work_first() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    let shop_id_uuid = uuid::Uuid::new_v4();
+    let domain_id = insert_shop_with_domain(&pool, shop_id_uuid, "fair-order.example.com").await;
+    let never_url = "https://fair-order.example.com/p/never";
+    let oldest_url = "https://fair-order.example.com/p/oldest";
+    let newer_url = "https://fair-order.example.com/p/newer";
+    insert_product_url(&pool, shop_id_uuid, domain_id, newer_url).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, never_url).await;
+    insert_product_url(&pool, shop_id_uuid, domain_id, oldest_url).await;
+
+    sqlx::query(
+        "UPDATE shop_urls
+         SET last_scraped = NOW() - INTERVAL '2 days',
+             last_scraped_hash = 'newer'
+         WHERE url = $1",
+    )
+    .bind(newer_url)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE shop_urls
+         SET last_scraped = NOW() - INTERVAL '5 days',
+             last_scraped_hash = 'oldest'
+         WHERE url = $1",
+    )
+    .bind(oldest_url)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let candidates = service.get_candidates(1, 2, &[]).await.unwrap();
+    let urls: Vec<&str> = candidates
+        .iter()
+        .map(|candidate| candidate.url.as_str())
+        .collect();
+
+    assert_eq!(urls, vec![never_url, oldest_url]);
 }
 
 // ---------------------------------------------------------------------------
@@ -770,7 +932,10 @@ async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
     .await;
 
     let excluded_domains = vec!["scraper-blocked.example.com".to_string()];
-    let candidates = service.get_candidates(10, &excluded_domains).await.unwrap();
+    let candidates = service
+        .get_candidates(10, 100, &excluded_domains)
+        .await
+        .unwrap();
 
     assert!(
         !candidates
@@ -815,7 +980,7 @@ async fn scraper_should_order_never_scraped_before_stale() {
     .await
     .unwrap();
 
-    let candidates = service.get_candidates(100, &[]).await.unwrap();
+    let candidates = service.get_candidates(100, 100, &[]).await.unwrap();
 
     let pos_never = candidates
         .iter()
@@ -891,7 +1056,7 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
     insert_product_url(&pool, shop_id_uuid, domain_id, url_str).await;
 
     // Confirm it is returned before marking
-    let before = service.get_candidates(10, &[]).await.unwrap();
+    let before = service.get_candidates(10, 100, &[]).await.unwrap();
     assert!(
         before.iter().any(|c| c.url.as_str() == url_str),
         "URL should appear before mark_as_scraped"
@@ -905,7 +1070,7 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
         .unwrap();
 
     // After marking with NOW() timestamp it should no longer appear
-    let after = service.get_candidates(10, &[]).await.unwrap();
+    let after = service.get_candidates(10, 100, &[]).await.unwrap();
     assert!(
         !after.iter().any(|c| c.url.as_str() == url_str),
         "URL should not appear after mark_as_scraped"

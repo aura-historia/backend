@@ -467,7 +467,11 @@ impl CrawlerCronJob {
                 let excluded_domains: Vec<String> = excluded_domains.into_iter().collect();
                 let candidates = match self
                     .scraper_candidates
-                    .get_candidates(self.config.scraper_batch_size.max(1), &excluded_domains)
+                    .get_candidates(
+                        self.config.effective_scraper_domain_batch_size() as i64,
+                        self.config.scraper_urls_per_domain.max(1),
+                        &excluded_domains,
+                    )
                     .await
                 {
                     Ok(candidates) => candidates,
@@ -614,11 +618,11 @@ mod tests {
 
     fn get_candidates_once_by_domain<F>(
         build_candidates: F,
-    ) -> impl Fn(i64, &[String]) -> ScraperCandidateResultFuture + Send + Sync + 'static
+    ) -> impl Fn(i64, i64, &[String]) -> ScraperCandidateResultFuture + Send + Sync + 'static
     where
         F: Fn() -> Vec<ScraperCandidate> + Send + Sync + 'static,
     {
-        move |_, excluded_domains| {
+        move |_, _, excluded_domains| {
             let excluded_domains: HashSet<String> = excluded_domains.iter().cloned().collect();
             let candidates = build_candidates();
             Box::pin(async move {
@@ -1132,7 +1136,7 @@ mod tests {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
-            .returning(move |_, excluded_domains| {
+            .returning(move |_, _, excluded_domains| {
                 let excluded_domains = excluded_domains.to_vec();
                 let slow_url = slow_url_for_candidates.clone();
                 let fast_url = fast_url_for_candidates.clone();
@@ -1199,7 +1203,7 @@ mod tests {
         let job = scraper_job(
             CrawlerCronConfig {
                 scraper_concurrency: 2,
-                scraper_batch_size: 2,
+                scraper_urls_per_domain: 100,
                 scraper_domain_delay: Duration::ZERO,
                 ..CrawlerCronConfig::default()
             },

@@ -10,7 +10,11 @@ pub struct CrawlerCronConfig {
     pub spider_interval: Duration,
     pub scraper_interval: Duration,
     pub shop_sync_interval: Duration,
-    pub scraper_batch_size: i64,
+    /// Optional number of domains fetched per scraper scheduler refill.
+    /// Defaults to scraper concurrency.
+    pub scraper_domain_batch_size: Option<usize>,
+    /// Maximum URLs fetched per selected scraper domain.
+    pub scraper_urls_per_domain: i64,
     /// Number of scraped products to accumulate before flush.
     pub push_batch_size: usize,
     pub spider_concurrency: usize,
@@ -40,7 +44,8 @@ impl Default for CrawlerCronConfig {
             spider_interval: Duration::from_secs(600), // 10 minutes
             scraper_interval: Duration::from_secs(60), // 1 minute
             shop_sync_interval: Duration::from_secs(10800), // 3 hours
-            scraper_batch_size: 100,
+            scraper_domain_batch_size: None,
+            scraper_urls_per_domain: 100,
             push_batch_size: 25,
             spider_concurrency: 3,
             scraper_concurrency: 10,
@@ -70,6 +75,12 @@ impl CrawlerCronConfig {
             alpha: self.scraper_auto_throttle_alpha,
             enabled: true,
         }
+    }
+
+    pub fn effective_scraper_domain_batch_size(&self) -> usize {
+        self.scraper_domain_batch_size
+            .unwrap_or(self.scraper_concurrency)
+            .max(1)
     }
 
     pub async fn connect_pool(&self, url: &str) -> Result<PgPool, sqlx::Error> {

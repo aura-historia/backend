@@ -1,5 +1,4 @@
 use super::projection::html_to_schema_prompt_dsl;
-use crate::scraper::css_selector::product_schema::{ApplySchemaError, ProductCssSelectorSchema};
 
 const SAMPLE_LABEL: &str = "YAML";
 const SAMPLE_DESCRIPTION: &str = "The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.";
@@ -61,24 +60,8 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
     )
 }
 
-pub(super) fn build_append_schema_instruction(
-    html: &str,
-    failed_schema: Option<&ProductCssSelectorSchema>,
-    last_error: Option<&ApplySchemaError>,
-) -> String {
+pub(super) fn build_append_schema_instruction(html: &str) -> String {
     let prompt_page = html_to_schema_prompt_dsl(html);
-    let failure_context = match (failed_schema, last_error) {
-        (Some(schema), Some(error)) => {
-            let schema_json = serde_json::to_string_pretty(schema)
-                .unwrap_or_else(|_| "<failed to serialize previous schema>".to_string());
-            format!(
-                "\nPrevious attempt failed. Here is the schema that just failed:\n{schema_json}\n\
-                 Extraction failure observed:\n{error}\n\
-                 Improve/fix the failed schema for this page instead of repeating the same selectors."
-            )
-        }
-        _ => String::new(),
-    };
 
     format!(
         "Generate a single robust Extraction-Schema for the following product page HTML.\n\
@@ -87,7 +70,6 @@ pub(super) fn build_append_schema_instruction(
           Return ONLY ProductSchemaGenerationResponse JSON. The schemas field must contain exactly one ProductCssSelectorSchema object for this page.\n\
           Use confidence HIGH only when selectors are product-specific and likely safe for unattended approval after deterministic validation. Use MEDIUM for plausible schemas with ambiguity. Use LOW when selectors or fields are uncertain. MEDIUM and LOW require human review.\n\
           Optional fields may remain null if not confidently present.\n\
-          {failure_context}\n\
           {sample_description}\n\
           Here is the page {sample_label}:\n\
           {prompt_page}",
