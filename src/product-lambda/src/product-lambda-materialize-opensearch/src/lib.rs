@@ -293,6 +293,7 @@ mod tests {
     use common::opensearch::bulk_response::BulkOpResult;
     use common::opensearch::bulk_response::{BulkError, BulkResponse};
     use common::product_id::ProductId;
+    use common::product_lifecycle::record::ProductLifecycleRecord;
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::{Context, LambdaEvent};
@@ -623,17 +624,29 @@ mod tests {
         #[case] record_count: usize,
     ) {
         let mut message_ids = HashMap::with_capacity(record_count);
+        let mut expected_failure_candidates = Vec::with_capacity(record_count);
         let records: Vec<SqsMessage> = fake::vec![ProductEvent; record_count]
             .into_iter()
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
             .map(|event_record| {
                 let uuid = Uuid::new_v4().to_string();
-                message_ids.insert(*event_record.product_id(), uuid.clone());
+                let product_id = *event_record.product_id();
+                message_ids.insert(product_id, uuid.clone());
+                if !matches!(
+                    event_record,
+                    ProductEventRecord::Lifecycle(ref record)
+                        if record.new_lifecycle == ProductLifecycleRecord::Deleted
+                ) {
+                    expected_failure_candidates.push(product_id);
+                }
                 mk_sqs_message_with_id(&event_record, uuid)
             })
             .collect();
-        let expected_failures: Vec<_> = message_ids.keys().take(failure_count).cloned().collect();
+        let expected_failures: Vec<_> = expected_failure_candidates
+            .into_iter()
+            .take(failure_count)
+            .collect();
         let expected_failures_for_create = expected_failures.clone();
         let expected_failures_clone = expected_failures.clone();
         let mut sqs_event = SqsEvent::default();
