@@ -5404,7 +5404,6 @@ dependencies = [
  "isocountry",
  "itertools 0.15.0",
  "mockall",
- "once_cell",
  "opensearch",
  "product",
  "regex",

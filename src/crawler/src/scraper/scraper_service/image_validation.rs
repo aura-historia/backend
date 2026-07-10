@@ -1,7 +1,7 @@
 use crate::network::policy::classify_reqwest_error;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use crate::scraper::normalization::error::NormalizationError;
-use regex::Regex;
+use regex::regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use url::Url;
@@ -170,8 +170,7 @@ fn dimensions_from_query(url: &Url) -> Option<(usize, usize)> {
 }
 
 fn dimensions_from_path(path: &str) -> Option<(usize, usize)> {
-    let re = Regex::new(r"(?i)[-_/](\d{2,5})x(\d{2,5})(?:[._/?-]|$)").ok()?;
-    let captures = re.captures(path)?;
+    let captures = regex!(r"(?i)[-_/](\d{2,5})x(\d{2,5})(?:[._/?-]|$)").captures(path)?;
     let width = captures.get(1)?.as_str().parse::<usize>().ok()?;
     let height = captures.get(2)?.as_str().parse::<usize>().ok()?;
     Some((width, height))

@@ -3,8 +3,7 @@ use common::{
     currency::domain::{Currency, HasMinorUnitExponent},
     price::domain::{MonetaryAmount, Price},
 };
-use once_cell::sync::OnceCell;
-use regex::Regex;
+use regex::regex;
 use tracing::debug;
 use url::Url;
 
@@ -77,10 +76,8 @@ pub(super) fn parse_price(
 
     // Remove known currency symbols / codes so they don't confuse the number
     // parser.
-    static CURRENCY_PATTERN: OnceCell<Regex> = OnceCell::new();
-    let re = CURRENCY_PATTERN
-        .get_or_init(|| Regex::new(r"(?i)(EUR|USD|GBP|AUD|CAD|NZD|NZ\$|A\$|C\$|\$|£|€)").unwrap());
-    let stripped = re.replace_all(raw, "");
+    let stripped =
+        regex!(r"(?i)(EUR|USD|GBP|AUD|CAD|NZD|NZ\$|A\$|C\$|\$|£|€)").replace_all(raw, "");
 
     // Remove whitespace and apostrophes used as thousands separators.
     let stripped = stripped.replace([' ', '\u{00a0}', '\'', '_'], "");
