@@ -4,7 +4,10 @@ import * as authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import type { Identity } from "./cognito";
@@ -143,6 +146,7 @@ export class BackendHttpApi extends Construct {
         allowOrigins: props.config.apiCorsAllowOrigins,
       },
     });
+
     if (props.config.apiDomainName) {
       const cfnApi = this.api.node.defaultChild as apigwv2.CfnApi;
       cfnApi.addPropertyOverride("DisableExecuteApiEndpoint", true);
@@ -230,8 +234,8 @@ export class BackendHttpApi extends Construct {
 
     this.grantLocalStackPathParameterInvokes(localStackPathParameterLambdas);
 
-    this.configureCustomDomain(props);
-    this.distribution = this.configureCloudFront(props);
+    const customDomain = this.configureCustomDomain(props);
+    this.distribution = this.configureCloudFront(props, customDomain);
 
     this.endpointUrl = props.config.apiEndpointUrl ?? `${this.api.apiEndpoint}/${props.stageName}`;
   }
@@ -273,8 +277,11 @@ export class BackendHttpApi extends Construct {
     return domain;
   }
 
-  private configureCloudFront(props: HttpApiProps): cloudfront.CfnDistribution | undefined {
-    if (!props.config.apiDomainName || !props.config.apiCloudFrontCertificateArn) {
+  private configureCloudFront(
+    props: HttpApiProps,
+    customDomain: apigwv2.CfnDomainName | undefined,
+  ): cloudfront.CfnDistribution | undefined {
+    if (!props.config.apiDomainName || !props.config.apiCloudFrontCertificateArn || !customDomain) {
       return undefined;
     }
 
@@ -289,9 +296,11 @@ export class BackendHttpApi extends Construct {
     });
 
     const originId = "HttpApiOrigin";
+    const webAclArn = this.configureCloudFrontWebAcl(props);
+
     return new cloudfront.CfnDistribution(this, "ApiDistribution", {
       distributionConfig: {
-        aliases: [props.config.apiDomainName],
+        aliases: props.config.apiCloudFrontAliases,
         cacheBehaviors: [
           {
             allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
@@ -326,7 +335,7 @@ export class BackendHttpApi extends Construct {
         origins: [
           {
             id: originId,
-            domainName: cdk.Fn.select(2, cdk.Fn.split("/", this.api.apiEndpoint)),
+            domainName: customDomain.attrRegionalDomainName,
             customOriginConfig: {
               httpPort: 80,
               httpsPort: 443,
@@ -337,42 +346,97 @@ export class BackendHttpApi extends Construct {
             },
           },
         ],
-        priceClass: "PriceClass_All",
+        priceClass: "PriceClass_100",
         viewerCertificate: {
           acmCertificateArn: props.config.apiCloudFrontCertificateArn,
           minimumProtocolVersion: "TLSv1.2_2021",
           sslSupportMethod: "sni-only",
         },
-        webAclId: props.config.apiCloudFrontWebAclArn,
+        webAclId: webAclArn,
       },
     });
   }
+
+  private configureCloudFrontWebAcl(props: HttpApiProps): string {
+    const provider = new lambda.Function(this, "ApiWebAclCustomResourceFunction", {
+      functionName: `api-cloudfront-web-acl-provider-${props.stageName}`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "index.handler",
+      timeout: cdk.Duration.minutes(2),
+      code: lambda.Code.fromInline(cloudFrontWebAclCustomResourceCode()),
+    });
+
+    provider.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        "wafv2:CreateWebACL",
+        "wafv2:DeleteWebACL",
+        "wafv2:GetWebACL",
+        "wafv2:ListWebACLs",
+        "wafv2:TagResource",
+        "wafv2:UpdateWebACL",
+      ],
+      resources: ["*"],
+    }));
+
+    const webAcl = new cdk.CustomResource(this, "ApiWebAcl", {
+      serviceToken: provider.functionArn,
+      properties: {
+        Description: `Aura Historia ${props.stageName} API CloudFront Web ACL`,
+        MetricName: `api-cloudfront-${props.stageName}`,
+        Name: `application-${props.stageName}-api-cloudfront-web-acl`,
+        Region: "us-east-1",
+        Rules: cloudFrontFreePlanWebAclRules(),
+        Scope: "CLOUDFRONT",
+      },
+    });
+
+    return webAcl.getAttString("WebAclArn");
+  }
+}
+
+function cloudFrontFreePlanWebAclRules(): unknown[] {
+  return [
+    cloudFrontManagedRule("AWSManagedRulesAmazonIpReputationList", 0),
+    cloudFrontManagedRule("AWSManagedRulesCommonRuleSet", 1, [
+      {
+        ActionToUse: { Count: {} },
+        Name: "NoUserAgent_HEADER",
+      },
+    ]),
+    cloudFrontManagedRule("AWSManagedRulesKnownBadInputsRuleSet", 2),
+  ];
+}
+
+function cloudFrontManagedRule(name: string, priority: number, ruleActionOverrides?: unknown[]): unknown {
+  return {
+    Name: `AWS-${name}`,
+    OverrideAction: { None: {} },
+    Priority: priority,
+    Statement: {
+      ManagedRuleGroupStatement: {
+        Name: name,
+        ...(ruleActionOverrides ? { RuleActionOverrides: ruleActionOverrides } : {}),
+        VendorName: "AWS",
+      },
+    },
+    VisibilityConfig: {
+      CloudWatchMetricsEnabled: true,
+      MetricName: `AWS-${name}`,
+      SampledRequestsEnabled: true,
+    },
+  };
+}
+
+function cloudFrontWebAclCustomResourceCode(): string {
+  return resourceCode("api-web-acl-custom-resource.js");
 }
 
 function authCacheGuardFunctionCode(): string {
-  return `function handler(event) {
-    var request = event.request;
-    var headers = request.headers;
-    var authHeader = headers.authorization;
+  return resourceCode("api-auth-cache-guard.js");
+}
 
-    if (authHeader && authHeader.value) {
-        var value = authHeader.value;
-
-        if (value.startsWith("Bearer ")) {
-            var token = value.substring(7);
-
-            if (token.split(".").length === 3) {
-                if (!request.querystring) {
-                    request.querystring = {};
-                }
-
-                request.querystring["__auth"] = { value: "1" };
-            }
-        }
-    }
-
-    return request;
-}`;
+function resourceCode(fileName: string): string {
+  return fs.readFileSync(path.join(__dirname, "..", "resources", fileName), "utf8");
 }
 
 function route(

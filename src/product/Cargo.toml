@@ -16,7 +16,6 @@ mockall = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true }
-once_cell = { workspace = true }
 html-escape = { workspace = true }
 regex = { workspace = true }
 shop = { workspace = true }

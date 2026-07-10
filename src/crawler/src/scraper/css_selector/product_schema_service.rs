@@ -1,8 +1,6 @@
 use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
 use crate::logging::llm_metrics;
-use crate::scraper::css_selector::product_schema::{
-    ApplySchemaError, ProductCssSelectorSchema, ShopsProductSchema,
-};
+use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepository;
 use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::shop_id::ShopId;
@@ -65,8 +63,6 @@ pub trait ProductSchemaService {
     async fn append_single_schema(
         &self,
         html: &str,
-        failed_schema: Option<&ProductCssSelectorSchema>,
-        last_error: Option<&ApplySchemaError>,
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
 
     async fn find_product_schema(
@@ -202,17 +198,12 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         Ok(generated)
     }
 
-    #[tracing::instrument(
-        name = "scraper_append_single_schema",
-        skip(self, html, failed_schema, last_error)
-    )]
+    #[tracing::instrument(name = "scraper_append_single_schema", skip(self, html))]
     async fn append_single_schema(
         &self,
         html: &str,
-        failed_schema: Option<&ProductCssSelectorSchema>,
-        last_error: Option<&ApplySchemaError>,
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
-        let instruction = build_append_schema_instruction(html, failed_schema, last_error);
+        let instruction = build_append_schema_instruction(html);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 

@@ -1,21 +1,5 @@
-use html_escape::decode_html_entities; // decode HTML entities
-use once_cell::sync::Lazy;
-use regex::Regex;
-
-static RE_HTML_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static RE_MULTIPLE_NEWLINES: Lazy<Regex> = Lazy::new(|| Regex::new(r"\n{3,}").unwrap());
-// Detect numbered items even without space: "front2 Regalboden"
-static RE_INLINE_NUMBERED: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"([^\n])(\d+)\s*([A-ZÄÖÜ])").unwrap());
-// Break CamelCase-ish lists
-static RE_CAMEL_LIST: Lazy<Regex> = Lazy::new(|| Regex::new(r"([a-zäöü])([A-ZÄÖÜ])").unwrap());
-// Fix missing space after punctuation
-static RE_PUNCT_SPACE: Lazy<Regex> = Lazy::new(|| Regex::new(r"([.!?])([A-Za-zÄÖÜäöü])").unwrap());
-// Units (AFTER decimals are safe)
-static RE_UNITS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(\d+(?:,\d+)?)\s*(m|cm|mm|kg|g|l|inch|inches|lb)\b").unwrap());
-static RE_SPACES: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
-static RE_NEWLINE_SPACES: Lazy<Regex> = Lazy::new(|| Regex::new(r" *\n *").unwrap());
+use html_escape::decode_html_entities;
+use regex::regex;
 
 pub fn sanitize(input: &str) -> String {
     let text = decode_html_entities(input);
@@ -24,27 +8,28 @@ pub fn sanitize(input: &str) -> String {
     let text = text.replace("&nbsp;", "\n");
 
     // Strip HTML tags
-    let text = RE_HTML_TAG.replace_all(&text, "");
+    let text = regex!(r"<[^>]+>").replace_all(&text, "");
 
     // Normalize newlines
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
-    let text = RE_MULTIPLE_NEWLINES.replace_all(&text, "\n\n");
+    let text = regex!(r"\n{3,}").replace_all(&text, "\n\n");
 
     // Fix punctuation spacing early
-    let text = RE_PUNCT_SPACE.replace_all(&text, "$1 $2");
+    let text = regex!(r"([.!?])([A-Za-zÄÖÜäöü])").replace_all(&text, "$1 $2");
 
     // Split inline numbered lists (KEEP numbers)
-    let text = RE_INLINE_NUMBERED.replace_all(&text, "$1\n$2 $3");
+    let text = regex!(r"([^\n])(\d+)\s*([A-ZÄÖÜ])").replace_all(&text, "$1\n$2 $3");
 
     // Split CamelCase list items
-    let text = RE_CAMEL_LIST.replace_all(&text, "$1\n$2");
+    let text = regex!(r"([a-zäöü])([A-ZÄÖÜ])").replace_all(&text, "$1\n$2");
 
     // Normalize units (preserve decimals)
-    let text = RE_UNITS.replace_all(&text, "$1 $2");
+    let text =
+        regex!(r"(\d+(?:,\d+)?)\s*(m|cm|mm|kg|g|l|inch|inches|lb)\b").replace_all(&text, "$1 $2");
 
     // Whitespace cleanup (newline-safe)
-    let text = RE_SPACES.replace_all(&text, " ");
-    let text = RE_NEWLINE_SPACES.replace_all(&text, "\n");
+    let text = regex!(r"[ \t]+").replace_all(&text, " ");
+    let text = regex!(r" *\n *").replace_all(&text, "\n");
 
     text.trim().to_string()
 }

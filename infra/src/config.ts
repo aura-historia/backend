@@ -26,11 +26,6 @@ export interface CognitoEmailConfig {
   readonly replyTo: string;
 }
 
-export interface CognitoFacebookIdentityProviderConfig {
-  readonly clientId: string;
-  readonly clientSecret: string;
-}
-
 export interface StageConfig {
   readonly stage: StageName;
   readonly isProd: boolean;
@@ -40,12 +35,11 @@ export interface StageConfig {
   readonly apiDomainName: string | undefined;
   readonly apiGatewayCertificateArn: string | undefined;
   readonly apiCloudFrontCertificateArn: string | undefined;
-  readonly apiCloudFrontWebAclArn: string | undefined;
+  readonly apiCloudFrontAliases: string[];
   readonly apiCorsAllowOrigins: string[];
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
   readonly cognitoEmail: CognitoEmailConfig | undefined;
-  readonly cognitoFacebookIdentityProvider: CognitoFacebookIdentityProviderConfig | undefined;
   readonly opensearchDomainName: string;
   readonly opensearchEndpointUrl: string;
   readonly enableProductionObservability: boolean;
@@ -76,6 +70,7 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
   const isEphemeral = stage === "ephemeral";
 
   const apiDomainName = stage === "prod" ? "api.aura-historia.com" : stage === "dev" ? "api.dev.aura-historia.com" : undefined;
+  const apiCloudFrontAliases = stage === "prod" ? ["api.aura-historia.com"] : stage === "dev" ? ["*.dev.aura-historia.com"] : [];
 
   return {
     stage,
@@ -86,7 +81,7 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
     apiDomainName,
     apiGatewayCertificateArn: isEphemeral ? undefined : ssmValue(`/certificates/${stage}/api-regional-certificate-arn`),
     apiCloudFrontCertificateArn: isEphemeral ? undefined : ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),
-    apiCloudFrontWebAclArn: isEphemeral ? undefined : ssmValue(`/cloudfront/${stage}/api-web-acl-arn`),
+    apiCloudFrontAliases,
     apiCorsAllowOrigins: isProd ? [...PROD_API_CORS_ALLOW_ORIGINS] : ["*"],
     cognitoCallbackUrls:
       stage === "prod"
@@ -107,12 +102,6 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
           from: "Aura Historia <auth@notify.aura-historia.com>",
           identityDomain: "notify.aura-historia.com",
           replyTo: "contact@aura-historia.com",
-        },
-    cognitoFacebookIdentityProvider: isEphemeral
-      ? undefined
-      : {
-          clientId: ssmValue(`/cognito/${stage}/facebook-client-id`),
-          clientSecret: ssmSecureValue(`/secrets/${stage}/facebook-client-secret`),
         },
     opensearchDomainName: isEphemeral ? "test-domain" : `aura-historia-${stage}`,
     opensearchEndpointUrl: isEphemeral ? "" : ssmValue(`/opensearch/${stage}/endpoint-url`),
@@ -148,6 +137,3 @@ export function ssmValue(path: string): string {
   return `{{resolve:ssm:${path}}}`;
 }
 
-export function ssmSecureValue(path: string): string {
-  return `{{resolve:ssm-secure:${path}}}`;
-}

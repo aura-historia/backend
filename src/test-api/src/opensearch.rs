@@ -91,15 +91,7 @@ impl IntegrationTestService for OpenSearch {
     }
 
     async fn set_up(&self) {
-        set_up_domain()
-            .await
-            .expect("shouldn't fail creating OpenSearch-Domain");
-        wait_until_domain_processed(TEST_DOMAIN_NAME)
-            .await
-            .expect("shouldn't fail waiting for domain  to complete processing");
-        wait_until_indices_are_set_up()
-            .await
-            .expect("shouldn't fail setting up indices");
+        set_up_open_search(false).await;
     }
 
     async fn tear_down(&self) {
@@ -107,10 +99,46 @@ impl IntegrationTestService for OpenSearch {
     }
 }
 
-async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainError>> {
+fn test_domain_access_policy() -> String {
+    serde_json::json!({
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "es:ESHttp*",
+                "Resource": format!(
+                    "arn:aws:es:eu-central-1:000000000000:domain/{TEST_DOMAIN_NAME}/*"
+                )
+            }
+        ]
+    })
+    .to_string()
+}
+
+pub(crate) async fn set_up_after_cloudformation() {
+    set_up_open_search(true).await;
+}
+
+async fn set_up_open_search(recreate_existing_domain: bool) {
+    set_up_domain(recreate_existing_domain)
+        .await
+        .expect("shouldn't fail creating OpenSearch-Domain");
+    wait_until_domain_processed(TEST_DOMAIN_NAME)
+        .await
+        .expect("shouldn't fail waiting for domain  to complete processing");
+    wait_until_indices_are_set_up()
+        .await
+        .expect("shouldn't fail setting up indices");
+}
+
+async fn set_up_domain(
+    recreate_existing_domain: bool,
+) -> Result<CreateDomainOutput, SdkError<CreateDomainError>> {
     let client = aws_sdk_opensearch::Client::new(get_aws_config().await);
     let custom_endpoint =
         format!("http://localhost:{LOCALSTACK_CONTAINER_PORT}/{TEST_DOMAIN_NAME}");
+    let access_policy = test_domain_access_policy();
 
     match client
         .describe_domain()
@@ -118,10 +146,23 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
         .send()
         .await
     {
+        Ok(_response) if recreate_existing_domain => {
+            debug!(
+                "OpenSearch domain '{}' exists from CloudFormation; recreating it for LocalStack",
+                TEST_DOMAIN_NAME
+            );
+            let _ = client
+                .delete_domain()
+                .domain_name(TEST_DOMAIN_NAME)
+                .send()
+                .await;
+            wait_until_domain_deleted(TEST_DOMAIN_NAME)
+                .await
+                .expect("shouldn't fail waiting for OpenSearch domain deletion");
+        }
         Ok(_response) => {
-            // Domain already exists — it may have been created by CloudFormation without
-            // path-based routing registered. Call update_domain_config to ensure the
-            // custom endpoint is set so LocalStack routes /test-domain/* correctly.
+            // Domain already exists — it may have been created without path-based routing
+            // registered. Call update_domain_config to ensure LocalStack routes /test-domain/*.
             debug!(
                 "OpenSearch domain '{}' already exists; updating custom endpoint to '{}'",
                 TEST_DOMAIN_NAME, custom_endpoint
@@ -129,6 +170,7 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
             let update_result = client
                 .update_domain_config()
                 .domain_name(TEST_DOMAIN_NAME)
+                .access_policies(&access_policy)
                 .domain_endpoint_options(
                     DomainEndpointOptions::builder()
                         .custom_endpoint(&custom_endpoint)
@@ -161,6 +203,7 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
     client
         .create_domain()
         .domain_name(TEST_DOMAIN_NAME)
+        .access_policies(access_policy)
         .domain_endpoint_options(
             DomainEndpointOptions::builder()
                 // Must use the container-internal port (not the host-mapped port) so that
@@ -173,6 +216,29 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
         .access_policies(test_access_policies())
         .send()
         .await
+}
+
+async fn wait_until_domain_deleted(
+    domain: &'static str,
+) -> Result<(), SdkError<DescribeDomainError, HttpResponse>> {
+    let mut retries = 100;
+    loop {
+        match aws_sdk_opensearch::Client::new(get_aws_config().await)
+            .describe_domain()
+            .domain_name(domain)
+            .send()
+            .await
+        {
+            Ok(_) => {
+                retries -= 1;
+                if retries < 0 {
+                    return Err(SdkError::timeout_error("Domain took too long to delete"));
+                }
+                sleep(Duration::from_millis(500)).await;
+            }
+            Err(_) => return Ok(()),
+        }
+    }
 }
 
 async fn wait_until_domain_processed(

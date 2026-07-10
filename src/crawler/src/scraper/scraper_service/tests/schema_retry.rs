@@ -56,8 +56,7 @@ async fn should_use_yaml_only_when_append_schema_applies() {
     schema_svc
         .expect_append_single_schema()
         .once()
-        .withf(|_, failed_schema, last_error| failed_schema.is_none() && last_error.is_none())
-        .returning(|_, _, _| {
+        .returning(|_| {
             Box::pin(async {
                 Ok(generated_schemas(
                     vec![minimal_schema()],
@@ -113,8 +112,7 @@ async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
     schema_svc
         .expect_append_single_schema()
         .once()
-        .withf(|_, failed_schema, last_error| failed_schema.is_none() && last_error.is_none())
-        .returning(|_, _, _| {
+        .returning(|_| {
             Box::pin(async {
                 Ok(generated_schemas(
                     vec![invalid_schema()],
@@ -165,7 +163,7 @@ async fn should_exhaust_append_repair_after_yaml_fails() {
     schema_svc
         .expect_append_single_schema()
         .once()
-        .returning(|_, _, _| {
+        .returning(|_| {
             Box::pin(async {
                 Ok(generated_schemas(
                     vec![invalid_schema()],
@@ -217,7 +215,7 @@ async fn should_not_consume_second_budget_call_when_yaml_append_does_not_apply()
     schema_svc
         .expect_append_single_schema()
         .once()
-        .returning(|_, _, _| {
+        .returning(|_| {
             Box::pin(async {
                 Ok(generated_schemas(
                     vec![invalid_schema()],

@@ -226,8 +226,8 @@ impl ScraperServiceImpl {
     ///
     /// Each iteration:
     /// 1. Charges one schema-generation LLM call against the budget.
-    /// 2. Asks the schema service to append a single new schema (passing the
-    ///    previously failed schema and the current error as repair context).
+    /// 2. Asks the schema service to append a single new schema from the
+    ///    current page HTML.
     /// 3. Tries to apply the generated schema to the HTML.
     ///    - Apply failure → loop with updated apply-error context.
     /// 4. Re-normalizes the re-extracted product.
@@ -253,8 +253,7 @@ impl ScraperServiceImpl {
         ctx: NormalizationRetryContext<'_>,
         first_norm_err: NormalizationError,
     ) -> Result<NormalizedProduct, ScraperError> {
-        // Hint for the schema generator derived from the last normalization error.
-        let Some(apply_hint) = normalization_error_to_schema_hint(&first_norm_err) else {
+        if normalization_error_to_schema_hint(&first_norm_err).is_none() {
             return Err(ScraperError::NormalizationError(first_norm_err));
         };
 
@@ -267,10 +266,7 @@ impl ScraperServiceImpl {
 
         self.consume_llm_budget_or_err(ctx.shop_id, ctx.url).await?;
 
-        let generated = self
-            .schema_service
-            .append_single_schema(ctx.html, Some(&ctx.selected_schema), Some(&apply_hint))
-            .await?;
+        let generated = self.schema_service.append_single_schema(ctx.html).await?;
         let Some(generated_schema) = generated.schemas.first().cloned() else {
             return Err(ScraperError::SchemaServiceError(
                 crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(

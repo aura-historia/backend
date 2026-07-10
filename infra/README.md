@@ -17,9 +17,9 @@ bin/app.ts                 # CDK entrypoint and stage selection
 src/application-stack.ts   # data, compute, API, observability stack composition
 src/config.ts              # stage configuration, fixed buckets, SSM dynamic refs
 src/parameters.ts          # deployment artifact version input
-src/templates/             # synth-time templates, e.g. Cognito verification email HTML
+src/resources/             # synth-time resources, e.g. Cognito email HTML and inline JS
 src/constructs/            # focused infrastructure modules
-  api.ts                   # HTTP API Gateway routes, domain, CloudFront, CORS, JWT authorizer
+  api.ts                   # HTTP API Gateway routes, domain, CloudFront, WAF, CORS, JWT authorizer
   cognito.ts               # Cognito user pool, public client, IdPs, hosted UI domain
   eventing.ts              # EventBridge buses/rules, SQS mappings, Pipes
   lambdas.ts               # Lambda definitions, env vars, IAM grants
@@ -47,6 +47,10 @@ Synth creates these stacks per stage:
 - `application-{stage}-compute` — Lambdas, Cognito, workflow, eventing, schedules
 - `application-{stage}-api` — HTTP API Gateway routes, domain, CloudFront, integrations, authorizer
 - `application-prod-observability` — prod-only alarms and alarm topic
+
+Dev CloudFront owns the wildcard alias `*.dev.aura-historia.com`; the API URL stays
+`api.dev.aura-historia.com`. This avoids stale exact DNS targets blocking distribution
+creation. Prod uses the exact alias `api.aura-historia.com`.
 
 Deployments should use `cdk deploy --all` without hotswap. CI uses
 CloudFormation change sets (`--method change-set`) so stack updates keep
@@ -98,9 +102,6 @@ and `dev`:
 /stripe/{stage}/ultimate-yearly-price-id
 /certificates/{stage}/api-regional-certificate-arn
 /certificates/{stage}/api-cloudfront-certificate-arn
-/cloudfront/{stage}/api-web-acl-arn
-/cognito/{stage}/facebook-client-id
-/secrets/{stage}/facebook-client-secret
 /secrets/{stage}/gemini-api-key
 /secrets/{stage}/google-application-credentials
 /secrets/{stage}/google-geocoding-api-key

@@ -255,8 +255,28 @@ describe("Application stacks", () => {
           MinimumProtocolVersion: "TLSv1.2_2021",
           SslSupportMethod: "sni-only",
         }),
-        WebACLId: "{{resolve:ssm:/cloudfront/prod/api-web-acl-arn}}",
+        Origins: Match.arrayWith([
+          Match.objectLike({
+            DomainName: {
+              "Fn::GetAtt": [Match.stringLikeRegexp("HttpApiApiDomainName"), "RegionalDomainName"],
+            },
+          }),
+        ]),
+        PriceClass: "PriceClass_100",
+        WebACLId: {
+          "Fn::GetAtt": [Match.stringLikeRegexp("HttpApiApiWebAcl"), "WebAclArn"],
+        },
       }),
+    });
+    prodTemplates.api.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      Name: "application-prod-api-cloudfront-web-acl",
+      Region: "us-east-1",
+      Rules: Match.arrayWith([
+        Match.objectLike({ Name: "AWS-AWSManagedRulesAmazonIpReputationList" }),
+        Match.objectLike({ Name: "AWS-AWSManagedRulesCommonRuleSet" }),
+        Match.objectLike({ Name: "AWS-AWSManagedRulesKnownBadInputsRuleSet" }),
+      ]),
+      Scope: "CLOUDFRONT",
     });
 
     devTemplates.api.hasResourceProperties("AWS::ApiGatewayV2::DomainName", {
@@ -264,7 +284,7 @@ describe("Application stacks", () => {
     });
     devTemplates.api.hasResourceProperties("AWS::CloudFront::Distribution", {
       DistributionConfig: Match.objectLike({
-        Aliases: ["api.dev.aura-historia.com"],
+        Aliases: ["*.dev.aura-historia.com"],
         Comment: "dev api",
       }),
     });
@@ -475,20 +495,6 @@ describe("Application stacks", () => {
         EmailMessage: Match.stringLikeRegexp("<p class=\\\"greeting\\\">Verify your email</p>"),
       }),
     });
-    prodTemplates.compute.hasResourceProperties("AWS::Cognito::UserPoolIdentityProvider", {
-      ProviderName: "Facebook",
-      ProviderType: "Facebook",
-      ProviderDetails: Match.objectLike({
-        api_version: "v20.0",
-        authorize_scopes: "email",
-        client_id: "{{resolve:ssm:/cognito/prod/facebook-client-id}}",
-        client_secret: "{{resolve:ssm-secure:/secrets/prod/facebook-client-secret}}",
-      }),
-      AttributeMapping: {
-        email: "email",
-        username: "id",
-      },
-    });
   });
 
   test("real stages resolve external integration settings from SSM", () => {
@@ -503,17 +509,14 @@ describe("Application stacks", () => {
     expect(prodJson).toContain("{{resolve:ssm:/stripe/prod/ultimate-yearly-price-id}}");
     expect(prodJson).toContain("{{resolve:ssm:/certificates/prod/api-regional-certificate-arn}}");
     expect(prodJson).toContain("{{resolve:ssm:/certificates/prod/api-cloudfront-certificate-arn}}");
-    expect(prodJson).toContain("{{resolve:ssm:/cloudfront/prod/api-web-acl-arn}}");
-    expect(prodJson).toContain("{{resolve:ssm:/cognito/prod/facebook-client-id}}");
-    expect(prodJson).toContain("{{resolve:ssm-secure:/secrets/prod/facebook-client-secret}}");
+    expect(prodJson).not.toContain("/cloudfront/prod/api-web-acl-arn");
 
     expect(devJson).toContain("{{resolve:ssm:/opensearch/dev/endpoint-url}}");
     expect(devJson).toContain("{{resolve:ssm:/eventbridge/dev/stripe-event-bus-name}}");
     expect(devJson).toContain("{{resolve:ssm:/stripe/dev/pro-product-id}}");
     expect(devJson).toContain("{{resolve:ssm:/certificates/dev/api-regional-certificate-arn}}");
     expect(devJson).toContain("{{resolve:ssm:/certificates/dev/api-cloudfront-certificate-arn}}");
-    expect(devJson).toContain("{{resolve:ssm:/cloudfront/dev/api-web-acl-arn}}");
-    expect(devJson).toContain("{{resolve:ssm:/cognito/dev/facebook-client-id}}");
+    expect(devJson).not.toContain("/cloudfront/dev/api-web-acl-arn");
 
     expect(ephemeralJson).not.toContain("/opensearch/ephemeral/endpoint-url");
     expect(ephemeralJson).toContain("stripe-event-bus-ephemeral");
