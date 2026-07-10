@@ -4977,6 +4977,265 @@ async fn should_respond_200_for_partner_post_products() {
 }
 
 #[localstack_test(services = [Cloudformation()])]
+async fn should_delete_partner_product_and_cleanup_user_resources() {
+    use product_watchlist::dynamodb::record::{
+        WatchlistProductRecord, mk_gsi1_pk as mk_watchlist_gsi1_pk,
+        mk_gsi1_sk as mk_watchlist_gsi1_sk, mk_pk as mk_watchlist_pk, mk_sk as mk_watchlist_sk,
+    };
+    use search_filter::dynamodb::user_search_filter_match_record::{
+        UserSearchFilterMatchRecord, mk_gsi2_pk as mk_match_gsi2_pk,
+        mk_gsi2_sk as mk_match_gsi2_sk, mk_lsi1_sk as mk_match_lsi1_sk,
+        mk_lsi2_sk as mk_match_lsi2_sk, mk_pk as mk_match_pk, mk_sk as mk_match_sk,
+    };
+
+    let cfn = get_cfn_output();
+    let (shop_record, api_key) = prepare_partner_shop().await;
+    let api_key_str: String = api_key.into();
+    let product_repository = ProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        cfn.dynamodb_table_1_name.as_str(),
+    );
+    let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &cfn.dynamodb_table_1_name,
+    );
+    let search_filter_repository = UserSearchFilterDynamoDbRepositoryImpl::new(
+        get_dynamodb_client().await,
+        &cfn.dynamodb_table_1_name,
+    );
+
+    let mut target_product = Faker.fake::<ProductRecord>();
+    target_product.shop_id = shop_record.shop_id;
+    target_product.shops_product_id = "acceptance-test-delete-product-1".into();
+    target_product.pk =
+        product_record::mk_pk(&target_product.shop_id, &target_product.shops_product_id);
+    target_product.sk = product_record::mk_sk().to_owned();
+    target_product.lifecycle = common::product_lifecycle::record::ProductLifecycleRecord::Active;
+    target_product.state = product::dynamodb::product_state_record::ProductStateRecord::Available;
+    product_repository
+        .put_product_records([target_product.clone()].into())
+        .await
+        .unwrap();
+
+    let mut target_watchlist_records = Vec::new();
+    for _ in 0..2 {
+        let user_id = UserId::new();
+        let mut record = Faker.fake::<WatchlistProductRecord>();
+        record.pk = mk_watchlist_pk(&user_id);
+        record.sk = mk_watchlist_sk(&target_product.shop_id, &target_product.shops_product_id);
+        record.gsi1_pk = mk_watchlist_gsi1_pk(&target_product.product_id);
+        record.gsi1_sk = mk_watchlist_gsi1_sk(&user_id);
+        record.user_id = user_id;
+        record.product_id = target_product.product_id;
+        record.shop_id = target_product.shop_id;
+        record.shops_product_id = target_product.shops_product_id.clone();
+        record.state = ResourceStateRecord::Active;
+        watchlist_repository
+            .put_watchlist_record(record.clone())
+            .await
+            .unwrap();
+        target_watchlist_records.push(record);
+    }
+
+    let civilian_product_id = common::product_id::ProductId::new();
+    let civilian_user_id = UserId::new();
+    let mut civilian_watchlist_record = Faker.fake::<WatchlistProductRecord>();
+    civilian_watchlist_record.pk = mk_watchlist_pk(&civilian_user_id);
+    civilian_watchlist_record.sk = mk_watchlist_sk(
+        &civilian_watchlist_record.shop_id,
+        &civilian_watchlist_record.shops_product_id,
+    );
+    civilian_watchlist_record.gsi1_pk = mk_watchlist_gsi1_pk(&civilian_product_id);
+    civilian_watchlist_record.gsi1_sk = mk_watchlist_gsi1_sk(&civilian_user_id);
+    civilian_watchlist_record.user_id = civilian_user_id;
+    civilian_watchlist_record.product_id = civilian_product_id;
+    watchlist_repository
+        .put_watchlist_record(civilian_watchlist_record.clone())
+        .await
+        .unwrap();
+
+    let mut target_match_records = Vec::new();
+    for _ in 0..2 {
+        let user_id = UserId::new();
+        let filter_id = common::user_search_filter_id::UserSearchFilterId::new();
+        let created = OffsetDateTime::now_utc();
+        let mut record = Faker.fake::<UserSearchFilterMatchRecord>();
+        record.pk = mk_match_pk(&user_id);
+        record.sk = mk_match_sk(
+            &filter_id,
+            &target_product.shop_id,
+            &target_product.shops_product_id,
+        );
+        record.lsi1_sk = mk_match_lsi1_sk(&created);
+        record.lsi2_sk = Some(mk_match_lsi2_sk(
+            &target_product.shop_id,
+            &target_product.shops_product_id,
+            &created,
+        ));
+        record.gsi2_pk = Some(mk_match_gsi2_pk(&target_product.product_id));
+        record.gsi2_sk = Some(mk_match_gsi2_sk(&user_id));
+        record.user_id = user_id;
+        record.user_search_filter_id = filter_id;
+        record.shop_id = target_product.shop_id;
+        record.shops_product_id = target_product.shops_product_id.clone();
+        record.product_id = target_product.product_id;
+        record.created = created;
+        record.updated = created;
+        search_filter_repository
+            .put_user_search_filter_match_record(record.clone())
+            .await
+            .unwrap();
+        target_match_records.push(record);
+    }
+
+    let civilian_match_user_id = UserId::new();
+    let civilian_match_filter_id = common::user_search_filter_id::UserSearchFilterId::new();
+    let civilian_match_product_id = common::product_id::ProductId::new();
+    let civilian_match_created = OffsetDateTime::now_utc();
+    let mut civilian_match_record = Faker.fake::<UserSearchFilterMatchRecord>();
+    civilian_match_record.pk = mk_match_pk(&civilian_match_user_id);
+    civilian_match_record.sk = mk_match_sk(
+        &civilian_match_filter_id,
+        &civilian_match_record.shop_id,
+        &civilian_match_record.shops_product_id,
+    );
+    civilian_match_record.lsi1_sk = mk_match_lsi1_sk(&civilian_match_created);
+    civilian_match_record.gsi2_pk = Some(mk_match_gsi2_pk(&civilian_match_product_id));
+    civilian_match_record.gsi2_sk = Some(mk_match_gsi2_sk(&civilian_match_user_id));
+    civilian_match_record.user_id = civilian_match_user_id;
+    civilian_match_record.user_search_filter_id = civilian_match_filter_id;
+    civilian_match_record.product_id = civilian_match_product_id;
+    civilian_match_record.created = civilian_match_created;
+    civilian_match_record.updated = civilian_match_created;
+    search_filter_repository
+        .put_user_search_filter_match_record(civilian_match_record.clone())
+        .await
+        .unwrap();
+
+    // Cleanup worker finds dependent records through GSIs. Wait until LocalStack
+    // has projected the seeded records before firing the delete event.
+    let gsi_deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let watchlist_records = watchlist_repository
+            .query_user_ids_watching_product(&target_product.product_id)
+            .await
+            .unwrap();
+        let target_watchlist_visible = target_watchlist_records.iter().all(|expected| {
+            watchlist_records.iter().any(|actual| {
+                actual.user_id == expected.user_id
+                    && actual.shop_id == expected.shop_id
+                    && actual.shops_product_id == expected.shops_product_id
+            })
+        });
+
+        let match_keys = search_filter_repository
+            .query_user_search_filter_match_keys_for_product_id(&target_product.product_id)
+            .await
+            .unwrap();
+        let target_matches_visible = target_match_records.iter().all(|expected| {
+            match_keys
+                .iter()
+                .any(|(user_id, search_filter_id, shop_id, shops_product_id)| {
+                    *user_id == expected.user_id
+                        && *search_filter_id == expected.user_search_filter_id
+                        && *shop_id == expected.shop_id
+                        && shops_product_id == &expected.shops_product_id
+                })
+        });
+
+        if target_watchlist_visible && target_matches_visible {
+            break;
+        }
+
+        if Instant::now() >= gsi_deadline {
+            panic!("Timeout: target user resources did not become visible through cleanup GSIs");
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    let delete_url = format!(
+        "{}/api/v1/shops/{}/products/{}",
+        cfn.api_gateway_endpoint_url, shop_record.shop_id, target_product.shops_product_id,
+    );
+    let response = reqwest::Client::new()
+        .delete(delete_url)
+        .bearer_auth(&api_key_str)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(200, response.status());
+
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let mut remaining_target_watchlist_count = 0;
+        for record in &target_watchlist_records {
+            if watchlist_repository
+                .get_watchlist_record(&record.user_id, &record.shop_id, &record.shops_product_id)
+                .await
+                .unwrap()
+                .is_some()
+            {
+                remaining_target_watchlist_count += 1;
+            }
+        }
+        let target_watchlist_deleted = remaining_target_watchlist_count == 0;
+
+        let mut remaining_target_match_count = 0;
+        for record in &target_match_records {
+            if search_filter_repository
+                .get_user_search_filter_match_record(
+                    &record.user_id,
+                    &record.user_search_filter_id,
+                    &record.shop_id,
+                    &record.shops_product_id,
+                )
+                .await
+                .unwrap()
+                .is_some()
+            {
+                remaining_target_match_count += 1;
+            }
+        }
+        let target_matches_deleted = remaining_target_match_count == 0;
+
+        let civilian_watchlist_exists = watchlist_repository
+            .get_watchlist_record(
+                &civilian_watchlist_record.user_id,
+                &civilian_watchlist_record.shop_id,
+                &civilian_watchlist_record.shops_product_id,
+            )
+            .await
+            .unwrap()
+            .is_some();
+        let civilian_match_exists = search_filter_repository
+            .get_user_search_filter_match_record(
+                &civilian_match_record.user_id,
+                &civilian_match_record.user_search_filter_id,
+                &civilian_match_record.shop_id,
+                &civilian_match_record.shops_product_id,
+            )
+            .await
+            .unwrap()
+            .is_some();
+
+        if target_watchlist_deleted
+            && target_matches_deleted
+            && civilian_watchlist_exists
+            && civilian_match_exists
+        {
+            break;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timeout: product delete cleanup failed; remaining_watchlist={remaining_target_watchlist_count}, remaining_matches={remaining_target_match_count}, civilian_watchlist_exists={civilian_watchlist_exists}, civilian_match_exists={civilian_match_exists}"
+            );
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+#[localstack_test(services = [Cloudformation()])]
 async fn should_preserve_partner_post_product_image_order_when_read_via_rest_api() {
     let (shop_record, api_key) = prepare_partner_shop().await;
     let api_key_str: String = api_key.into();

@@ -25,9 +25,8 @@ const COMMIT_SHA: &str = "local";
 ///
 /// This value is used for physical resource suffixes, Lambda artifact keys,
 /// mail-template prefixes, and the runtime `STAGE` environment variable. The
-/// Lambda OpenSearch client branches on `"ephemeral"` to use AWS-signed auth
-/// without username/password credentials, which is the correct mode for
-/// LocalStack.
+/// Lambda OpenSearch client branches on `"ephemeral"` to use LocalStack's
+/// unsigned OpenSearch proxy without username/password credentials.
 const STAGE: &str = "ephemeral";
 
 /// All Lambda binary names that the ephemeral CloudFormation stack requires.

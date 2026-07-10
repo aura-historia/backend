@@ -35,6 +35,21 @@ pub const TEST_DOMAIN_NAME: &str = "test-domain";
 /// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
 static OPENSEARCH_CLIENT: OnceCell<Client> = OnceCell::const_new();
 
+fn test_access_policies() -> String {
+    json!({
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "es:*",
+                "Resource": "*"
+            }
+        ]
+    })
+    .to_string()
+}
+
 /// Returns a shared `opensearch::OpenSearch`-Client for interacting with LocalStack.
 ///
 /// The client is initialized only once using a global `OnceCell`, and internally depends on
@@ -49,14 +64,6 @@ pub async fn get_opensearch_client() -> &'static Client {
             let endpoint_url = Url::parse(&format!("{}/{TEST_DOMAIN_NAME}", get_endpoint_url()))
                 .expect("shouldn't fail parsing OpenSearch endpoint URL");
             let transport = TransportBuilder::new(SingleNodeConnectionPool::new(endpoint_url))
-                .auth(
-                    get_aws_config()
-                        .await
-                        .clone()
-                        .try_into()
-                        .expect("shouldn't fail extracting AWS-Config for OpenSearch"),
-                )
-                .service_name("es")
                 .build()
                 .expect("shouldn't fail creating OpenSearch-Transport");
             opensearch::OpenSearch::new(transport)
@@ -90,7 +97,7 @@ impl IntegrationTestService for OpenSearch {
         wait_until_domain_processed(TEST_DOMAIN_NAME)
             .await
             .expect("shouldn't fail waiting for domain  to complete processing");
-        set_up_indices()
+        wait_until_indices_are_set_up()
             .await
             .expect("shouldn't fail setting up indices");
     }
@@ -128,6 +135,7 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
                         .custom_endpoint_enabled(true)
                         .build(),
                 )
+                .access_policies(test_access_policies())
                 .send()
                 .await;
             match update_result {
@@ -162,6 +170,7 @@ async fn set_up_domain() -> Result<CreateDomainOutput, SdkError<CreateDomainErro
                 .custom_endpoint_enabled(true)
                 .build(),
         )
+        .access_policies(test_access_policies())
         .send()
         .await
 }
@@ -441,6 +450,20 @@ async fn set_up_indices() -> Result<(), Error> {
     .await?;
 
     Ok(())
+}
+
+async fn wait_until_indices_are_set_up() -> Result<(), Error> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        match set_up_indices().await {
+            Ok(()) => return Ok(()),
+            Err(err) if std::time::Instant::now() < deadline => {
+                debug!(error = %err, "OpenSearch indices are not ready yet; retrying setup.");
+                sleep(Duration::from_secs(2)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
 }
 
 /// Clears all documents from every standard index to ensure test isolation.

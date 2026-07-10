@@ -37,6 +37,17 @@ export class Search extends Construct {
           customEndpoint: "http://localhost:4566/test-domain",
           customEndpointEnabled: true,
         },
+        accessPolicies: {
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Effect: "Allow",
+              Principal: "*",
+              Action: "es:*",
+              Resource: "*",
+            },
+          ],
+        },
       });
 
       this.endpointUrl = cdk.Fn.sub("https://${DomainEndpoint}", {

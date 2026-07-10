@@ -35,20 +35,22 @@ pub async fn handler(
 
         let product_id = record.product_id;
 
+        let mut failed = false;
         if let Err(err) = delete_opensearch_product(opensearch_repository, product_id).await {
             warn!(error = ?err, %product_id, "Failed deleting product document.");
-            failed_message_ids.push(message_id.clone());
-            continue;
+            failed = true;
         }
         if let Err(err) = delete_watchlist_records(watchlist_repository, &product_id).await {
             warn!(error = ?err, %product_id, "Failed deleting watchlist records.");
-            failed_message_ids.push(message_id.clone());
-            continue;
+            failed = true;
         }
         if let Err(err) =
             delete_search_filter_match_records(search_filter_repository, &product_id).await
         {
             warn!(error = ?err, %product_id, "Failed deleting search-filter match records.");
+            failed = true;
+        }
+        if failed {
             failed_message_ids.push(message_id);
         }
     }

@@ -184,12 +184,18 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
             .error_for_status_code()?;
 
         let payload = response.text().await?;
-        let bulk_response = serde_json::from_str::<BulkResponse>(&payload)
-            .map_err(|err| {
-                serde_json::Error::custom(format!(
-                    "Failed deserializing 'BulkResponse' with error '{err}'. Received payload: {payload}"
-                ))
-            })?;
+        if payload.trim().is_empty() {
+            return Ok(BulkResponse {
+                took: 0,
+                errors: false,
+                items: Vec::new(),
+            });
+        }
+        let bulk_response = serde_json::from_str::<BulkResponse>(&payload).map_err(|err| {
+            serde_json::Error::custom(format!(
+                "Failed deserializing 'BulkResponse' with error '{err}'. Received payload: {payload}"
+            ))
+        })?;
 
         Ok(bulk_response)
     }
