@@ -174,6 +174,7 @@ impl From<UserSearchFilterRecord> for UserSearchFilter {
                     .into_iter()
                     .map(ProductState::from)
                     .collect(),
+                lifecycle_query: Default::default(),
                 created_query: record.created_query,
                 updated_query: record.updated_query,
                 auction_start_query: record.auction_start_query,

@@ -1,6 +1,6 @@
 use crate::core::product_event::{
     domain::ProductDomainEventPayload, enrichment::ProductEnrichmentEventPayload,
-    policy::ProductPolicyEventPayload,
+    lifecycle::ProductLifecycleEventPayload, policy::ProductPolicyEventPayload,
 };
 use common::{
     event::Event,
@@ -14,10 +14,12 @@ use common::{
 
 pub mod domain;
 pub mod enrichment;
+pub mod lifecycle;
 pub mod policy;
 
 pub type ProductDomainEvent = Event<ProductId, ProductDomainEventPayload>;
 pub type ProductEnrichmentEvent = Event<ProductId, ProductEnrichmentEventPayload>;
+pub type ProductLifecycleEvent = Event<ProductId, ProductLifecycleEventPayload>;
 pub type ProductPolicyEvent = Event<ProductId, ProductPolicyEventPayload>;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -26,6 +28,7 @@ pub type ProductPolicyEvent = Event<ProductId, ProductPolicyEventPayload>;
 pub enum ProductEventPayload {
     ProductDomainEvent(ProductDomainEventPayload),
     ProductEnrichmentEvent(ProductEnrichmentEventPayload),
+    ProductLifecycleEvent(ProductLifecycleEventPayload),
     ProductPolicyEvent(ProductPolicyEventPayload),
 }
 
@@ -38,6 +41,7 @@ impl HasKey for ProductEventPayload {
         match self {
             ProductEventPayload::ProductDomainEvent(event_payload) => event_payload.key(),
             ProductEventPayload::ProductEnrichmentEvent(event_payload) => event_payload.key(),
+            ProductEventPayload::ProductLifecycleEvent(event_payload) => event_payload.key(),
             ProductEventPayload::ProductPolicyEvent(event_payload) => event_payload.key(),
         }
     }
@@ -55,6 +59,12 @@ impl From<ProductEnrichmentEventPayload> for ProductEventPayload {
     }
 }
 
+impl From<ProductLifecycleEventPayload> for ProductEventPayload {
+    fn from(payload: ProductLifecycleEventPayload) -> Self {
+        ProductEventPayload::ProductLifecycleEvent(payload)
+    }
+}
+
 impl From<ProductPolicyEventPayload> for ProductEventPayload {
     fn from(payload: ProductPolicyEventPayload) -> Self {
         ProductEventPayload::ProductPolicyEvent(payload)
@@ -66,6 +76,7 @@ impl ProductEventPayload {
         match self {
             ProductEventPayload::ProductDomainEvent(payload) => payload.event_type(),
             ProductEventPayload::ProductEnrichmentEvent(payload) => payload.event_type(),
+            ProductEventPayload::ProductLifecycleEvent(payload) => payload.event_type(),
             ProductEventPayload::ProductPolicyEvent(payload) => payload.event_type(),
         }
     }
@@ -80,6 +91,14 @@ impl ProductEventPayload {
 
     pub fn as_enrichment_event(&self) -> Option<&ProductEnrichmentEventPayload> {
         if let ProductEventPayload::ProductEnrichmentEvent(payload) = self {
+            Some(payload)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_lifecycle_event(&self) -> Option<&ProductLifecycleEventPayload> {
+        if let ProductEventPayload::ProductLifecycleEvent(payload) = self {
             Some(payload)
         } else {
             None
@@ -162,6 +181,7 @@ impl From<&ProductEvent> for ProductEventLog {
         let (decision, reason, class) = match event.payload {
             ProductEventPayload::ProductDomainEvent(_) => (None, None, None),
             ProductEventPayload::ProductEnrichmentEvent(_) => (None, None, None),
+            ProductEventPayload::ProductLifecycleEvent(_) => (None, None, None),
             ProductEventPayload::ProductPolicyEvent(
                 ProductPolicyEventPayload::ProhibitedContentDecision(ref payload),
             ) => (

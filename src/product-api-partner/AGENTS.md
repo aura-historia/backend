@@ -6,8 +6,8 @@
 
 ## Core Design
 
-- Partner-facing product API Lambda for ingest and update flows.
-- Root modules: `patch_products`, `post_products`, `put_products`.
+- Partner-facing product API Lambda for ingest, update, and delete flows.
+- Root modules: `delete_product`, `patch_products`, `post_products`, `put_products`.
 - Library crate. Keep domain, persistence, and service seams explicit.
 
 ## Ownership

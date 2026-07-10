@@ -6,6 +6,7 @@ use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
 use common::price::domain::MonetaryAmount;
 use common::product_id::ProductId;
+use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
@@ -123,6 +124,7 @@ async fn should_create_product_document() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://foo.com/bar").unwrap(),
         view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
             .unwrap(),
@@ -235,6 +237,7 @@ async fn should_create_product_documents() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://foo.com/bar").unwrap(),
         view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
             .unwrap(),
@@ -332,6 +335,7 @@ async fn should_create_product_documents() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://foo.com/bar").unwrap(),
         view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
             .unwrap(),
@@ -446,6 +450,7 @@ async fn should_update_product_document() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://foo.com/bar").unwrap(),
         view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
             .unwrap(),
@@ -490,6 +495,7 @@ async fn should_update_product_document() {
         price_sgd: None,
         price_chf: None,
         state: Some(ProductStateDocument::Sold),
+        lifecycle: None,
         title_de: None,
         title_en: None,
         title_fr: None,
@@ -642,6 +648,7 @@ async fn should_search_product_documents() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Available,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://foo.com/bar").unwrap(),
         view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
             .unwrap(),
@@ -681,6 +688,7 @@ async fn should_search_product_documents() {
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -861,6 +869,7 @@ async fn should_search_product_documents_with_percolator_query() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Available,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://foo.com/percolator-match").unwrap(),
         view_url: Url::parse(
             "https://foo.com/percolator-match?utm_source=aura_historia&utm_medium=referral",
@@ -945,6 +954,7 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
             ProductState::Available,
             ProductState::Listed,
         ])),
+        lifecycle_query: Default::default(),
         created_query: Some(RangeQuery {
             min: Some(datetime!(1000-01-01 0:00 UTC)),
             max: Some(datetime!(3000-01-01 0:00 UTC)),
@@ -1015,6 +1025,7 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
         geo_address_distance_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::from_iter(states.iter().copied())),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -1081,6 +1092,7 @@ async fn should_search_product_documents_when_no_states_are_given() {
         geo_address_distance_query: None,
         price_query: None,
         state_query: AnyOfQuery::from(HashSet::new()),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -1161,6 +1173,7 @@ async fn should_search_product_documents_when_price_range_is_given(
         geo_address_distance_query: None,
         price_query: Some(price_query),
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -1249,6 +1262,7 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -1341,6 +1355,7 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -1512,6 +1527,35 @@ async fn should_search_product_documents_when_geo_address_distance_query_is_give
 }
 
 #[localstack_test(services = [OpenSearch()])]
+async fn should_delete_product_document() {
+    let product_id = ProductId::new();
+    let mut document = Faker.fake::<ProductDocument>();
+    document.product_id = product_id;
+
+    let client = get_opensearch_client().await;
+    let repository = ProductOpenSearchRepositoryImpl::new(client);
+    let response = repository
+        .create_product_documents(vec![document])
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+
+    let actual = repository.get_product_document_by_id(&product_id).await;
+    assert!(actual.is_ok());
+
+    let response = repository
+        .delete_product_documents(vec![product_id])
+        .await
+        .unwrap();
+    assert!(!response.errors);
+    refresh_index("products").await;
+
+    let actual = repository.get_product_document_by_id(&product_id).await;
+    assert!(actual.is_err());
+}
+
+#[localstack_test(services = [OpenSearch()])]
 async fn should_get_product_document() {
     let product_id = ProductId::new();
     let expected = ProductDocument {
@@ -1598,6 +1642,7 @@ async fn should_get_product_document() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateDocument::Listed,
+        lifecycle: ProductLifecycleDocument::Active,
         url: Url::parse("https://foo.com/bar").unwrap(),
         view_url: Url::parse("https://foo.com/bar?utm_source=aura_historia&utm_medium=referral")
             .unwrap(),
@@ -2462,6 +2507,7 @@ async fn should_search_product_documents_when_shop_types_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -2551,6 +2597,7 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -2643,6 +2690,7 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -2733,6 +2781,7 @@ async fn should_search_product_documents_when_seller_names_are_given_for_keyword
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -2829,6 +2878,7 @@ async fn should_search_product_documents_when_excluded_seller_names_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -2927,6 +2977,7 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3027,6 +3078,7 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3122,6 +3174,7 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3222,6 +3275,7 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3315,6 +3369,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: Some(auction_start_query),
@@ -3439,6 +3494,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3563,6 +3619,7 @@ async fn should_search_product_documents_when_query_is_empty(
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,
@@ -3669,6 +3726,7 @@ fn search_with_query(query: &str) -> ProductSearch {
         geo_address_distance_query: None,
         price_query: None,
         state_query: Default::default(),
+        lifecycle_query: Default::default(),
         created_query: None,
         updated_query: None,
         auction_start_query: None,

@@ -25,9 +25,8 @@ const COMMIT_SHA: &str = "local";
 ///
 /// This value is used for physical resource suffixes, Lambda artifact keys,
 /// mail-template prefixes, and the runtime `STAGE` environment variable. The
-/// Lambda OpenSearch client branches on `"ephemeral"` to use AWS-signed auth
-/// without username/password credentials, which is the correct mode for
-/// LocalStack.
+/// Lambda OpenSearch client branches on `"ephemeral"` to use LocalStack's
+/// unsigned OpenSearch proxy without username/password credentials.
 const STAGE: &str = "ephemeral";
 
 /// All Lambda binary names that the ephemeral CloudFormation stack requires.
@@ -51,6 +50,7 @@ const LAMBDA_BINARIES: &[&str] = &[
     "notification-send",
     "product-lambda-materialize-opensearch",
     "product-lambda-ingest-partner-products",
+    "product-lambda-delete-product",
     "product-pipeline-embed-text",
     "product-pipeline-translate",
     "shop-lambda-opensearch-index",
@@ -174,6 +174,8 @@ impl IntegrationTestService for Cloudformation {
             cfn.product_materialize_opensearch_queue_url.clone(),
             cfn.product_materialize_opensearch_dead_letter_queue_url
                 .clone(),
+            cfn.product_delete_product_queue_url.clone(),
+            cfn.product_delete_product_dead_letter_queue_url.clone(),
             cfn.product_partner_ingest_queue_url.clone(),
             cfn.product_partner_ingest_dead_letter_queue_url.clone(),
             cfn.shop_opensearch_index_queue_url.clone(),

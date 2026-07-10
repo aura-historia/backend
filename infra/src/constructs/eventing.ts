@@ -151,11 +151,24 @@ function createDynamoDbRules(
       eventName: ["INSERT"],
       dynamodb: {
         NewImage: {
-          event_type: { S: [{ prefix: "DOMAIN_" }, { prefix: "ENRICHMENT_" }, { prefix: "POLICY_" }] },
+          event_type: { S: [{ prefix: "DOMAIN_" }, { prefix: "ENRICHMENT_" }, { prefix: "POLICY_" }, { prefix: "LIFECYCLE_" }] },
         },
       },
     },
     targets: ["productMaterializeOpenSearch"],
+    queues,
+  });
+
+  addDynamoDbRule(scope, eventBus, "DynamoDbProductDeleteProductEventRule", table, {
+    detail: {
+      eventName: ["INSERT"],
+      dynamodb: {
+        NewImage: {
+          event_type: { S: ["LIFECYCLE_DELETED"] },
+        },
+      },
+    },
+    targets: ["productDeleteProduct"],
     queues,
   });
 
@@ -334,6 +347,7 @@ function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog)
   addSqsEventSource(functions.userTierUpdate, queues.userTierUpdate.queue, 1, false);
   addSqsEventSource(functions.notificationSend, queues.notificationSend.queue, 25, true, 1);
   addSqsEventSource(functions.productMaterializeOpenSearch, queues.productMaterializeOpenSearch.queue, 2500, true, 1);
+  addSqsEventSource(functions.productDeleteProduct, queues.productDeleteProduct.queue, 100, true, 1);
   addSqsEventSource(functions.productPipelineEmbedText, queues.productPipelineEmbedText.queue, 10, true, 1);
   addSqsEventSource(functions.productPipelineTranslate, queues.productPipelineTranslate.queue, 10, true, 1);
   addSqsEventSource(functions.productUpdateNotifyUser, queues.productUpdateNotifyUser.queue, 10, true, 1);

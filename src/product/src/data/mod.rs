@@ -6,6 +6,7 @@ pub mod patch_product_data;
 pub mod post_product_data;
 pub mod price_composite_data;
 pub mod product_image_data;
+
 pub mod product_search_data;
 pub mod product_state_data;
 pub mod prohibited_content_data;

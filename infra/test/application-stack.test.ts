@@ -131,7 +131,7 @@ describe("Application stacks", () => {
     expect(resourcesOfType(json, "AWS::DynamoDB::Table")).toHaveLength(1);
     expect(resourcesOfType(json, "AWS::Cognito::UserPool")).toHaveLength(1);
     expect(resourcesOfType(json, "AWS::ApiGatewayV2::Api")).toHaveLength(1);
-    expect(resourcesOfType(json, "AWS::ApiGatewayV2::Route")).toHaveLength(71);
+    expect(resourcesOfType(json, "AWS::ApiGatewayV2::Route")).toHaveLength(72);
     expect(resourcesOfType(json, "AWS::CloudFront::Distribution")).toHaveLength(0);
     expect(Object.keys(json.Parameters ?? {})).toEqual(["CommitSHA"]);
     expect(json.Outputs?.ApiGatewayEndpointUrl).toBeDefined();
@@ -158,10 +158,10 @@ describe("Application stacks", () => {
     expect(resourceCount(templates, "AWS::Cognito::UserPool")).toBe(1);
     expect(resourceCount(templates, "AWS::Cognito::UserPoolClient")).toBe(1);
     expect(resourceCount(templates, "AWS::ApiGatewayV2::Api")).toBe(1);
-    expect(resourceCount(templates, "AWS::ApiGatewayV2::Route")).toBe(71);
+    expect(resourceCount(templates, "AWS::ApiGatewayV2::Route")).toBe(72);
     expect(resourceCount(templates, "AWS::ApiGatewayV2::Integration")).toBe(12);
-    expect(resourceCount(templates, "AWS::SQS::Queue")).toBe(24);
-    expect(resourceCount(templates, "AWS::Lambda::EventSourceMapping")).toBe(12);
+    expect(resourceCount(templates, "AWS::SQS::Queue")).toBe(26);
+    expect(resourceCount(templates, "AWS::Lambda::EventSourceMapping")).toBe(13);
     expect(resourceCount(templates, "AWS::StepFunctions::StateMachine")).toBe(1);
     expect(resourceCount(templates, "AWS::Pipes::Pipe")).toBe(1);
 
@@ -184,6 +184,22 @@ describe("Application stacks", () => {
     expect(templates.data.toJSON().Outputs?.NotificationSendQueueUrl).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.StripeEventBusName).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.ShopifyEventBusName).toBeDefined();
+  });
+
+  test.each(STAGES)("product delete worker reports partial SQS batch failures for %s", (stage) => {
+    const templates = synthesize(stage);
+
+    templates.compute.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+      BatchSize: 100,
+      EventSourceArn: {
+        "Fn::Join": [
+          "",
+          Match.arrayWith([`:product-lambda-delete-product-queue-${stage}`]),
+        ],
+      },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+      MaximumBatchingWindowInSeconds: 1,
+    });
   });
 
   test.each(STAGES)("uses CLI credentials synthesizer for %s", (stage) => {
@@ -281,7 +297,7 @@ describe("Application stacks", () => {
 
     expect(resourceCount(templates, "AWS::OpenSearchService::Domain")).toBe(0);
     expect(resourceCount(templates, "AWS::SNS::Topic")).toBe(1);
-    expect(resourcePropertiesCount(templates, "AWS::CloudWatch::Alarm", {})).toBe(47);
+    expect(resourcePropertiesCount(templates, "AWS::CloudWatch::Alarm", {})).toBe(48);
     templates.api.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
       DefaultRouteSettings: Match.objectLike({
         DetailedMetricsEnabled: true,
@@ -543,7 +559,7 @@ describe("Application stacks", () => {
 
     expect(resourcePropertiesCount(templates, "AWS::SQS::Queue", {
       RedrivePolicy: Match.anyValue(),
-    })).toBe(12);
+    })).toBe(13);
     templates.data.hasResourceProperties("AWS::SQS::Queue", {
       RedrivePolicy: Match.objectLike({
         maxReceiveCount: 5,

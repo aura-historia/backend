@@ -3,6 +3,8 @@ use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use cognito::load_access_token_verifier_service;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
+use product::service::command_service::CommandProductServiceImpl;
 use product_api_partner::handler;
 use product_lambda_ingest_partner_products::AsyncProductCommandServiceImpl;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
@@ -35,9 +37,12 @@ async fn main() -> Result<(), Error> {
 
     let shop_dynamodb_repository = ShopDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let user_dynamodb_repository = UserDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
+    let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_dynamodb_repository);
     let user_service = UserServiceImpl::new(&user_dynamodb_repository);
     let async_product_command_service = AsyncProductCommandServiceImpl::new(&sqs, queue_url);
+    let command_product_service =
+        CommandProductServiceImpl::new_delete_only(&product_dynamodb_repository);
     let access_token_verifier_service =
         load_access_token_verifier_service(&user_pool_id, &user_pool_client_ids);
     let authenticator_service =
@@ -53,6 +58,7 @@ async fn main() -> Result<(), Error> {
                 &user_service,
                 &authenticator_service,
                 &async_product_command_service,
+                &command_product_service,
             )
             .await
         },

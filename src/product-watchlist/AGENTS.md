@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- Product watchlist domain and persistence.
+- Product watchlist domain and persistence, including product-delete cleanup.
 - Root modules: `core`, `data`, `dynamodb`, `service`.
 - Main neighbors: `common`, `product`, `user`.
 - Library crate. Keep domain, persistence, and service seams explicit.

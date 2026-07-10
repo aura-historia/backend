@@ -4,6 +4,7 @@ use common::event_id::EventId;
 use common::language::record::{LanguageRecord, TextRecord};
 use common::price::record::PriceRecord;
 use common::product_id::{ProductId, ProductKey};
+use common::product_lifecycle::record::ProductLifecycleRecord;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use fake::{Fake, Faker};
@@ -139,6 +140,7 @@ async fn should_put_product_records_for_multiple_records() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateRecord::Available,
+        lifecycle: ProductLifecycleRecord::Active,
         url: Url::parse("https://foo.bar/123456").unwrap(),
         view_url: Url::parse("https://foo.bar/123456").unwrap(),
         images: Default::default(),
@@ -244,6 +246,7 @@ async fn should_put_product_records_for_multiple_records() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateRecord::Available,
+        lifecycle: ProductLifecycleRecord::Active,
         url: Url::parse("https://foo.bar/123456").unwrap(),
         view_url: Url::parse("https://foo.bar/123456").unwrap(),
         images: Default::default(),
@@ -681,6 +684,7 @@ async fn should_update_product_record() {
         price_estimate_max_sgd: None,
         price_estimate_max_chf: None,
         state: ProductStateRecord::Available,
+        lifecycle: ProductLifecycleRecord::Active,
         url: Url::parse("https://foo.bar/123456").unwrap(),
         view_url: Url::parse("https://foo.bar/123456").unwrap(),
         images: Default::default(),
@@ -716,6 +720,7 @@ async fn should_update_product_record() {
         price_sgd: None,
         price_chf: None,
         state: Some(ProductStateRecord::Sold),
+        lifecycle: None,
         title_de: None,
         title_en: None,
         title_fr: None,
@@ -911,6 +916,7 @@ async fn should_write_event_and_update_product_record_atomically_when_event_id_m
     let update = ProductRecordUpdate {
         event_id: Some(new_event_id),
         state: Some(ProductStateRecord::Sold),
+        lifecycle: None,
         updated: now,
         ..ProductRecordUpdate::default()
     };
@@ -963,6 +969,7 @@ async fn should_fail_transact_write_update_when_event_id_does_not_match() {
     let update = ProductRecordUpdate {
         event_id: Some(new_event_id),
         state: Some(ProductStateRecord::Sold),
+        lifecycle: None,
         updated: time::OffsetDateTime::now_utc(),
         ..ProductRecordUpdate::default()
     };

@@ -58,6 +58,21 @@
 - LocalStack integration need Docker. Acceptance tests be heavy; run when task asks or risk says so.
 - Run integration-tests (tests folder) only for targetted crates. 
 
+## Test Guidance
+
+- Full coverage everywhere required: all happy and unhappy paths, all edge cases, all error cases.
+- Use `rstest` for parameterized tests where sensible
+- Use `fake` crate for generating test data where applicable
+- Use `..Default::default()` for struct initialization in tests to avoid boilerplate
+- Unit-test all public functions and critical private functions
+- Integration-test all repository-functions (OpenSearch, DynamoDB)
+- Integration-test all lambdas for happy paths
+- Acceptance-Test all critical application-flows for cross-crate integration and end-to-end behavior. This includes
+  - REST API endpoints
+  - Lambda event flows
+  - Event-driven architecture flows (EventBridge, SQS, Lambda)
+  - Critical business rules, edge cases and authentication/user-plan flows
+
 ## Runtime Guidance
 
 - Init executable logging with `common::logging::init_logging()`.

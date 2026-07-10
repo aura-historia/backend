@@ -29,6 +29,7 @@ product-personalization = { workspace = true }
 product-watchlist = { workspace = true }
 product-watchlist-api = { workspace = true }
 product-lambda = { workspace = true }
+product-lambda-delete-product = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
 user-api = { workspace = true }
@@ -155,6 +156,7 @@ product-pipeline = { path = "src/product-pipeline" }
 product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 product-lambda-ingest-partner-products = { path = "src/product-lambda/src/product-lambda-ingest-partner-products" }
+product-lambda-delete-product = { path = "src/product-lambda/src/product-lambda-delete-product" }
 isocountry = "0.3.2"
 itertools = "0.15.0"
 lambda_runtime = "1.2.1"

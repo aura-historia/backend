@@ -6,18 +6,20 @@ use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
     operation::{
+        batch_write_item::{BatchWriteItemError, BatchWriteItemOutput},
         delete_item::{DeleteItemError, DeleteItemOutput},
         get_item::GetItemError,
         put_item::{PutItemError, PutItemOutput},
         query::QueryError,
         update_item::UpdateItemError,
     },
-    types::{AttributeValue, ReturnValue},
+    types::{AttributeValue, DeleteRequest, ReturnValue, WriteRequest},
 };
 use common::{
-    dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor, product_id::ProductId,
-    shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
+    batch::Batch, dynamodb_update::DynamoDbUpdate, pagination::cursor::Cursor,
+    product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId, user_id::UserId,
 };
+use std::collections::HashMap;
 use time::{Duration, OffsetDateTime};
 use tracing::error;
 
@@ -75,6 +77,11 @@ pub trait WatchlistProductDynamoDbRepository {
         &self,
         product_id: &ProductId,
     ) -> Result<Vec<WatchlistProductRecord>, SdkError<QueryError>>;
+
+    async fn delete_watchlist_records(
+        &self,
+        keys: Batch<(UserId, ShopId, ShopsProductId), 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>>;
 }
 
 #[derive(Debug, Clone)]
@@ -381,5 +388,25 @@ impl<'a> WatchlistProductDynamoDbRepository for WatchlistProductDynamoDbReposito
             .collect();
 
         Ok(user_records)
+    }
+
+    async fn delete_watchlist_records(
+        &self,
+        keys: Batch<(UserId, ShopId, ShopsProductId), 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>> {
+        let mut requests = Vec::with_capacity(keys.len());
+        for (user_id, shop_id, shops_product_id) in keys {
+            let delete = DeleteRequest::builder()
+                .key("pk", AttributeValue::S(mk_pk(&user_id)))
+                .key("sk", AttributeValue::S(mk_sk(&shop_id, &shops_product_id)))
+                .build()
+                .map_err(SdkError::construction_failure)?;
+            requests.push(WriteRequest::builder().delete_request(delete).build());
+        }
+        self.client
+            .batch_write_item()
+            .set_request_items(Some(HashMap::from([(self.table.clone(), requests)])))
+            .send()
+            .await
     }
 }

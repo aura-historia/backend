@@ -17,6 +17,10 @@ pub struct UserSearchFilterMatchRecord {
     pub sk: String,
     pub lsi1_sk: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gsi2_pk: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gsi2_sk: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lsi2_sk: Option<String>,
     pub user_id: UserId,
     pub user_search_filter_id: UserSearchFilterId,
@@ -79,6 +83,14 @@ pub fn mk_lsi2_sk_prefix_product(shop_id: &ShopId, shops_product_id: &ShopsProdu
     format!("search_filter_match#shop_id#{shop_id}#shops_product_id#{shops_product_id}#")
 }
 
+pub fn mk_gsi2_pk(product_id: &ProductId) -> String {
+    format!("product_id#{product_id}")
+}
+
+pub fn mk_gsi2_sk(user_id: &UserId) -> String {
+    format!("search_filter_match#user_id#{user_id}")
+}
+
 /// Lower bound for the `lsi1_sk` of all search filter match records.
 pub const LSI1_SK_LOWER_BOUND: &str = "search_filter_match#";
 /// Upper bound for the `lsi1_sk` of all search filter match records.
@@ -112,6 +124,8 @@ impl From<SearchFilterProductMatch> for UserSearchFilterMatchRecord {
             pk: mk_pk(&m.user_id),
             sk: mk_sk(&m.user_search_filter_id, &m.shop_id, &m.shops_product_id),
             lsi1_sk: mk_lsi1_sk(&m.created),
+            gsi2_pk: Some(mk_gsi2_pk(&m.product_id)),
+            gsi2_sk: Some(mk_gsi2_sk(&m.user_id)),
             lsi2_sk: Some(mk_lsi2_sk(&m.shop_id, &m.shops_product_id, &m.created)),
             user_id: m.user_id,
             user_search_filter_id: m.user_search_filter_id,
@@ -141,18 +155,21 @@ mod faker {
             let search_filter_id: UserSearchFilterId = config.fake_with_rng(rng);
             let shop_id: ShopId = config.fake_with_rng(rng);
             let shops_product_id: ShopsProductId = config.fake_with_rng(rng);
+            let product_id: ProductId = config.fake_with_rng(rng);
             let created = OffsetDateTime::now_utc();
             UserSearchFilterMatchRecord {
                 pk: mk_pk(&user_id),
                 sk: mk_sk(&search_filter_id, &shop_id, &shops_product_id),
                 lsi1_sk: mk_lsi1_sk(&created),
+                gsi2_pk: Some(mk_gsi2_pk(&product_id)),
+                gsi2_sk: Some(mk_gsi2_sk(&user_id)),
                 lsi2_sk: Some(mk_lsi2_sk(&shop_id, &shops_product_id, &created)),
                 user_id,
                 user_search_filter_id: search_filter_id,
                 user_search_filter_name: config.fake_with_rng::<Option<String>, _>(rng),
                 shop_id,
                 shops_product_id,
-                product_id: config.fake_with_rng(rng),
+                product_id,
                 origin_event_id: config.fake_with_rng(rng),
                 enhanced_match_reason: config.fake_with_rng(rng),
                 feedback: config.fake_with_rng(rng),

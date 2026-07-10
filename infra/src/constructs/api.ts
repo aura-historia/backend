@@ -60,6 +60,7 @@ const ROUTES: readonly RouteDefinition[] = [
   route("GET", "/api/v1/shops/{shopId}/products/{shopsProductId}/similar", "productApi"),
   route("POST", "/api/v1/products/search", "productApi"),
   route("GET", "/api/v1/products", "productApi"),
+  route("DELETE", "/api/v1/shops/{shopId}/products/{shopsProductId}", "productApiPartner"),
   route("PATCH", "/api/v1/shops/{shopId}/products", "productApiPartner"),
   route("POST", "/api/v1/shops/{shopId}/products", "productApiPartner"),
   route("PUT", "/api/v1/shops/{shopId}/products", "productApiPartner"),

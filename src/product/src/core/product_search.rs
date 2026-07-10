@@ -3,6 +3,7 @@ use common::distance::domain::GeoDistanceQuery;
 use common::language::domain::Language;
 use common::price::domain::MonetaryAmount;
 use common::product_id::ProductId;
+use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
@@ -40,6 +41,7 @@ pub struct ProductSearch {
     pub geo_address_distance_query: Option<GeoDistanceQuery>,
     pub price_query: Option<RangeQuery<MonetaryAmount>>,
     pub state_query: AnyOfQuery<ProductState>,
+    pub lifecycle_query: AnyOfQuery<ProductLifecycle>,
     pub created_query: Option<RangeQuery<OffsetDateTime>>,
     pub updated_query: Option<RangeQuery<OffsetDateTime>>,
     pub auction_start_query: Option<RangeQuery<OffsetDateTime>>,
@@ -68,6 +70,7 @@ impl ProductSearch {
             geo_address_distance_query: None,
             price_query: None,
             state_query: AnyOfQuery::default(),
+            lifecycle_query: AnyOfQuery::default(),
             created_query: None,
             updated_query: None,
             auction_start_query: None,
@@ -184,6 +187,11 @@ impl ProductSearch {
         self
     }
 
+    pub fn with_lifecycle_query(mut self, lifecycle_query: AnyOfQuery<ProductLifecycle>) -> Self {
+        self.lifecycle_query = lifecycle_query;
+        self
+    }
+
     pub fn with_created_query(mut self, created_query: RangeQuery<OffsetDateTime>) -> Self {
         self.created_query = Some(created_query);
         self
@@ -235,6 +243,7 @@ pub mod faker {
                 geo_address_distance_query: None,
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
+                lifecycle_query: config.fake_with_rng(rng),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
                 auction_start_query: fake_range_query_datetime(config, rng),

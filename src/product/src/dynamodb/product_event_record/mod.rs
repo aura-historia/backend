@@ -5,7 +5,7 @@ use crate::{
     },
     dynamodb::product_event_record::{
         domain::ProductDomainEventRecord, enrichment::ProductEnrichmentEventRecord,
-        policy::ProductPolicyEventRecord,
+        lifecycle::ProductLifecycleEventRecord, policy::ProductPolicyEventRecord,
     },
 };
 use common::{
@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod domain;
 pub mod enrichment;
+pub mod lifecycle;
 pub mod policy;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -29,6 +30,7 @@ pub mod policy;
 pub enum ProductEventRecord {
     Domain(ProductDomainEventRecord),
     Enrichment(ProductEnrichmentEventRecord),
+    Lifecycle(ProductLifecycleEventRecord),
     Policy(ProductPolicyEventRecord),
 }
 
@@ -43,6 +45,7 @@ impl ProductEventRecord {
         match self {
             ProductEventRecord::Domain(record) => &record.shop_id,
             ProductEventRecord::Enrichment(record) => &record.shop_id,
+            ProductEventRecord::Lifecycle(record) => &record.shop_id,
             ProductEventRecord::Policy(record) => &record.shop_id,
         }
     }
@@ -51,6 +54,7 @@ impl ProductEventRecord {
         match self {
             ProductEventRecord::Domain(record) => &record.shops_product_id,
             ProductEventRecord::Enrichment(record) => &record.shops_product_id,
+            ProductEventRecord::Lifecycle(record) => &record.shops_product_id,
             ProductEventRecord::Policy(record) => &record.shops_product_id,
         }
     }
@@ -59,6 +63,7 @@ impl ProductEventRecord {
         match self {
             ProductEventRecord::Domain(record) => &record.product_id,
             ProductEventRecord::Enrichment(record) => &record.product_id,
+            ProductEventRecord::Lifecycle(record) => &record.product_id,
             ProductEventRecord::Policy(record) => &record.product_id,
         }
     }
@@ -67,6 +72,7 @@ impl ProductEventRecord {
         match self {
             ProductEventRecord::Domain(record) => &record.event_id,
             ProductEventRecord::Enrichment(record) => &record.event_id,
+            ProductEventRecord::Lifecycle(record) => &record.event_id,
             ProductEventRecord::Policy(record) => &record.event_id,
         }
     }
@@ -75,6 +81,7 @@ impl ProductEventRecord {
         match self {
             ProductEventRecord::Domain(record) => record.event_type.as_str(),
             ProductEventRecord::Enrichment(record) => record.event_type.as_str(),
+            ProductEventRecord::Lifecycle(record) => record.event_type.as_str(),
             ProductEventRecord::Policy(record) => record.event_type.as_str(),
         }
     }
@@ -87,6 +94,7 @@ impl HasKey for ProductEventRecord {
         match self {
             ProductEventRecord::Domain(record) => record.key(),
             ProductEventRecord::Enrichment(record) => record.key(),
+            ProductEventRecord::Lifecycle(record) => record.key(),
             ProductEventRecord::Policy(record) => record.key(),
         }
     }
@@ -95,6 +103,12 @@ impl HasKey for ProductEventRecord {
 impl From<ProductEnrichmentEventRecord> for ProductEventRecord {
     fn from(enrichment_record: ProductEnrichmentEventRecord) -> Self {
         Self::Enrichment(enrichment_record)
+    }
+}
+
+impl From<ProductLifecycleEventRecord> for ProductEventRecord {
+    fn from(lifecycle_record: ProductLifecycleEventRecord) -> Self {
+        Self::Lifecycle(lifecycle_record)
     }
 }
 
@@ -127,6 +141,16 @@ impl From<ProductEvent> for ProductEventRecord {
                 let helper_record = helper.into();
                 ProductEventRecord::Enrichment(helper_record)
             }
+            ProductEventPayload::ProductLifecycleEvent(payload) => {
+                let helper = Event {
+                    aggregate_id: event.aggregate_id,
+                    event_id: event.event_id,
+                    timestamp: event.timestamp,
+                    payload,
+                };
+                let helper_record = helper.into();
+                ProductEventRecord::Lifecycle(helper_record)
+            }
             ProductEventPayload::ProductPolicyEvent(payload) => {
                 let helper = Event {
                     aggregate_id: event.aggregate_id,
@@ -146,6 +170,7 @@ impl From<&ProductEventRecord> for ProductEventLog {
         let (decision, reason, class) = match event_record {
             ProductEventRecord::Domain(_) => (None, None, None),
             ProductEventRecord::Enrichment(_) => (None, None, None),
+            ProductEventRecord::Lifecycle(_) => (None, None, None),
             ProductEventRecord::Policy(event_record) => (
                 Some(
                     ProhibitedContent::from(event_record.prohibited_content_decision)
@@ -212,6 +237,7 @@ mod tests {
         let (sk, event_id) = match &product_event_record {
             ProductEventRecord::Domain(record) => (&record.sk, record.event_id),
             ProductEventRecord::Enrichment(record) => (&record.sk, record.event_id),
+            ProductEventRecord::Lifecycle(record) => (&record.sk, record.event_id),
             ProductEventRecord::Policy(record) => (&record.sk, record.event_id),
         };
 

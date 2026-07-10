@@ -9,6 +9,7 @@ use common::language::domain::Language;
 use common::opensearch::{bulk_response::BulkResponse, search_response::SearchResponse};
 use common::pagination::cursor::Cursor;
 use common::product_id::ProductId;
+use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
@@ -48,6 +49,11 @@ pub trait ProductOpenSearchRepository {
     async fn update_product_documents(
         &self,
         updates: HashMap<ProductId, ProductUpdateDocument>,
+    ) -> Result<BulkResponse, opensearch::Error>;
+
+    async fn delete_product_documents(
+        &self,
+        product_ids: Vec<ProductId>,
     ) -> Result<BulkResponse, opensearch::Error>;
 
     async fn search_product_documents(
@@ -156,6 +162,40 @@ impl<'a> ProductOpenSearchRepository for ProductOpenSearchRepositoryImpl<'a> {
                     "Failed deserializing 'BulkResponse' with error '{err}'. Received payload: {payload}"
                 ))
             })?;
+
+        Ok(bulk_response)
+    }
+
+    async fn delete_product_documents(
+        &self,
+        product_ids: Vec<ProductId>,
+    ) -> Result<BulkResponse, opensearch::Error> {
+        let mut ops = BulkOperations::new();
+        for product_id in product_ids {
+            ops.push(BulkOperation::<serde_json::Value>::delete(product_id))?;
+        }
+
+        let response = self
+            .client
+            .bulk(BulkParts::Index("products"))
+            .body(vec![ops])
+            .send()
+            .await?
+            .error_for_status_code()?;
+
+        let payload = response.text().await?;
+        if payload.trim().is_empty() {
+            return Ok(BulkResponse {
+                took: 0,
+                errors: false,
+                items: Vec::new(),
+            });
+        }
+        let bulk_response = serde_json::from_str::<BulkResponse>(&payload).map_err(|err| {
+            serde_json::Error::custom(format!(
+                "Failed deserializing 'BulkResponse' with error '{err}'. Received payload: {payload}"
+            ))
+        })?;
 
         Ok(bulk_response)
     }
@@ -554,6 +594,21 @@ pub fn build_filter_clauses(
     let mut must_not = Vec::with_capacity(1);
     let mut filter = Vec::with_capacity(16);
 
+    let lifecycle_terms = if search.lifecycle_query.is_empty() {
+        vec![ProductLifecycleDocument::Active.as_str().to_string()]
+    } else {
+        search
+            .lifecycle_query
+            .iter()
+            .map(|v| ProductLifecycleDocument::from(*v).as_str().to_string())
+            .collect::<Vec<_>>()
+    };
+    filter.push(json!({
+        "terms": {
+            ProductDocumentSerdeField::Lifecycle.as_str(): lifecycle_terms
+        }
+    }));
+
     // ---------- Exclusions ----------
     if !search.exclude_product_id_query.is_empty() {
         must_not.push(json!({
@@ -877,7 +932,11 @@ mod tests {
 
         assert!(actual.get("constant_score").is_none());
         assert_eq!(
-            actual.pointer("/bool/filter/0/terms/state"),
+            actual.pointer("/bool/filter/0/terms/lifecycle"),
+            Some(&json!(["ACTIVE"]))
+        );
+        assert_eq!(
+            actual.pointer("/bool/filter/1/terms/state"),
             Some(&json!(["LISTED"]))
         );
     }

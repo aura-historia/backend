@@ -195,6 +195,7 @@ async fn should_return_202_and_forward_create_command_when_products_created_succ
         &user_service_for_handler,
         &authenticator_service,
         &async_product_command_service,
+        &product::service::command_service::MockCommandProductService::default(),
     )
     .await
     .unwrap();
@@ -229,6 +230,7 @@ async fn should_return_401_when_access_token_is_invalid() {
         &user_service,
         &authenticator_service,
         &product_lambda_ingest_partner_products::service::MockAsyncProductCommandService::default(),
+        &product::service::command_service::MockCommandProductService::default(),
     )
     .await
     .unwrap_err();
@@ -252,6 +254,7 @@ async fn should_return_404_when_shop_does_not_exist() {
         &user_service,
         &authenticator_service,
         &product_lambda_ingest_partner_products::service::MockAsyncProductCommandService::default(),
+        &product::service::command_service::MockCommandProductService::default(),
     )
     .await
     .unwrap_err();
@@ -285,6 +288,7 @@ async fn should_return_403_when_user_is_not_associated_with_shop() {
         &user_service,
         &authenticator_service,
         &product_lambda_ingest_partner_products::service::MockAsyncProductCommandService::default(),
+        &product::service::command_service::MockCommandProductService::default(),
     )
     .await
     .unwrap_err();

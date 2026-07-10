@@ -8,6 +8,7 @@ use common::has_key::HasKey;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::product_id::{ProductId, ProductKey};
+use common::product_lifecycle::data::ProductLifecycleData;
 use common::product_slug_id::ProductSlugId;
 use common::shop_id::ShopId;
 use common::shop_slug_id::ShopSlugId;
@@ -35,6 +36,7 @@ pub struct GetProductSummaryData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price: Option<PriceData>,
     pub state: ProductStateData,
+    pub lifecycle: ProductLifecycleData,
     pub url: Url,
     pub view_url: Url,
     #[serde(default)]
@@ -76,6 +78,7 @@ impl GetProductSummaryData {
             title: product_view.title.into(),
             price: product_view.price.map(PriceData::from),
             state: product_view.state.into(),
+            lifecycle: product_view.lifecycle.into(),
             url: product_view.url,
             view_url: product_view.view_url,
             images: product_view
@@ -132,6 +135,7 @@ mod tests {
         product_image_data::ProductImageData, product_state_data::ProductStateData,
         prohibited_content_data::ProhibitedContentData,
     };
+    use common::product_lifecycle::data::ProductLifecycleData;
     use common::{
         actor::data::ActorData,
         currency::data::CurrencyData,
@@ -167,6 +171,7 @@ mod tests {
             title: LocalizedTextData::new("Mein titel", LanguageData::De),
             price: Some(PriceData::new(CurrencyData::Eur, 50000)),
             state: ProductStateData::Reserved,
+            lifecycle: ProductLifecycleData::Active,
             url: Url::parse("https://my-shop.de/item").unwrap(),
             view_url: Url::parse(
                 "https://my-shop.de/item?utm_source=aura_historia&utm_medium=referral",
@@ -213,6 +218,7 @@ mod tests {
                 "amount": 50000
             },
             "state": "RESERVED",
+            "lifecycle": "ACTIVE",
             "url": "https://my-shop.de/item",
             "viewUrl": "https://my-shop.de/item?utm_source=aura_historia&utm_medium=referral",
             "images": [

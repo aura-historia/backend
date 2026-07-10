@@ -275,6 +275,9 @@
                     "state": {
                         "type": "keyword"
                     },
+                    "lifecycle": {
+                        "type": "keyword"
+                    },
                     "created": {
                         "type": "object",
                         "properties": {
@@ -393,6 +396,9 @@
                 "type": "unsigned_long"
             },
             "state": {
+                "type": "keyword"
+            },
+            "lifecycle": {
                 "type": "keyword"
             },
             "titleNative": {

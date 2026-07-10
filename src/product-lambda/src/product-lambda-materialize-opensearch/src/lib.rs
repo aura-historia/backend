@@ -3,6 +3,7 @@ use common::dynamodb_stream::extract_from_dynamodb_stream;
 use common::mergeable::Mergeable;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
 use common::product_id::ProductId;
+use common::product_lifecycle::record::ProductLifecycleRecord;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
@@ -50,6 +51,14 @@ pub async fn handler(
             ProductEventRecord::Enrichment(enrichment_record) => {
                 let product_id = enrichment_record.product_id;
                 let update = build_enrichment_update(enrichment_record);
+                merge_update(message_id, product_id, update, &mut updates);
+            }
+            ProductEventRecord::Lifecycle(lifecycle_record) => {
+                if lifecycle_record.new_lifecycle == ProductLifecycleRecord::Deleted {
+                    continue;
+                }
+                let product_id = lifecycle_record.product_id;
+                let update = ProductUpdateDocument::from(lifecycle_record);
                 merge_update(message_id, product_id, update, &mut updates);
             }
             ProductEventRecord::Policy(policy_record) => {
@@ -214,6 +223,7 @@ fn handle_bulk_response(
             let op_result = match bulk_item_result {
                 BulkItemResult::Create { create } => create,
                 BulkItemResult::Update { update } => update,
+                BulkItemResult::Delete { delete } => delete,
             };
             Some(op_result).filter(|r| r.is_err())
         });
@@ -283,6 +293,7 @@ mod tests {
     use common::opensearch::bulk_response::BulkOpResult;
     use common::opensearch::bulk_response::{BulkError, BulkResponse};
     use common::product_id::ProductId;
+    use common::product_lifecycle::record::ProductLifecycleRecord;
     use fake::Fake;
     use fake::Faker;
     use lambda_runtime::{Context, LambdaEvent};
@@ -613,17 +624,29 @@ mod tests {
         #[case] record_count: usize,
     ) {
         let mut message_ids = HashMap::with_capacity(record_count);
+        let mut expected_failure_candidates = Vec::with_capacity(record_count);
         let records: Vec<SqsMessage> = fake::vec![ProductEvent; record_count]
             .into_iter()
             .map(ProductEventRecord::try_from)
             .map(Result::unwrap)
             .map(|event_record| {
                 let uuid = Uuid::new_v4().to_string();
-                message_ids.insert(*event_record.product_id(), uuid.clone());
+                let product_id = *event_record.product_id();
+                message_ids.insert(product_id, uuid.clone());
+                if !matches!(
+                    event_record,
+                    ProductEventRecord::Lifecycle(ref record)
+                        if record.new_lifecycle == ProductLifecycleRecord::Deleted
+                ) {
+                    expected_failure_candidates.push(product_id);
+                }
                 mk_sqs_message_with_id(&event_record, uuid)
             })
             .collect();
-        let expected_failures: Vec<_> = message_ids.keys().take(failure_count).cloned().collect();
+        let expected_failures: Vec<_> = expected_failure_candidates
+            .into_iter()
+            .take(failure_count)
+            .collect();
         let expected_failures_for_create = expected_failures.clone();
         let expected_failures_clone = expected_failures.clone();
         let mut sqs_event = SqsEvent::default();

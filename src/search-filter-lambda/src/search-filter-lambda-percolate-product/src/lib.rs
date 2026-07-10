@@ -70,7 +70,7 @@ pub async fn handler(
                         }
                     }
                 }
-                ProductEventRecord::Policy(_) => {
+                ProductEventRecord::Policy(_) | ProductEventRecord::Lifecycle(_) => {
                     skipped_count += 1;
                     continue;
                 }

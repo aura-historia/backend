@@ -244,6 +244,7 @@ dependencies = [
  "product-api",
  "product-api-partner",
  "product-lambda",
+ "product-lambda-delete-product",
  "product-personalization",
  "product-pipeline",
  "product-watchlist",
@@ -5496,9 +5497,35 @@ dependencies = [
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
+ "product-lambda-delete-product",
  "product-lambda-ingest-partner-products",
  "product-lambda-materialize-opensearch",
  "product-lambda-update-notify-user",
+]
+
+[[package]]
+name = "product-lambda-delete-product"
+version = "0.1.0"
+dependencies = [
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "aws_lambda_events",
+ "common",
+ "fake",
+ "lambda_runtime",
+ "mockall",
+ "opensearch",
+ "product",
+ "product-watchlist",
+ "search-filter",
+ "serde_dynamo",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
