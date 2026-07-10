@@ -4,20 +4,29 @@ use common::dynamodb_stream::extract_from_dynamodb_stream;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
 use common::product_lifecycle::domain::ProductLifecycle;
 use lambda_runtime::LambdaEvent;
-use product::dynamodb::product_event_record::ProductEventRecord;
+use product::dynamodb::{
+    product_event_record::ProductEventRecord, repository::ProductDynamoDbRepository,
+};
 use product::opensearch::repository::ProductOpenSearchRepository;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepository;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepository;
 use tracing::{info, warn};
 
 #[tracing::instrument(
-    skip(opensearch_repository, watchlist_repository, search_filter_repository, event),
+    skip(
+        opensearch_repository,
+        watchlist_repository,
+        search_filter_repository,
+        product_repository,
+        event
+    ),
     fields(requestId = %event.context.request_id)
 )]
 pub async fn handler(
     opensearch_repository: &impl ProductOpenSearchRepository,
     watchlist_repository: &impl WatchlistProductDynamoDbRepository,
     search_filter_repository: &impl UserSearchFilterDynamoDbRepository,
+    product_repository: &impl ProductDynamoDbRepository,
     event: LambdaEvent<SqsEvent>,
 ) -> Result<SqsBatchResponse, lambda_runtime::Error> {
     let count = event.payload.records.len();
@@ -34,6 +43,8 @@ pub async fn handler(
         }
 
         let product_id = record.product_id;
+        let shop_id = record.shop_id;
+        let shops_product_id = record.shops_product_id;
 
         let mut failed = false;
         if let Err(err) = delete_opensearch_product(opensearch_repository, product_id).await {
@@ -48,6 +59,14 @@ pub async fn handler(
             delete_search_filter_match_records(search_filter_repository, &product_id).await
         {
             warn!(error = ?err, %product_id, "Failed deleting search-filter match records.");
+            failed = true;
+        }
+        if !failed
+            && let Err(err) =
+                delete_product_dynamodb_records(product_repository, &shop_id, &shops_product_id)
+                    .await
+        {
+            warn!(error = ?err, %product_id, "Failed deleting product DynamoDB records.");
             failed = true;
         }
         if failed {
@@ -131,6 +150,31 @@ async fn delete_search_filter_match_records(
     Ok(())
 }
 
+async fn delete_product_dynamodb_records(
+    repository: &impl ProductDynamoDbRepository,
+    shop_id: &common::shop_id::ShopId,
+    shops_product_id: &common::shops_product_id::ShopsProductId,
+) -> Result<
+    (),
+    aws_sdk_dynamodb::error::SdkError<
+        aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
+        aws_sdk_dynamodb::config::http::HttpResponse,
+    >,
+> {
+    let keys = repository
+        .query_product_record_and_event_record_keys(shop_id, shops_product_id)
+        .await
+        .map_err(|err| {
+            aws_sdk_dynamodb::error::SdkError::construction_failure(format!("{err:?}"))
+        })?;
+    for batch in Batch::<_, 25>::chunked_from(keys.into_iter()) {
+        repository
+            .delete_product_record_and_event_records(batch)
+            .await?;
+    }
+    Ok(())
+}
+
 fn log_bulk_failures(response: BulkResponse, operation: &str) -> bool {
     if !response.errors {
         return false;
@@ -182,6 +226,7 @@ mod tests {
             product_event_type_record::{
                 domain::ProductDomainEventTypeRecord, lifecycle::ProductLifecycleEventTypeRecord,
             },
+            repository::MockProductDynamoDbRepository,
         },
         opensearch::repository::MockProductOpenSearchRepository,
     };
@@ -322,6 +367,17 @@ mod tests {
             .collect()
     }
 
+    fn product_dynamodb_keys(count: usize) -> Vec<(String, String)> {
+        (0..count)
+            .map(|idx| {
+                (
+                    "product#shop_id#shop#shops_product_id#product".to_owned(),
+                    format!("product#{idx}"),
+                )
+            })
+            .collect()
+    }
+
     fn batch_failure_ids(response: SqsBatchResponse) -> Vec<String> {
         response
             .batch_item_failures
@@ -340,8 +396,10 @@ mod tests {
         let product_id = ProductId::new();
         let watchlist_records = watchlist_records(product_id, 26);
         let search_filter_keys = search_filter_keys(26);
+        let product_dynamodb_keys = product_dynamodb_keys(26);
         let watchlist_batch_sizes = Arc::new(Mutex::new(Vec::new()));
         let search_filter_batch_sizes = Arc::new(Mutex::new(Vec::new()));
+        let product_dynamodb_batch_sizes = Arc::new(Mutex::new(Vec::new()));
 
         let mut opensearch_repository = MockProductOpenSearchRepository::default();
         opensearch_repository
@@ -386,10 +444,28 @@ mod tests {
                 Box::pin(async { Ok(successful_batch_write()) })
             });
 
+        let mut product_repository = MockProductDynamoDbRepository::default();
+        product_repository
+            .expect_query_product_record_and_event_record_keys()
+            .times(1)
+            .return_once(move |_, _| Box::pin(async move { Ok(product_dynamodb_keys) }));
+        let product_dynamodb_batch_sizes_clone = Arc::clone(&product_dynamodb_batch_sizes);
+        product_repository
+            .expect_delete_product_record_and_event_records()
+            .times(2)
+            .returning(move |batch| {
+                product_dynamodb_batch_sizes_clone
+                    .lock()
+                    .expect("batch sizes lock should not be poisoned")
+                    .push(batch.len());
+                Box::pin(async { Ok(successful_batch_write()) })
+            });
+
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![deleted_product_message("msg-delete", product_id)]),
         )
         .await
@@ -405,6 +481,12 @@ mod tests {
         assert_eq!(
             vec![25, 1],
             *search_filter_batch_sizes
+                .lock()
+                .expect("batch sizes lock should not be poisoned")
+        );
+        assert_eq!(
+            vec![25, 1],
+            *product_dynamodb_batch_sizes
                 .lock()
                 .expect("batch sizes lock should not be poisoned")
         );
@@ -445,10 +527,21 @@ mod tests {
             .times(2)
             .returning(|_| Box::pin(async { Ok(Vec::new()) }));
 
+        let mut product_repository = MockProductDynamoDbRepository::default();
+        product_repository
+            .expect_query_product_record_and_event_record_keys()
+            .times(1)
+            .return_once(|_, _| Box::pin(async { Ok(product_dynamodb_keys(1)) }));
+        product_repository
+            .expect_delete_product_record_and_event_records()
+            .times(1)
+            .return_once(|_| Box::pin(async { Ok(successful_batch_write()) }));
+
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![
                 deleted_product_message("msg-ok", successful_product_id),
                 deleted_product_message("msg-fail", failed_product_id),
@@ -466,11 +559,13 @@ mod tests {
         let opensearch_repository = MockProductOpenSearchRepository::default();
         let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let product_repository = MockProductDynamoDbRepository::default();
 
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![
                 domain_product_message("msg-domain"),
                 active_lifecycle_message("msg-active", product_id),
@@ -488,11 +583,13 @@ mod tests {
         let opensearch_repository = MockProductOpenSearchRepository::default();
         let watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
         let search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        let product_repository = MockProductDynamoDbRepository::default();
 
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![sqs_message(
                 "msg-invalid",
                 Some("not-json".to_owned()),
@@ -528,11 +625,13 @@ mod tests {
         search_filter_repository
             .expect_query_user_search_filter_match_keys_for_product_id()
             .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+        let product_repository = MockProductDynamoDbRepository::default();
 
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![deleted_product_message("msg-os", product_id)]),
         )
         .await
@@ -559,11 +658,13 @@ mod tests {
         search_filter_repository
             .expect_query_user_search_filter_match_keys_for_product_id()
             .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+        let product_repository = MockProductDynamoDbRepository::default();
 
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![deleted_product_message("msg-bulk", product_id)]),
         )
         .await
@@ -591,11 +692,13 @@ mod tests {
         search_filter_repository
             .expect_query_user_search_filter_match_keys_for_product_id()
             .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+        let product_repository = MockProductDynamoDbRepository::default();
 
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![deleted_product_message("msg-watch-query", product_id)]),
         )
         .await
@@ -631,11 +734,13 @@ mod tests {
         search_filter_repository
             .expect_query_user_search_filter_match_keys_for_product_id()
             .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+        let product_repository = MockProductDynamoDbRepository::default();
 
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![deleted_product_message(
                 "msg-watch-delete",
                 product_id,
@@ -666,11 +771,13 @@ mod tests {
             .return_once(|_| {
                 Box::pin(async { Err(SdkError::construction_failure("query failed")) })
             });
+        let product_repository = MockProductDynamoDbRepository::default();
 
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![deleted_product_message(
                 "msg-search-query",
                 product_id,
@@ -680,6 +787,96 @@ mod tests {
         .expect("handler should respond");
 
         assert_eq!(vec!["msg-search-query"], batch_failure_ids(response));
+    }
+
+    #[tokio::test]
+    async fn should_return_batch_failure_when_product_dynamodb_query_fails() {
+        let product_id = ProductId::new();
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        opensearch_repository
+            .expect_delete_product_documents()
+            .return_once(move |_| Box::pin(async move { Ok(empty_bulk_response()) }));
+
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        watchlist_repository
+            .expect_query_user_ids_watching_product()
+            .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        search_filter_repository
+            .expect_query_user_search_filter_match_keys_for_product_id()
+            .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+
+        let mut product_repository = MockProductDynamoDbRepository::default();
+        product_repository
+            .expect_query_product_record_and_event_record_keys()
+            .return_once(|_, _| {
+                Box::pin(async { Err(SdkError::construction_failure("query failed")) })
+            });
+
+        let response = handler(
+            &opensearch_repository,
+            &watchlist_repository,
+            &search_filter_repository,
+            &product_repository,
+            sqs_event(vec![deleted_product_message(
+                "msg-product-query",
+                product_id,
+            )]),
+        )
+        .await
+        .expect("handler should respond");
+
+        assert_eq!(vec!["msg-product-query"], batch_failure_ids(response));
+    }
+
+    #[tokio::test]
+    async fn should_return_batch_failure_when_product_dynamodb_delete_fails() {
+        let product_id = ProductId::new();
+        let mut opensearch_repository = MockProductOpenSearchRepository::default();
+        opensearch_repository
+            .expect_delete_product_documents()
+            .return_once(move |_| Box::pin(async move { Ok(empty_bulk_response()) }));
+
+        let mut watchlist_repository = MockWatchlistProductDynamoDbRepository::default();
+        watchlist_repository
+            .expect_query_user_ids_watching_product()
+            .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+
+        let mut search_filter_repository = MockUserSearchFilterDynamoDbRepository::default();
+        search_filter_repository
+            .expect_query_user_search_filter_match_keys_for_product_id()
+            .return_once(|_| Box::pin(async { Ok(Vec::new()) }));
+
+        let mut product_repository = MockProductDynamoDbRepository::default();
+        product_repository
+            .expect_query_product_record_and_event_record_keys()
+            .return_once(|_, _| Box::pin(async { Ok(product_dynamodb_keys(1)) }));
+        product_repository
+            .expect_delete_product_record_and_event_records()
+            .return_once(|_| {
+                Box::pin(async {
+                    Err(SdkError::<
+                        BatchWriteItemError,
+                        aws_sdk_dynamodb::config::http::HttpResponse,
+                    >::construction_failure("delete failed"))
+                })
+            });
+
+        let response = handler(
+            &opensearch_repository,
+            &watchlist_repository,
+            &search_filter_repository,
+            &product_repository,
+            sqs_event(vec![deleted_product_message(
+                "msg-product-delete",
+                product_id,
+            )]),
+        )
+        .await
+        .expect("handler should respond");
+
+        assert_eq!(vec!["msg-product-delete"], batch_failure_ids(response));
     }
 
     #[tokio::test]
@@ -710,11 +907,13 @@ mod tests {
                     >::construction_failure("delete failed"))
                 })
             });
+        let product_repository = MockProductDynamoDbRepository::default();
 
         let response = handler(
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             sqs_event(vec![deleted_product_message(
                 "msg-search-delete",
                 product_id,

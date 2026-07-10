@@ -9,6 +9,7 @@
 - Worker Lambda consumes product lifecycle delete events.
 - Deletes product document in OpenSearch.
 - Deletes watchlist records and search-filter match records for product.
+- Last, deletes product record and all product event records from DynamoDB.
 - Marks SQS message failed when any cleanup step or OpenSearch bulk item fails.
 
 ## Ownership

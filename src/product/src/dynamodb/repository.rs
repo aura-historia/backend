@@ -15,7 +15,9 @@ use aws_sdk_dynamodb::operation::transact_write_items::{
     TransactWriteItemsError, TransactWriteItemsOutput,
 };
 use aws_sdk_dynamodb::operation::update_item::{UpdateItemError, UpdateItemOutput};
-use aws_sdk_dynamodb::types::{AttributeValue, KeysAndAttributes, Put, TransactWriteItem, Update};
+use aws_sdk_dynamodb::types::{
+    AttributeValue, DeleteRequest, KeysAndAttributes, Put, TransactWriteItem, Update, WriteRequest,
+};
 use common::batch::Batch;
 use common::batch::dynamodb::BatchGetItemResult;
 use common::dynamodb_update::DynamoDbUpdate;
@@ -77,6 +79,17 @@ pub trait ProductDynamoDbRepository {
         shop_id: &ShopId,
         shops_product_id: &ShopsProductId,
     ) -> Result<Vec<ProductEnrichmentEventRecord>, SdkError<QueryError, HttpResponse>>;
+
+    async fn query_product_record_and_event_record_keys(
+        &self,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+    ) -> Result<Vec<(String, String)>, SdkError<QueryError, HttpResponse>>;
+
+    async fn delete_product_record_and_event_records(
+        &self,
+        keys: Batch<(String, String), 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>>;
 
     async fn get_product_records(
         &self,
@@ -396,6 +409,71 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             .collect();
 
         Ok(event_records)
+    }
+
+    async fn query_product_record_and_event_record_keys(
+        &self,
+        shop_id: &ShopId,
+        shops_product_id: &ShopsProductId,
+    ) -> Result<Vec<(String, String)>, SdkError<QueryError, HttpResponse>> {
+        let keys = self
+            .client
+            .query()
+            .table_name(&self.table)
+            .key_condition_expression("#pk = :pk_val AND begins_with(#sk, :sk_prefix)")
+            .expression_attribute_names("#pk", "pk")
+            .expression_attribute_names("#sk", "sk")
+            .expression_attribute_values(
+                ":pk_val",
+                AttributeValue::S(product_record::mk_pk(shop_id, shops_product_id)),
+            )
+            .expression_attribute_values(":sk_prefix", AttributeValue::S("product#".to_string()))
+            .projection_expression("#pk, #sk")
+            .scan_index_forward(true)
+            .into_paginator()
+            .send()
+            .try_collect()
+            .await?
+            .into_iter()
+            .flat_map(|query_output| query_output.items.unwrap_or_default())
+            .filter_map(|mut item| {
+                let pk = item
+                    .remove("pk")
+                    .and_then(|attribute| attribute.as_s().ok().cloned());
+                let sk = item
+                    .remove("sk")
+                    .and_then(|attribute| attribute.as_s().ok().cloned());
+                match (pk, sk) {
+                    (Some(pk), Some(sk)) => Some((pk, sk)),
+                    _ => {
+                        error!(payload = ?item, "Failed extracting product DynamoDB key.");
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Ok(keys)
+    }
+
+    async fn delete_product_record_and_event_records(
+        &self,
+        keys: Batch<(String, String), 25>,
+    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError, HttpResponse>> {
+        let mut requests = Vec::with_capacity(keys.len());
+        for (pk, sk) in keys {
+            let delete = DeleteRequest::builder()
+                .key("pk", AttributeValue::S(pk))
+                .key("sk", AttributeValue::S(sk))
+                .build()
+                .map_err(SdkError::construction_failure)?;
+            requests.push(WriteRequest::builder().delete_request(delete).build());
+        }
+        self.client
+            .batch_write_item()
+            .set_request_items(Some(HashMap::from([(self.table.clone(), requests)])))
+            .send()
+            .await
     }
 
     async fn get_product_records(

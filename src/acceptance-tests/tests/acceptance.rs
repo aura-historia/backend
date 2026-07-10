@@ -5217,9 +5217,24 @@ async fn should_delete_partner_product_and_cleanup_user_resources() {
             .await
             .unwrap()
             .is_some();
+        let target_product_deleted = product_repository
+            .get_product_record(&target_product.shop_id, &target_product.shops_product_id)
+            .await
+            .unwrap()
+            .is_none();
+        let target_product_events_deleted = product_repository
+            .query_product_record_and_event_record_keys(
+                &target_product.shop_id,
+                &target_product.shops_product_id,
+            )
+            .await
+            .unwrap()
+            .is_empty();
 
         if target_watchlist_deleted
             && target_matches_deleted
+            && target_product_deleted
+            && target_product_events_deleted
             && civilian_watchlist_exists
             && civilian_match_exists
         {
@@ -5228,7 +5243,7 @@ async fn should_delete_partner_product_and_cleanup_user_resources() {
 
         if Instant::now() >= deadline {
             panic!(
-                "Timeout: product delete cleanup failed; remaining_watchlist={remaining_target_watchlist_count}, remaining_matches={remaining_target_match_count}, civilian_watchlist_exists={civilian_watchlist_exists}, civilian_match_exists={civilian_match_exists}"
+                "Timeout: product delete cleanup failed; remaining_watchlist={remaining_target_watchlist_count}, remaining_matches={remaining_target_match_count}, target_product_deleted={target_product_deleted}, target_product_events_deleted={target_product_events_deleted}, civilian_watchlist_exists={civilian_watchlist_exists}, civilian_match_exists={civilian_match_exists}"
             );
         }
         tokio::time::sleep(Duration::from_secs(5)).await;

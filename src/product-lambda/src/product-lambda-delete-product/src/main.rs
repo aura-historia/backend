@@ -2,6 +2,7 @@ use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
 use aws_sdk_dynamodb::Client;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
 use product::opensearch::repository::ProductOpenSearchRepositoryImpl;
 use product_lambda_delete_product::handler;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
@@ -22,6 +23,8 @@ async fn main() -> Result<(), Error> {
         WatchlistProductDynamoDbRepositoryImpl::new(&dynamodb_client, &dynamodb_table_name);
     let search_filter_repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(&dynamodb_client, &dynamodb_table_name);
+    let product_repository =
+        ProductDynamoDbRepositoryImpl::new(&dynamodb_client, &dynamodb_table_name);
 
     let opensearch_client = common::opensearch::client::load_client().await?;
     let opensearch_repository = ProductOpenSearchRepositoryImpl::new(&opensearch_client);
@@ -33,6 +36,7 @@ async fn main() -> Result<(), Error> {
             &opensearch_repository,
             &watchlist_repository,
             &search_filter_repository,
+            &product_repository,
             event,
         )
         .await

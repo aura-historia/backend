@@ -4,17 +4,24 @@ use aws_lambda_events::{
     sqs::{SqsEvent, SqsMessage},
 };
 use common::{
-    product_id::ProductId, product_lifecycle::record::ProductLifecycleRecord,
-    resource_state::record::ResourceStateRecord,
+    batch::Batch, event_id::EventId, product_id::ProductId,
+    product_lifecycle::record::ProductLifecycleRecord, resource_state::record::ResourceStateRecord,
 };
 use fake::{Fake, Faker};
 use lambda_runtime::{Context, LambdaEvent};
 use opensearch::GetParts;
 use product::{
     dynamodb::{
-        product_event_record::{ProductEventRecord, lifecycle::ProductLifecycleEventRecord},
+        product_event_record::{
+            ProductEventRecord,
+            lifecycle::{
+                ProductLifecycleEventRecord, mk_pk as mk_product_event_pk,
+                mk_sk as mk_product_lifecycle_event_sk,
+            },
+        },
         product_event_type_record::lifecycle::ProductLifecycleEventTypeRecord,
         product_record::ProductRecord,
+        repository::{ProductDynamoDbRepository, ProductDynamoDbRepositoryImpl},
     },
     opensearch::{product_document::ProductDocument, repository::ProductOpenSearchRepository},
 };
@@ -45,9 +52,14 @@ fn sqs_event(message: SqsMessage) -> LambdaEvent<SqsEvent> {
     LambdaEvent::new(event, Context::default())
 }
 
-fn deleted_product_message(product_record: &ProductRecord) -> SqsMessage {
+fn deleted_lifecycle_record(product_record: &ProductRecord) -> ProductLifecycleEventRecord {
     let mut lifecycle_record = Faker.fake::<ProductLifecycleEventRecord>();
+    let event_id = EventId::new();
+    lifecycle_record.pk =
+        mk_product_event_pk(&product_record.shop_id, &product_record.shops_product_id);
+    lifecycle_record.sk = mk_product_lifecycle_event_sk(&event_id);
     lifecycle_record.product_id = product_record.product_id;
+    lifecycle_record.event_id = event_id;
     lifecycle_record.shop_id = product_record.shop_id;
     lifecycle_record.seller_id = product_record.seller_id;
     lifecycle_record.shops_product_id = product_record.shops_product_id.clone();
@@ -55,6 +67,11 @@ fn deleted_product_message(product_record: &ProductRecord) -> SqsMessage {
     lifecycle_record.old_lifecycle = ProductLifecycleRecord::Active;
     lifecycle_record.new_lifecycle = ProductLifecycleRecord::Deleted;
     lifecycle_record.timestamp = OffsetDateTime::now_utc();
+    lifecycle_record
+}
+
+fn deleted_product_message(product_record: &ProductRecord) -> SqsMessage {
+    let lifecycle_record = deleted_lifecycle_record(product_record);
 
     let mut stream_record = StreamRecord::default();
     stream_record.new_image =
@@ -205,6 +222,7 @@ async fn should_delete_product_and_cleanup_user_resources_when_deleted_lifecycle
         WatchlistProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
     let search_filter_repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
+    let product_repository = ProductDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");
     let opensearch_repository =
         product::opensearch::repository::ProductOpenSearchRepositoryImpl::new(
             get_opensearch_client().await,
@@ -212,6 +230,16 @@ async fn should_delete_product_and_cleanup_user_resources_when_deleted_lifecycle
 
     let mut product_record = Faker.fake::<ProductRecord>();
     product_record.lifecycle = ProductLifecycleRecord::Active;
+    product_repository
+        .put_product_records(Batch::from([product_record.clone()]))
+        .await
+        .expect("product record should be seeded");
+    let product_event_record =
+        ProductEventRecord::Lifecycle(deleted_lifecycle_record(&product_record));
+    product_repository
+        .put_product_event_records(Batch::from([product_event_record]))
+        .await
+        .expect("product event record should be seeded");
     opensearch_repository
         .create_product_documents(vec![ProductDocument::from(product_record.clone())])
         .await
@@ -255,6 +283,7 @@ async fn should_delete_product_and_cleanup_user_resources_when_deleted_lifecycle
         &opensearch_repository,
         &watchlist_repository,
         &search_filter_repository,
+        &product_repository,
         sqs_event(deleted_product_message(&product_record)),
     )
     .await
@@ -290,6 +319,25 @@ async fn should_delete_product_and_cleanup_user_resources_when_deleted_lifecycle
             .expect("target match read should work")
             .is_none(),
         "target match record should be deleted"
+    );
+    assert!(
+        product_repository
+            .get_product_record(&product_record.shop_id, &product_record.shops_product_id)
+            .await
+            .expect("product record read should work")
+            .is_none(),
+        "product record should be deleted"
+    );
+    assert!(
+        product_repository
+            .query_product_record_and_event_record_keys(
+                &product_record.shop_id,
+                &product_record.shops_product_id,
+            )
+            .await
+            .expect("product event key query should work")
+            .is_empty(),
+        "product event records should be deleted"
     );
     assert!(
         watchlist_repository
