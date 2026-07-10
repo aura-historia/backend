@@ -35,7 +35,7 @@ export interface StageConfig {
   readonly apiDomainName: string | undefined;
   readonly apiGatewayCertificateArn: string | undefined;
   readonly apiCloudFrontCertificateArn: string | undefined;
-  readonly apiCloudFrontWebAclArn: string | undefined;
+  readonly apiCloudFrontAliases: string[];
   readonly apiCorsAllowOrigins: string[];
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
@@ -70,6 +70,7 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
   const isEphemeral = stage === "ephemeral";
 
   const apiDomainName = stage === "prod" ? "api.aura-historia.com" : stage === "dev" ? "api.dev.aura-historia.com" : undefined;
+  const apiCloudFrontAliases = stage === "prod" ? ["api.aura-historia.com"] : stage === "dev" ? ["*.dev.aura-historia.com"] : [];
 
   return {
     stage,
@@ -80,7 +81,7 @@ export function stageConfig(stage: StageName, options: StageConfigOptions = {}):
     apiDomainName,
     apiGatewayCertificateArn: isEphemeral ? undefined : ssmValue(`/certificates/${stage}/api-regional-certificate-arn`),
     apiCloudFrontCertificateArn: isEphemeral ? undefined : ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),
-    apiCloudFrontWebAclArn: isEphemeral ? undefined : ssmValue(`/cloudfront/${stage}/api-web-acl-arn`),
+    apiCloudFrontAliases,
     apiCorsAllowOrigins: isProd ? [...PROD_API_CORS_ALLOW_ORIGINS] : ["*"],
     cognitoCallbackUrls:
       stage === "prod"

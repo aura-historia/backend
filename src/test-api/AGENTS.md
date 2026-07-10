@@ -11,6 +11,7 @@
 - Child crates: `test-api-macros`.
 - Main neighbors: `aws-tests-common`, `common`, `test-api-macros`, `user`.
 - Test crate. Favor stable helpers and black-box assertions.
+- `#[localstack_test]` tests run serially against one process-local LocalStack.
 
 ## Ownership
 

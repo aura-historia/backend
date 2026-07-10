@@ -105,5 +105,5 @@ export class Identity extends Construct {
 }
 
 function verificationEmailBody(): string {
-  return fs.readFileSync(path.join(__dirname, "..", "templates", "cognito-verification-email.html"), "utf8");
+  return fs.readFileSync(path.join(__dirname, "..", "resources", "cognito-verification-email.html"), "utf8");
 }
