@@ -817,7 +817,7 @@ mod faker {
                     None
                 },
                 state,
-                lifecycle: config.fake_with_rng(rng),
+                lifecycle: Some(ProductLifecycleDocument::Active),
                 embedding: None,
                 updated: OffsetDateTime::now_utc(),
             }

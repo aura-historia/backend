@@ -747,7 +747,7 @@ mod faker {
                 price_estimate_max_sgd: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 price_estimate_max_chf: Some(config.fake_with_rng::<MonetaryAmount, _>(rng).into()),
                 state,
-                lifecycle: config.fake_with_rng(rng),
+                lifecycle: ProductLifecycleRecord::Active,
                 url: Url::parse(&format!(
                     "https://foo.bar/item/{}",
                     config.fake_with_rng::<u16, _>(rng)

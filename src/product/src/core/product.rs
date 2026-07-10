@@ -906,7 +906,7 @@ mod faker {
                 native_price_estimate_max,
                 other_price_estimate_max,
                 state: config.fake_with_rng(rng),
-                lifecycle: config.fake_with_rng(rng),
+                lifecycle: ProductLifecycle::Active,
                 url: Url::parse("https://www.example.com/product").unwrap(),
                 view_url: Url::parse(
                     "https://www.example.com/product?utm_source=aura_historia&utm_medium=referral",
