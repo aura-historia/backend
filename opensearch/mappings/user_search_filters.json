@@ -398,6 +398,9 @@
             "state": {
                 "type": "keyword"
             },
+            "lifecycle": {
+                "type": "keyword"
+            },
             "titleNative": {
                 "type": "object",
                 "properties": {
