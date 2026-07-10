@@ -24,3 +24,7 @@ product = { workspace = true, features = ["test-data"] }
 product-watchlist = { workspace = true, features = ["test-data"] }
 search-filter = { workspace = true, features = ["test-data"] }
 fake = { workspace = true }
+serde_dynamo = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["dynamodb", "opensearch"] }
+time = { workspace = true }

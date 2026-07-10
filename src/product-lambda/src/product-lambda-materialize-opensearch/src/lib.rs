@@ -3,6 +3,7 @@ use common::dynamodb_stream::extract_from_dynamodb_stream;
 use common::mergeable::Mergeable;
 use common::opensearch::bulk_response::{BulkItemResult, BulkResponse};
 use common::product_id::ProductId;
+use common::product_lifecycle::record::ProductLifecycleRecord;
 use lambda_runtime::LambdaEvent;
 use product::dynamodb::product_event_record::ProductEventRecord;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecord;
@@ -53,6 +54,9 @@ pub async fn handler(
                 merge_update(message_id, product_id, update, &mut updates);
             }
             ProductEventRecord::Lifecycle(lifecycle_record) => {
+                if lifecycle_record.new_lifecycle == ProductLifecycleRecord::Deleted {
+                    continue;
+                }
                 let product_id = lifecycle_record.product_id;
                 let update = ProductUpdateDocument::from(lifecycle_record);
                 merge_update(message_id, product_id, update, &mut updates);

@@ -186,6 +186,22 @@ describe("Application stacks", () => {
     expect(templates.compute.toJSON().Outputs?.ShopifyEventBusName).toBeDefined();
   });
 
+  test.each(STAGES)("product delete worker reports partial SQS batch failures for %s", (stage) => {
+    const templates = synthesize(stage);
+
+    templates.compute.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+      BatchSize: 100,
+      EventSourceArn: {
+        "Fn::Join": [
+          "",
+          Match.arrayWith([`:product-lambda-delete-product-queue-${stage}`]),
+        ],
+      },
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+      MaximumBatchingWindowInSeconds: 1,
+    });
+  });
+
   test.each(STAGES)("uses CLI credentials synthesizer for %s", (stage) => {
     const stacks = createStacks(stage);
 
