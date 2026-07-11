@@ -2,11 +2,11 @@ pub use super::error::NormalizationError;
 use super::{
     datetime::normalize_datetime_field,
     image::normalize_images,
+    language::detect_language,
     price::normalize_price_field,
     text::{
-        detect_description_language, normalize_description,
-        normalize_shops_product_id_with_url_sha_fallback,
-        normalize_title_localized_with_description_language_fallback,
+        detect_description_language, localize_normalized_title, normalize_description,
+        normalize_shops_product_id_with_url_sha_fallback, normalize_title,
     },
 };
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
@@ -135,13 +135,12 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
 
         let shops_product_id =
             normalize_shops_product_id_with_url_sha_fallback(&raw.shops_product_id, &url);
+        let title = normalize_title(&raw.title).map_err(fail)?;
+        let title_language = detect_language(title.as_ref());
         let description_language = detect_description_language(&raw.description);
-        let title = normalize_title_localized_with_description_language_fallback(
-            &raw.title,
-            description_language,
-        )
-        .map_err(fail)?;
-        let description = normalize_description(raw.description).map_err(fail)?;
+        let title =
+            localize_normalized_title(title, title_language, description_language).map_err(fail)?;
+        let description = normalize_description(raw.description, title_language).map_err(fail)?;
         let seller_name = raw.seller_name.and_then(|value| match value.trim() {
             "" => None,
             trimmed => Some(trimmed.to_string()),
@@ -711,6 +710,19 @@ mod tests {
 
         let result = svc.normalize(raw, base_url(), None).await.unwrap().product;
         assert_eq!(result.title.localization, Language::En);
+    }
+
+    #[tokio::test]
+    async fn should_use_title_language_for_dimension_only_description() {
+        let svc = make_available_service();
+        let mut raw = minimal_raw();
+        raw.description = vec!["23-1/2\"18-1/4\"".into()];
+
+        let result = svc.normalize(raw, base_url(), None).await.unwrap().product;
+        let description = result.description.unwrap();
+
+        assert_eq!(description.localization, Language::En);
+        assert_eq!(description.payload.as_ref(), "23-1/2\"18-1/4\"");
     }
 
     // -----------------------------------------------------------------------

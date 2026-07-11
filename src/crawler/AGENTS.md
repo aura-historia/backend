@@ -16,6 +16,7 @@
 - Shop sync load active shops and domains from upstream shop search into local Postgres.
 - Spider crawl shop domains, discover URLs, infer or refresh shop product regex, and batch-upsert URL metadata.
 - Scraper consume product URLs, fetch HTML, reuse or grow CSS selector schemas, normalize products, and push results onward.
+- Scraper description text without own language signal inherits title language only when language was detected from the title itself.
 - `review` own human-review rail and optional LLM-judge rail for URL patterns and schemas.
 - Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
 - Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper feeds backend product push.

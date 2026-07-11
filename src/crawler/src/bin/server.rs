@@ -402,7 +402,7 @@ async fn main() {
         // 4. Wire scraper + spider dependencies
         let api_key = std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
         let model = std::env::var("GEMINI_MODEL")
-            .unwrap_or_else(|_| "gemini-3.1-flash-lite-preview".to_string());
+            .unwrap_or_else(|_| "gemini-3.1-pro-preview".to_string());
         let state_model = state_mapping_gemini_model();
         let classification_model = url_classification_gemini_model();
         unsafe {
