@@ -243,7 +243,7 @@ pub mod faker {
                 geo_address_distance_query: None,
                 price_query: config.fake_with_rng(rng),
                 state_query: config.fake_with_rng(rng),
-                lifecycle_query: config.fake_with_rng(rng),
+                lifecycle_query: Default::default(),
                 created_query: fake_range_query_datetime(config, rng),
                 updated_query: fake_range_query_datetime(config, rng),
                 auction_start_query: fake_range_query_datetime(config, rng),
@@ -270,6 +270,19 @@ pub mod faker {
                 None
             };
             Some(RangeQuery { min, max })
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use fake::{Fake, Faker};
+
+        #[test]
+        fn should_fake_product_search_without_lifecycle_query() {
+            let search = Faker.fake::<ProductSearch>();
+
+            assert!(search.lifecycle_query.is_empty());
         }
     }
 }

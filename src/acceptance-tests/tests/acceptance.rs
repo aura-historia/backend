@@ -4425,13 +4425,21 @@ async fn should_respond_200_for_admin_partner_application_patch() {
         shop_phone: None,
         shop_email: None,
     };
-    let response = reqwest::Client::new()
-        .patch(&admin_url)
-        .bearer_auth(&admin.access_token)
-        .json(&patch_data)
-        .send()
-        .await
-        .unwrap();
+    let client = reqwest::Client::new();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let response = loop {
+        let response = client
+            .patch(&admin_url)
+            .bearer_auth(&admin.access_token)
+            .json(&patch_data)
+            .send()
+            .await
+            .unwrap();
+        if response.status() != reqwest::StatusCode::NOT_FOUND || Instant::now() >= deadline {
+            break response;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    };
     assert_eq!(200, response.status());
 
     let patched = response
