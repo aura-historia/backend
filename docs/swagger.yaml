@@ -882,7 +882,7 @@ paths:
         - BearerAuth: []
         - AccessTokenAuth: []
       responses:
-        "200":
+        "204":
           description: Product delete accepted and materialized as a soft delete.
           headers:
             Access-Control-Allow-Origin:
