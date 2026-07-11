@@ -329,7 +329,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::prompt::{ build_create_schemas_instruction};
+    use super::prompt::build_create_schemas_instruction;
     use super::response::parse_product_schemas_response;
     use super::*;
     use crate::scraper::css_selector::product_schema_repository::MockShopsProductSchemaRepository;
