@@ -40,9 +40,36 @@ function normalizedProperties(props) {
         metricName: props.MetricName,
         name: props.Name,
         region: props.Region || "us-east-1",
-        rules: props.Rules || [],
+        rules: normalizeWebAclRules(props.Rules || []),
         scope: props.Scope || "CLOUDFRONT",
     };
+}
+
+function normalizeWebAclRules(rules) {
+    return rules.map((rule) => normalizeWebAclValue(undefined, rule));
+}
+
+function normalizeWebAclValue(key, value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => normalizeWebAclValue(undefined, item));
+    }
+
+    if (value && typeof value === "object") {
+        return Object.fromEntries(
+            Object.entries(value).map(([entryKey, entryValue]) => [entryKey, normalizeWebAclValue(entryKey, entryValue)]),
+        );
+    }
+
+    if (typeof value === "string") {
+        if (key === "Priority" && /^-?\d+$/.test(value)) {
+            return Number(value);
+        }
+        if ((key === "CloudWatchMetricsEnabled" || key === "SampledRequestsEnabled") && (value === "true" || value === "false")) {
+            return value === "true";
+        }
+    }
+
+    return value;
 }
 
 async function ensureWebAcl(props) {
@@ -132,6 +159,8 @@ function webAclInput(props) {
         },
     };
 }
+
+exports._test = { normalizedProperties, webAclInput };
 
 function respond(event, context, status, data, physicalResourceId) {
     const body = JSON.stringify({
