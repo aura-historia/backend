@@ -38,7 +38,7 @@ pub async fn handle(
             }
         })?;
 
-    Ok(ApiGatewayV2HttpResponseBuilder::json(200).build())
+    Ok(ApiGatewayV2HttpResponseBuilder::json(204).build())
 }
 
 #[cfg(test)]
@@ -140,7 +140,7 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().status_code, 200);
+        assert_eq!(result.unwrap().status_code, 204);
     }
 
     #[tokio::test]
@@ -170,7 +170,7 @@ mod tests {
         .await;
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().status_code, 200);
+        assert_eq!(result.unwrap().status_code, 204);
     }
 
     #[tokio::test]

@@ -5171,7 +5171,7 @@ async fn should_delete_partner_product_and_cleanup_user_resources() {
         .send()
         .await
         .unwrap();
-    assert_eq!(200, response.status());
+    assert_eq!(204, response.status());
 
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
