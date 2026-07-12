@@ -23,6 +23,7 @@
 - LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair, schema evaluation, state mapping fallback.
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
+- Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.
 - `demo` and `server` auto-run migrations on startup. Migrations be authoritative DB contract.
 
