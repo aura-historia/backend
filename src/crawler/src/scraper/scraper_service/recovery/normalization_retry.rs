@@ -285,13 +285,7 @@ impl ScraperServiceImpl {
                     details: "normalization schema repair classified page as removed".to_string(),
                 });
             }
-            GeneratedAppendSchema::NotProduct { schema, reason, .. } => {
-                if !schema.matches(ctx.html) {
-                    return Err(crate::scraper::scraper_service::recovery::schema_retry::page_classification_did_not_match(
-                        ctx.url,
-                        &schema.selector,
-                    ));
-                }
+            GeneratedAppendSchema::NotProduct { reason, .. } => {
                 self.mark_url_other_best_effort(ctx.shop_id, ctx.url).await;
                 return Err(ScraperError::NotProductPage {
                     url: ctx.url.clone(),

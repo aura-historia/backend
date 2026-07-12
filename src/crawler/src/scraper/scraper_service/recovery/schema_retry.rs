@@ -137,10 +137,7 @@ impl ScraperServiceImpl {
                     details: "append generation classified page as removed".to_string(),
                 })
             }
-            GeneratedAppendSchema::NotProduct { schema, reason, .. } => {
-                if !schema.matches(html) {
-                    return Err(page_classification_did_not_match(url, &schema.selector));
-                }
+            GeneratedAppendSchema::NotProduct { reason, .. } => {
                 self.mark_url_other_best_effort(shop_id, url).await;
                 Err(ScraperError::NotProductPage {
                     url: url.clone(),

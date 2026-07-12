@@ -334,9 +334,7 @@ mod tests {
     use super::response::parse_product_schemas_response;
     use super::*;
     use crate::scraper::css_selector::product_schema_repository::MockShopsProductSchemaRepository;
-    use crate::scraper::css_selector::removed_page_schema::{
-        NonProductPageSchema, RemovedPageSchema,
-    };
+    use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
     use crate::scraper::css_selector::rule::{
         ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
@@ -419,10 +417,6 @@ mod tests {
         serde_json::to_string(&serde_json::json!({
             "page_kind": "not_product",
             "schemas": [],
-            "non_product_schema": {
-                "selector": "main.category h1",
-                "text": "Latest antiques"
-            },
             "reason": "category page",
             "confidence": "HIGH",
             "summary": "Category page.",
@@ -845,7 +839,8 @@ mod tests {
         assert!(instruction.contains("page_kind = product"));
         assert!(instruction.contains("page_kind = removed"));
         assert!(instruction.contains("page_kind = not_product"));
-        assert!(instruction.contains("selector and text must both match"));
+        assert!(instruction.contains("Return no schemas and include a short reason"));
+        assert!(instruction.contains("For removed, selector and text must both match"));
     }
 
     #[test]
@@ -962,10 +957,6 @@ mod tests {
         assert_eq!(
             parsed,
             GeneratedAppendSchema::NotProduct {
-                schema: NonProductPageSchema {
-                    selector: "main.category h1".into(),
-                    text: "Latest antiques".to_string(),
-                },
                 reason: "category page".to_string(),
                 evaluation: SchemaLlmEvaluation {
                     decision: SchemaLlmEvaluationDecision::Approve,
@@ -992,13 +983,28 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_not_product_append_response_without_schema() {
+    fn should_parse_not_product_append_response_without_schema() {
         let payload = serde_json::to_string(&serde_json::json!({
             "page_kind": "not_product",
             "schemas": [],
             "reason": "category page",
             "confidence": "HIGH",
             "summary": "missing schema"
+        }))
+        .unwrap();
+
+        let parsed = parse_append_schema_response(&payload).unwrap();
+        assert!(matches!(parsed, GeneratedAppendSchema::NotProduct { .. }));
+    }
+
+    #[test]
+    fn should_reject_not_product_append_response_with_product_schema() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "not_product",
+            "schemas": [sample_css_schema()],
+            "reason": "category page",
+            "confidence": "HIGH",
+            "summary": "wrong schema"
         }))
         .unwrap();
 

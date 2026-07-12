@@ -1,7 +1,7 @@
 use super::*;
 use crate::scraper::css_selector::product_schema::ShopsProductSchema;
 use crate::scraper::css_selector::product_schema_service::GeneratedAppendSchema;
-use crate::scraper::css_selector::removed_page_schema::{NonProductPageSchema, RemovedPageSchema};
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
@@ -341,10 +341,6 @@ async fn should_mark_other_when_append_classifies_not_product() {
     let id = shop_id();
     let url = product_url();
     let category_html = r#"<main class="category"><h1>Latest antiques</h1></main>"#;
-    let non_product_schema = NonProductPageSchema {
-        selector: CssSelector::from("main.category h1"),
-        text: "Latest antiques".to_string(),
-    };
 
     let mut fetcher = MockHtmlFetcher::new();
     fetcher.expect_fetch().once().returning(move |_| {
@@ -364,10 +360,8 @@ async fn should_mark_other_when_append_classifies_not_product() {
         .expect_append_single_schema()
         .once()
         .returning(move |_| {
-            let schema = non_product_schema.clone();
             Box::pin(async move {
                 Ok(GeneratedAppendSchema::NotProduct {
-                    schema,
                     reason: "category page".to_string(),
                     evaluation: schema_evaluation(SchemaLlmEvaluationConfidence::High),
                 })

@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use crate::scraper::css_selector::removed_page_schema::{NonProductPageSchema, RemovedPageSchema};
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 
@@ -70,7 +70,6 @@ pub enum GeneratedAppendSchema {
         evaluation: SchemaLlmEvaluation,
     },
     NotProduct {
-        schema: NonProductPageSchema,
         reason: String,
         evaluation: SchemaLlmEvaluation,
     },
@@ -102,8 +101,6 @@ struct ProductSchemaGenerationResponse {
     pub schemas: Vec<ProductCssSelectorSchema>,
     #[serde(default)]
     pub removed_schema: Option<RemovedPageSchema>,
-    #[serde(default)]
-    pub non_product_schema: Option<NonProductPageSchema>,
     #[serde(default)]
     pub reason: Option<String>,
     pub confidence: SchemaLlmEvaluationConfidence,
@@ -185,9 +182,6 @@ impl ProductSchemaGenerationResponse {
                     ));
                 }
                 Ok(GeneratedAppendSchema::NotProduct {
-                    schema: self.non_product_schema.ok_or_else(|| {
-                        invalid_data("Not-product append generation missing schema")
-                    })?,
                     reason: self
                         .reason
                         .unwrap_or_else(|| "not product page".to_string()),
