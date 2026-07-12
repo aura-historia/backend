@@ -133,8 +133,8 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
         .once()
         .returning(move |_| {
             Box::pin(async {
-                Ok(generated_schemas(
-                    vec![minimal_schema()],
+                Ok(generated_append_product(
+                    minimal_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
             })
@@ -226,8 +226,8 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
         .returning(move |_| {
             let s = minimal_schema();
             Box::pin(async move {
-                Ok(generated_schemas(
-                    vec![s],
+                Ok(generated_append_product(
+                    s,
                     SchemaLlmEvaluationConfidence::High,
                 ))
             })
@@ -541,8 +541,8 @@ async fn should_append_single_schema_without_failed_schema_context() {
         .returning(move |_| {
             let expected_bad_appended = bad_appended.clone();
             Box::pin(async move {
-                Ok(generated_schemas(
-                    vec![expected_bad_appended],
+                Ok(generated_append_product(
+                    expected_bad_appended,
                     SchemaLlmEvaluationConfidence::High,
                 ))
             })
@@ -609,8 +609,8 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_schemas(
-                    vec![minimal_schema()],
+                Ok(generated_append_product(
+                    minimal_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
             })

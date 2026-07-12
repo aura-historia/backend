@@ -15,16 +15,17 @@
 - Spider and scraper cron use global slot schedulers. Refill only schedulable work; scraper fetch picks random eligible domains, takes up to 100 due URLs per domain by default, and excludes domains already seen in the pass.
 - Shop sync load active shops and domains from upstream shop search into local Postgres.
 - Spider crawl shop domains, discover URLs, infer or refresh shop product regex, and batch-upsert URL metadata.
-- Scraper consume product URLs, fetch HTML, reuse or grow CSS selector schemas, normalize products, and push results onward.
+- Scraper consume product URLs, fetch HTML, detect stored soft-404 removed templates, reuse or grow CSS selector schemas, normalize products, and push results onward.
 - Scraper description text without own language signal inherits title language only when language was detected from the title itself.
 - `review` own human-review rail and optional LLM-judge rail for URL patterns and schemas.
-- Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
+- Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `shops_removed_page_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
 - Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper feeds backend product push.
 - Locking be two-layer: process-local locks stop duplicate in one process, DB lock/cooldown metadata stop bad overlap and hot-loop retries across runs.
-- LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair, schema evaluation, state mapping fallback.
+- LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair page classification, schema evaluation, state mapping fallback.
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
 - Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors.
+- Append repair classifies failed pages as product, removed, or not-product. Removed needs verified selector+text, stores shop-scoped `shops_removed_page_schema`, and marks URL `REMOVED`. Not-product needs verified selector+text and only changes that URL class to `other`; never update shop URL pattern from one page.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.
 - `demo` and `server` auto-run migrations on startup. Migrations be authoritative DB contract.
 

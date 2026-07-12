@@ -56,6 +56,7 @@ use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scr
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
+use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crawler::scraper::normalization::product::NormalizedProduct;
 use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
@@ -319,6 +320,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
 
     // Schema service (DB-backed + LLM creation/fix).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
+    let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(pool));
     let schema_svc = ProductSchemaServiceImpl::new(
         schema_llm_builder,
         llm_service_tier,
@@ -340,4 +342,5 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         3,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     )
+    .with_removed_page_schema_repository(removed_page_schema_repo)
 }

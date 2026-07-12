@@ -1,5 +1,6 @@
 use crate::network::policy::NetworkErrorKind;
 use crate::scraper::candidate_service::ProductSnapshot;
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::{ScrapedProduct, ScraperService};
 use crate::scraper::scraper_service::recovery::normalization_retry::{
@@ -74,6 +75,53 @@ impl ScraperServiceImpl {
             warn!(error = ?err, "Failed to persist scraped URL state");
         }
     }
+
+    #[tracing::instrument(skip(self), fields(shop_id = %shop_id, url = %url))]
+    pub(crate) async fn mark_url_other_best_effort(&self, shop_id: &ShopId, url: &Url) {
+        if let Err(err) = self
+            .candidate_service
+            .set_class(
+                shop_id,
+                url,
+                crate::spider::classification::url_metadata::UrlClass::Other,
+            )
+            .await
+        {
+            warn!(error = ?err, "Failed to mark URL as other");
+        }
+    }
+
+    async fn removed_page_schemas_for(
+        &self,
+        shop_id: &ShopId,
+        _url: &Url,
+    ) -> Result<Vec<RemovedPageSchema>, ScraperError> {
+        let mut schemas = Vec::new();
+
+        if let Some(stored) = self
+            .removed_page_schema_repository
+            .find_removed_page_schema(shop_id)
+            .await
+            .map_err(ScraperError::RemovedPageSchemaDatabaseError)?
+        {
+            schemas.extend(stored.removed_page_schemas);
+        }
+
+        Ok(schemas)
+    }
+
+    async fn is_removed_page(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        html: &str,
+    ) -> Result<bool, ScraperError> {
+        Ok(self
+            .removed_page_schemas_for(shop_id, url)
+            .await?
+            .iter()
+            .any(|schema| schema.matches(html)))
+    }
 }
 
 #[async_trait::async_trait]
@@ -130,6 +178,14 @@ impl ScraperService for ScraperServiceImpl {
             });
         }
         let html = fetched.html;
+
+        if self.is_removed_page(shop_id, url, &html).await? {
+            self.mark_product_removed_best_effort(shop_id, url).await;
+            return Err(ScraperError::ProductRemoved {
+                url: url.clone(),
+                details: "soft-404 removed page matched configured removed-page schema".to_string(),
+            });
+        }
 
         let has_main = extract_main_fragment(&html).is_some();
         let current_hash = hash_main_fragment(&html).unwrap_or_else(|| hash_html(&html));

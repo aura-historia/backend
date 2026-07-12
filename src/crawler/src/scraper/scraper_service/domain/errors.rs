@@ -17,11 +17,17 @@ pub enum ScraperError {
     #[error("Product URL removed while fetching '{url}': {details}")]
     ProductRemoved { url: Url, details: String },
 
+    #[error("URL is not a product page while scraping '{url}': {details}")]
+    NotProductPage { url: Url, details: String },
+
     #[error("URL has no host: {url}")]
     NoHost { url: Url },
 
     #[error("Schema service error: {0}")]
     SchemaServiceError(#[from] ProductSchemaServiceError),
+
+    #[error("Removed-page schema database error: {0}")]
+    RemovedPageSchemaDatabaseError(#[source] sqlx::Error),
 
     #[error(
         "Schema regeneration exhausted after {attempts} attempts for '{url}' (last error: {last_error})"

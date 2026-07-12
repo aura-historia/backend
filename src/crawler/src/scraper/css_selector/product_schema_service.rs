@@ -9,7 +9,10 @@ use llm::{
     error::LLMError,
 };
 use prompt::{build_append_schema_instruction, build_create_schemas_instruction};
-use response::{parse_product_schemas_response, product_schema_generation_response_schema_json};
+use response::{
+    append_schema_generation_response_schema_json, parse_append_schema_response,
+    parse_product_schemas_response, product_schema_generation_response_schema_json,
+};
 use schemars::schema_for;
 use std::sync::Arc;
 use std::time::Instant;
@@ -25,8 +28,8 @@ mod response;
 
 pub use projection::html_to_schema_prompt_dsl;
 pub use response::{
-    GeneratedProductSchemas, SchemaLlmEvaluation, SchemaLlmEvaluationConfidence,
-    SchemaLlmEvaluationDecision, strip_markdown_json_embedding,
+    GeneratedAppendSchema, GeneratedProductSchemas, SchemaLlmEvaluation,
+    SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision, strip_markdown_json_embedding,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -63,7 +66,7 @@ pub trait ProductSchemaService {
     async fn append_single_schema(
         &self,
         html: &str,
-    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
+    ) -> Result<GeneratedAppendSchema, ProductSchemaServiceError>;
 
     async fn find_product_schema(
         &self,
@@ -119,6 +122,7 @@ fn build_schema_generation_llm(
     let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
     let response_schema = product_schema_generation_response_schema_json();
+    let append_response_schema = append_schema_generation_response_schema_json();
     let system_prompt = format!(
         "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
             Return only JSON matching ProductSchemaGenerationResponse.
@@ -126,7 +130,8 @@ fn build_schema_generation_llm(
             HIGH means the selectors are product-specific, deterministic, and safe to auto-approve when local validation passes.
             MEDIUM means the schema is plausible but needs human review. LOW means uncertain or weak selectors and needs human review.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            ProductSchemaGenerationResponse schema:\n\n {response_schema}",
+            ProductSchemaGenerationResponse schema:\n\n {response_schema}\n\n
+            Append ProductSchemaGenerationResponse schema:\n\n {append_response_schema}",
     );
     let llm = llm
         .system(system_prompt)
@@ -134,9 +139,14 @@ fn build_schema_generation_llm(
         .reasoning(true)
         .timeout_seconds(180)
         .validator(|res| {
-            parse_product_schemas_response(strip_markdown_json_embedding(res))
-                .map(|_| ())
-                .map_err(|err| err.to_string())
+            let stripped = strip_markdown_json_embedding(res);
+            if parse_product_schemas_response(stripped).is_ok()
+                || parse_append_schema_response(stripped).is_ok()
+            {
+                Ok(())
+            } else {
+                Err("response did not match product or append schema response".to_string())
+            }
         })
         .validator_attempts(3)
         .build()?;
@@ -202,7 +212,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
     async fn append_single_schema(
         &self,
         html: &str,
-    ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError> {
+    ) -> Result<GeneratedAppendSchema, ProductSchemaServiceError> {
         let instruction = build_append_schema_instruction(html);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
@@ -223,23 +233,12 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         })?;
 
         let parsed = strip_markdown_json_embedding(&res);
-        let generated = parse_product_schemas_response(parsed)
+        let generated = parse_append_schema_response(parsed)
             .map_err(ProductSchemaServiceError::JsonParsingTargetSchemaError)?;
-        if generated.schemas.is_empty() {
-            return Err(ProductSchemaServiceError::NoTextResponse(
-                "LLM produced zero schemas".to_string(),
-            ));
-        }
-        if generated.schemas.len() != 1 {
-            return Err(ProductSchemaServiceError::NoTextResponse(format!(
-                "Expected exactly one schema for append generation, got {}",
-                generated.schemas.len()
-            )));
-        }
 
         debug!(
-            schema_count = generated.schemas.len(),
-            confidence = ?generated.evaluation.confidence,
+            page_kind = ?generated,
+            confidence = ?generated.evaluation().confidence,
             "Generated schema response for append-and-retry"
         );
         Ok(generated)
@@ -329,10 +328,15 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
 #[cfg(test)]
 mod tests {
+    use super::prompt::build_append_schema_instruction;
     use super::prompt::build_create_schemas_instruction;
+    use super::response::parse_append_schema_response;
     use super::response::parse_product_schemas_response;
     use super::*;
     use crate::scraper::css_selector::product_schema_repository::MockShopsProductSchemaRepository;
+    use crate::scraper::css_selector::removed_page_schema::{
+        NonProductPageSchema, RemovedPageSchema,
+    };
     use crate::scraper::css_selector::rule::{
         ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
@@ -394,6 +398,37 @@ mod tests {
             "risks": [],
         }))
         .expect("generated response should serialize")
+    }
+
+    fn removed_append_response_json() -> String {
+        serde_json::to_string(&serde_json::json!({
+            "page_kind": "removed",
+            "schemas": [],
+            "removed_schema": {
+                "selector": "#mainCatCol h1",
+                "text": "Sorry, the page you're looking for couldn't be found"
+            },
+            "confidence": "HIGH",
+            "summary": "Soft 404 page.",
+            "risks": [],
+        }))
+        .expect("removed append response should serialize")
+    }
+
+    fn not_product_append_response_json() -> String {
+        serde_json::to_string(&serde_json::json!({
+            "page_kind": "not_product",
+            "schemas": [],
+            "non_product_schema": {
+                "selector": "main.category h1",
+                "text": "Latest antiques"
+            },
+            "reason": "category page",
+            "confidence": "HIGH",
+            "summary": "Category page.",
+            "risks": [],
+        }))
+        .expect("not-product append response should serialize")
     }
 
     #[test]
@@ -803,6 +838,17 @@ mod tests {
     }
 
     #[test]
+    fn should_include_page_classification_in_append_instruction() {
+        let instruction =
+            build_append_schema_instruction("<html><body><h1>Missing</h1></body></html>");
+
+        assert!(instruction.contains("page_kind = product"));
+        assert!(instruction.contains("page_kind = removed"));
+        assert!(instruction.contains("page_kind = not_product"));
+        assert!(instruction.contains("selector and text must both match"));
+    }
+
+    #[test]
     fn should_build_schema_prompt_dsl_with_generic_tree_nodes() {
         let html = r#"
             <html>
@@ -876,6 +922,87 @@ mod tests {
             SchemaLlmEvaluationConfidence::High
         );
         assert!(parsed.evaluation.is_high_confidence_approval());
+    }
+
+    #[test]
+    fn should_parse_product_append_response() {
+        let payload = generated_response_json(vec![sample_css_schema()]);
+
+        let parsed = parse_append_schema_response(&payload).unwrap();
+
+        assert!(matches!(parsed, GeneratedAppendSchema::Product { .. }));
+    }
+
+    #[test]
+    fn should_parse_removed_append_response() {
+        let parsed = parse_append_schema_response(&removed_append_response_json()).unwrap();
+
+        assert_eq!(
+            parsed,
+            GeneratedAppendSchema::Removed {
+                schema: RemovedPageSchema {
+                    selector: "#mainCatCol h1".into(),
+                    text: "Sorry, the page you're looking for couldn't be found".to_string(),
+                },
+                evaluation: SchemaLlmEvaluation {
+                    decision: SchemaLlmEvaluationDecision::Approve,
+                    confidence: SchemaLlmEvaluationConfidence::High,
+                    approved_by_llm: false,
+                    summary: "Soft 404 page.".to_string(),
+                    risks: vec![],
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn should_parse_not_product_append_response() {
+        let parsed = parse_append_schema_response(&not_product_append_response_json()).unwrap();
+
+        assert_eq!(
+            parsed,
+            GeneratedAppendSchema::NotProduct {
+                schema: NonProductPageSchema {
+                    selector: "main.category h1".into(),
+                    text: "Latest antiques".to_string(),
+                },
+                reason: "category page".to_string(),
+                evaluation: SchemaLlmEvaluation {
+                    decision: SchemaLlmEvaluationDecision::Approve,
+                    confidence: SchemaLlmEvaluationConfidence::High,
+                    approved_by_llm: false,
+                    summary: "Category page.".to_string(),
+                    risks: vec![],
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn should_reject_removed_append_response_without_schema() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "removed",
+            "schemas": [],
+            "confidence": "HIGH",
+            "summary": "missing schema"
+        }))
+        .unwrap();
+
+        assert!(parse_append_schema_response(&payload).is_err());
+    }
+
+    #[test]
+    fn should_reject_not_product_append_response_without_schema() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "not_product",
+            "schemas": [],
+            "reason": "category page",
+            "confidence": "HIGH",
+            "summary": "missing schema"
+        }))
+        .unwrap();
+
+        assert!(parse_append_schema_response(&payload).is_err());
     }
 
     #[test]

@@ -288,7 +288,10 @@ async fn scrape_candidate(
                     );
                 }
                 warn!(error = %e, "Scraper run failed");
-            } else if matches!(&e, ScraperError::ProductRemoved { .. }) {
+            } else if matches!(
+                &e,
+                ScraperError::ProductRemoved { .. } | ScraperError::NotProductPage { .. }
+            ) {
                 debug!(error = %e, "Scraper run failed");
             } else {
                 warn!(error = %e, "Scraper run failed");
@@ -313,8 +316,10 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
     match e {
         ScraperError::HttpError { .. } => "HttpError",
         ScraperError::ProductRemoved { .. } => "ProductRemoved",
+        ScraperError::NotProductPage { .. } => "NotProductPage",
         ScraperError::NoHost { .. } => "NoHost",
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
+        ScraperError::RemovedPageSchemaDatabaseError(_) => "RemovedPageSchemaDatabaseError",
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
         ScraperError::NormalizationFixExhausted { .. } => "NormalizationFixExhausted",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",

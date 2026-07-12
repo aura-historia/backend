@@ -16,7 +16,7 @@ use url::Url;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_SHOP;
 use crate::service::shop_registration::shop_type_from_db;
-use crate::spider::classification::url_metadata::UrlState;
+use crate::spider::classification::url_metadata::{UrlClass, UrlState};
 
 // ---------------------------------------------------------------------------
 // ScraperCandidate
@@ -212,6 +212,12 @@ pub trait ScraperCandidateService: Send + Sync {
         shop_id: &ShopId,
         url: &Url,
         state: UrlState,
+    ) -> Result<(), sqlx::Error>;
+    async fn set_class(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        url_class: UrlClass,
     ) -> Result<(), sqlx::Error>;
     async fn mark_fetch_failure(
         &self,
@@ -553,6 +559,32 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(shop_id_uuid)
         .bind(url_str)
         .bind(state_str)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn set_class(
+        &self,
+        shop_id: &ShopId,
+        url: &Url,
+        url_class: UrlClass,
+    ) -> Result<(), sqlx::Error> {
+        let shop_id_uuid: uuid::Uuid = (*shop_id).into();
+        let url_str = url.to_string();
+        let url_class_str = url_class.to_string();
+
+        sqlx::query(
+            "UPDATE shop_urls
+             SET url_class = $3,
+                 next_retry_at = NULL,
+                 updated = NOW()
+             WHERE shop_id = $1 AND url = $2",
+        )
+        .bind(shop_id_uuid)
+        .bind(url_str)
+        .bind(url_class_str)
         .execute(&self.pool)
         .await?;
 

@@ -61,6 +61,7 @@ use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
+use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
@@ -455,6 +456,9 @@ async fn main() {
             Some(Arc::clone(&gemini_rate_limiter)),
         )
             .expect("failed to build ProductSchemaServiceImpl");
+        let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(Box::leak(
+            Box::new(pool.clone()),
+        )));
 
         let scraper_candidates = Box::new(
             ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
@@ -480,6 +484,7 @@ async fn main() {
                 config.scraper_schema_seed_pages,
                 config.scraper_max_llm_calls_per_shop,
             )
+            .with_removed_page_schema_repository(removed_page_schema_repo)
             .with_review_gate(review_repo.clone(), review_required),
         );
 
