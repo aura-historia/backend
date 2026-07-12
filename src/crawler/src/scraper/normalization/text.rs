@@ -55,7 +55,9 @@ pub(super) fn normalize_title(raw: &str) -> Result<Title, NormalizationError> {
 pub(super) fn normalize_title_localized(
     raw: &str,
 ) -> Result<Localized<Language, Title>, NormalizationError> {
-    normalize_title_localized_with_description_language_fallback(raw, None)
+    let title = normalize_title(raw)?;
+    let title_language = detect_language(title.as_ref());
+    localize_normalized_title(title, title_language, None)
 }
 
 fn word_count(text: &str) -> usize {
@@ -74,26 +76,20 @@ pub(super) fn detect_description_language(fragments: &[String]) -> Option<Langua
     detect_language(cleaned.join("\n\n").as_str())
 }
 
-pub(super) fn normalize_title_localized_with_description_language_fallback(
-    raw: &str,
+pub(super) fn localize_normalized_title(
+    title: Title,
+    title_language: Option<Language>,
     description_language: Option<Language>,
 ) -> Result<Localized<Language, Title>, NormalizationError> {
-    let title = normalize_title(raw)?;
     let language = if word_count(title.as_ref()) < 3 {
-        if let Some(language) = description_language {
-            language
-        } else {
-            detect_language(title.as_ref()).ok_or_else(|| {
-                NormalizationError::TitleUnknownLanguage {
-                    text: title.as_ref().chars().take(100).collect(),
-                }
-            })?
-        }
+        description_language.or(title_language)
     } else {
-        detect_language(title.as_ref()).ok_or_else(|| NormalizationError::TitleUnknownLanguage {
-            text: title.as_ref().chars().take(100).collect(),
-        })?
-    };
+        title_language
+    }
+    .ok_or_else(|| NormalizationError::TitleUnknownLanguage {
+        text: title.as_ref().chars().take(100).collect(),
+    })?;
+
     Ok(Localized::new(language, title))
 }
 
@@ -102,9 +98,10 @@ pub(super) fn normalize_title_localized_with_description_language_fallback(
 ///
 /// Returns `Ok(None)` when all fragments are blank.  Returns
 /// [`NormalizationError::DescriptionUnknownLanguage`] when language detection
-/// fails on the joined text.
+/// fails on the joined text and no fallback language is available.
 pub(super) fn normalize_description(
     fragments: Vec<String>,
+    fallback_language: Option<Language>,
 ) -> Result<Option<Localized<Language, Description>>, NormalizationError> {
     let cleaned: Vec<String> = fragments
         .into_iter()
@@ -118,11 +115,11 @@ pub(super) fn normalize_description(
 
     let joined = cleaned.join("\n\n");
     let description = Description::from(joined.as_str());
-    let language = detect_language(description.as_ref()).ok_or_else(|| {
-        NormalizationError::DescriptionUnknownLanguage {
+    let language = detect_language(description.as_ref())
+        .or(fallback_language)
+        .ok_or_else(|| NormalizationError::DescriptionUnknownLanguage {
             text: description.as_ref().chars().take(100).collect(),
-        }
-    })?;
+        })?;
 
     Ok(Some(Localized::new(language, description)))
 }
@@ -134,9 +131,10 @@ mod tests {
     use url::Url;
 
     use super::{
-        detect_description_language, normalize_description, normalize_shops_product_id,
+        detect_description_language, detect_language, localize_normalized_title,
+        normalize_description, normalize_shops_product_id,
         normalize_shops_product_id_with_url_sha_fallback, normalize_title,
-        normalize_title_localized, normalize_title_localized_with_description_language_fallback,
+        normalize_title_localized,
     };
     use crate::scraper::normalization::error::NormalizationError;
 
@@ -267,20 +265,19 @@ mod tests {
     #[test]
     fn should_use_description_language_for_short_title_when_available() {
         use common::language::domain::Language;
-        let localized = normalize_title_localized_with_description_language_fallback(
-            "La Saintongeoise",
-            Some(Language::En),
-        )
-        .unwrap();
+        let title = normalize_title("La Saintongeoise").unwrap();
+        let title_language = detect_language(title.as_ref());
+        let localized =
+            localize_normalized_title(title, title_language, Some(Language::En)).unwrap();
         assert_eq!(localized.localization, Language::En);
     }
 
     #[test]
     fn should_fallback_to_title_detection_when_description_language_missing_for_short_title() {
         use common::language::domain::Language;
-        let localized =
-            normalize_title_localized_with_description_language_fallback("Vintage Poster", None)
-                .unwrap();
+        let title = normalize_title("Vintage Poster").unwrap();
+        let title_language = detect_language(title.as_ref());
+        let localized = localize_normalized_title(title, title_language, None).unwrap();
         assert_eq!(localized.localization, Language::En);
     }
 
@@ -300,22 +297,25 @@ mod tests {
 
     #[test]
     fn should_return_none_when_description_fragments_are_empty() {
-        let result = normalize_description(vec![]).unwrap();
+        let result = normalize_description(vec![], None).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn should_return_none_when_all_fragments_are_blank() {
-        let result = normalize_description(vec!["  ".into(), "\t".into()]).unwrap();
+        let result = normalize_description(vec!["  ".into(), "\t".into()], None).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn should_join_fragments_with_double_newline_when_multiple_fragments() {
-        let result = normalize_description(vec![
-            "This antique piece comes from a private English collection.".into(),
-            "It was acquired during the early twentieth century by the original owner.".into(),
-        ])
+        let result = normalize_description(
+            vec![
+                "This antique piece comes from a private English collection.".into(),
+                "It was acquired during the early twentieth century by the original owner.".into(),
+            ],
+            None,
+        )
         .unwrap()
         .unwrap();
         assert_eq!(
@@ -326,10 +326,13 @@ mod tests {
 
     #[test]
     fn should_trim_each_fragment_when_fragments_have_surrounding_whitespace() {
-        let result = normalize_description(vec![
-            "  This antique piece comes from a private English collection.  ".into(),
-            "  It was acquired during the early twentieth century by the owner.  ".into(),
-        ])
+        let result = normalize_description(
+            vec![
+                "  This antique piece comes from a private English collection.  ".into(),
+                "  It was acquired during the early twentieth century by the owner.  ".into(),
+            ],
+            None,
+        )
         .unwrap()
         .unwrap();
         assert_eq!(
@@ -340,11 +343,14 @@ mod tests {
 
     #[test]
     fn should_skip_blank_fragments_when_some_fragments_are_blank() {
-        let result = normalize_description(vec![
-            "This antique piece comes from a private English collection.".into(),
-            "  ".into(),
-            "It was acquired during the early twentieth century by the original owner.".into(),
-        ])
+        let result = normalize_description(
+            vec![
+                "This antique piece comes from a private English collection.".into(),
+                "  ".into(),
+                "It was acquired during the early twentieth century by the original owner.".into(),
+            ],
+            None,
+        )
         .unwrap()
         .unwrap();
         assert_eq!(
@@ -355,9 +361,12 @@ mod tests {
 
     #[test]
     fn should_return_single_paragraph_when_only_one_non_blank_fragment() {
-        let result = normalize_description(vec![
-            "This antique piece comes from a private English collection and dates to around nineteen twenty.".into(),
-        ])
+        let result = normalize_description(
+            vec![
+                "This antique piece comes from a private English collection and dates to around nineteen twenty.".into(),
+            ],
+            None,
+        )
         .unwrap()
         .unwrap();
         assert_eq!(
@@ -371,11 +380,23 @@ mod tests {
     fn should_return_error_when_description_language_cannot_be_detected(
         #[case] fragments: Vec<String>,
     ) {
-        let err = normalize_description(fragments).unwrap_err();
+        let err = normalize_description(fragments, None).unwrap_err();
         assert!(
             matches!(err, NormalizationError::DescriptionUnknownLanguage { .. }),
             "expected DescriptionUnknownLanguage, got: {:?}",
             err
         );
+    }
+
+    #[test]
+    fn should_use_fallback_language_when_description_language_cannot_be_detected() {
+        use common::language::domain::Language;
+
+        let result = normalize_description(vec!["23-1/2\"18-1/4\"".into()], Some(Language::En))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.localization, Language::En);
+        assert_eq!(result.payload.as_ref(), "23-1/2\"18-1/4\"");
     }
 }
