@@ -152,7 +152,7 @@ pub(super) fn generated_append_product(
     confidence: SchemaLlmEvaluationConfidence,
 ) -> GeneratedAppendSchema {
     GeneratedAppendSchema::Product {
-        schema,
+        schema: Box::new(schema),
         evaluation: schema_evaluation(confidence),
     }
 }

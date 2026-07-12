@@ -62,7 +62,7 @@ pub struct GeneratedProductSchemas {
 #[derive(Debug, Clone, PartialEq)]
 pub enum GeneratedAppendSchema {
     Product {
-        schema: ProductCssSelectorSchema,
+        schema: Box<ProductCssSelectorSchema>,
         evaluation: SchemaLlmEvaluation,
     },
     Removed {
@@ -156,9 +156,9 @@ impl ProductSchemaGenerationResponse {
                     )));
                 }
                 Ok(GeneratedAppendSchema::Product {
-                    schema: self.schemas.into_iter().next().ok_or_else(|| {
+                    schema: Box::new(self.schemas.into_iter().next().ok_or_else(|| {
                         invalid_data("Expected one product schema for append generation")
-                    })?,
+                    })?),
                     evaluation,
                 })
             }

@@ -269,7 +269,7 @@ impl ScraperServiceImpl {
 
         let generated = self.schema_service.append_single_schema(ctx.html).await?;
         let (generated_schema, evaluation) = match generated {
-            GeneratedAppendSchema::Product { schema, evaluation } => (schema, evaluation),
+            GeneratedAppendSchema::Product { schema, evaluation } => (*schema, evaluation),
             GeneratedAppendSchema::Removed { schema, .. } => {
                 if !schema.matches(ctx.html) {
                     return Err(crate::scraper::scraper_service::recovery::schema_retry::page_classification_did_not_match(

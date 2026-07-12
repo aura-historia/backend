@@ -62,6 +62,7 @@ impl ScraperServiceImpl {
                 .handle_generated_page_classification(shop_id, url, html, generated)
                 .await;
         };
+        let generated_schema = *generated_schema;
 
         let (selected_schema, raw) =
             match try_apply_schemas(std::iter::once(&generated_schema), html) {
