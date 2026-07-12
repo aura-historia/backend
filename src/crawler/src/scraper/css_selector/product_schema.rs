@@ -431,12 +431,12 @@ mod tests {
 
     #[test]
     fn should_create_schema() {
-        let _schema = schemars::schema_for!(ProductCssSelectorSchema);
+        drop(schemars::schema_for!(ProductCssSelectorSchema));
     }
 
     #[test]
     fn should_create_structured_output_format() {
-        let _structured_output_format = ProductCssSelectorSchema::structured_output_format();
+        drop(ProductCssSelectorSchema::structured_output_format());
     }
 
     // -------------------------------------------------------------------------

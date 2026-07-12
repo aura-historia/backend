@@ -94,7 +94,6 @@ impl ScraperServiceImpl {
     async fn removed_page_schemas_for(
         &self,
         shop_id: &ShopId,
-        _url: &Url,
     ) -> Result<Vec<RemovedPageSchema>, ScraperError> {
         let mut schemas = Vec::new();
 
@@ -110,14 +109,9 @@ impl ScraperServiceImpl {
         Ok(schemas)
     }
 
-    async fn is_removed_page(
-        &self,
-        shop_id: &ShopId,
-        url: &Url,
-        html: &str,
-    ) -> Result<bool, ScraperError> {
+    async fn is_removed_page(&self, shop_id: &ShopId, html: &str) -> Result<bool, ScraperError> {
         Ok(self
-            .removed_page_schemas_for(shop_id, url)
+            .removed_page_schemas_for(shop_id)
             .await?
             .iter()
             .any(|schema| schema.matches(html)))
@@ -179,7 +173,7 @@ impl ScraperService for ScraperServiceImpl {
         }
         let html = fetched.html;
 
-        if self.is_removed_page(shop_id, url, &html).await? {
+        if self.is_removed_page(shop_id, &html).await? {
             self.mark_product_removed_best_effort(shop_id, url).await;
             return Err(ScraperError::ProductRemoved {
                 url: url.clone(),

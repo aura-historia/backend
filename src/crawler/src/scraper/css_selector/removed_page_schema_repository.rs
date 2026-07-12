@@ -27,29 +27,33 @@ pub trait RemovedPageSchemaRepository {
     ) -> Result<ShopsRemovedPageSchema, sqlx::Error>;
 }
 
+/// Disabled persistence fallback used by tests and simple constructors.
+///
+/// Reads act as an empty schema cache. Writes fail because this repository does not own durable
+/// storage; production wires [`RemovedPageSchemaRepositoryImpl`] explicitly.
 pub struct NullRemovedPageSchemaRepository;
 
 #[async_trait::async_trait]
 impl RemovedPageSchemaRepository for NullRemovedPageSchemaRepository {
     async fn find_removed_page_schema(
         &self,
-        _shop_id: &ShopId,
+        _: &ShopId,
     ) -> Result<Option<ShopsRemovedPageSchema>, sqlx::Error> {
         Ok(None)
     }
 
     async fn insert_removed_page_schema(
         &self,
-        _shop_id: &ShopId,
-        _schema: &ShopsRemovedPageSchema,
+        _: &ShopId,
+        _: &ShopsRemovedPageSchema,
     ) -> Result<ShopsRemovedPageSchema, sqlx::Error> {
         Err(sqlx::Error::RowNotFound)
     }
 
     async fn update_removed_page_schema(
         &self,
-        _shop_id: &ShopId,
-        _removed_page_schemas: &[RemovedPageSchema],
+        _: &ShopId,
+        _: &[RemovedPageSchema],
     ) -> Result<ShopsRemovedPageSchema, sqlx::Error> {
         Err(sqlx::Error::RowNotFound)
     }

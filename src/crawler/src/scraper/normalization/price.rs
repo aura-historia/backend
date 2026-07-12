@@ -135,33 +135,37 @@ pub(super) fn normalize_price_field(
     make_currency_err: impl Fn(String) -> NormalizationError,
     make_parse_err: impl Fn(String) -> NormalizationError,
 ) -> Result<Option<Price>, NormalizationError> {
-    let _span = tracing::info_span!(
+    let span_guard = tracing::info_span!(
         "normalize_price_field",
         url = %context_url,
         field = field_name
     )
     .entered();
 
-    let Some(s) = raw else { return Ok(None) };
+    let result = (|| {
+        let Some(s) = raw else { return Ok(None) };
 
-    let trimmed = s.trim().to_owned();
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
+        let trimmed = s.trim().to_owned();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
 
-    if is_price_on_request_marker(&trimmed) {
-        debug!(
-            raw_price = %trimmed,
-            "Price text indicates 'price on request'; defaulting normalized price to None"
-        );
-        return Ok(None);
-    }
+        if is_price_on_request_marker(&trimmed) {
+            debug!(
+                raw_price = %trimmed,
+                "Price text indicates 'price on request'; defaulting normalized price to None"
+            );
+            return Ok(None);
+        }
 
-    match parse_price(&trimmed, fallback_currency) {
-        Ok((amount, currency)) => Ok(Some(Price::new(amount, currency))),
-        Err(PriceError::UnknownCurrency) => Err(make_currency_err(trimmed)),
-        Err(PriceError::ParseFailure) => Err(make_parse_err(trimmed)),
-    }
+        match parse_price(&trimmed, fallback_currency) {
+            Ok((amount, currency)) => Ok(Some(Price::new(amount, currency))),
+            Err(PriceError::UnknownCurrency) => Err(make_currency_err(trimmed)),
+            Err(PriceError::ParseFailure) => Err(make_parse_err(trimmed)),
+        }
+    })();
+    drop(span_guard);
+    result
 }
 
 // ---------------------------------------------------------------------------

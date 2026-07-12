@@ -1,21 +1,8 @@
-use crate::scraper::css_selector::rule::{CssSelector, ExtractionCardinality, ExtractionKind};
-use common::shop_id::ShopId;
+use crate::scraper::css_selector::rule::CssSelector;
 use schemars::JsonSchema;
-use scraper::Html;
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ShopsRemovedPageSchema {
-    pub shop_id: ShopId,
-    pub removed_page_schemas: Vec<RemovedPageSchema>,
-
-    #[serde(with = "time::serde::rfc3339")]
-    pub created: OffsetDateTime,
-
-    #[serde(with = "time::serde::rfc3339")]
-    pub updated: OffsetDateTime,
-}
+use super::page_match::page_classification_matches;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -28,50 +15,6 @@ impl RemovedPageSchema {
     pub fn matches(&self, html: &str) -> bool {
         page_classification_matches(&self.selector, &self.text, html)
     }
-}
-
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct NonProductPageSchema {
-    pub selector: CssSelector,
-    pub text: String,
-}
-
-impl NonProductPageSchema {
-    pub fn matches(&self, html: &str) -> bool {
-        page_classification_matches(&self.selector, &self.text, html)
-    }
-}
-
-fn normalize_removed_page_text(value: &str) -> String {
-    value
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
-}
-
-fn page_classification_matches(selector: &CssSelector, text: &str, html: &str) -> bool {
-    let parsed = Html::parse_document(html);
-    let rule = crate::scraper::css_selector::rule::ExtractionRule {
-        selector: selector.clone(),
-        additional_selectors: vec![],
-        extract: ExtractionKind::Text,
-        cardinality: ExtractionCardinality::All,
-    };
-
-    let Ok(values) = rule.apply(&parsed) else {
-        return false;
-    };
-    let expected = normalize_removed_page_text(text);
-    if expected.is_empty() {
-        return false;
-    }
-
-    values
-        .iter()
-        .map(|value| normalize_removed_page_text(value))
-        .any(|value| value.contains(&expected))
 }
 
 #[cfg(test)]

@@ -257,7 +257,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ImageValidator for StaticValidator {
-        async fn validate(&self, _url: &Url) -> ImageValidation {
+        async fn validate(&self, _: &Url) -> ImageValidation {
             self.validation
         }
     }

@@ -618,7 +618,7 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
         repository
             .expect_insert_product_schema()
-            .withf(move |id, _schema| *id == shop_id)
+            .withf(move |id, _| *id == shop_id)
             .return_once(move |_, _| Box::pin(async move { Ok(expected_clone) }));
 
         let service = ProductSchemaServiceImpl {
@@ -651,7 +651,7 @@ mod tests {
             .return_once(move |_| Box::pin(async move { Ok(Some(existing_clone)) }));
         repository
             .expect_update_product_schema()
-            .withf(move |id, _schema| *id == shop_id)
+            .withf(move |id, _| *id == shop_id)
             .return_once(move |_, _| Box::pin(async move { Ok(updated_clone) }));
 
         let service = ProductSchemaServiceImpl {
@@ -1096,8 +1096,8 @@ mod tests {
     impl llm::chat::ChatProvider for MockLlmProvider {
         async fn chat_with_tools(
             &self,
-            _messages: &[ChatMessage],
-            _tools: Option<&[llm::chat::Tool]>,
+            _: &[ChatMessage],
+            _: Option<&[llm::chat::Tool]>,
         ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
             panic!("LLM should not be called in this test")
         }
@@ -1110,8 +1110,8 @@ mod tests {
     impl llm::chat::ChatProvider for MockLlmProviderReturning {
         async fn chat_with_tools(
             &self,
-            _messages: &[ChatMessage],
-            _tools: Option<&[llm::chat::Tool]>,
+            _: &[ChatMessage],
+            _: Option<&[llm::chat::Tool]>,
         ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
             let json = generated_response_json(vec![self.0.clone()]);
             Ok(Box::new(FakeChatResponse(Some(json))))
