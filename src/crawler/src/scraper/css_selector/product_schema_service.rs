@@ -1027,6 +1027,74 @@ mod tests {
     }
 
     #[test]
+    fn should_reject_not_product_page_kind_with_schema_for_create_validator() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "not_product",
+            "schemas": [sample_css_schema()],
+            "reason": "category page",
+            "confidence": "HIGH",
+            "summary": "wrong page kind"
+        }))
+        .unwrap();
+
+        let result = validate_create_schema_response(&payload);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn should_reject_removed_page_kind_with_schema_for_create_validator() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "removed",
+            "schemas": [sample_css_schema()],
+            "removed_schema": {
+                "selector": "#main h1",
+                "text": "Product removed"
+            },
+            "confidence": "HIGH",
+            "summary": "wrong page kind"
+        }))
+        .unwrap();
+
+        let result = validate_create_schema_response(&payload);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn should_reject_removed_schema_for_create_validator() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "schemas": [sample_css_schema()],
+            "removed_schema": {
+                "selector": "#main h1",
+                "text": "Product removed"
+            },
+            "confidence": "HIGH",
+            "summary": "append-only metadata"
+        }))
+        .unwrap();
+
+        let result = validate_create_schema_response(&payload);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn should_reject_classification_reason_for_create_validator() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "schemas": [sample_css_schema()],
+            "reason": "category page",
+            "confidence": "HIGH",
+            "summary": "append-only metadata"
+        }))
+        .unwrap();
+
+        let result = validate_create_schema_response(&payload);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn should_accept_append_classification_for_append_validator() {
         let payload = not_product_append_response_json();
 
@@ -1038,6 +1106,22 @@ mod tests {
     #[test]
     fn should_accept_product_schema_for_create_validator() {
         let payload = generated_response_json(vec![sample_css_schema()]);
+
+        let result = validate_create_schema_response(&payload);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn should_accept_explicit_product_page_kind_for_create_validator() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "product",
+            "schemas": [sample_css_schema()],
+            "confidence": "HIGH",
+            "summary": "Selectors are product-specific.",
+            "risks": [],
+        }))
+        .unwrap();
 
         let result = validate_create_schema_response(&payload);
 

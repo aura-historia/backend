@@ -201,11 +201,26 @@ pub(super) fn parse_product_schemas_response(
     raw: &str,
 ) -> Result<GeneratedProductSchemas, serde_json::Error> {
     let response = serde_json::from_str::<ProductSchemaGenerationResponse>(raw)?;
+    if matches!(
+        response.page_kind,
+        Some(AppendPageKind::Removed | AppendPageKind::NotProduct)
+    ) {
+        return Err(invalid_data(
+            "Initial schema generation must not classify pages as removed or not-product",
+        ));
+    }
+    if response.removed_schema.is_some() {
+        return Err(invalid_data(
+            "Initial schema generation must not include removed page schema",
+        ));
+    }
+    if response.reason.is_some() {
+        return Err(invalid_data(
+            "Initial schema generation must not include page classification reason",
+        ));
+    }
     if response.schemas.is_empty() {
-        return Err(serde_json::Error::io(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "LLM produced zero schemas",
-        )));
+        return Err(invalid_data("LLM produced zero schemas"));
     }
     Ok(response.into_generated())
 }
