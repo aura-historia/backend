@@ -25,6 +25,7 @@
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
 - Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors.
+- Initial schema generation accepts product schema responses only. Append repair accepts product, removed, and not-product classifications.
 - Append repair classifies failed pages as product, removed, or not-product. Removed needs verified selector+text, stores shop-scoped `shops_removed_page_schema`, and marks URL `REMOVED`. Not-product needs verified selector+text and only changes that URL class to `other`; never update shop URL pattern from one page.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.
 - `demo` and `server` auto-run migrations on startup. Migrations be authoritative DB contract.

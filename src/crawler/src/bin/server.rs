@@ -444,13 +444,15 @@ async fn main() {
 
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-        let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let create_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let append_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
         let schema_svc = ProductSchemaServiceImpl::new(
-            schema_llm_builder,
+            create_schema_llm_builder,
+            append_schema_llm_builder,
             llm_service_tier,
             schema_repo,
             Some(Arc::clone(&gemini_rate_limiter)),

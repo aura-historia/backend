@@ -93,7 +93,8 @@ pub trait ProductSchemaService {
 }
 
 pub struct ProductSchemaServiceImpl {
-    llm: Box<dyn ChatProvider>,
+    create_llm: Box<dyn ChatProvider>,
+    append_llm: Box<dyn ChatProvider>,
     rate_limiter: Option<Arc<GeminiRateLimiter>>,
     service_tier: Option<GeminiServiceTier>,
     repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
@@ -101,14 +102,17 @@ pub struct ProductSchemaServiceImpl {
 
 impl ProductSchemaServiceImpl {
     pub fn new(
-        llm: llm::builder::LLMBuilder,
+        create_llm: llm::builder::LLMBuilder,
+        append_llm: llm::builder::LLMBuilder,
         service_tier: Option<GeminiServiceTier>,
         repository: Box<dyn ShopsProductSchemaRepository + Send + Sync>,
         rate_limiter: Option<Arc<GeminiRateLimiter>>,
     ) -> Result<Self, LLMError> {
-        let llm = build_schema_generation_llm(llm)?;
+        let create_llm = build_create_schema_generation_llm(create_llm)?;
+        let append_llm = build_append_schema_generation_llm(append_llm)?;
         Ok(Self {
-            llm,
+            create_llm,
+            append_llm,
             rate_limiter,
             service_tier,
             repository,
@@ -116,13 +120,12 @@ impl ProductSchemaServiceImpl {
     }
 }
 
-fn build_schema_generation_llm(
+fn build_create_schema_generation_llm(
     llm: llm::builder::LLMBuilder,
 ) -> Result<Box<dyn ChatProvider>, LLMError> {
     let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
     let response_schema = product_schema_generation_response_schema_json();
-    let append_response_schema = append_schema_generation_response_schema_json();
     let system_prompt = format!(
         "You are an e-commerce scraper-assistant for antiques creating extraction-schemas for HTML given product-pages.
             Return only JSON matching ProductSchemaGenerationResponse.
@@ -130,7 +133,31 @@ fn build_schema_generation_llm(
             HIGH means the selectors are product-specific, deterministic, and safe to auto-approve when local validation passes.
             MEDIUM means the schema is plausible but needs human review. LOW means uncertain or weak selectors and needs human review.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            ProductSchemaGenerationResponse schema:\n\n {response_schema}\n\n
+            ProductSchemaGenerationResponse schema:\n\n {response_schema}",
+    );
+    let llm = llm
+        .system(system_prompt)
+        .openai_enable_web_search(false)
+        .reasoning(true)
+        .timeout_seconds(180)
+        .validator(validate_create_schema_response)
+        .validator_attempts(3)
+        .build()?;
+    let llm: Box<dyn ChatProvider> = llm;
+    Ok(llm)
+}
+
+fn build_append_schema_generation_llm(
+    llm: llm::builder::LLMBuilder,
+) -> Result<Box<dyn ChatProvider>, LLMError> {
+    let schema = serde_json::to_string_pretty(&schema_for!(ProductCssSelectorSchema))
+        .unwrap_or_else(|_| "Failed to generate schema".to_string());
+    let append_response_schema = append_schema_generation_response_schema_json();
+    let system_prompt = format!(
+        "You are an e-commerce scraper-assistant for antiques repairing extraction-schemas for one HTML page.
+            Return only JSON matching Append ProductSchemaGenerationResponse.
+            The response may classify the page as product, removed, or not_product.
+            ProductCssSelectorSchema schema:\n\n {schema}\n\n
             Append ProductSchemaGenerationResponse schema:\n\n {append_response_schema}",
     );
     let llm = llm
@@ -138,20 +165,25 @@ fn build_schema_generation_llm(
         .openai_enable_web_search(false)
         .reasoning(true)
         .timeout_seconds(180)
-        .validator(|res| {
-            let stripped = strip_markdown_json_embedding(res);
-            if parse_product_schemas_response(stripped).is_ok()
-                || parse_append_schema_response(stripped).is_ok()
-            {
-                Ok(())
-            } else {
-                Err("response did not match product or append schema response".to_string())
-            }
-        })
+        .validator(validate_append_schema_response)
         .validator_attempts(3)
         .build()?;
     let llm: Box<dyn ChatProvider> = llm;
     Ok(llm)
+}
+
+fn validate_create_schema_response(res: &str) -> Result<(), String> {
+    let stripped = strip_markdown_json_embedding(res);
+    parse_product_schemas_response(stripped)
+        .map(|_| ())
+        .map_err(|_| "response did not match product schema response".to_string())
+}
+
+fn validate_append_schema_response(res: &str) -> Result<(), String> {
+    let stripped = strip_markdown_json_embedding(res);
+    parse_append_schema_response(stripped)
+        .map(|_| ())
+        .map_err(|_| "response did not match append schema response".to_string())
 }
 
 #[async_trait::async_trait]
@@ -176,9 +208,12 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         let messages = vec![message];
 
         let started_at = Instant::now();
-        let response =
-            run_with_gemini_rate_limiter(&*self.llm, self.rate_limiter.as_deref(), &messages)
-                .await?;
+        let response = run_with_gemini_rate_limiter(
+            &*self.create_llm,
+            self.rate_limiter.as_deref(),
+            &messages,
+        )
+        .await?;
         log_llm_invocation(
             LlmOperation::CrawlerProductSchemaGeneration,
             LlmProvider::Google,
@@ -218,9 +253,12 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         let messages = vec![message];
 
         let started_at = Instant::now();
-        let response =
-            run_with_gemini_rate_limiter(&*self.llm, self.rate_limiter.as_deref(), &messages)
-                .await?;
+        let response = run_with_gemini_rate_limiter(
+            &*self.append_llm,
+            self.rate_limiter.as_deref(),
+            &messages,
+        )
+        .await?;
         log_llm_invocation(
             LlmOperation::CrawlerProductSchemaRepair,
             LlmProvider::Google,
@@ -538,7 +576,8 @@ mod tests {
             .return_once(move |_| Box::pin(async move { Ok(Some(expected_clone)) }));
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProvider),
+            create_llm: Box::new(MockLlmProvider),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -561,7 +600,8 @@ mod tests {
             .return_once(|_| Box::pin(async { Ok(None) }));
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProvider),
+            create_llm: Box::new(MockLlmProvider),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -581,7 +621,8 @@ mod tests {
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProvider),
+            create_llm: Box::new(MockLlmProvider),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -616,7 +657,8 @@ mod tests {
             .return_once(move |_, _| Box::pin(async move { Ok(expected_clone) }));
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProvider),
+            create_llm: Box::new(MockLlmProvider),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -649,7 +691,8 @@ mod tests {
             .return_once(move |_, _| Box::pin(async move { Ok(updated_clone) }));
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProvider),
+            create_llm: Box::new(MockLlmProvider),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -673,7 +716,8 @@ mod tests {
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProvider),
+            create_llm: Box::new(MockLlmProvider),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -701,7 +745,8 @@ mod tests {
             .return_once(|_, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProvider),
+            create_llm: Box::new(MockLlmProvider),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -734,7 +779,8 @@ mod tests {
         repository.expect_update_product_schema().never();
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProvider),
+            create_llm: Box::new(MockLlmProvider),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -775,7 +821,8 @@ mod tests {
             .return_once(move |_, _| Box::pin(async move { Ok(saved_clone) }));
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProviderReturning(css_schema)),
+            create_llm: Box::new(MockLlmProviderReturning(css_schema)),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -799,7 +846,8 @@ mod tests {
             .return_once(|_| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
 
         let service = ProductSchemaServiceImpl {
-            llm: Box::new(MockLlmProvider),
+            create_llm: Box::new(MockLlmProvider),
+            append_llm: Box::new(MockLlmProvider),
             rate_limiter: None,
             service_tier: None,
             repository: Box::new(repository),
@@ -967,6 +1015,33 @@ mod tests {
                 },
             }
         );
+    }
+
+    #[test]
+    fn should_reject_append_classification_for_create_validator() {
+        let payload = not_product_append_response_json();
+
+        let result = validate_create_schema_response(&payload);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn should_accept_append_classification_for_append_validator() {
+        let payload = not_product_append_response_json();
+
+        let result = validate_append_schema_response(&payload);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn should_accept_product_schema_for_create_validator() {
+        let payload = generated_response_json(vec![sample_css_schema()]);
+
+        let result = validate_create_schema_response(&payload);
+
+        assert!(result.is_ok());
     }
 
     #[test]
