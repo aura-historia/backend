@@ -46,6 +46,7 @@
 
 ## Child DOX Index
 
+- `.agents/AGENTS.md` — project-local agent skills.
 - `.github/AGENTS.md` — GitHub flow.
 - `docs/AGENTS.md` — public docs.
 - `infra/AGENTS.md` — CDK infra.

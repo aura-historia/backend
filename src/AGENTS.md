@@ -31,10 +31,13 @@
 - Read root, then here, then crate doc, before edit.
 - New `src` doc go at crate root. No module doc unless module become crate boundary.
 - Update nearest doc when crate purpose, route, event, env var, dependency edge, test flow, or child index change.
+- For entity/type work, use `.agents/skills/add-entity-type/SKILL.md`.
+- For REST endpoint work, use `.agents/skills/add-rest-api-endpoint/SKILL.md`.
+- For new Lambda work, use `.agents/skills/add-backend-lambda/SKILL.md`.
 - If REST endpoint, payload, auth, or error behavior change, update `docs/swagger.yaml` and `docs/CHANGELOG.md`.
 - If relevant DynamoDB structure change, update `docs/dynamodb/table_1.md`
-- If OpenSearch DTOs change, make sure the corressponding index-mappings in `opensearch/mappings` are aligned
-- If relevant event structure or flow change, update `docs/evenst/flow.md`
+- If OpenSearch DTOs change, make sure the corresponding index-mappings in `opensearch/mappings` are aligned
+- If relevant event structure or flow change, update `docs/events/flow.md`
 - If new Lambda appear, wire deploy, `src/ci-determinator`, `src/test-api/src/cloudformation.rs`, and `infra/` when needed.
 
 ## Work Guidance
@@ -47,12 +50,8 @@
 - Prefer functional-style code. 
 - Avoid `unsafe` and `unsafe`-like patterns like `unwrap`, `expect`, and `panic!`. Use `Result` and `Option` instead. 
 - Never swallow errors (e.g. `.ok()`). Use `?` operator to propagate errors. Use `thiserror` with well-typed error-enums.
-- Apply semi-strict Domain-Driven Design (DDD) principles. Keep domain logic in domain modules, and keep service modules thin. Avoid anemic models. Make use of newtypes.
-- Types are strictly separated between:
-  - REST-API: suffix `Data`, e.g. `LanguageData`
-  - DynamoDB: suffix `Record`, e.g. `LanguageRecord`
-  - OpenSearch: suffix `Document`, e.g. `LanguageDocument`
-  - Domain: no suffix, e.g. `Language`
+- Apply semi-strict DDD. Keep domain logic in domain modules, services thin, and use newtypes.
+- Keep type layers strict: domain no suffix, REST `Data`, DynamoDB `Record`, OpenSearch `Document`.
 
 ## Build And Validate
 
@@ -67,17 +66,11 @@
 ## Test Guidance
 
 - Full coverage everywhere required: all happy and unhappy paths, all edge cases, all error cases.
-- Use `rstest` for parameterized tests where sensible
-- Use `fake` crate for generating test data where applicable
-- Use `..Default::default()` for struct initialization in tests to avoid boilerplate
-- Unit-test all public functions and critical private functions
-- Integration-test all repository-functions (OpenSearch, DynamoDB)
-- Integration-test all lambdas for happy paths
-- Acceptance-Test all critical application-flows for cross-crate integration and end-to-end behavior. This includes
-  - REST API endpoints
-  - Lambda event flows
-  - Event-driven architecture flows (EventBridge, SQS, Lambda)
-  - Critical business rules, edge cases and authentication/user-plan flows
+- Use `rstest` for table tests and `fake` where applicable.
+- Use `..Default::default()` in tests to avoid boilerplate.
+- Unit-test public functions and critical private functions.
+- Integration-test repository functions and Lambda happy paths.
+- Acceptance-test critical REST, Lambda, event, business-rule, and auth/user-plan flows.
 
 ## Runtime Guidance
 
