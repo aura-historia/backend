@@ -5,6 +5,7 @@ use common::api::error::ApiError;
 use common::api::error_code::BAD_BODY_VALUE;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
+use common::measurement_unit::domain::MeasurementUnit;
 use common::user_id::api::extract_user_id_request_context;
 use lambda_runtime::LambdaEvent;
 use user::data::get_user_data::GetUserAccountData;
@@ -37,6 +38,9 @@ pub async fn handle(
         last_name: patch_user_account_data.last_name,
         language: patch_user_account_data.language.map(Language::from),
         currency: patch_user_account_data.currency.map(Currency::from),
+        measurement_unit: patch_user_account_data
+            .measurement_unit
+            .map(MeasurementUnit::from),
         prohibited_content_consent: patch_user_account_data.prohibited_content_consent,
         tier: None,
         role: None,

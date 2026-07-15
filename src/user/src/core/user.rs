@@ -2,7 +2,8 @@ use crate::core::{
     first_name::FirstName, last_name::LastName, name::Name, role::UserRole, tier::UserTier,
 };
 use common::{
-    actor::domain::Actor, currency::domain::Currency, language::domain::Language, shop_id::ShopId,
+    actor::domain::Actor, currency::domain::Currency, language::domain::Language,
+    measurement_unit::domain::MeasurementUnit, shop_id::ShopId,
     stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::core::address::{GeoAddress, StructuredAddress};
@@ -18,6 +19,7 @@ pub struct User {
     pub last_name: Option<LastName>,
     pub language: Option<Language>,
     pub currency: Option<Currency>,
+    pub measurement_unit: Option<MeasurementUnit>,
     pub prohibited_content_consent: bool,
     pub tier: UserTier,
     pub role: UserRole,
@@ -67,6 +69,7 @@ mod fake {
                 last_name: Some(last_name),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                measurement_unit: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
                 tier: crate::core::tier::UserTier::Ultimate,
                 role: config.fake_with_rng(rng),

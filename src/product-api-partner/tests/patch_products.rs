@@ -71,6 +71,7 @@ fn make_user(user_id: common::user_id::UserId, shop_id: Option<common::shop_id::
         last_name: None,
         language: None,
         currency: None,
+        measurement_unit: None,
         prohibited_content_consent: false,
         tier: UserTier::Free,
         role: UserRole::User,

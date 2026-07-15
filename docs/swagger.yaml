@@ -11724,6 +11724,16 @@ components:
       default: EUR
       example: EUR
 
+    MeasurementUnitData:
+      type: string
+      enum: [METRIC, IMPERIAL]
+      description: |
+        User preference for distance/size presentation:
+        - METRIC: Metric units.
+        - IMPERIAL: Imperial units.
+      default: METRIC
+      example: METRIC
+
     ProductStateData:
       type: string
       enum: [LISTED, AVAILABLE, RESERVED, SOLD, REMOVED, UNKNOWN]
@@ -14409,6 +14419,11 @@ components:
             - $ref: "#/components/schemas/CurrencyData"
           nullable: true
           description: User's preferred currency (optional)
+        measurementUnit:
+          allOf:
+            - $ref: "#/components/schemas/MeasurementUnitData"
+          nullable: true
+          description: User's preferred measurement unit system (optional)
         prohibitedContentConsent:
           type: boolean
           description: Whether the user has consented to viewing prohibited content
@@ -14476,6 +14491,11 @@ components:
             - $ref: "#/components/schemas/CurrencyData"
           nullable: true
           description: New preferred currency.
+        measurementUnit:
+          allOf:
+            - $ref: "#/components/schemas/MeasurementUnitData"
+          nullable: true
+          description: New preferred measurement unit system.
         prohibitedContentConsent:
           type: boolean
           nullable: true
@@ -14530,6 +14550,11 @@ components:
             - $ref: "#/components/schemas/CurrencyData"
           nullable: true
           description: New preferred currency
+        measurementUnit:
+          allOf:
+            - $ref: "#/components/schemas/MeasurementUnitData"
+          nullable: true
+          description: New preferred measurement unit system
         prohibitedContentConsent:
           type: boolean
           nullable: true

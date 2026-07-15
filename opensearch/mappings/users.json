@@ -47,6 +47,9 @@
             "currency": {
                 "type": "keyword"
             },
+            "measurementUnit": {
+                "type": "keyword"
+            },
             "prohibitedContentConsent": {
                 "type": "boolean"
             },

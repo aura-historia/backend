@@ -4,7 +4,8 @@ use crate::{
 };
 use common::{
     actor::record::ActorRecord, currency::record::CurrencyRecord, dynamodb_update::DynamoDbUpdate,
-    language::record::LanguageRecord, stripe_customer_id::StripeCustomerId,
+    language::record::LanguageRecord, measurement_unit::record::MeasurementUnitRecord,
+    stripe_customer_id::StripeCustomerId,
 };
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,9 @@ pub struct UserRecordUpdate {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyRecord>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_unit: Option<MeasurementUnitRecord>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prohibited_content_consent: Option<bool>,
@@ -84,6 +88,7 @@ mod fake {
                 last_name: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                measurement_unit: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
                 tier: config.fake_with_rng(rng),
                 role: config.fake_with_rng(rng),

@@ -1,5 +1,8 @@
 use crate::core::{first_name::FirstName, last_name::LastName};
-use common::{currency::data::CurrencyData, language::data::LanguageData};
+use common::{
+    currency::data::CurrencyData, language::data::LanguageData,
+    measurement_unit::data::MeasurementUnitData,
+};
 use geo::data::address_data::StructuredAddressData;
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +20,9 @@ pub struct PatchUserAccountData {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyData>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_unit: Option<MeasurementUnitData>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prohibited_content_consent: Option<bool>,
@@ -40,6 +46,7 @@ mod fake {
                 last_name: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                measurement_unit: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
                 structured_address: config.fake_with_rng(rng),
             }

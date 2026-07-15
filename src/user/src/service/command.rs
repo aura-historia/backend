@@ -6,7 +6,8 @@ use crate::core::{
     tier::UserTier,
 };
 use common::{
-    currency::domain::Currency, language::domain::Language, stripe_customer_id::StripeCustomerId,
+    currency::domain::Currency, language::domain::Language,
+    measurement_unit::domain::MeasurementUnit, stripe_customer_id::StripeCustomerId,
     user_id::UserId,
 };
 use geo::core::address::StructuredAddress;
@@ -47,6 +48,7 @@ pub struct UpdateUserCommand {
     pub last_name: Option<LastName>,
     pub language: Option<Language>,
     pub currency: Option<Currency>,
+    pub measurement_unit: Option<MeasurementUnit>,
     pub prohibited_content_consent: Option<bool>,
     pub tier: Option<UserTier>,
     pub role: Option<UserRole>,
@@ -60,6 +62,7 @@ impl UpdateUserCommand {
             && self.last_name.is_none()
             && self.language.is_none()
             && self.currency.is_none()
+            && self.measurement_unit.is_none()
             && self.prohibited_content_consent.is_none()
             && self.tier.is_none()
             && self.role.is_none()
@@ -96,6 +99,7 @@ mod fake {
                 last_name: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                measurement_unit: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
                 tier: config.fake_with_rng(rng),
                 role: config.fake_with_rng(rng),

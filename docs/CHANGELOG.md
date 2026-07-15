@@ -6,6 +6,14 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-07-15 - Add User Measurement Unit Preference
+
+### Added
+
+- **User account preference payloads**
+  - `GetUserAccountData`, `PatchUserAccountData`, and `PatchAdminUserData` now support optional `measurementUnit`.
+  - Accepted values are `METRIC` and `IMPERIAL`.
+
 ## 2026-07-09 - Add Partner Product Delete
 
 ### Added

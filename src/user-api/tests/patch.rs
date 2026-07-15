@@ -1,4 +1,7 @@
-use common::{currency::data::CurrencyData, language::data::LanguageData};
+use common::{
+    currency::data::CurrencyData, language::data::LanguageData,
+    measurement_unit::data::MeasurementUnitData,
+};
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use test_api::*;
@@ -30,6 +33,7 @@ async fn should_200_respond_user_when_exists() {
         last_name: Some("Hans".into()),
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
+        measurement_unit: Some(MeasurementUnitData::Imperial),
         prohibited_content_consent: None,
         structured_address: None,
     };
@@ -62,6 +66,10 @@ async fn should_200_respond_user_when_exists() {
         patch_user_account_data.currency.unwrap(),
         actual.currency.unwrap()
     );
+    assert_eq!(
+        patch_user_account_data.measurement_unit.unwrap(),
+        actual.measurement_unit.unwrap()
+    );
 }
 
 #[localstack_test(services = [DynamoDB()])]
@@ -80,6 +88,7 @@ async fn should_update_prohibited_content_consent_when_provided() {
         last_name: None,
         language: None,
         currency: None,
+        measurement_unit: None,
         prohibited_content_consent: Some(true),
         structured_address: None,
     };

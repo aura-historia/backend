@@ -8,6 +8,7 @@ use common::{
     },
     currency::domain::Currency,
     language::domain::Language,
+    measurement_unit::domain::MeasurementUnit,
     pagination::cursor::{
         Cursor,
         api::{JsonCursoredData, extract_json_cursor_query},
@@ -133,6 +134,7 @@ pub async fn patch(
         last_name: patch_data.last_name,
         language: patch_data.language.map(Language::from),
         currency: patch_data.currency.map(Currency::from),
+        measurement_unit: patch_data.measurement_unit.map(MeasurementUnit::from),
         prohibited_content_consent: patch_data.prohibited_content_consent,
         tier: patch_data.tier.map(Into::into),
         role: patch_data.role.map(Into::into),

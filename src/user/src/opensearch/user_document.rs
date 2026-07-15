@@ -7,8 +7,8 @@ use crate::{
 };
 use common::{
     actor::document::ActorDocument, currency::record::CurrencyRecord,
-    language::record::LanguageRecord, shop_id::ShopId, stripe_customer_id::StripeCustomerId,
-    user_id::UserId,
+    language::record::LanguageRecord, measurement_unit::record::MeasurementUnitRecord,
+    shop_id::ShopId, stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
@@ -35,6 +35,8 @@ pub struct UserDocument {
     pub language: Option<LanguageRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_unit: Option<MeasurementUnitRecord>,
     pub prohibited_content_consent: bool,
     pub tier: UserTierDocument,
     pub role: UserRoleDocument,
@@ -82,6 +84,7 @@ impl From<User> for UserDocument {
             last_name: user.last_name,
             language: user.language.map(LanguageRecord::from),
             currency: user.currency.map(CurrencyRecord::from),
+            measurement_unit: user.measurement_unit.map(MeasurementUnitRecord::from),
             prohibited_content_consent: user.prohibited_content_consent,
             tier: user.tier.into(),
             role: user.role.into(),
@@ -127,6 +130,7 @@ impl From<UserDocument> for User {
             last_name: document.last_name,
             language: document.language.map(Into::into),
             currency: document.currency.map(Into::into),
+            measurement_unit: document.measurement_unit.map(Into::into),
             prohibited_content_consent: document.prohibited_content_consent,
             tier: UserTier::from(document.tier),
             role: UserRole::from(document.role),

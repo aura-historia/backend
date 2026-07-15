@@ -33,6 +33,7 @@
 - Update nearest doc when crate purpose, route, event, env var, dependency edge, test flow, or child index change.
 - If REST endpoint, payload, auth, or error behavior change, update `docs/swagger.yaml` and `docs/CHANGELOG.md`.
 - If relevant DynamoDB structure change, update `docs/dynamodb/table_1.md`
+- If OpenSearch DTOs change, make sure the corressponding index-mappings in `opensearch/mappings` are aligned
 - If relevant event structure or flow change, update `docs/evenst/flow.md`
 - If new Lambda appear, wire deploy, `src/ci-determinator`, `src/test-api/src/cloudformation.rs`, and `infra/` when needed.
 
@@ -47,6 +48,11 @@
 - Avoid `unsafe` and `unsafe`-like patterns like `unwrap`, `expect`, and `panic!`. Use `Result` and `Option` instead. 
 - Never swallow errors (e.g. `.ok()`). Use `?` operator to propagate errors. Use `thiserror` with well-typed error-enums.
 - Apply semi-strict Domain-Driven Design (DDD) principles. Keep domain logic in domain modules, and keep service modules thin. Avoid anemic models. Make use of newtypes.
+- Types are strictly separated between:
+  - REST-API: suffix `Data`, e.g. `LanguageData`
+  - DynamoDB: suffix `Record`, e.g. `LanguageRecord`
+  - OpenSearch: suffix `Document`, e.g. `LanguageDocument`
+  - Domain: no suffix, e.g. `Language`
 
 ## Build And Validate
 

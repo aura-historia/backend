@@ -2,7 +2,7 @@ use crate::core::{first_name::FirstName, last_name::LastName};
 use crate::data::{role_data::UserRoleData, tier_data::UserTierData};
 use common::{
     currency::data::CurrencyData, language::data::LanguageData,
-    stripe_customer_id::StripeCustomerId,
+    measurement_unit::data::MeasurementUnitData, stripe_customer_id::StripeCustomerId,
 };
 use geo::data::address_data::StructuredAddressData;
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,8 @@ pub struct PatchAdminUserData {
     pub language: Option<LanguageData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_unit: Option<MeasurementUnitData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prohibited_content_consent: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -45,6 +47,7 @@ mod fake {
                 last_name: config.fake_with_rng(rng),
                 language: config.fake_with_rng(rng),
                 currency: config.fake_with_rng(rng),
+                measurement_unit: config.fake_with_rng(rng),
                 prohibited_content_consent: config.fake_with_rng(rng),
                 tier: config.fake_with_rng(rng),
                 role: config.fake_with_rng(rng),
