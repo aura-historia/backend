@@ -32,4 +32,5 @@
 ## Child DOX Index
 
 - `.agents/skills/add-backend-lambda/SKILL.md` — add Lambda workflow.
+- `.agents/skills/add-entity-type/SKILL.md` — add entity/type workflow.
 - `.agents/skills/add-rest-api-endpoint/SKILL.md` — add REST endpoint workflow.
