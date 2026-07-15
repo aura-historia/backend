@@ -451,6 +451,21 @@ mod tests {
         .expect("removed append response should serialize")
     }
 
+    fn removed_regex_append_response_json(pattern: &str) -> String {
+        serde_json::to_string(&serde_json::json!({
+            "page_kind": "removed",
+            "schemas": [],
+            "removed_schema": {
+                "selector": "#mainCatCol h1",
+                "regex": pattern
+            },
+            "confidence": "HIGH",
+            "summary": "Soft 404 page.",
+            "risks": [],
+        }))
+        .expect("removed regex append response should serialize")
+    }
+
     fn not_product_append_response_json() -> String {
         serde_json::to_string(&serde_json::json!({
             "page_kind": "not_product",
@@ -888,7 +903,8 @@ mod tests {
         assert!(instruction.contains("page_kind = removed"));
         assert!(instruction.contains("page_kind = not_product"));
         assert!(instruction.contains("Return no schemas and include a short reason"));
-        assert!(instruction.contains("For removed, selector and text must both match"));
+        assert!(instruction.contains("removed_schema must include selector"));
+        assert!(instruction.contains("exactly one of text or regex"));
     }
 
     #[test]
@@ -985,7 +1001,8 @@ mod tests {
             GeneratedAppendSchema::Removed {
                 schema: RemovedPageSchema {
                     selector: "#mainCatCol h1".into(),
-                    text: "Sorry, the page you're looking for couldn't be found".to_string(),
+                    text: Some("Sorry, the page you're looking for couldn't be found".to_string()),
+                    regex: None,
                 },
                 evaluation: SchemaLlmEvaluation {
                     decision: SchemaLlmEvaluationDecision::Approve,
@@ -996,6 +1013,75 @@ mod tests {
                 },
             }
         );
+    }
+
+    #[test]
+    fn should_accept_removed_regex_for_append_validator() {
+        let parsed = parse_append_schema_response(&removed_regex_append_response_json(
+            r"the .+ is not available anymore",
+        ))
+        .unwrap();
+
+        assert_eq!(
+            parsed,
+            GeneratedAppendSchema::Removed {
+                schema: RemovedPageSchema {
+                    selector: "#mainCatCol h1".into(),
+                    text: None,
+                    regex: Some(r"the .+ is not available anymore".to_string()),
+                },
+                evaluation: SchemaLlmEvaluation {
+                    decision: SchemaLlmEvaluationDecision::Approve,
+                    confidence: SchemaLlmEvaluationConfidence::High,
+                    approved_by_llm: false,
+                    summary: "Soft 404 page.".to_string(),
+                    risks: vec![],
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn should_reject_removed_invalid_regex_for_append_validator() {
+        let payload = removed_regex_append_response_json("[unclosed");
+
+        assert!(parse_append_schema_response(&payload).is_err());
+        assert!(validate_append_schema_response(&payload).is_err());
+    }
+
+    #[test]
+    fn should_reject_removed_text_and_regex_for_append_validator() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "removed",
+            "schemas": [],
+            "removed_schema": {
+                "selector": "#mainCatCol h1",
+                "text": "Product removed",
+                "regex": "product removed"
+            },
+            "confidence": "HIGH",
+            "summary": "ambiguous evidence"
+        }))
+        .unwrap();
+
+        assert!(parse_append_schema_response(&payload).is_err());
+        assert!(validate_append_schema_response(&payload).is_err());
+    }
+
+    #[test]
+    fn should_reject_removed_without_text_or_regex_for_append_validator() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "removed",
+            "schemas": [],
+            "removed_schema": {
+                "selector": "#mainCatCol h1"
+            },
+            "confidence": "HIGH",
+            "summary": "missing evidence"
+        }))
+        .unwrap();
+
+        assert!(parse_append_schema_response(&payload).is_err());
     }
 
     #[test]

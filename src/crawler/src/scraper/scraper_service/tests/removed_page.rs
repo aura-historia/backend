@@ -10,7 +10,8 @@ fn removed_schema_set(shop_id: ShopId) -> ShopsRemovedPageSchema {
         shop_id,
         removed_page_schemas: vec![RemovedPageSchema {
             selector: CssSelector::from("#mainCatCol h1"),
-            text: "Sorry, the page you're looking for couldn't be found".to_string(),
+            text: Some("Sorry, the page you're looking for couldn't be found".to_string()),
+            regex: None,
         }],
         created: OffsetDateTime::now_utc(),
         updated: OffsetDateTime::now_utc(),

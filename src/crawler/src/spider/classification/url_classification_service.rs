@@ -196,7 +196,7 @@ impl UrlClassificationService for UrlClassificationServiceImpl {
         &self,
         all_urls: &[String],
     ) -> Result<Option<Regex>, UrlClassificationError> {
-        info!("Analyzing crawled URLs with LLM");
+        debug!("Analyzing crawled URLs with LLM");
 
         let prompt = Self::build_prompt(all_urls);
         let messages = vec![ChatMessage::user().content(prompt).build()];

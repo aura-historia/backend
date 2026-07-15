@@ -18,7 +18,8 @@ const RDS: Rds = Rds {
 fn removed_schema(selector: &str, text: &str) -> RemovedPageSchema {
     RemovedPageSchema {
         selector: CssSelector::from(selector),
-        text: text.to_string(),
+        text: Some(text.to_string()),
+        regex: None,
     }
 }
 

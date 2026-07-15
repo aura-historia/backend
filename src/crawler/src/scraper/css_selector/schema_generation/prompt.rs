@@ -72,9 +72,9 @@ pub(super) fn build_append_schema_instruction(html: &str) -> String {
         "Classify the following HTML from a URL expected to be a product page, then return one append response.\n\
           The page may be a product page, a removed/404-like product page, or a wrong URL type.\n\
           Choose page_kind = product when the page is a real product detail page and return exactly one ProductCssSelectorSchema in schemas.\n\
-          Choose page_kind = removed when the page is a removed, gone, not-found, deleted, or 404-like page for a product URL served with HTTP 200. Return no product schemas and set removed_schema to a selector+exact visible text snippet that proves the removed state.\n\
+          Choose page_kind = removed when the page is a removed, gone, not-found, deleted, or 404-like page for a product URL served with HTTP 200. Return no product schemas and set removed_schema to selector-bound evidence that proves the removed state.\n\
           Choose page_kind = not_product when the page is clearly a category, search, home, info, navigation, listing, or other non-product page, and not a removed product page. Return no schemas and include a short reason.\n\
-          For removed, selector and text must both match the original raw HTML: the CSS selector must select at least one element, and the selected normalized text must contain the returned exact visible text after trimming, whitespace collapse, and lowercasing.\n\
+          For removed, removed_schema must include selector and exactly one of text or regex. Use text for stable exact visible text. Use regex for variable removed messages like \"the table from 2020 is not available anymore\"; regex must be valid Rust regex syntax and match the selected normalized text after trimming, whitespace collapse, and lowercasing.\n\
           For product, this schema will be appended to a set of existing schemas from the same shop. Focus on this specific layout and make the selectors resilient.\n\
           {selector_grounding_instruction}\n\
           Return ONLY ProductSchemaGenerationResponse JSON.\n\

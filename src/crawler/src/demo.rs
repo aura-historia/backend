@@ -45,6 +45,7 @@ use crawler::google_llm::{
     state_mapping_gemini_model, url_classification_gemini_model,
 };
 use crawler::local_db::{DEMO_DB_NAME, bootstrap_local_database, demo_db_url};
+use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
@@ -301,9 +302,9 @@ async fn main() {
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),
             scraper_interval: Duration::from_secs(30),
-            scraper_urls_per_domain: 100,
-            spider_concurrency: 5,
-            scraper_concurrency: 5,
+            scraper_urls_per_domain: 1000,
+            spider_concurrency: 100,
+            scraper_concurrency: 10,
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             ..Default::default()
@@ -549,7 +550,7 @@ fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let crawler_level = env::var("CRAWLER_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let filter = tracing_subscriber::EnvFilter::new(format!(
-        "{raw_level},crawler={crawler_level},common::logging=info,spider=warn,sqlx::postgres::notice=warn"
+        "{raw_level},crawler={crawler_level},common::logging=info,spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
     ));
     tracing_subscriber::fmt()
         .json()

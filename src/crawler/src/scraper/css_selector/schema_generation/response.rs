@@ -168,12 +168,11 @@ impl ProductSchemaGenerationResponse {
                         "Removed append generation must not include product schemas",
                     ));
                 }
-                Ok(GeneratedAppendSchema::Removed {
-                    schema: self
-                        .removed_schema
-                        .ok_or_else(|| invalid_data("Removed append generation missing schema"))?,
-                    evaluation,
-                })
+                let schema = self
+                    .removed_schema
+                    .ok_or_else(|| invalid_data("Removed append generation missing schema"))?;
+                schema.validate_for_llm_response().map_err(invalid_data)?;
+                Ok(GeneratedAppendSchema::Removed { schema, evaluation })
             }
             AppendPageKind::NotProduct => {
                 if !self.schemas.is_empty() {

@@ -40,6 +40,7 @@ use crawler::google_llm::{
     url_classification_gemini_model,
 };
 use crawler::local_db::{DEMO_SPIDER_DB_NAME, bootstrap_local_database, demo_spider_db_url};
+use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
@@ -308,8 +309,7 @@ fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 
     let filter = tracing_subscriber::EnvFilter::new(format!(
-        "{},spider=warn,sqlx::postgres::notice=warn",
-        raw_level
+        "{raw_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
     ));
 
     tracing_subscriber::fmt()

@@ -26,7 +26,7 @@
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
 - Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors.
 - Initial schema generation accepts product schema responses only. Append repair accepts product, removed, and not-product classifications.
-- Append repair classifies failed pages as product, removed, or not-product. Removed needs verified selector+text, stores shop-scoped `shops_removed_page_schema`, and marks URL `REMOVED`. Not-product needs verified selector+text and only changes that URL class to `other`; never update shop URL pattern from one page.
+- Append repair classifies failed pages as product, removed, or not-product. Removed needs verified selector-bound text or regex evidence, stores shop-scoped `shops_removed_page_schema`, and marks URL `REMOVED`. Not-product needs verified reason and only changes that URL class to `other`; never update shop URL pattern from one page.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.
 - `demo` and `server` auto-run migrations on startup. Migrations be authoritative DB contract.
 
@@ -61,6 +61,7 @@
 - URL classification should stay mostly deterministic after regex inference. Do not turn every page decision into fresh LLM call.
 - Schema repair should grow cache carefully. Bad generated schema should die fast, not poison shop cache.
 - State mapping should prefer exact or regex reuse before LLM fallback.
+- Filter non-actionable `html5ever::tree_builder` warnings at crawler entrypoints.
 - Avoid code duplication between `demo` and `server` when shared builder or service can hold it.
 - Testcontainers tests be preferred proof for DB behavior. Keep fixtures focused and stable.
 

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 
 pub const CRAWLER_SERVICE_NAME: &str = "crawler";
+pub const HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE: &str = "html5ever::tree_builder=error";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlerComponent {

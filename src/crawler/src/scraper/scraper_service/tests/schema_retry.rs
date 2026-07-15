@@ -259,7 +259,8 @@ async fn should_mark_removed_when_append_classifies_removed() {
     let removed_html = r#"<main><h1 id="removed-message">Product no longer available</h1></main>"#;
     let removed_schema = RemovedPageSchema {
         selector: CssSelector::from("#removed-message"),
-        text: "Product no longer available".to_string(),
+        text: Some("Product no longer available".to_string()),
+        regex: None,
     };
 
     let mut fetcher = MockHtmlFetcher::new();
@@ -424,7 +425,8 @@ async fn should_not_change_state_or_class_when_append_classification_does_not_ma
                 Ok(GeneratedAppendSchema::Removed {
                     schema: RemovedPageSchema {
                         selector: CssSelector::from("#missing"),
-                        text: "Product no longer available".to_string(),
+                        text: Some("Product no longer available".to_string()),
+                        regex: None,
                     },
                     evaluation: schema_evaluation(SchemaLlmEvaluationConfidence::High),
                 })

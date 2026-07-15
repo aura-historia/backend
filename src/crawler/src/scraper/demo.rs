@@ -53,6 +53,7 @@ use crawler::google_llm::{
     state_mapping_gemini_model,
 };
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
+use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
@@ -165,7 +166,7 @@ async fn main() {
     ];
 
     unsafe { std::env::set_var("LOG_LEVEL", "info") };
-    common::logging::init_logging();
+    common::logging::init_logging_with_directives(&[HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE]);
 
     async {
         let pool: &'static PgPool = connect_and_migrate().await;

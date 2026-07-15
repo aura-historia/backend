@@ -54,7 +54,8 @@ use crawler::google_llm::{
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
-    cloudwatch_logging_config, ensure_cloudwatch_log_destination,
+    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, cloudwatch_logging_config,
+    ensure_cloudwatch_log_destination,
 };
 use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
@@ -227,7 +228,9 @@ fn build_log_filter() -> EnvFilter {
         .as_deref()
         .unwrap_or("info")
         .to_string();
-    let directives = format!("{raw_level},spider=warn,sqlx::postgres::notice=warn");
+    let directives = format!(
+        "{raw_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
+    );
     EnvFilter::new(directives)
 }
 
