@@ -1948,6 +1948,7 @@ async fn should_get_and_patch_user_account() {
         last_name: Some("Hans".into()),
         language: Some(LanguageData::Fr),
         currency: Some(CurrencyData::Nzd),
+        measurement_unit: Some(common::measurement_unit::data::MeasurementUnitData::Imperial),
         prohibited_content_consent: None,
         structured_address: None,
     };
@@ -1976,6 +1977,10 @@ async fn should_get_and_patch_user_account() {
     assert_eq!(
         &patch_data.currency.unwrap(),
         patched.currency.as_ref().unwrap()
+    );
+    assert_eq!(
+        &patch_data.measurement_unit.unwrap(),
+        patched.measurement_unit.as_ref().unwrap()
     );
 
     let get_response2 = reqwest::Client::new()
@@ -2444,6 +2449,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
                 last_name: Some("Testperson".into()),
                 language: Some(common::language::record::LanguageRecord::De),
                 currency: Some(common::currency::record::CurrencyRecord::Eur),
+                measurement_unit: None,
                 prohibited_content_consent: None,
                 tier: Some(UserTierRecord::Free),
                 role: None,
@@ -2566,6 +2572,7 @@ async fn should_send_email_to_user_when_product_matches_search_filter() {
                 last_name: Some("Testperson".into()),
                 language: Some(common::language::record::LanguageRecord::De),
                 currency: Some(common::currency::record::CurrencyRecord::Eur),
+                measurement_unit: None,
                 prohibited_content_consent: None,
                 updated: OffsetDateTime::now_utc(),
             },
@@ -6243,6 +6250,7 @@ async fn should_respond_200_for_admin_user_patch() {
         last_name: None,
         language: None,
         currency: None,
+        measurement_unit: None,
         prohibited_content_consent: None,
         stripe_customer_id: None,
         structured_address: None,
@@ -6328,6 +6336,7 @@ async fn should_update_user_document_in_opensearch_on_patch() {
         last_name: None,
         language: None,
         currency: None,
+        measurement_unit: None,
         prohibited_content_consent: None,
         stripe_customer_id: None,
         structured_address: None,

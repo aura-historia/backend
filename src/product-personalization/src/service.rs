@@ -999,6 +999,7 @@ mod tests {
             last_name: None,
             language: None,
             currency: None,
+            measurement_unit: None,
             prohibited_content_consent,
             tier: user::core::tier::UserTier::Free,
             role: user::core::role::UserRole::User,

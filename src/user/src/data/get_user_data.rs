@@ -4,7 +4,8 @@ use crate::{
 };
 use common::{
     actor::data::ActorData, currency::data::CurrencyData, language::data::LanguageData,
-    shop_id::ShopId, stripe_customer_id::StripeCustomerId, user_id::UserId,
+    measurement_unit::data::MeasurementUnitData, shop_id::ShopId,
+    stripe_customer_id::StripeCustomerId, user_id::UserId,
 };
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,9 @@ pub struct GetUserAccountData {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyData>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_unit: Option<MeasurementUnitData>,
 
     pub prohibited_content_consent: bool,
 
@@ -65,6 +69,7 @@ impl From<User> for GetUserAccountData {
             last_name: user.last_name,
             language: user.language.map(LanguageData::from),
             currency: user.currency.map(CurrencyData::from),
+            measurement_unit: user.measurement_unit.map(MeasurementUnitData::from),
             prohibited_content_consent: user.prohibited_content_consent,
             tier: UserTierData::from(user.tier),
             role: UserRoleData::from(user.role),

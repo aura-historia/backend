@@ -6,6 +6,7 @@ use common::{
     actor::record::ActorRecord,
     currency::{domain::Currency, record::CurrencyRecord},
     language::{domain::Language, record::LanguageRecord},
+    measurement_unit::{domain::MeasurementUnit, record::MeasurementUnitRecord},
     shop_id::ShopId,
     stripe_customer_id::StripeCustomerId,
     user_id::UserId,
@@ -36,6 +37,9 @@ pub struct UserRecord {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub currency: Option<CurrencyRecord>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_unit: Option<MeasurementUnitRecord>,
 
     #[serde(default)]
     pub prohibited_content_consent: bool,
@@ -120,6 +124,7 @@ impl From<User> for UserRecord {
             last_name: user.last_name,
             language: user.language.map(LanguageRecord::from),
             currency: user.currency.map(CurrencyRecord::from),
+            measurement_unit: user.measurement_unit.map(MeasurementUnitRecord::from),
             prohibited_content_consent: user.prohibited_content_consent,
             tier: UserTierRecord::from(user.tier),
             role: UserRoleRecord::from(user.role),
@@ -160,6 +165,7 @@ impl From<UserRecord> for User {
             last_name: record.last_name,
             language: record.language.map(Language::from),
             currency: record.currency.map(Currency::from),
+            measurement_unit: record.measurement_unit.map(MeasurementUnit::from),
             prohibited_content_consent: record.prohibited_content_consent,
             tier: record.tier.into(),
             role: record.role.into(),
