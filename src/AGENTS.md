@@ -31,10 +31,12 @@
 - Read root, then here, then crate doc, before edit.
 - New `src` doc go at crate root. No module doc unless module become crate boundary.
 - Update nearest doc when crate purpose, route, event, env var, dependency edge, test flow, or child index change.
+- For REST endpoint work, use `.agents/skills/add-rest-api-endpoint/SKILL.md`.
+- For new Lambda work, use `.agents/skills/add-backend-lambda/SKILL.md`.
 - If REST endpoint, payload, auth, or error behavior change, update `docs/swagger.yaml` and `docs/CHANGELOG.md`.
 - If relevant DynamoDB structure change, update `docs/dynamodb/table_1.md`
-- If OpenSearch DTOs change, make sure the corressponding index-mappings in `opensearch/mappings` are aligned
-- If relevant event structure or flow change, update `docs/evenst/flow.md`
+- If OpenSearch DTOs change, make sure the corresponding index-mappings in `opensearch/mappings` are aligned
+- If relevant event structure or flow change, update `docs/events/flow.md`
 - If new Lambda appear, wire deploy, `src/ci-determinator`, `src/test-api/src/cloudformation.rs`, and `infra/` when needed.
 
 ## Work Guidance
