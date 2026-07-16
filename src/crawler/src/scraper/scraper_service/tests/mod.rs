@@ -4,6 +4,7 @@ mod happy_path;
 mod hash_skip;
 mod normalization_fix;
 mod redirect_guard;
+mod removed_page;
 mod schema_fallback;
 mod schema_retry;
 mod seed_pages;
@@ -15,7 +16,7 @@ mod seed_pages;
 use crate::scraper::candidate_service::MockScraperCandidateService;
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
-    GeneratedProductSchemas, MockProductSchemaService, SchemaLlmEvaluation,
+    GeneratedAppendSchema, GeneratedProductSchemas, MockProductSchemaService, SchemaLlmEvaluation,
     SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
 };
 use crate::scraper::css_selector::rule::{
@@ -129,6 +130,30 @@ pub(super) fn generated_schemas(
             summary: "Selectors are product-specific.".to_string(),
             risks: Vec::new(),
         },
+    }
+}
+
+pub(super) fn schema_evaluation(confidence: SchemaLlmEvaluationConfidence) -> SchemaLlmEvaluation {
+    SchemaLlmEvaluation {
+        decision: if confidence == SchemaLlmEvaluationConfidence::High {
+            SchemaLlmEvaluationDecision::Approve
+        } else {
+            SchemaLlmEvaluationDecision::NeedsHumanReview
+        },
+        confidence,
+        approved_by_llm: false,
+        summary: "Selectors are product-specific.".to_string(),
+        risks: Vec::new(),
+    }
+}
+
+pub(super) fn generated_append_product(
+    schema: ProductCssSelectorSchema,
+    confidence: SchemaLlmEvaluationConfidence,
+) -> GeneratedAppendSchema {
+    GeneratedAppendSchema::Product {
+        schema: Box::new(schema),
+        evaluation: schema_evaluation(confidence),
     }
 }
 

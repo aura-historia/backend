@@ -54,13 +54,15 @@ use crawler::google_llm::{
 use crawler::local_db::{SERVER_DB_NAME, bootstrap_local_database, server_db_url};
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
-    cloudwatch_logging_config, ensure_cloudwatch_log_destination,
+    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, cloudwatch_logging_config,
+    ensure_cloudwatch_log_destination,
 };
 use crawler::review::repository::CrawlerReviewRepository;
 use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
+use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
 use crawler::scraper::normalization::state_mapping_service::ProductStateMappingServiceImpl;
@@ -226,7 +228,9 @@ fn build_log_filter() -> EnvFilter {
         .as_deref()
         .unwrap_or("info")
         .to_string();
-    let directives = format!("{raw_level},spider=warn,sqlx::postgres::notice=warn");
+    let directives = format!(
+        "{raw_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
+    );
     EnvFilter::new(directives)
 }
 
@@ -443,18 +447,23 @@ async fn main() {
 
         let normalization_svc = ProductNormalizationServiceImpl::new(Box::new(state_mapping_svc));
 
-        let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let create_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+        let append_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
         let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(Box::leak(Box::new(
             pool.clone(),
         ))));
         let schema_svc = ProductSchemaServiceImpl::new(
-            schema_llm_builder,
+            create_schema_llm_builder,
+            append_schema_llm_builder,
             llm_service_tier,
             schema_repo,
             Some(Arc::clone(&gemini_rate_limiter)),
         )
             .expect("failed to build ProductSchemaServiceImpl");
+        let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(Box::leak(
+            Box::new(pool.clone()),
+        )));
 
         let scraper_candidates = Box::new(
             ScraperCandidateServiceImpl::new_with_max_llm_calls_per_shop(
@@ -480,6 +489,7 @@ async fn main() {
                 config.scraper_schema_seed_pages,
                 config.scraper_max_llm_calls_per_shop,
             )
+            .with_removed_page_schema_repository(removed_page_schema_repo)
             .with_review_gate(review_repo.clone(), review_required),
         );
 

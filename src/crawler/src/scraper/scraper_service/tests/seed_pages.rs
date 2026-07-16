@@ -67,8 +67,8 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         .returning(move |_| {
             let s = final_schema_for_append.clone();
             Box::pin(async move {
-                Ok(generated_schemas(
-                    vec![s],
+                Ok(generated_append_product(
+                    s,
                     SchemaLlmEvaluationConfidence::High,
                 ))
             })

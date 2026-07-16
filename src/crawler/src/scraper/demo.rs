@@ -53,9 +53,11 @@ use crawler::google_llm::{
     state_mapping_gemini_model,
 };
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, bootstrap_local_database, demo_scraper_db_url};
+use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ShopsProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductSchemaServiceImpl;
+use crawler::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crawler::scraper::normalization::product::NormalizedProduct;
 use crawler::scraper::normalization::product_normalization_service::ProductNormalizationServiceImpl;
 use crawler::scraper::normalization::state_mapping_repository::ProductStateMappingRepositoryImpl;
@@ -164,7 +166,7 @@ async fn main() {
     ];
 
     unsafe { std::env::set_var("LOG_LEVEL", "info") };
-    common::logging::init_logging();
+    common::logging::init_logging_with_directives(&[HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE]);
 
     async {
         let pool: &'static PgPool = connect_and_migrate().await;
@@ -300,7 +302,8 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     );
     let gemini_rate_limiter = Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
 
-    let schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+    let create_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+    let append_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
     let state_llm_builder = google_llm_builder(&api_key, &state_model, gemini_flex);
 
@@ -319,8 +322,10 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
 
     // Schema service (DB-backed + LLM creation/fix).
     let schema_repo = Box::new(ShopsProductSchemaRepositoryImpl::new(pool));
+    let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(pool));
     let schema_svc = ProductSchemaServiceImpl::new(
-        schema_llm_builder,
+        create_schema_llm_builder,
+        append_schema_llm_builder,
         llm_service_tier,
         schema_repo,
         Some(Arc::clone(&gemini_rate_limiter)),
@@ -340,4 +345,5 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
         3,
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     )
+    .with_removed_page_schema_repository(removed_page_schema_repo)
 }

@@ -2,6 +2,7 @@ use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInp
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
+use crate::scraper::css_selector::product_schema_service::GeneratedAppendSchema;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
@@ -267,12 +268,30 @@ impl ScraperServiceImpl {
         self.consume_llm_budget_or_err(ctx.shop_id, ctx.url).await?;
 
         let generated = self.schema_service.append_single_schema(ctx.html).await?;
-        let Some(generated_schema) = generated.schemas.first().cloned() else {
-            return Err(ScraperError::SchemaServiceError(
-                crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(
-                    "LLM produced zero schemas".to_string(),
-                ),
-            ));
+        let (generated_schema, evaluation) = match generated {
+            GeneratedAppendSchema::Product { schema, evaluation } => (*schema, evaluation),
+            GeneratedAppendSchema::Removed { schema, .. } => {
+                if !schema.matches(ctx.html) {
+                    return Err(crate::scraper::scraper_service::recovery::schema_retry::page_classification_did_not_match(
+                        ctx.url,
+                        &schema.selector,
+                    ));
+                }
+                self.save_removed_page_schema(ctx.shop_id, schema).await?;
+                self.mark_product_removed_best_effort(ctx.shop_id, ctx.url)
+                    .await;
+                return Err(ScraperError::ProductRemoved {
+                    url: ctx.url.clone(),
+                    details: "normalization schema repair classified page as removed".to_string(),
+                });
+            }
+            GeneratedAppendSchema::NotProduct { reason, .. } => {
+                self.mark_url_other_best_effort(ctx.shop_id, ctx.url).await;
+                return Err(ScraperError::NotProductPage {
+                    url: ctx.url.clone(),
+                    details: reason,
+                });
+            }
         };
 
         let mut reapplied = match try_apply_schemas(std::iter::once(&generated_schema), ctx.html) {
@@ -334,7 +353,7 @@ impl ScraperServiceImpl {
                         ctx.shop_id,
                         "normalization_schema_repair",
                         persisted_schemas,
-                        generated.evaluation,
+                        evaluation,
                         pages,
                         json!({
                             "schema_applied": true,

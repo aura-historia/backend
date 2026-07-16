@@ -234,7 +234,7 @@ impl SpiderServiceImpl {
         classify_threshold: usize,
     ) -> Result<(), SpiderServiceError> {
         if !state.classification_done && state.total_crawled >= classify_threshold {
-            info!(
+            debug!(
                 url_count = state.inference_sample.len(),
                 "Threshold reached, requesting product URL pattern"
             );

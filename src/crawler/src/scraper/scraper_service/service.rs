@@ -7,6 +7,9 @@ use crate::review::repository::CrawlerReviewRepository;
 use crate::scraper::candidate_service::ScraperCandidateService;
 use crate::scraper::css_selector::product_schema_service::ProductSchemaService;
 use crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError;
+use crate::scraper::css_selector::removed_page_schema_repository::{
+    NullRemovedPageSchemaRepository, RemovedPageSchemaRepository,
+};
 use crate::scraper::normalization::product_normalization_service::ProductNormalizationService;
 use crate::scraper::scraper_service::auto_throttle::{
     ScraperAutoThrottle, ScraperAutoThrottleConfig,
@@ -280,6 +283,7 @@ pub struct ScraperServiceImpl {
     pub(crate) schema_service: Box<dyn ProductSchemaService + Send + Sync>,
     pub(crate) normalization_service: Box<dyn ProductNormalizationService + Send + Sync>,
     pub(crate) candidate_service: Arc<dyn ScraperCandidateService>,
+    pub(crate) removed_page_schema_repository: Box<dyn RemovedPageSchemaRepository + Send + Sync>,
     /// Number of HTML pages to seed first-time schema generation with.
     /// `1` means current page only; values >1 trigger best-effort sampling/fetch.
     pub(crate) schema_seed_pages: usize,
@@ -363,6 +367,7 @@ impl ScraperServiceImpl {
             schema_service,
             normalization_service,
             candidate_service,
+            removed_page_schema_repository: Box::new(NullRemovedPageSchemaRepository),
             schema_seed_pages: schema_seed_pages.max(1),
             max_llm_calls_per_shop,
             review_repository: None,
@@ -384,6 +389,14 @@ impl ScraperServiceImpl {
 
     pub fn with_schema_llm_review_mode(mut self, mode: SchemaLlmReviewMode) -> Self {
         self.schema_llm_review_mode = mode;
+        self
+    }
+
+    pub fn with_removed_page_schema_repository(
+        mut self,
+        repository: Box<dyn RemovedPageSchemaRepository + Send + Sync>,
+    ) -> Self {
+        self.removed_page_schema_repository = repository;
         self
     }
 

@@ -582,6 +582,53 @@ async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
 
 #[serial]
 #[localstack_test(services = [RDS])]
+async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_class_is_called() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+
+    let shop_id_uuid = uuid::Uuid::new_v4();
+    let domain_id =
+        insert_shop_with_domain(&pool, shop_id_uuid, "scraper-set-class.example.com").await;
+    let target_url = url::Url::parse("https://scraper-set-class.example.com/p/target").unwrap();
+    let other_url = url::Url::parse("https://scraper-set-class.example.com/p/other").unwrap();
+    let shop_id = common::shop_id::ShopId::from(shop_id_uuid);
+    let repo = UrlMetadataRepositoryImpl::new(pool.clone());
+    repo.upsert_link(&shop_id, &domain_id, &target_url, &UrlClass::Product)
+        .await
+        .unwrap();
+    repo.upsert_link(&shop_id, &domain_id, &other_url, &UrlClass::Product)
+        .await
+        .unwrap();
+
+    service
+        .set_class(&shop_id, &target_url, UrlClass::Other)
+        .await
+        .unwrap();
+
+    let target_class: String =
+        sqlx::query_scalar("SELECT url_class FROM shop_urls WHERE shop_id = $1 AND url = $2")
+            .bind(shop_id_uuid)
+            .bind(target_url.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let other_class: String =
+        sqlx::query_scalar("SELECT url_class FROM shop_urls WHERE shop_id = $1 AND url = $2")
+            .bind(shop_id_uuid)
+            .bind(other_url.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+
+    assert_eq!(target_class, UrlClass::Other.to_string());
+    assert_eq!(other_class, UrlClass::Product.to_string());
+    assert!(!candidates.iter().any(|c| c.url == target_url));
+    assert!(candidates.iter().any(|c| c.url == other_url));
+}
+
+#[serial]
+#[localstack_test(services = [RDS])]
 async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());

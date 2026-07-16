@@ -463,8 +463,8 @@ mod tests {
     impl llm::chat::ChatProvider for MockLlmProvider {
         async fn chat_with_tools(
             &self,
-            _messages: &[ChatMessage],
-            _tools: Option<&[llm::chat::Tool]>,
+            _: &[ChatMessage],
+            _: Option<&[llm::chat::Tool]>,
         ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
             panic!("LLM should not be called in this test")
         }
@@ -477,8 +477,8 @@ mod tests {
     impl llm::chat::ChatProvider for MockLlmProviderReturning {
         async fn chat_with_tools(
             &self,
-            _messages: &[ChatMessage],
-            _tools: Option<&[llm::chat::Tool]>,
+            _: &[ChatMessage],
+            _: Option<&[llm::chat::Tool]>,
         ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
             Ok(Box::new(FakeChatResponse(Some(self.0.to_string()))))
         }
@@ -1074,8 +1074,8 @@ mod tests {
         impl llm::chat::ChatProvider for NoTextLlm {
             async fn chat_with_tools(
                 &self,
-                _messages: &[ChatMessage],
-                _tools: Option<&[llm::chat::Tool]>,
+                _: &[ChatMessage],
+                _: Option<&[llm::chat::Tool]>,
             ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
                 Ok(Box::new(FakeChatResponse(None)))
             }
@@ -1100,8 +1100,8 @@ mod tests {
         impl llm::chat::ChatProvider for ErrorLlm {
             async fn chat_with_tools(
                 &self,
-                _messages: &[ChatMessage],
-                _tools: Option<&[llm::chat::Tool]>,
+                _: &[ChatMessage],
+                _: Option<&[llm::chat::Tool]>,
             ) -> Result<Box<dyn llm::chat::ChatResponse>, LLMError> {
                 Err(LLMError::ProviderError("simulated".to_string()))
             }
