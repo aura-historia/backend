@@ -7,6 +7,8 @@ use crate::service::shop_registration::ShopRegistrationService;
 use crate::spider::advisory_lock::LocalLockManager;
 use crate::spider::candidate_service::SpiderCandidateService;
 use crate::spider::service::SpiderService;
+#[cfg(test)]
+use common::shop_id::ShopId;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -120,7 +122,6 @@ mod tests {
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
-    use common::shop_id::ShopId;
     use shop::core::shop_type::ShopType;
 
     #[tokio::test]

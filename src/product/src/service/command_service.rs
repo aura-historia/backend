@@ -30,7 +30,6 @@ use fxrate::service::{FxRateService, FxRateServiceError};
 use shop::core::affiliate_configuration::AffiliateConfiguration;
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
-use shop::service::seller_service::SellerService;
 use std::collections::{HashMap, hash_map::Entry};
 use tracing::warn;
 
@@ -60,7 +59,6 @@ pub struct CommandProductServiceImpl<'a> {
     dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
     fx_rate: Option<FxRatesRecord>,
     get_shop_service: Option<&'a (dyn GetShopService + Sync)>,
-    seller_service: Option<&'a (dyn SellerService + Sync)>,
 }
 
 struct ResolvedShopInformation {
@@ -76,14 +74,12 @@ impl<'a> CommandProductServiceImpl<'a> {
         dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
         fx_rate_service: &(dyn FxRateService + Sync),
         get_shop_service: &'a (dyn GetShopService + Sync),
-        seller_service: &'a (dyn SellerService + Sync),
     ) -> Result<Self, FxRateServiceError> {
         let fx_rate = fx_rate_service.get_current().await?;
         Ok(Self {
             dynamodb_repository,
             fx_rate: Some(fx_rate),
             get_shop_service: Some(get_shop_service),
-            seller_service: Some(seller_service),
         })
     }
 
@@ -94,7 +90,6 @@ impl<'a> CommandProductServiceImpl<'a> {
             dynamodb_repository,
             fx_rate: None,
             get_shop_service: None,
-            seller_service: None,
         }
     }
 
@@ -107,11 +102,6 @@ impl<'a> CommandProductServiceImpl<'a> {
     fn get_shop_service(&self) -> &(dyn GetShopService + Sync) {
         self.get_shop_service
             .expect("shop service must exist for create and upsert")
-    }
-
-    fn seller_service(&self) -> &(dyn SellerService + Sync) {
-        self.seller_service
-            .expect("seller service must exist for create and upsert")
     }
 
     fn enrich_price(&self, cmd: &mut CreateProductCommand) {
@@ -172,37 +162,9 @@ impl<'a> CommandProductServiceImpl<'a> {
             cmd.geo_address = shop.geo_address;
         }
 
-        let (seller_id, seller_name) = match shop.shop_type {
-            ShopType::AuctionPlatform | ShopType::Marketplace => {
-                if let Some(raw_name) = cmd.seller_name_raw.as_deref() {
-                    let shop_name = ShopName::from(raw_name);
-                    match self
-                        .seller_service()
-                        .get_seller_shop_details(&shop_name)
-                        .await
-                    {
-                        Ok((id, _, name)) => (id, name),
-                        Err(err) => {
-                            warn!(
-                                error = ?err,
-                                shopId = %cmd.shop_id,
-                                shopsProductId = %cmd.shops_product_id,
-                                sellerNameRaw = raw_name,
-                                "Failed resolving seller information for product command."
-                            );
-                            return None;
-                        }
-                    }
-                } else {
-                    (shop.shop_id, shop.name.clone())
-                }
-            }
-            _ => (shop.shop_id, shop.name.clone()),
-        };
-
         Some(ResolvedShopInformation {
-            seller_id,
-            seller_name,
+            seller_id: shop.shop_id,
+            seller_name: shop.name.clone(),
             shop_name: shop.name,
             shop_type: shop.shop_type,
             affiliate_configuration: shop.affiliate_configuration,
@@ -997,7 +959,6 @@ mod tests {
     use shop::core::shop::Shop;
     use shop::core::shop_type::ShopType;
     use shop::service::get_service::MockGetShopService;
-    use shop::service::seller_service::MockSellerService;
 
     fn default_shop_service() -> MockGetShopService {
         let mut service = MockGetShopService::default();
@@ -1008,10 +969,6 @@ mod tests {
             Box::pin(async move { Ok(shop) })
         });
         service
-    }
-
-    fn default_seller_service() -> MockSellerService {
-        MockSellerService::default()
     }
 
     fn default_fx_rate_service() -> MockFxRateService {
@@ -1026,16 +983,10 @@ mod tests {
         repository: &'a (dyn ProductDynamoDbRepository + Sync),
     ) -> CommandProductServiceImpl<'a> {
         let get_shop_service = Box::leak(Box::new(default_shop_service()));
-        let seller_service = Box::leak(Box::new(default_seller_service()));
         let fx_rate_service = default_fx_rate_service();
-        CommandProductServiceImpl::new(
-            repository,
-            &fx_rate_service,
-            get_shop_service,
-            seller_service,
-        )
-        .await
-        .expect("failed to create CommandProductServiceImpl in test")
+        CommandProductServiceImpl::new(repository, &fx_rate_service, get_shop_service)
+            .await
+            .expect("failed to create CommandProductServiceImpl in test")
     }
 
     mod determine_update_events {
@@ -1356,65 +1307,43 @@ mod tests {
         use super::*;
         use crate::dynamodb::product_record::ProductRecord;
         use common::batch::dynamodb::BatchGetItemResult;
-        use common::seller_slug_id::SellerSlugId;
 
         async fn service_for_shop_information<'a>(
             repository: &'a (dyn ProductDynamoDbRepository + Sync),
             get_shop_service: &'a (dyn GetShopService + Sync),
-            seller_service: &'a (dyn SellerService + Sync),
         ) -> CommandProductServiceImpl<'a> {
             let fx_rate_service = default_fx_rate_service();
-            CommandProductServiceImpl::new(
-                repository,
-                &fx_rate_service,
-                get_shop_service,
-                seller_service,
-            )
-            .await
-            .expect("failed to create CommandProductServiceImpl in test")
+            CommandProductServiceImpl::new(repository, &fx_rate_service, get_shop_service)
+                .await
+                .expect("failed to create CommandProductServiceImpl in test")
         }
 
         #[tokio::test]
-        async fn should_resolve_seller_from_raw_name_when_platform_for_shop_information() {
+        async fn should_ignore_raw_seller_name_when_enriching_shop_information() {
             let mut cmd = Faker.fake::<CreateProductCommand>();
             cmd.seller_name_raw = Some("Raw Seller".to_string());
 
             let mut shop: Shop = Faker.fake();
             shop.shop_id = cmd.shop_id;
             shop.shop_type = ShopType::Marketplace;
+            let expected_seller_id = shop.shop_id;
+            let expected_seller_name = shop.name.clone();
 
-            let resolved_seller_id = ShopId::new();
-            let resolved_seller_name = ShopName::from("Resolved Seller");
             let mut get_shop_service = MockGetShopService::default();
             get_shop_service
                 .expect_find_shop()
                 .return_once(move |_| Box::pin(async move { Ok(shop) }));
-            let mut seller_service = MockSellerService::default();
-            let expected_seller_name = resolved_seller_name.clone();
-            seller_service
-                .expect_get_seller_shop_details()
-                .return_once(move |raw_name| {
-                    assert_eq!(raw_name.as_ref(), "Raw Seller");
-                    Box::pin(async move {
-                        Ok((
-                            resolved_seller_id,
-                            SellerSlugId::from("resolved-seller"),
-                            expected_seller_name,
-                        ))
-                    })
-                });
 
             let repository = MockProductDynamoDbRepository::default();
-            let service =
-                service_for_shop_information(&repository, &get_shop_service, &seller_service).await;
+            let service = service_for_shop_information(&repository, &get_shop_service).await;
 
             let resolved = service
                 .enrich_shop_information(&mut cmd)
                 .await
                 .expect("shop information should resolve");
 
-            assert_eq!(resolved.seller_id, resolved_seller_id);
-            assert_eq!(resolved.seller_name, resolved_seller_name);
+            assert_eq!(resolved.seller_id, expected_seller_id);
+            assert_eq!(resolved.seller_name, expected_seller_name);
         }
 
         #[tokio::test]
@@ -1438,9 +1367,7 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(shop) }));
 
             let repository = MockProductDynamoDbRepository::default();
-            let seller_service = MockSellerService::default();
-            let service =
-                service_for_shop_information(&repository, &get_shop_service, &seller_service).await;
+            let service = service_for_shop_information(&repository, &get_shop_service).await;
 
             service
                 .enrich_shop_information(&mut cmd)
@@ -1472,9 +1399,7 @@ mod tests {
                 .return_once(move |_| Box::pin(async move { Ok(shop) }));
 
             let repository = MockProductDynamoDbRepository::default();
-            let seller_service = MockSellerService::default();
-            let service =
-                service_for_shop_information(&repository, &get_shop_service, &seller_service).await;
+            let service = service_for_shop_information(&repository, &get_shop_service).await;
 
             service
                 .enrich_shop_information(&mut cmd)

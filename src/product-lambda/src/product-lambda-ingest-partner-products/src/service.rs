@@ -3,6 +3,8 @@ use async_trait::async_trait;
 use aws_sdk_sqs::Client;
 use aws_sdk_sqs::types::SendMessageBatchRequestEntry;
 use common::has_key::HasKey;
+#[cfg(test)]
+use common::shop_id::ShopId;
 use tracing::info;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -116,7 +118,6 @@ impl AsyncProductCommandService for AsyncProductCommandServiceImpl<'_> {
 mod tests {
     use super::*;
     use crate::types::UpsertAsyncProductCommandData;
-    use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
 
     fn command(id: &str) -> AsyncProductCommandData {

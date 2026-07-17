@@ -9,7 +9,6 @@ use product::service::command_service::CommandProductServiceImpl;
 use product_pipeline_translate::handler;
 use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::service::get_service::GetShopServiceImpl;
-use shop::service::seller_service::MockSellerService;
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -30,15 +29,10 @@ async fn main() {
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let seller_service = MockSellerService::default();
-    let command_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail initializing CommandProductService");
+    let command_service =
+        CommandProductServiceImpl::new(&product_repository, &fx_rate_service, &get_shop_service)
+            .await
+            .expect("shouldn't fail initializing CommandProductService");
 
     if std::env::var("LOCALSTACK_HOSTNAME").is_ok() {
         use product_pipeline_translate::service::MockTranslationService;

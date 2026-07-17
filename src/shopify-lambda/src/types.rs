@@ -4,6 +4,8 @@ use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_state::domain::ProductState;
+#[cfg(test)]
+use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use product::core::description::Description;
 use product::core::product_image::ProductImage;
@@ -226,7 +228,6 @@ mod tests {
     use common::currency::domain::Currency;
     use common::domain::Domain;
     use common::price::domain::{MonetaryAmount, Price};
-    use common::shop_id::ShopId;
     use fake::{Fake, Faker};
     use shop::core::partner_status::ShopPartnerStatus;
     use shop::core::shop::Shop;

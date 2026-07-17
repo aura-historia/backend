@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_pass_seller_name_raw_to_command_when_seller_name_provided() {
+    async fn should_ignore_seller_name_when_seller_name_provided() {
         let (api_key, partner_shop) = make_partner_shop_with_type(ShopType::Marketplace);
         let shop_id = partner_shop.shop_id;
 
@@ -379,7 +379,7 @@ mod tests {
                 let AsyncProductCommandData::Create(cmd) = &cmds[0] else {
                     panic!("Expected create command")
                 };
-                assert_eq!(cmd.seller_name.as_deref(), Some("marketplace seller raw"));
+                assert_eq!(cmd.seller_name, None);
                 vec![]
             })
         });
@@ -429,6 +429,6 @@ mod tests {
         );
         assert_eq!(cmd.images.len(), 1);
         assert!(cmd.native_price.is_none());
-        assert_eq!(cmd.seller_name_raw.as_deref(), Some("Test Seller"));
+        assert_eq!(cmd.seller_name_raw, None);
     }
 }

@@ -39,6 +39,7 @@
 //! cargo run --bin demo-scraper -p crawler
 //! ```
 
+use common::shop_id::ShopId;
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::Arc;
@@ -46,7 +47,6 @@ use std::sync::Arc;
 use common::language::data::LocalizedTextData;
 use common::logging::GeminiServiceTier;
 use common::price::data::PriceData;
-use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,

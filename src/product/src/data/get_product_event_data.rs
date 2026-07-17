@@ -1,6 +1,7 @@
 use crate::core::product_event::domain::LocalizedProductDomainEventPayloadView;
 use crate::data::product_image_data;
 use crate::data::product_state_data::ProductStateData;
+
 use common::{
     event::Event, event_id::EventId, price::data::PriceData, product_id::ProductId,
     shop_id::ShopId, shops_product_id::ShopsProductId,

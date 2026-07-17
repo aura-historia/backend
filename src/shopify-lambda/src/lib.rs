@@ -1,3 +1,5 @@
+#[cfg(test)]
+use common::shop_id::ShopId;
 mod types;
 
 pub use types::{
@@ -231,7 +233,6 @@ mod tests {
     use aws_lambda_events::eventbridge::EventBridgeEvent;
     use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
     use common::domain::Domain;
-    use common::shop_id::ShopId;
     use fake::{Fake, Faker};
     use lambda_runtime::{Context, LambdaEvent};
     use product::service::command_service::MockCommandProductService;

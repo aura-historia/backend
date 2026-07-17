@@ -22,7 +22,6 @@ use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryI
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use shop::service::get_service::GetShopServiceImpl;
-use shop::service::seller_service::MockSellerService;
 use shopify_lambda::{
     SHOPIFY_TOPIC_PRODUCTS_CREATE, SHOPIFY_TOPIC_PRODUCTS_DELETE, SHOPIFY_TOPIC_PRODUCTS_UPDATE,
     handler,
@@ -248,19 +247,14 @@ async fn should_write_domain_created_event_when_shopify_create_event_with_real_p
     let shop_id = shop_record.shop_id;
 
     let get_shop_service = GetShopServiceImpl::new(&shop_repo);
-    let seller_service = MockSellerService::default();
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let product_service = CommandProductServiceImpl::new(
-        &product_repo,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let product_service =
+        CommandProductServiceImpl::new(&product_repo, &fx_rate_service, &get_shop_service)
+            .await
+            .expect("shouldn't fail creating CommandProductServiceImpl");
 
     let result = handler(
         real_shopify_sqs_event(SHOPIFY_TOPIC_PRODUCTS_CREATE),
@@ -302,19 +296,14 @@ async fn should_write_domain_created_event_when_shopify_update_event_without_exi
     let shop_id = shop_record.shop_id;
 
     let get_shop_service = GetShopServiceImpl::new(&shop_repo);
-    let seller_service = MockSellerService::default();
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let product_service = CommandProductServiceImpl::new(
-        &product_repo,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let product_service =
+        CommandProductServiceImpl::new(&product_repo, &fx_rate_service, &get_shop_service)
+            .await
+            .expect("shouldn't fail creating CommandProductServiceImpl");
 
     // Without a materialized ProductRecord, upsert treats the update as a new
     // product and writes a DOMAIN_CREATED event.
@@ -362,19 +351,14 @@ async fn should_write_state_changed_event_when_shopify_update_event_with_existin
     seed_product_record(&product_repo, shop_id, ProductStateRecord::Sold).await;
 
     let get_shop_service = GetShopServiceImpl::new(&shop_repo);
-    let seller_service = MockSellerService::default();
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let product_service = CommandProductServiceImpl::new(
-        &product_repo,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let product_service =
+        CommandProductServiceImpl::new(&product_repo, &fx_rate_service, &get_shop_service)
+            .await
+            .expect("shouldn't fail creating CommandProductServiceImpl");
 
     // inventory_quantity = 5 → state=Available, which differs from Sold.
     let result = handler(
@@ -418,19 +402,14 @@ async fn should_write_removed_state_event_when_shopify_delete_event_with_real_pa
     let shop_id = shop_record.shop_id;
 
     let get_shop_service = GetShopServiceImpl::new(&shop_repo);
-    let seller_service = MockSellerService::default();
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let product_service = CommandProductServiceImpl::new(
-        &product_repo,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let product_service =
+        CommandProductServiceImpl::new(&product_repo, &fx_rate_service, &get_shop_service)
+            .await
+            .expect("shouldn't fail creating CommandProductServiceImpl");
 
     // products/delete maps to ProductState::Removed. Without a materialized
     // ProductRecord the delete is processed as a new product creation with
@@ -474,19 +453,14 @@ async fn should_report_partial_failure_when_one_message_cannot_be_processed() {
     let shop_id = shop_record.shop_id;
 
     let get_shop_service = GetShopServiceImpl::new(&shop_repo);
-    let seller_service = MockSellerService::default();
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let product_service = CommandProductServiceImpl::new(
-        &product_repo,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .expect("shouldn't fail creating CommandProductServiceImpl");
+    let product_service =
+        CommandProductServiceImpl::new(&product_repo, &fx_rate_service, &get_shop_service)
+            .await
+            .expect("shouldn't fail creating CommandProductServiceImpl");
 
     // Build a two-message SQS event: one valid, one with invalid JSON body.
     let valid_eb_event = {

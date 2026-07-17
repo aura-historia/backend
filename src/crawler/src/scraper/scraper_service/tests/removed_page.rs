@@ -4,6 +4,7 @@ use crate::scraper::css_selector::removed_page_schema::{
 };
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
+use common::shop_id::ShopId;
 
 fn removed_schema_set(shop_id: ShopId) -> ShopsRemovedPageSchema {
     ShopsRemovedPageSchema {

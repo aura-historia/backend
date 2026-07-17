@@ -3,6 +3,8 @@ use common::api::api_gateway_v2_http_response_builder::ApiGatewayV2HttpResponseB
 use common::api::error::ApiError;
 use common::api::error_code::{INTERNAL_SERVER_ERROR, NOT_FOUND};
 use common::product_id::ProductKey;
+#[cfg(test)]
+use common::shop_id::ShopId;
 use common::shop_id::api::extract_shop_id_path;
 use common::shops_product_id::api::extract_shops_product_id_path;
 use lambda_runtime::LambdaEvent;
@@ -44,7 +46,6 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use common::user_id::UserId;
     use fake::{Fake, Faker};

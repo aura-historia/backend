@@ -28,13 +28,13 @@
 //! cargo run --bin demo-spider -p crawler -- https://www.christies.com/en
 //! ```
 
+use common::shop_id::ShopId;
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::Arc;
 
 use common::logging::GeminiServiceTier;
-use common::shop_id::ShopId;
 use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
     url_classification_gemini_model,

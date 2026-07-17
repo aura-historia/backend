@@ -1,5 +1,4 @@
 use common::shop_id::ShopId;
-
 use std::sync::Arc;
 
 use crate::spider::classification::url_metadata_repository::UrlMetadataRepository;

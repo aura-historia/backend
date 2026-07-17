@@ -9,6 +9,7 @@ use common::event_id::EventId;
 use common::language::record::LanguageRecord;
 use common::price::record::PriceRecord;
 use common::product_lifecycle::record::ProductLifecycleRecord;
+
 use indexmap::IndexSet;
 use serde::Serialize;
 use serde_fields::SerdeField;

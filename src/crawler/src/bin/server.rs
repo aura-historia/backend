@@ -96,7 +96,6 @@ use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::opensearch::repository::ShopOpenSearchRepositoryImpl;
 use shop::service::get_service::GetShopServiceImpl;
 use shop::service::query_service::{QueryShopService, QueryShopServiceImpl};
-use shop::service::seller_service::MockSellerService;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{Instrument, info};
@@ -547,9 +546,7 @@ async fn main() {
             table_name.clone(),
         )));
         let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_dynamodb_repo)));
-        let seller_service = Box::leak(Box::new(MockSellerService::default()));
-
-        let fxrate_repository = Box::leak(Box::new(FxRateDynamoDbRepositoryImpl::new(
+            let fxrate_repository = Box::leak(Box::new(FxRateDynamoDbRepositoryImpl::new(
             Box::leak(Box::new(dynamodb.clone())),
             table_name.clone(),
         )));
@@ -559,8 +556,7 @@ async fn main() {
                 product_dynamodb_repo,
                 &fxrate_service,
                 get_shop_service,
-                seller_service,
-            )
+                    )
             .await
             .expect("shouldn't fail creating CommandProductServiceImpl (check FxRates record in DynamoDB)"),
         );

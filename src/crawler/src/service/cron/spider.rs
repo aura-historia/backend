@@ -4,6 +4,8 @@ use crate::spider::advisory_lock::DomainLock;
 use crate::spider::candidate_service::SpiderCandidate;
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
 use crate::spider::service::{SpiderService, SpiderServiceError};
+#[cfg(test)]
+use common::shop_id::ShopId;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -385,7 +387,6 @@ mod tests {
     use crate::spider::candidate_service::{MockSpiderCandidateService, SpiderCandidate};
     use crate::spider::discovery::website_spider::CrawlFailureKind;
     use crate::spider::service::{MockSpiderService, SpiderRunResult};
-    use common::shop_id::ShopId;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::Notify;
 

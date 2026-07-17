@@ -1,3 +1,4 @@
+use common::shop_id::ShopId;
 mod bookkeeping;
 mod budget;
 mod happy_path;
@@ -35,7 +36,6 @@ use crate::spider::classification::url_metadata::UrlState;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use product::core::title::Title;
 use std::sync::Arc;

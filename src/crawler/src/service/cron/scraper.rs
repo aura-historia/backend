@@ -596,7 +596,6 @@ mod tests {
     use crate::spider::advisory_lock::LocalLockManager;
     use crate::spider::candidate_service::MockSpiderCandidateService;
     use crate::spider::service::MockSpiderService;
-    use common::shop_id::ShopId;
     use shop::core::shop_type::ShopType;
     use std::future::Future;
     use std::pin::Pin;

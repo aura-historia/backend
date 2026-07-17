@@ -1,3 +1,4 @@
+use common::shop_id::ShopId;
 use std::sync::Arc;
 
 use crate::review::model::ARTIFACT_URL_PATTERN;
@@ -7,7 +8,6 @@ use crate::spider::classification::url_classification_service::{
 };
 use crate::spider::classification::url_pattern_repository::ShopUrlPatternRepository;
 use crate::spider::utils::url::extract_shop_base_url;
-use common::shop_id::ShopId;
 use regex::Regex;
 use thiserror::Error;
 use tracing::debug;

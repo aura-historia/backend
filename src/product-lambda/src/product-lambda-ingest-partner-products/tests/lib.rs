@@ -17,7 +17,6 @@ use shop::dynamodb::repository::{ShopDynamoDbRepository, ShopDynamoDbRepositoryI
 use shop::dynamodb::shop_record::ShopRecord;
 use shop::dynamodb::shop_type_record::ShopTypeRecord;
 use shop::service::get_service::GetShopServiceImpl;
-use shop::service::seller_service::MockSellerService;
 use test_api::*;
 
 fn sqs_event(command: AsyncProductCommandData) -> LambdaEvent<SqsEvent> {
@@ -35,19 +34,14 @@ async fn should_create_product_when_create_command_is_received_for_partner_inges
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let product_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .unwrap();
+    let product_service =
+        CommandProductServiceImpl::new(&product_repository, &fx_rate_service, &get_shop_service)
+            .await
+            .unwrap();
 
     let mut shop_record: ShopRecord = Faker.fake();
     shop_record.shop_type = ShopTypeRecord::AuctionHouse;
@@ -98,19 +92,14 @@ async fn should_update_product_when_update_command_is_received_for_partner_inges
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let product_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .unwrap();
+    let product_service =
+        CommandProductServiceImpl::new(&product_repository, &fx_rate_service, &get_shop_service)
+            .await
+            .unwrap();
 
     let mut shop_record: ShopRecord = Faker.fake();
     shop_record.shop_type = ShopTypeRecord::AuctionHouse;
@@ -233,19 +222,14 @@ async fn should_create_product_when_upsert_command_is_received_for_new_product_f
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let product_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .unwrap();
+    let product_service =
+        CommandProductServiceImpl::new(&product_repository, &fx_rate_service, &get_shop_service)
+            .await
+            .unwrap();
 
     let mut shop_record: ShopRecord = Faker.fake();
     shop_record.shop_type = ShopTypeRecord::AuctionHouse;
@@ -346,19 +330,14 @@ async fn should_update_existing_product_when_upsert_command_is_received_for_part
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let seller_service = MockSellerService::default();
     let mut fx_rate_service = MockFxRateService::new();
     fx_rate_service
         .expect_get_current()
         .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let product_service = CommandProductServiceImpl::new(
-        &product_repository,
-        &fx_rate_service,
-        &get_shop_service,
-        &seller_service,
-    )
-    .await
-    .unwrap();
+    let product_service =
+        CommandProductServiceImpl::new(&product_repository, &fx_rate_service, &get_shop_service)
+            .await
+            .unwrap();
 
     let mut shop_record: ShopRecord = Faker.fake();
     shop_record.shop_type = ShopTypeRecord::AuctionHouse;

@@ -376,7 +376,6 @@ mod tests {
     use crate::scraper::css_selector::rule::{
         ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
-    use common::shop_id::ShopId;
     use time::OffsetDateTime;
 
     fn sample_css_schema() -> ProductCssSelectorSchema {

@@ -17,6 +17,8 @@
 use async_trait::async_trait;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
+#[cfg(test)]
+use common::shop_id::ShopId;
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use product::service::command_service::CommandProductService;
@@ -305,7 +307,6 @@ mod tests {
     use common::language::domain::Language;
     use common::localized::Localized;
     use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use product::core::title::Title;
     use url::Url;

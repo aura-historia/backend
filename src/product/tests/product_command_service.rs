@@ -24,7 +24,6 @@ use product::service::{
 use shop::core::shop::Shop;
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::MockGetShopService;
-use shop::service::seller_service::MockSellerService;
 use std::collections::HashMap;
 use test_api::*;
 
@@ -40,10 +39,6 @@ fn default_shop_service() -> MockGetShopService {
     service
 }
 
-fn default_seller_service() -> MockSellerService {
-    MockSellerService::default()
-}
-
 fn default_fx_rate_service() -> MockFxRateService {
     let mut service = MockFxRateService::new();
     service
@@ -56,16 +51,10 @@ async fn command_product_service<'a>(
     repository: &'a (dyn ProductDynamoDbRepository + Sync),
 ) -> CommandProductServiceImpl<'a> {
     let get_shop_service = Box::leak(Box::new(default_shop_service()));
-    let seller_service = Box::leak(Box::new(default_seller_service()));
     let fx_rate_service = default_fx_rate_service();
-    CommandProductServiceImpl::new(
-        repository,
-        &fx_rate_service,
-        get_shop_service,
-        seller_service,
-    )
-    .await
-    .expect("failed to create CommandProductServiceImpl in test")
+    CommandProductServiceImpl::new(repository, &fx_rate_service, get_shop_service)
+        .await
+        .expect("failed to create CommandProductServiceImpl in test")
 }
 
 /// Scans all items across all pages from `table_1`.

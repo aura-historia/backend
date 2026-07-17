@@ -12,6 +12,7 @@ use common::product_id::ProductId;
 use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::text_query::TextQuery;
+
 use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
 use opensearch::http::Method;

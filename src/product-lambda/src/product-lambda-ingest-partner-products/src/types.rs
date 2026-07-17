@@ -194,7 +194,7 @@ impl From<(ShopId, PostProductData)> for CreateAsyncProductCommandData {
             images: data.images,
             auction_start: data.auction_start,
             auction_end: data.auction_end,
-            seller_name: data.seller_name,
+            seller_name: None,
             structured_address: data.structured_address,
             geo_address: data.geo_address,
         }
@@ -231,7 +231,7 @@ impl From<(ShopId, PutProductData)> for UpsertAsyncProductCommandData {
             images: data.images,
             auction_start: data.auction_start,
             auction_end: data.auction_end,
-            seller_name: data.seller_name,
+            seller_name: None,
             structured_address: data.structured_address,
             geo_address: data.geo_address,
         }
@@ -243,7 +243,7 @@ impl From<CreateAsyncProductCommandData> for CreateProductCommand {
         CreateProductCommand {
             shop_id: data.shop_id,
             shops_product_id: data.shops_product_id,
-            seller_name_raw: data.seller_name,
+            seller_name_raw: None,
             structured_address: data.structured_address.map(Into::into),
             geo_address: data.geo_address.map(Into::into),
             native_title: data.title.into(),
@@ -301,7 +301,7 @@ impl From<UpsertAsyncProductCommandData> for UpsertProductCommand {
         UpsertProductCommand {
             shop_id: data.shop_id,
             shops_product_id: data.shops_product_id,
-            seller_name_raw: data.seller_name,
+            seller_name_raw: None,
             structured_address: data.structured_address.map(Into::into),
             geo_address: data.geo_address.map(Into::into),
             native_title: data.title.map(Into::into),
@@ -340,7 +340,7 @@ impl From<UpsertProductCommand> for UpsertAsyncProductCommandData {
             images: Some(cmd.images.into_iter().map(|image| image.url).collect()),
             auction_start: cmd.auction_start,
             auction_end: cmd.auction_end,
-            seller_name: cmd.seller_name_raw,
+            seller_name: None,
             structured_address: cmd.structured_address.map(Into::into),
             geo_address: cmd.geo_address.map(Into::into),
         }

@@ -1,3 +1,5 @@
+#[cfg(test)]
+use common::shop_id::ShopId;
 pub mod service;
 pub mod types;
 
@@ -144,7 +146,6 @@ mod tests {
     use common::price::data::PriceData;
     use common::price::domain::Price;
     use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use lambda_runtime::Context;
     use product::data::product_state_data::ProductStateData;

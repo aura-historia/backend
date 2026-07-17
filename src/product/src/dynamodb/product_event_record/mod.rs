@@ -8,6 +8,7 @@ use crate::{
         lifecycle::ProductLifecycleEventRecord, policy::ProductPolicyEventRecord,
     },
 };
+
 use common::{
     event::Event,
     event_id::EventId,

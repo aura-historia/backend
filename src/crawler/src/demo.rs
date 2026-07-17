@@ -31,6 +31,7 @@
 //!
 //! Scraped products are written to `scraped_products.json` instead of being forwarded to DynamoDB.
 
+use common::shop_id::ShopId;
 use std::collections::HashSet;
 use std::env;
 use std::sync::Arc;
@@ -39,7 +40,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use common::domain::Domain;
 use common::logging::GeminiServiceTier;
-use common::shop_id::ShopId;
 use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
     state_mapping_gemini_model, url_classification_gemini_model,
