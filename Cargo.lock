@@ -466,9 +466,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-cognitoidentityprovider"
-version = "1.124.0"
+version = "1.125.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "446b5da2564196979645c1c1a9150e8f9a393962ff2c4f5535dd26481c779c17"
+checksum = "ea65f3de9d26d6e14fb612ae71122a6d7ec21ebfe9890b34706e0f25e40747dc"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -2234,7 +2234,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2414,7 +2414,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3454,7 +3454,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration 0.6.1",
  "tokio",
  "tower-service",
@@ -6478,7 +6478,7 @@ dependencies = [
  "security-framework 3.7.0",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8079,7 +8079,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
