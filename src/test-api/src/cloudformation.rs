@@ -66,7 +66,7 @@ const LAMBDA_BINARIES: &[&str] = &[
 
 /// Guards the one-time CloudFormation stack setup.
 ///
-/// Because the `#[localstack_test]` macro calls `set_up` before every test,
+/// Because the `#[aura_integration_test]` macro calls `set_up` before every test,
 /// this cell ensures the expensive build → upload → deploy sequence runs only
 /// once per test-process, regardless of how many tests exist.
 static SETUP_ONCE: OnceCell<()> = OnceCell::const_new();
@@ -92,7 +92,7 @@ async fn get_s3_client() -> &'static aws_sdk_s3::Client {
 
 /// Service type representing a full CloudFormation stack deployment on LocalStack Pro.
 ///
-/// When used with the `#[localstack_test]` macro, this service:
+/// When used with the `#[aura_integration_test]` macro, this service:
 /// 1. Builds all Lambda binaries from the workspace
 /// 2. Packages each binary into a ZIP (containing a `bootstrap` executable)
 /// 3. Creates an S3 bucket and uploads all Lambda ZIPs

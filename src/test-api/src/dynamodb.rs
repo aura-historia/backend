@@ -37,7 +37,7 @@ pub async fn get_dynamodb_client() -> &'static Client {
 /// Marker type representing the DynamoDB service in LocalStack-based tests.
 ///
 /// Implements the [`IntegrationTestService`] trait to support lifecycle management
-/// when used with the `#[localstack_test]` macro.
+/// when used with the `#[aura_integration_test]` macro.
 pub struct DynamoDB();
 
 #[async_trait]

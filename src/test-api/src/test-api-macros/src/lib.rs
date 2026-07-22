@@ -3,21 +3,21 @@ use quote::quote;
 use syn::spanned::Spanned;
 use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 
-/// Attribute macro for running async integration tests with LocalStack services.
+/// Attribute macro for running async integration tests with Aura test services.
 ///
 /// This macro wraps an async test function and automatically:
 /// - Parses the `services = [ServiceA, ServiceB, ...]` attribute
-/// - Spins up LocalStack with only the specified services
+/// - Spins up LocalStack with only the specified LocalStack services
 /// - Calls each service's `set_up().await` before the test
 /// - Executes the test body
 /// - Calls each service's `tear_down().await` after the test
-/// - Shuts down LocalStack at the end
+/// - Keeps non-LocalStack services, like Postgres, managed by their service helper
 ///
 /// # Requirements
 ///
 /// Each service provided:
 /// - must be a valid identifier for a type implementing trait `IntegrationTestService`
-/// - must define a constant `SERVICE_NAME: &str` who corresponds to a valid service-name for LocalStack
+/// - must return LocalStack service names from `service_names()` or `&[]` for non-LocalStack services
 /// - must define an `async fn set_up()`
 /// - may define an `async fn tear_down()`
 ///
@@ -43,6 +43,7 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 ///
 /// - Requires Tokio runtime (`#[tokio::test]`) test execution.
 /// - The attribute must be in the format: `services = [ServiceA, ServiceB, ...]`.
+/// - `localstack_test` is a legacy alias. Prefer `aura_integration_test`.
 /// - Malformed input will panic at compile time.
 ///
 /// # See also
@@ -50,7 +51,16 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 /// - [`test_api::localstack::spin_up_localstack_with_services`] for how LocalStack is started.
 ///
 #[proc_macro_attribute]
+pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStream {
+    expand_aura_integration_test(attr, item)
+}
+
+#[proc_macro_attribute]
 pub fn localstack_test(attr: TokenStream, item: TokenStream) -> TokenStream {
+    expand_aura_integration_test(attr, item)
+}
+
+fn expand_aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
     let attr_expr = attr.to_string();
 

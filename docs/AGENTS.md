@@ -8,6 +8,7 @@
 
 - `swagger.yaml` be public REST contract.
 - `CHANGELOG.md` tell API change by pull request.
+- `storage.md` owns storage migration and repository conventions.
 - Child doc can own deeper subsystem docs when folder become durable boundary.
 
 ## Ownership

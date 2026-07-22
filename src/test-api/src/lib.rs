@@ -11,8 +11,8 @@ mod eventbridge;
 pub mod localstack;
 #[cfg(feature = "opensearch")]
 mod opensearch;
-#[cfg(feature = "rds")]
-mod rds;
+#[cfg(any(feature = "postgres", feature = "rds"))]
+mod postgres;
 mod s3;
 #[cfg(feature = "ses")]
 mod ses;
@@ -33,20 +33,22 @@ pub use dynamodb::{DynamoDB, get_dynamodb_client, mk_partial_put_batch_failure};
 pub use eventbridge::get_eventbridge_client;
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
-#[cfg(feature = "rds")]
-pub use rds::{Rds, get_postgres_client};
+#[cfg(any(feature = "postgres", feature = "rds"))]
+pub use postgres::{
+    CrawlerPostgres, OperationalBackendPostgres, Postgres, Rds, get_postgres_client,
+};
 pub use s3::S3;
 pub use serial_test::serial;
 #[cfg(feature = "ses")]
 pub use ses::*;
 #[cfg(feature = "sqs")]
 pub use sqs::{Sqs, SqsBuilder, SqsBuilderError, get_sqs_client};
-pub use test_api_macros::localstack_test;
+pub use test_api_macros::{aura_integration_test, localstack_test};
 pub use tokio;
 
-/// A trait for defining integration test lifecycle behavior for a LocalStack-backed AWS service.
+/// A trait for defining integration test lifecycle behavior for an Aura integration test service.
 ///
-/// Implement this trait for each service you want to use with the `#[localstack_test]` macro.
+/// Implement this trait for each service you want to use with the `#[aura_integration_test]` macro.
 /// It provides a consistent interface for setting up and tearing down test-specific resources.
 ///
 /// # Required Items
@@ -61,11 +63,11 @@ pub use tokio;
 /// # Notes
 ///
 /// - `async_trait` is required to enable async methods in traits.
-/// - The trait is intended for use with the `#[localstack_test]` macro.
+/// - The trait is intended for use with the `#[aura_integration_test]` macro.
 ///
 #[async_trait]
 pub trait IntegrationTestService: Sized {
-    /// The name of the AWS service as expected by LocalStack (e.g., `"s3"`, `"dynamodb"`)
+    /// The AWS LocalStack service names. Return `&[]` for non-LocalStack services like Postgres.
     fn service_names(&self) -> &'static [&'static str];
     /// Extra environment variables to set on the LocalStack container.
     fn env_vars(&self) -> Vec<(&'static str, &'static str)> {

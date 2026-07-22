@@ -32,7 +32,7 @@ pub async fn get_sqs_client() -> &'static Client {
 /// Marker type representing the SQS service in LocalStack-based tests.
 ///
 /// Implements the [`IntegrationTestService`] trait to support lifecycle management
-/// when used with the `#[localstack_test]` macro.
+/// when used with the `#[aura_integration_test]` macro.
 #[derive(Debug, Builder)]
 pub struct Sqs {
     pub name: &'static str,

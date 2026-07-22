@@ -17,7 +17,7 @@
   - dynamodb: DynamoDB payloads
   - opensearch: OpenSearch payloads
   - service: service glue, orchestration, and cross-crate integration
-- DynamoDB is primary datastore and source-of-truth, OpenSearch is re-computable read-optimized view, specifically for search and discovery. Kept in sync primarily via event-driven architecture through AWS Event Bridge + SQS + Lambda.
+- DynamoDB is current source-of-truth for not-yet-migrated records. Postgres is target business truth per `docs/storage.md`. OpenSearch is re-computable read-optimized view for search and discovery.
 - Cognito is only Identity-Provider. User-Details and User-Profile are stored in DynamoDB.
 
 ## Ownership

@@ -55,7 +55,7 @@ test-api = { workspace = true, features = [
     "cloudformation",
     "dynamodb",
     "opensearch",
-    "rds",
+    "postgres",
     "ses",
     "sqs",
     "cognito"
@@ -67,7 +67,8 @@ default = []
 api-gateway = ["aws_lambda_events", "aws_lambda_events/apigw"]
 dynamodb = ["dep:aws-sdk-dynamodb", "serde_dynamo"]
 opensearch = ["dep:opensearch", "dep:aws-sdk-opensearch"]
-rds = ["dep:sqlx"]
+postgres = ["dep:sqlx"]
+rds = ["postgres"]
 sqs = ["dep:aws-sdk-sqs"]
 eventbridge = ["dep:aws-sdk-eventbridge"]
 cognito = ["dep:aws-sdk-cognitoidentityprovider", "user/full"]

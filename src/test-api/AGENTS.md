@@ -7,11 +7,11 @@
 ## Core Design
 
 - LocalStack and AWS integration test harness.
-- Root modules: `api_gateway`, `cloudformation`, `cognito`, `dynamodb`, `eventbridge`, `localstack`, `opensearch`, `rds`, `s3`, `ses`, `signal`, `sqs`.
+- Root modules: `api_gateway`, `cloudformation`, `cognito`, `dynamodb`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `ses`, `signal`, `sqs`.
 - Child crates: `test-api-macros`.
 - Main neighbors: `aws-tests-common`, `common`, `test-api-macros`, `user`.
 - Test crate. Favor stable helpers and black-box assertions.
-- `#[localstack_test]` tests run serially against one process-local LocalStack.
+- `#[aura_integration_test]` tests run serially against one process-local LocalStack and optional service containers like Postgres.
 
 ## Ownership
 
@@ -31,6 +31,7 @@
 - Think caveman. Talk caveman. Few word.
 - Tests prove behavior, not implementation trivia.
 - Share helpers before copy-paste fixtures.
+- Prefer `Postgres`/`OperationalBackendPostgres` and `postgres` feature over legacy `Rds`/`rds` in new tests.
 
 ## Verification
 
