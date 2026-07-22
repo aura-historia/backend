@@ -187,7 +187,7 @@ aws-tests-common = { path = "src/aws-tests/src/aws-tests-common" }
 smoking-tests = { path = "src/aws-tests/src/smoking-tests" }
 strum = "0.28.0"
 strum_macros = "0.28.0"
-syn = "2.0.117"
+syn = "3.0.1"
 test-api = { path = "src/test-api" }
 test-api-macros = { path = "src/test-api/src/test-api-macros" }
 testcontainers = "0.24.0"
