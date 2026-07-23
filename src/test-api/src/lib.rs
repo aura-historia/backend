@@ -11,7 +11,7 @@ mod eventbridge;
 pub mod localstack;
 #[cfg(feature = "opensearch")]
 mod opensearch;
-#[cfg(any(feature = "postgres", feature = "rds"))]
+#[cfg(feature = "postgres")]
 mod postgres;
 mod s3;
 #[cfg(feature = "ses")]
@@ -33,10 +33,8 @@ pub use dynamodb::{DynamoDB, get_dynamodb_client, mk_partial_put_batch_failure};
 pub use eventbridge::get_eventbridge_client;
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
-#[cfg(any(feature = "postgres", feature = "rds"))]
-pub use postgres::{
-    CrawlerPostgres, OperationalBackendPostgres, Postgres, Rds, get_postgres_client,
-};
+#[cfg(feature = "postgres")]
+pub use postgres::{Postgres, get_postgres_client};
 pub use s3::S3;
 pub use serial_test::serial;
 #[cfg(feature = "ses")]

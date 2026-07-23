@@ -199,15 +199,6 @@ impl Postgres {
     }
 }
 
-pub type OperationalBackendPostgres = Postgres;
-pub type CrawlerPostgres = Postgres;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Rds {
-    /// Backward-compatible wrapper for old tests. Prefer [`Postgres`].
-    pub migrations_dir: &'static str,
-}
-
 #[async_trait]
 impl IntegrationTestService for Postgres {
     /// Returns an empty slice because Postgres is managed independently of LocalStack.
@@ -321,20 +312,5 @@ impl IntegrationTestService for Postgres {
             tables = ?tables,
             "Truncated all public tables for test isolation."
         );
-    }
-}
-
-#[async_trait]
-impl IntegrationTestService for Rds {
-    fn service_names(&self) -> &'static [&'static str] {
-        &[]
-    }
-
-    async fn set_up(&self) {
-        Postgres::new(self.migrations_dir).set_up().await;
-    }
-
-    async fn tear_down(&self) {
-        Postgres::new(self.migrations_dir).tear_down().await;
     }
 }

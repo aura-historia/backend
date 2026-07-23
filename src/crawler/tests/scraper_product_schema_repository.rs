@@ -12,8 +12,9 @@ use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-const POSTGRES: Rds = Rds {
+const POSTGRES: Postgres = Postgres {
     migrations_dir: "src/crawler/migrations",
+    setup_script: None,
 };
 
 fn minimal_css_schema() -> ProductCssSelectorSchema {

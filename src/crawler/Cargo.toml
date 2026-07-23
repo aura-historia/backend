@@ -54,7 +54,7 @@ crawler = { path = ".", features = ["test-data"] }
 rstest = { workspace = true }
 fake = { workspace = true }
 serial_test = { workspace = true }
-test-api = { workspace = true, features = ["rds"] }
+test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "time"] }
 
 [[bin]]

@@ -9,8 +9,9 @@ use crawler::spider::classification::url_metadata_repository::{
 use std::collections::HashMap;
 use test_api::*;
 
-const POSTGRES: Rds = Rds {
+const POSTGRES: Postgres = Postgres {
     migrations_dir: "src/crawler/migrations",
+    setup_script: None,
 };
 
 fn minimal_snapshot(url: &str) -> ProductSnapshot {
