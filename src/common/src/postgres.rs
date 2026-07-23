@@ -217,6 +217,24 @@ mod tests {
     }
 
     #[test]
+    fn should_fail_when_port_is_not_an_integer() {
+        let values = env_values([
+            (POSTGRES_HOST_ENV, "db.local"),
+            (POSTGRES_PORT_ENV, "not-a-number"),
+            (POSTGRES_DATABASE_ENV, "backend"),
+            (POSTGRES_USERNAME_ENV, "app"),
+            (POSTGRES_PASSWORD_ENV, "secret"),
+        ]);
+
+        let config = PostgresPoolConfig::from_getter(|name| values.get(name).cloned());
+
+        assert!(matches!(
+            config,
+            Err(PostgresConfigError::InvalidInteger { name, .. }) if name == POSTGRES_PORT_ENV
+        ));
+    }
+
+    #[test]
     fn should_redact_password_in_debug_output() {
         let values = env_values([
             (POSTGRES_HOST_ENV, "localhost"),
