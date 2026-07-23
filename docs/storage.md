@@ -86,7 +86,7 @@ Use `test-api` for repository integration tests:
 ```rust
 use test_api::*;
 
-const POSTGRES: OperationalBackendPostgres =
+const POSTGRES: Postgres =
     Postgres::new("src/<crate>/migrations");
 
 #[aura_integration_test(services = [POSTGRES])]
@@ -99,7 +99,7 @@ async fn should_persist_entity_when_valid() {
 If seed data is needed:
 
 ```rust
-const POSTGRES: OperationalBackendPostgres = Postgres::with_setup_script(
+const POSTGRES: Postgres = Postgres::with_setup_script(
     "src/<crate>/migrations",
     "src/<crate>/tests/fixtures/setup.sql",
 );
