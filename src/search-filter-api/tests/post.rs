@@ -25,7 +25,7 @@ fn user_ctx(user_id: common::user_id::UserId) -> common::actor::RequestContext {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_save_search_filter() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -84,7 +84,7 @@ async fn should_save_search_filter() {
     assert!(record.is_some());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_422_when_search_filter_quota_is_exceeded() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

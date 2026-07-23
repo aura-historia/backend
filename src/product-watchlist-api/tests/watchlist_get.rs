@@ -36,7 +36,7 @@ fn system_ctx() -> common::actor::RequestContext {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc() {
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -151,7 +151,7 @@ async fn should_200_when_sort_created_asc() {
     assert_eq!(23, actual.total.unwrap());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc_search_after() {
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -276,7 +276,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     assert_eq!(15, actual.total.unwrap());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_desc() {
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -392,7 +392,7 @@ async fn should_200_when_sort_created_desc() {
     assert_eq!(23, actual.total.unwrap());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_desc_search_after() {
     let client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -525,7 +525,7 @@ async fn should_200_when_sort_created_desc_search_after() {
 #[case("fr", "French title", Language::Fr)]
 #[case("es", "Spanish title", Language::Es)]
 #[case("it", "Italian title", Language::It)]
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_respond_200_and_respect_language_query_param(
     #[case] _language_query: &str,
     #[case] expected_title: &str,

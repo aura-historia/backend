@@ -805,7 +805,7 @@ const EXAMPLE_EMBEDDING: [f32; 768] = [
     0.019880014,
 ];
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
     let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -881,7 +881,7 @@ async fn should_202_when_similar_products_have_not_been_computed_for_anon() {
     assert_eq!(202, response.status_code);
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_similar_products_have_been_computed_for_anon() {
     let product_dynamodb_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -992,7 +992,7 @@ async fn should_200_when_similar_products_have_been_computed_for_anon() {
     assert!(actual.iter().all(|actual| actual.user_state.is_none()));
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_and_personalize_when_similar_products_have_been_computed_for_authenticated() {
     let user_record = Faker.fake::<UserRecord>();
     let user_id = user_record.user_id;
@@ -1147,7 +1147,7 @@ async fn should_200_and_personalize_when_similar_products_have_been_computed_for
 #[case("fr", "French title", Language::Fr)]
 #[case("es", "Spanish title", Language::Es)]
 #[case("it", "Italian title", Language::It)]
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_respond_200_and_respect_language_query_param(
     #[case] _language_query: &str,
     #[case] expected_title: &str,

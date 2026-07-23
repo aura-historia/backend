@@ -50,7 +50,7 @@ fn system_ctx() -> common::actor::RequestContext {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_respond_200_without_history_when_anon() {
     let ddb_client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -152,7 +152,7 @@ async fn should_respond_200_without_history_when_anon() {
     assert!(body["item"]["history"].is_null())
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     let ddb_client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -274,7 +274,7 @@ async fn should_respond_200_personalized_when_authenticated_and_not_watched() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_respond_200_personalized_when_authenticated_and_watched() {
     let ddb_client = get_dynamodb_client().await;
     let user_repository = UserDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -429,7 +429,7 @@ async fn should_respond_200_personalized_when_authenticated_and_watched() {
 #[case("es", "Spanish title", Language::Es)]
 #[case("it", "Italian title", Language::It)]
 #[trace]
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_respond_200_and_respect_language_query_param(
     #[case] _language_query: &str,
     #[case] expected_title: &str,
@@ -525,7 +525,7 @@ async fn should_respond_200_and_respect_language_query_param(
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_respond_200_for_path_params_slugs() {
     let ddb_client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");

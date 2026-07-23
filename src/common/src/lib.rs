@@ -38,6 +38,8 @@ pub mod opensearch;
 pub mod pagination;
 pub mod partner_shop_application_id;
 pub mod personalized;
+#[cfg(feature = "postgres")]
+pub mod postgres;
 pub mod price;
 pub mod query;
 pub mod resource_state;

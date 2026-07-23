@@ -13,7 +13,7 @@ async fn get_repository() -> NotificationDynamoDbRepositoryImpl<'static> {
     NotificationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_put_notification_record() {
     let repository = get_repository().await;
 
@@ -32,7 +32,7 @@ fn should_put_notification_record() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_return_none_when_notification_record_not_exists() {
     let repository = get_repository().await;
 
@@ -44,7 +44,7 @@ fn should_return_none_when_notification_record_not_exists() {
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_notification_records_when_not_bound_for_scan_index_forward_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -73,7 +73,7 @@ fn should_query_notification_records_when_not_bound_for_scan_index_forward_true(
     assert_eq!(records.len(), actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_notification_records_when_not_bound_for_scan_index_forward_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -102,7 +102,7 @@ fn should_query_notification_records_when_not_bound_for_scan_index_forward_false
     assert_eq!(records.len(), actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_notification_records_and_respect_limit() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -132,7 +132,7 @@ fn should_query_notification_records_and_respect_limit() {
     assert_eq!(5, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_notification_records_with_cursor_for_scan_index_forward_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -170,7 +170,7 @@ fn should_query_notification_records_with_cursor_for_scan_index_forward_true() {
     assert_eq!(expected.len(), actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_notification_records_with_cursor_for_scan_index_forward_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -208,7 +208,7 @@ fn should_query_notification_records_with_cursor_for_scan_index_forward_false() 
     assert_eq!(expected.len(), actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_count_notification_records() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -238,7 +238,7 @@ fn should_count_notification_records() {
     assert_eq!(15, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_set_seen_true_for_update() {
     let repository = get_repository().await;
 
@@ -273,7 +273,7 @@ fn should_set_seen_true_for_update() {
     assert!(actual.seen);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_set_seen_false_for_update() {
     let repository = get_repository().await;
 
@@ -308,7 +308,7 @@ fn should_set_seen_false_for_update() {
     assert!(!actual.seen);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_set_type_email_for_update() {
     let repository = get_repository().await;
 
@@ -346,7 +346,7 @@ fn should_set_type_email_for_update() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_put_notification_records_when_single_batch() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -375,7 +375,7 @@ fn should_put_notification_records_when_single_batch() {
     assert_eq!(25, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_put_notification_records_when_less_than_25_records() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -404,7 +404,7 @@ fn should_put_notification_records_when_less_than_25_records() {
     assert_eq!(5, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_put_notification_records_for_different_users() {
     let repository = get_repository().await;
     let user_id_1 = UserId::new();
@@ -460,7 +460,7 @@ fn should_put_notification_records_for_different_users() {
     assert_eq!(8, actual_user_2.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_delete_notification_record() {
     let repository = get_repository().await;
 
@@ -491,7 +491,7 @@ fn should_delete_notification_record() {
     assert!(after.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_all_notification_records() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -514,7 +514,7 @@ fn should_query_all_notification_records() {
     assert_eq!(5, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_delete_notification_records_batch() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -544,7 +544,7 @@ fn should_delete_notification_records_batch() {
     assert!(remaining.is_empty());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_product_notification_records_when_product_has_notifications() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -573,7 +573,7 @@ fn should_query_product_notification_records_when_product_has_notifications() {
     assert_eq!(3, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_product_notification_records_empty_when_no_notifications_for_product() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -603,7 +603,7 @@ fn should_query_product_notification_records_empty_when_no_notifications_for_pro
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_product_notification_records_with_limit() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -632,7 +632,7 @@ fn should_query_product_notification_records_with_limit() {
     assert_eq!(2, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_product_notification_records_with_limit_returns_all_when_none() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -661,7 +661,7 @@ fn should_query_product_notification_records_with_limit_returns_all_when_none() 
     assert_eq!(5, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_product_notification_records_scan_index_forward_false_returns_latest_first() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -700,7 +700,7 @@ fn should_query_product_notification_records_scan_index_forward_false_returns_la
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_product_notification_records_only_for_matching_product() {
     let repository = get_repository().await;
     let user_id = UserId::new();

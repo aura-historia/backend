@@ -11,7 +11,7 @@ use user::core::user_search::UserSearch;
 use user::opensearch::repository::{UserOpenSearchRepository, UserOpenSearchRepositoryImpl};
 use user::opensearch::user_document::UserDocument;
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_delete_user_document_when_exists() {
     let repository = UserOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let document = Faker.fake::<UserDocument>();
@@ -52,7 +52,7 @@ async fn should_delete_user_document_when_exists() {
     assert!(!ids.contains(&document.user_id));
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_user_documents_when_country_query_is_given() {
     let repository = UserOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let mut expected = Faker.fake::<UserDocument>();
@@ -99,7 +99,7 @@ async fn should_search_user_documents_when_country_query_is_given() {
     );
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_user_documents_when_continent_query_is_given() {
     let repository = UserOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let mut expected = Faker.fake::<UserDocument>();
@@ -146,7 +146,7 @@ async fn should_search_user_documents_when_continent_query_is_given() {
     );
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_user_documents_when_geo_address_distance_query_is_given() {
     let repository = UserOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let mut expected = Faker.fake::<UserDocument>();

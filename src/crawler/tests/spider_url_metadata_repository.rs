@@ -5,8 +5,9 @@ use crawler::spider::classification::url_metadata_repository::{
 };
 use test_api::*;
 
-const RDS: Rds = Rds {
+const POSTGRES: Postgres = Postgres {
     migrations_dir: "src/crawler/migrations",
+    setup_script: None,
 };
 use url::Url;
 
@@ -48,7 +49,7 @@ async fn insert_domain_for_shop(
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_insert_new_url_when_url_does_not_exist() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -75,7 +76,7 @@ async fn should_insert_new_url_when_url_does_not_exist() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_update_existing_url_when_url_already_exists() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -110,7 +111,7 @@ async fn should_update_existing_url_when_url_already_exists() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_update_domain_id_when_url_is_upserted_with_different_domain() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -156,7 +157,7 @@ async fn should_update_domain_id_when_url_is_upserted_with_different_domain() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_return_error_when_domain_id_does_not_exist_for_upsert_link() {
     let pool = get_postgres_client().await;
 
@@ -185,7 +186,7 @@ async fn should_return_error_when_domain_id_does_not_exist_for_upsert_link() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -218,7 +219,7 @@ async fn should_update_last_scraped_timestamp_when_marking_as_scraped() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_update_state_when_setting_new_state() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -253,7 +254,7 @@ async fn should_update_state_when_setting_new_state() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_upsert_multiple_links_when_inserting_batch() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -302,7 +303,7 @@ async fn should_upsert_multiple_links_when_inserting_batch() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_update_domain_id_in_batch_when_url_is_upserted_under_different_domain() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -343,7 +344,7 @@ async fn should_update_domain_id_in_batch_when_url_is_upserted_under_different_d
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_return_error_when_domain_id_does_not_exist_for_upsert_links_batch() {
     let pool = get_postgres_client().await;
 
@@ -375,7 +376,7 @@ async fn should_return_error_when_domain_id_does_not_exist_for_upsert_links_batc
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_delete_urls_when_domain_is_deleted() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -431,7 +432,7 @@ async fn should_delete_urls_when_domain_is_deleted() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_delete_batch_urls_when_domain_is_deleted() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -482,7 +483,7 @@ async fn should_delete_batch_urls_when_domain_is_deleted() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_only_delete_urls_for_deleted_domain_not_sibling_domain() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
@@ -543,7 +544,7 @@ async fn should_only_delete_urls_for_deleted_domain_not_sibling_domain() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_return_empty_vec_when_batch_is_empty() {
     let pool = get_postgres_client().await;
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());

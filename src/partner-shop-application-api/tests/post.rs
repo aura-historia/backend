@@ -15,7 +15,7 @@ use test_api::*;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
 use user::service::user_service::UserServiceImpl;
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_201_when_creating_application() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

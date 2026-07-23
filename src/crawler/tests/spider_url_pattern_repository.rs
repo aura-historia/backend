@@ -6,15 +6,16 @@ use crawler::spider::classification::url_pattern_repository::{
 
 use test_api::*;
 
-const RDS: Rds = Rds {
+const POSTGRES: Postgres = Postgres {
     migrations_dir: "src/crawler/migrations",
+    setup_script: None,
 };
 
 // ---------------------------------------------------------------------------
 // find_pattern
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 #[serial_test::serial]
 async fn should_return_none_when_no_pattern_exists_for_find() {
     let pool = get_postgres_client().await;
@@ -26,7 +27,7 @@ async fn should_return_none_when_no_pattern_exists_for_find() {
     assert!(result.is_none());
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 #[serial_test::serial]
 async fn should_return_pattern_when_exists_for_find() {
     let pool = get_postgres_client().await;
@@ -51,7 +52,7 @@ async fn should_return_pattern_when_exists_for_find() {
 // save_pattern
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 #[serial_test::serial]
 async fn should_persist_and_return_pattern_for_insert() {
     let pool = get_postgres_client().await;
@@ -73,7 +74,7 @@ async fn should_persist_and_return_pattern_for_insert() {
     assert_eq!(returned.url_pattern.unwrap(), pattern);
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 #[serial_test::serial]
 async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let pool = get_postgres_client().await;
@@ -107,7 +108,7 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
     );
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 #[serial_test::serial]
 async fn should_allow_clearing_pattern() {
     let pool = get_postgres_client().await;
@@ -138,7 +139,7 @@ async fn should_allow_clearing_pattern() {
 // mark_as_crawled
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 #[serial_test::serial]
 async fn should_mark_pattern_as_crawled() {
     let pool = get_postgres_client().await;

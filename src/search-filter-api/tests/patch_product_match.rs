@@ -120,7 +120,7 @@ async fn patch_existing_match(
     (status_code, body.feedback, updated.feedback)
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_setting_search_filter_product_match_feedback_true() {
     let (status_code, response_feedback, persisted_feedback) = patch_existing_match(
         PatchUserSearchFilterMatchData {
@@ -135,7 +135,7 @@ async fn should_200_when_setting_search_filter_product_match_feedback_true() {
     assert_eq!(Some(true), persisted_feedback);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_setting_search_filter_product_match_feedback_false() {
     let (status_code, response_feedback, persisted_feedback) = patch_existing_match(
         PatchUserSearchFilterMatchData {
@@ -150,7 +150,7 @@ async fn should_200_when_setting_search_filter_product_match_feedback_false() {
     assert_eq!(Some(false), persisted_feedback);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_patching_search_filter_product_match_without_feedback() {
     let (status_code, response_feedback, persisted_feedback) =
         patch_existing_match(PatchUserSearchFilterMatchData::default(), Some(true)).await;
@@ -160,7 +160,7 @@ async fn should_200_when_patching_search_filter_product_match_without_feedback()
     assert_eq!(Some(true), persisted_feedback);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_404_when_search_filter_product_match_not_found() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

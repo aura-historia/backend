@@ -14,7 +14,7 @@ fn now() -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(OffsetDateTime::now_utc().unix_timestamp()).unwrap()
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_access_token_when_third_party_code_is_valid_for_handler() {
     let dynamodb_client = get_dynamodb_client().await;
     let oauth_repository = OAuthDynamoDbRepositoryImpl::new(dynamodb_client, "table_1");

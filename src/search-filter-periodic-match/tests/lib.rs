@@ -86,7 +86,7 @@ fn make_search_filter(user: &User, embedding: Vec<f32>) -> UserSearchFilter {
     filter
 }
 
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_persist_match_and_notification_when_periodic_matcher_uses_stored_embedding() {
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);
@@ -220,7 +220,7 @@ async fn should_persist_match_and_notification_when_periodic_matcher_uses_stored
     assert!(updated_filter.last_hybrid_search_matched > filter.last_hybrid_search_matched);
 }
 
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_not_create_match_when_periodic_matcher_filter_excludes_product_shop_name() {
     let user_repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let user_service = UserServiceImpl::new(&user_repository);

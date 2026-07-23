@@ -281,7 +281,7 @@ fn mock_notification_service_counting_calls() -> (MockNotificationService, Arc<A
 
 /// Happy path: a search-filter matches a product event → match record
 /// persisted AND notification created.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_create_match_and_notification_when_filter_matches_product() {
     let ddb = get_dynamodb_client().await;
     let os = get_opensearch_client().await;
@@ -353,7 +353,7 @@ async fn should_create_match_and_notification_when_filter_matches_product() {
 }
 
 /// Excluded shop name on the filter blocks percolation match end-to-end.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_not_create_match_or_notification_when_filter_excludes_product_shop_name() {
     let ddb = get_dynamodb_client().await;
     let os = get_opensearch_client().await;
@@ -411,7 +411,7 @@ async fn should_not_create_match_or_notification_when_filter_excludes_product_sh
 }
 
 /// No percolation match → no match records and no notifications.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_not_create_match_or_notification_when_no_filter_matches() {
     let ddb = get_dynamodb_client().await;
     let os = get_opensearch_client().await;
@@ -460,7 +460,7 @@ async fn should_not_create_match_or_notification_when_no_filter_matches() {
 }
 
 /// Inactive percolation match → no match records and no notifications.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_not_create_match_or_notification_when_only_inactive_filter_matches() {
     let ddb = get_dynamodb_client().await;
     let os = get_opensearch_client().await;
@@ -517,7 +517,7 @@ async fn should_not_create_match_or_notification_when_only_inactive_filter_match
 }
 
 /// Mixed active/inactive percolation matches → only active match record and notification.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_create_match_and_notification_only_for_active_filter_when_active_and_inactive_filters_match()
  {
     let ddb = get_dynamodb_client().await;
@@ -607,7 +607,7 @@ async fn should_create_match_and_notification_only_for_active_filter_when_active
 }
 
 /// Already-matched filter is skipped (dedup) → no duplicate match or notification.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_skip_already_matched_filter_for_same_product() {
     let ddb = get_dynamodb_client().await;
     let os = get_opensearch_client().await;
@@ -675,7 +675,7 @@ async fn should_skip_already_matched_filter_for_same_product() {
 }
 
 /// Quota exceeded → match record IS created but notification is NOT.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_create_match_but_not_notification_when_quota_exceeded() {
     use search_filter::core::quota::SearchFilterQuota;
     use user::core::tier::UserTier;
@@ -746,7 +746,7 @@ async fn should_create_match_but_not_notification_when_quota_exceeded() {
 
 /// Two filters for different users: one below quota, one above quota.
 /// Both get match records, only the below-quota user gets a notification.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_create_matches_for_both_and_notification_only_for_quota_eligible_user() {
     use search_filter::core::quota::SearchFilterQuota;
     use user::core::tier::UserTier;
@@ -827,7 +827,7 @@ async fn should_create_matches_for_both_and_notification_only_for_quota_eligible
 }
 
 /// Invalid SQS message body → batch item failure, no match or notification.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_return_batch_failure_when_sqs_message_body_invalid() {
     let ddb = get_dynamodb_client().await;
     let os = get_opensearch_client().await;
@@ -866,7 +866,7 @@ async fn should_return_batch_failure_when_sqs_message_body_invalid() {
 }
 
 /// Empty SQS batch → no failures, no processing.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_succeed_when_sqs_batch_is_empty() {
     let ddb = get_dynamodb_client().await;
     let os = get_opensearch_client().await;
@@ -902,7 +902,7 @@ async fn should_succeed_when_sqs_batch_is_empty() {
 
 /// Enrichment event (e.g. ENRICHMENT_EMBEDDED) in DynamoDB stream → processed without failure.
 /// No search filters → no matches, no notifications.
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_process_enrichment_event_without_failure_when_in_stream() {
     let ddb = get_dynamodb_client().await;
     let os = get_opensearch_client().await;

@@ -22,7 +22,7 @@ async fn get_repository() -> ShopOpenSearchRepositoryImpl<'static> {
     ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await)
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_index_shop_document_when_not_exists() {
     let repository = get_repository().await;
     let expected = Faker.fake::<ShopDocument>();
@@ -39,7 +39,7 @@ async fn should_index_shop_document_when_not_exists() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_when_only_name_query_supplied() {
     let repository = get_repository().await;
     let expected = Faker.fake::<ShopDocument>();
@@ -131,7 +131,7 @@ async fn should_search_shop_documents_when_only_name_query_supplied() {
         order: SortOrder::Desc,
     },
 )]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_for_arguments(
     #[case] search: ShopSearch,
     #[case] sort: Sort<SortShopField>,
@@ -163,7 +163,7 @@ async fn should_search_shop_documents_for_arguments(
     assert!(actual.hits.hits.iter().any(|hit| hit.source == expected));
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_update_shop_document_for_index() {
     let repository = get_repository().await;
     let create_expected = Faker.fake::<ShopDocument>();
@@ -222,7 +222,7 @@ async fn should_update_shop_document_for_index() {
     assert_eq!(updated_expected, updated);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_update_shop_document_for_update() {
     let repository = get_repository().await;
     let create_expected = Faker.fake::<ShopDocument>();
@@ -263,7 +263,7 @@ async fn should_update_shop_document_for_update() {
     assert_eq!(update.updated, updated.updated);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_when_no_filters() {
     let repository = get_repository().await;
 
@@ -299,7 +299,7 @@ async fn should_search_shop_documents_when_no_filters() {
 #[test_attr(apply(test))]
 #[case(&[shop::core::shop_type::ShopType::AuctionHouse])]
 #[case(&[shop::core::shop_type::ShopType::AuctionHouse, shop::core::shop_type::ShopType::Marketplace])]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_when_shop_types_are_given(
     #[case] shop_types: &[shop::core::shop_type::ShopType],
 ) {
@@ -348,7 +348,7 @@ async fn should_search_shop_documents_when_shop_types_are_given(
 #[case(&[shop::core::partner_status::ShopPartnerStatus::Partnered])]
 #[case(&[shop::core::partner_status::ShopPartnerStatus::Scraped])]
 #[case(&[shop::core::partner_status::ShopPartnerStatus::Partnered, shop::core::partner_status::ShopPartnerStatus::Scraped])]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_when_partner_status_is_given(
     #[case] partner_statuses: &[shop::core::partner_status::ShopPartnerStatus],
 ) {
@@ -401,7 +401,7 @@ async fn should_search_shop_documents_when_partner_status_is_given(
 #[test_attr(apply(test))]
 #[case(&[isocountry::CountryCode::DEU])]
 #[case(&[isocountry::CountryCode::DEU, isocountry::CountryCode::USA])]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_when_countries_are_given(
     #[case] countries: &[isocountry::CountryCode],
 ) {
@@ -464,7 +464,7 @@ async fn should_search_shop_documents_when_countries_are_given(
 #[test_attr(apply(test))]
 #[case(&[shop::core::continent::Continent::Europe])]
 #[case(&[shop::core::continent::Continent::Europe, shop::core::continent::Continent::NorthAmerica])]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_shop_documents_when_continents_are_given(
     #[case] continents: &[shop::core::continent::Continent],
 ) {

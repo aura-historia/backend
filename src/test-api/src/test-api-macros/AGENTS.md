@@ -7,6 +7,7 @@
 ## Core Design
 
 - Macros for test-api helpers and fixtures.
+- `#[aura_integration_test]` is primary integration-test macro
 - Macro helper crate. Keep expansion surface tiny and obvious.
 
 ## Ownership

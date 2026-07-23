@@ -12,6 +12,7 @@ import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import { ssmValue } from "../config";
 import type { Search } from "./opensearch";
+import type { PostgresConnectionSettings } from "./storage";
 
 const IMAGE_REPOSITORY_NAME = "aura-historia-search-filter-periodic-match";
 const IMAGE_NAME = "search-filter-periodic-match";
@@ -21,6 +22,7 @@ export interface PeriodicSearchFilterMatchingProps {
   readonly config: StageConfig;
   readonly commitSha: string;
   readonly table: dynamodb.Table;
+  readonly postgres: PostgresConnectionSettings;
   readonly mailTemplateBucket: s3.IBucket;
   readonly search: Search;
 }
@@ -79,7 +81,7 @@ export class PeriodicSearchFilterMatching extends Construct {
         logGroup,
         streamPrefix: IMAGE_NAME,
       }),
-      environment: withOpenSearchCredentials(props.config, {
+      environment: withPostgresEnvironment(props.postgres, withOpenSearchCredentials(props.config, {
         COMMIT_SHA: props.commitSha,
         DYNAMODB_TABLE_NAME: props.table.tableName,
         GEMINI_API_KEY: ssmSecret(props.config, "gemini-api-key"),
@@ -88,7 +90,7 @@ export class PeriodicSearchFilterMatching extends Construct {
         PERIODIC_MATCH_LLM_CONCURRENCY: "50",
         S3_BUCKET_NAME_TEMPLATES: props.mailTemplateBucket.bucketName,
         STAGE_NAME: stageName,
-      }),
+      })),
     });
 
     new events.Rule(this, "Schedule", {
@@ -108,6 +110,18 @@ export class PeriodicSearchFilterMatching extends Construct {
       ],
     });
   }
+}
+
+function withPostgresEnvironment(postgres: PostgresConnectionSettings, env: Record<string, string>): Record<string, string> {
+  return {
+    ...env,
+    POSTGRES_DATABASE: postgres.database,
+    POSTGRES_HOST: postgres.host,
+    POSTGRES_MAX_CONNECTIONS: postgres.maxConnections,
+    POSTGRES_PASSWORD: postgres.password,
+    POSTGRES_PORT: postgres.port,
+    POSTGRES_USERNAME: postgres.username,
+  };
 }
 
 function withOpenSearchCredentials(config: StageConfig, env: Record<string, string>): Record<string, string> {

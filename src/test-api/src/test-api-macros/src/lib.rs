@@ -3,21 +3,21 @@ use quote::quote;
 use syn::spanned::Spanned;
 use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 
-/// Attribute macro for running async integration tests with LocalStack services.
+/// Attribute macro for running async integration tests with Aura test services.
 ///
 /// This macro wraps an async test function and automatically:
 /// - Parses the `services = [ServiceA, ServiceB, ...]` attribute
-/// - Spins up LocalStack with only the specified services
+/// - Spins up LocalStack with only the specified LocalStack services
 /// - Calls each service's `set_up().await` before the test
 /// - Executes the test body
 /// - Calls each service's `tear_down().await` after the test
-/// - Shuts down LocalStack at the end
+/// - Keeps non-LocalStack services, like Postgres, managed by their service helper
 ///
 /// # Requirements
 ///
 /// Each service provided:
 /// - must be a valid identifier for a type implementing trait `IntegrationTestService`
-/// - must define a constant `SERVICE_NAME: &str` who corresponds to a valid service-name for LocalStack
+/// - must return LocalStack service names from `service_names()` or `&[]` for non-LocalStack services
 /// - must define an `async fn set_up()`
 /// - may define an `async fn tear_down()`
 ///
@@ -27,7 +27,9 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 /// pub struct S3;
 ///
 /// impl S3 {
-///     pub const SERVICE_NAME: &'static str = "s3";
+///     pub fn service_names() -> &'static [&'static str] {
+///         "s3"
+///     }
 ///
 ///     pub async fn set_up() {
 ///         // setup logic
@@ -50,7 +52,7 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 /// - [`test_api::localstack::spin_up_localstack_with_services`] for how LocalStack is started.
 ///
 #[proc_macro_attribute]
-pub fn localstack_test(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
     let attr_expr = attr.to_string();
 

@@ -1,10 +1,10 @@
 use opensearch::indices::IndicesExistsParts;
 use test_api::*;
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_run_without_errors() {}
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_set_up_indices() {
     for index in ["products", "shops", "user_search_filters", "users"] {
         let exists_response = get_opensearch_client()

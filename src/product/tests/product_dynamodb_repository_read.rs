@@ -14,7 +14,7 @@ mod get_product_record {
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_nothing_for_get_product_record_when_table_is_empty() {
         let repository = get_repository().await;
         let actual = repository
@@ -25,7 +25,7 @@ mod get_product_record {
         assert!(actual.is_none());
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_product_record_for_get_product_record_when_exists() {
         let expected = Faker.fake::<ProductRecord>();
 
@@ -48,7 +48,7 @@ mod get_product_record {
         assert_eq!(expected, actual.unwrap());
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_nothing_for_get_product_record_when_only_others_exist() {
         let other = Faker.fake::<ProductRecord>();
 
@@ -70,7 +70,7 @@ mod get_product_record {
         assert!(actual.is_none());
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_nothing_for_get_product_record_when_only_others_exist_mix() {
         let other1 = Faker.fake::<ProductRecord>();
         let other2 = Faker.fake::<ProductDomainEventRecord>();
@@ -122,7 +122,7 @@ mod query_product_record_and_event_records {
     use test_api::*;
     use time::OffsetDateTime;
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_none_when_partition_empty() {
         let repository = get_repository().await;
 
@@ -134,7 +134,7 @@ mod query_product_record_and_event_records {
         assert!(actual.is_none())
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_none_when_events_exist_but_materialized_does_not() {
         let event: ProductDomainEventRecord = ProductDomainEvent {
             aggregate_id: Default::default(),
@@ -158,7 +158,7 @@ mod query_product_record_and_event_records {
         assert!(actual.is_none())
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_some_when_materialized_exists_but_events_do_not() {
         let expected = Faker.fake::<ProductRecord>();
         let repository = get_repository().await;
@@ -181,7 +181,7 @@ mod query_product_record_and_event_records {
         assert!(events.is_empty())
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_some_when_materialized_and_events_exist() {
         let expected_materialized = Faker.fake::<ProductRecord>();
         let repository = get_repository().await;
@@ -265,7 +265,7 @@ mod query_product_record_and_event_records {
         assert_eq!(2, actual_events.len());
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_oldest_event_first() {
         let expected_materialized = Faker.fake::<ProductRecord>();
         let repository = get_repository().await;
@@ -376,7 +376,7 @@ mod batch_get_product_records {
     use time::OffsetDateTime;
     use url::Url;
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_product_records_for_batch_get_product_records_when_all_exist() {
         let repository = get_repository().await;
         let shop_id = ShopId::new();
@@ -524,7 +524,7 @@ mod batch_get_product_records {
         assert_eq!(actuals.items, expecteds);
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_product_records_for_batch_get_product_records_when_some_do_not_exist() {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
@@ -672,7 +672,7 @@ mod batch_get_product_records {
         assert_eq!(actuals.items, expecteds);
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_product_records_for_batch_get_product_records_when_more_than_100_exist()
     {
         let client = get_dynamodb_client().await;
@@ -843,7 +843,7 @@ mod batch_exist_product_records {
     use time::OffsetDateTime;
     use url::Url;
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_product_keys_for_batch_exist_product_records_when_all_exist() {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
@@ -989,7 +989,7 @@ mod batch_exist_product_records {
         assert_eq!(actuals.items, expecteds);
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_product_keys_for_batch_exist_product_records_when_some_do_not_exist() {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
@@ -1135,7 +1135,7 @@ mod batch_exist_product_records {
         assert_eq!(actuals.items, expecteds);
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_product_keys_for_batch_exist_product_records_when_more_than_100_exist() {
         let client = get_dynamodb_client().await;
         let shop_id = ShopId::new();
@@ -1301,7 +1301,7 @@ mod get_product_id {
     use time::OffsetDateTime;
     use url::Url;
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_product_id_for_get_product_id_when_exists() {
         let now = OffsetDateTime::now_utc();
         let shop_id = ShopId::new();
@@ -1431,7 +1431,7 @@ mod get_product_id {
         assert_eq!(product_id, actual.unwrap());
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_nothing_for_get_product_id_when_only_others_exist() {
         let now = OffsetDateTime::now_utc();
         let shop_id = ShopId::new();
@@ -1570,7 +1570,7 @@ mod query_product_key {
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_product_key_for_query_product_key_when_exists() {
         let record = Faker.fake::<ProductRecord>();
         get_dynamodb_client()
@@ -1620,7 +1620,7 @@ mod query_product_event_records {
     use test_api::*;
     use time::OffsetDateTime;
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_empty_vec_when_partition_empty() {
         let repository = get_repository().await;
 
@@ -1632,7 +1632,7 @@ mod query_product_event_records {
         assert!(actual.is_empty())
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_oldest_event_first() {
         let repository = get_repository().await;
 
@@ -1731,7 +1731,7 @@ mod query_product_enrichment_event_records {
     use product::dynamodb::repository::ProductDynamoDbRepository;
     use test_api::*;
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_empty_vec_when_partition_empty() {
         let repository = get_repository().await;
 
@@ -1743,7 +1743,7 @@ mod query_product_enrichment_event_records {
         assert!(actual.is_empty())
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_enrichment_event_records_when_they_exist() {
         let repository = get_repository().await;
 
@@ -1773,7 +1773,7 @@ mod query_product_enrichment_event_records {
         assert_eq!(2, actual.len());
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_return_enrichment_event_type_when_record_exists() {
         let repository = get_repository().await;
 
@@ -1798,7 +1798,7 @@ mod query_product_enrichment_event_records {
         );
     }
 
-    #[localstack_test(services = [DynamoDB()])]
+    #[aura_integration_test(services = [DynamoDB()])]
     async fn should_not_return_records_for_different_product() {
         let repository = get_repository().await;
 

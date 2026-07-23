@@ -27,7 +27,7 @@ use user::dynamodb::repository::{UserDynamoDbRepository, UserDynamoDbRepositoryI
 use user::dynamodb::user_record::UserRecord;
 use user::service::user_service::UserServiceImpl;
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_201_when_new_watchlist_entry_would_reach_quota() {
     let client = get_dynamodb_client().await;
     let mut user_record = Faker.fake::<UserRecord>();
@@ -137,7 +137,7 @@ async fn should_201_when_new_watchlist_entry_would_reach_quota() {
     assert_eq!(201, response.status_code);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_422_when_new_watchlist_entry_would_exceed_quota() {
     let client = get_dynamodb_client().await;
     let mut user_record = Faker.fake::<UserRecord>();

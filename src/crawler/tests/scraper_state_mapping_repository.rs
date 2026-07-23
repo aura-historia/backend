@@ -7,8 +7,9 @@ use product::dynamodb::product_state_record::ProductStateRecord;
 use test_api::*;
 use time::OffsetDateTime;
 
-const RDS: Rds = Rds {
+const POSTGRES: Postgres = Postgres {
     migrations_dir: "src/crawler/migrations",
+    setup_script: None,
 };
 
 fn make_record(
@@ -30,7 +31,7 @@ fn make_record(
 // find_mapping
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_return_none_when_no_mapping_exists_for_find() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -43,7 +44,7 @@ async fn should_return_none_when_no_mapping_exists_for_find() {
     assert!(result.is_none());
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_return_mapping_when_exists_for_find() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -66,7 +67,7 @@ async fn should_return_mapping_when_exists_for_find() {
     assert_eq!(result.mapping_type, StateMappingType::Value);
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_return_none_for_unknown_raw_when_other_mappings_exist_for_find() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -83,7 +84,7 @@ async fn should_return_none_for_unknown_raw_when_other_mappings_exist_for_find()
     assert!(result.is_none());
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_find_seed_data_value_mappings_for_find() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -96,7 +97,7 @@ async fn should_find_seed_data_value_mappings_for_find() {
     assert_eq!(result.mapping_type, StateMappingType::Value);
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_find_seed_data_regex_mappings_for_find() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -116,7 +117,7 @@ async fn should_find_seed_data_regex_mappings_for_find() {
 // insert_mapping
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_persist_and_return_value_mapping_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -133,7 +134,7 @@ async fn should_persist_and_return_value_mapping_for_insert() {
     assert_eq!(returned.mapping_type, StateMappingType::Value);
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_persist_and_return_regex_mapping_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -150,7 +151,7 @@ async fn should_persist_and_return_regex_mapping_for_insert() {
     assert_eq!(returned.mapping_type, StateMappingType::Regex);
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_preserve_created_and_updated_timestamps_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -176,7 +177,7 @@ async fn should_preserve_created_and_updated_timestamps_for_insert() {
     );
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_allow_inserting_mappings_for_different_raw_values_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -200,7 +201,7 @@ async fn should_allow_inserting_mappings_for_different_raw_values_for_insert() {
     assert_eq!(result_b.mapping_type, StateMappingType::Regex);
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_fail_when_inserting_duplicate_raw_value_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -229,7 +230,7 @@ async fn should_fail_when_inserting_duplicate_raw_value_for_insert() {
     }
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_persist_all_product_state_variants_for_insert() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -261,7 +262,7 @@ async fn should_persist_all_product_state_variants_for_insert() {
 // update_mapping
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_replace_normalized_and_refresh_updated_timestamp_for_update() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -297,7 +298,7 @@ async fn should_replace_normalized_and_refresh_updated_timestamp_for_update() {
     );
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_update_mapping_type_from_value_to_regex_for_update() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -321,7 +322,7 @@ async fn should_update_mapping_type_from_value_to_regex_for_update() {
     assert_eq!(returned.mapping_type, StateMappingType::Regex);
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_persist_updated_mapping_so_find_returns_new_value_for_update() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -347,7 +348,7 @@ async fn should_persist_updated_mapping_so_find_returns_new_value_for_update() {
     assert_eq!(found.normalized, ProductStateRecord::Removed);
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_return_row_not_found_when_updating_non_existent_raw_value_for_update() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -367,7 +368,7 @@ async fn should_return_row_not_found_when_updating_non_existent_raw_value_for_up
     );
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_only_update_targeted_raw_value_and_leave_others_intact_for_update() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);
@@ -404,7 +405,7 @@ async fn should_only_update_targeted_raw_value_and_leave_others_intact_for_updat
 // round-trip (insert → find → update → find)
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_preserve_all_fields_across_full_round_trip_for_repository() {
     let pool = get_postgres_client().await;
     let repository = ProductStateMappingRepositoryImpl::new(&pool);

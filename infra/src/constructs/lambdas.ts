@@ -9,12 +9,14 @@ import { ssmValue } from "../config";
 import type { ApplicationParameters } from "../parameters";
 import type { Search } from "./opensearch";
 import type { QueueCatalog } from "./queues";
+import type { PostgresConnectionSettings } from "./storage";
 
 interface LambdaEnvironmentContext {
   readonly config: StageConfig;
   readonly commitSha: string;
   readonly mailTemplateBucket: s3.IBucket;
   readonly table: dynamodb.Table;
+  readonly postgres: PostgresConnectionSettings;
   readonly queues: QueueCatalog;
   readonly search: Search;
 }
@@ -25,6 +27,7 @@ interface LambdaDefinition {
   readonly memorySize: number;
   readonly timeoutSeconds: number;
   readonly skipEphemeral?: boolean;
+  readonly postgres?: boolean;
   readonly environment?: (context: LambdaEnvironmentContext) => Record<string, string>;
 }
 
@@ -74,6 +77,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "OAuthApiLambda",
     binaryName: "oauth-api",
     memorySize: 128,
+    postgres: true,
     timeoutSeconds: 10,
     environment: (context) => withLocalStackPort(context.config, stageEnvironment(context)),
   },
@@ -81,6 +85,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "PartnerShopApplicationApiLambda",
     binaryName: "partner-shop-application-api",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 10,
     environment: stageEnvironment,
   },
@@ -88,6 +93,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "PartnerShopApplicationStepFunctionLambda",
     binaryName: "partner-shop-application-lambda",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 30,
     environment: (context) => ({
       ...baseEnvironment(context),
@@ -101,12 +107,14 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "PrimaryUserPoolPostConfirmationLambda",
     binaryName: "cognito-post-confirmation",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 5,
   },
   productApi: {
     id: "ProductApiLambda",
     binaryName: "product-api",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 10,
     environment: (context) =>
       withLocalStackPort(
@@ -125,6 +133,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "ProductApiPartnerLambda",
     binaryName: "product-api-partner",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 10,
     environment: (context) =>
       withLocalStackPort(
@@ -147,6 +156,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "ProductMaterializeOpenSearchLambda",
     binaryName: "product-lambda-materialize-opensearch",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 60,
     environment: (context) =>
       withLocalStackPort(
@@ -162,6 +172,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "ProductDeleteProductLambda",
     binaryName: "product-lambda-delete-product",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 60,
     environment: (context) =>
       withLocalStackPort(
@@ -177,6 +188,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "ProductPartnerIngestLambda",
     binaryName: "product-lambda-ingest-partner-products",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 30,
     environment: (context) =>
       withLocalStackPort(
@@ -222,6 +234,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "ProductWatchlistApiLambda",
     binaryName: "product-watchlist-api",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 10,
     environment: stageEnvironment,
   },
@@ -229,6 +242,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "SearchFilterApiLambda",
     binaryName: "search-filter-api",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 10,
     environment: (context) =>
       withLocalStackPort(
@@ -248,6 +262,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "SearchFilterOpenSearchSyncLambda",
     binaryName: "search-filter-lambda-opensearch-sync",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 60,
     environment: (context) =>
       withLocalStackPort(
@@ -263,6 +278,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "SearchFilterPercolateProductLambda",
     binaryName: "search-filter-lambda-percolate-product",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 60,
     environment: (context) =>
       withLocalStackPort(
@@ -281,6 +297,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "ShopApiLambda",
     binaryName: "shop-api",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 10,
     environment: (context) =>
       withLocalStackPort(
@@ -297,6 +314,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "ShopOpenSearchIndexLambda",
     binaryName: "shop-lambda-opensearch-index",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 30,
     environment: openSearchWorkerEnvironment,
   },
@@ -304,6 +322,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "ShopifyLambda",
     binaryName: "shopify-lambda",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 30,
     environment: (context) =>
       withOpenSearchCredentials(context.config, {
@@ -346,6 +365,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "UserApiLambda",
     binaryName: "user-api",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 10,
     environment: (context) =>
       withLocalStackPort(
@@ -364,6 +384,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "UserOpenSearchIndexLambda",
     binaryName: "user-lambda-index-opensearch",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 30,
     environment: openSearchWorkerEnvironment,
   },
@@ -371,12 +392,14 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "UserTierUpdateLambda",
     binaryName: "user-lambda-tier-update",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 30,
   },
   webhookApi: {
     id: "WebhookApiLambda",
     binaryName: "webhook-api",
     memorySize: 512,
+    postgres: true,
     timeoutSeconds: 10,
     environment: (context) =>
       withLocalStackPort(
@@ -420,6 +443,7 @@ export interface LambdasProps {
   readonly artifactBucket: s3.IBucket;
   readonly mailTemplateBucket: s3.IBucket;
   readonly table: dynamodb.Table;
+  readonly postgres: PostgresConnectionSettings;
   readonly queues: QueueCatalog;
   readonly search: Search;
 }
@@ -436,6 +460,7 @@ export class Lambdas extends Construct {
       commitSha: props.parameters.commitSha,
       mailTemplateBucket: props.mailTemplateBucket,
       table: props.table,
+      postgres: props.postgres,
       queues: props.queues,
       search: props.search,
     };
@@ -457,7 +482,7 @@ export class Lambdas extends Construct {
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         ephemeralStorageSize: cdk.Size.mebibytes(512),
-        environment: definition.environment?.(environmentContext) ?? baseEnvironment(environmentContext),
+        environment: lambdaEnvironment(definition, environmentContext),
       });
     }
 
@@ -466,9 +491,26 @@ export class Lambdas extends Construct {
   }
 }
 
+function lambdaEnvironment(definition: LambdaDefinition, context: LambdaEnvironmentContext): Record<string, string> {
+  const env = definition.environment?.(context) ?? baseEnvironment(context);
+  return definition.postgres ? withPostgresEnvironment(context, env) : env;
+}
+
 function baseEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
     DYNAMODB_TABLE_NAME: context.table.tableName,
+  };
+}
+
+function withPostgresEnvironment(context: LambdaEnvironmentContext, env: Record<string, string>): Record<string, string> {
+  return {
+    ...env,
+    POSTGRES_DATABASE: context.postgres.database,
+    POSTGRES_HOST: context.postgres.host,
+    POSTGRES_MAX_CONNECTIONS: context.postgres.maxConnections,
+    POSTGRES_PASSWORD: context.postgres.password,
+    POSTGRES_PORT: context.postgres.port,
+    POSTGRES_USERNAME: context.postgres.username,
   };
 }
 

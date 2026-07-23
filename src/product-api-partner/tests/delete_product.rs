@@ -94,7 +94,7 @@ fn make_event(
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_204_and_mark_product_deleted_when_product_exists() {
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -138,7 +138,7 @@ async fn should_return_204_and_mark_product_deleted_when_product_exists() {
     assert_eq!(ProductLifecycleRecord::Deleted, deleted.lifecycle);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_404_when_product_does_not_exist_for_delete() {
     let product_repository =
         ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

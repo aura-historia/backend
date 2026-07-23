@@ -28,7 +28,7 @@ fn sqs_event(command: AsyncProductCommandData) -> LambdaEvent<SqsEvent> {
     LambdaEvent::new(event, Context::default())
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_create_product_when_create_command_is_received_for_partner_ingest_lambda() {
     let ddb_client = get_dynamodb_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -86,7 +86,7 @@ async fn should_create_product_when_create_command_is_received_for_partner_inges
     assert!(product.is_some());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_update_product_when_update_command_is_received_for_partner_ingest_lambda() {
     let ddb_client = get_dynamodb_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -215,7 +215,7 @@ async fn should_update_product_when_update_command_is_received_for_partner_inges
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_create_product_when_upsert_command_is_received_for_new_product_for_partner_ingest_lambda()
  {
     let ddb_client = get_dynamodb_client().await;
@@ -323,7 +323,7 @@ async fn should_create_product_when_upsert_command_is_received_for_new_product_f
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_update_existing_product_when_upsert_command_is_received_for_partner_ingest_lambda()
 {
     let ddb_client = get_dynamodb_client().await;

@@ -19,7 +19,7 @@ async fn get_repository() -> ShopDynamoDbRepositoryImpl<'static> {
     ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_shop_record_not_exists_for_get_by_id() {
     let repository = get_repository().await;
 
@@ -28,7 +28,7 @@ async fn should_return_none_when_shop_record_not_exists_for_get_by_id() {
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_shop_record_not_exists_for_query_shop_id() {
     let repository = get_repository().await;
 
@@ -37,7 +37,7 @@ async fn should_return_none_when_shop_record_not_exists_for_query_shop_id() {
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_some_when_shop_record_exists_for_get_by_id() {
     let repository = get_repository().await;
 
@@ -52,7 +52,7 @@ async fn should_return_some_when_shop_record_exists_for_get_by_id() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_some_when_shop_record_exists_for_query_shop_id() {
     let repository = get_repository().await;
 
@@ -67,7 +67,7 @@ async fn should_return_some_when_shop_record_exists_for_query_shop_id() {
     assert_eq!(expected.shop_id, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_some_when_shop_record_exists_for_query_shop_by_shopify_domain() {
     let repository = get_repository().await;
 
@@ -87,7 +87,7 @@ async fn should_return_some_when_shop_record_exists_for_query_shop_by_shopify_do
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_shop_record_not_exists_for_update_shop_record() {
     let repository = get_repository().await;
     let update = ShopRecordUpdate {
@@ -105,7 +105,7 @@ async fn should_return_none_when_shop_record_not_exists_for_update_shop_record()
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_updated_record_when_updating_many_fields_for_update_shop_record() {
     let repository = get_repository().await;
     let initial = ShopRecord::from(Faker.fake::<Shop>());
@@ -143,7 +143,7 @@ async fn should_return_updated_record_when_updating_many_fields_for_update_shop_
     assert_eq!(result.updated, updated_at);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_preserve_unchanged_fields_when_updating_only_timestamp_for_update_shop_record() {
     let repository = get_repository().await;
     let initial = ShopRecord::from(Faker.fake::<Shop>());
@@ -171,7 +171,7 @@ async fn should_preserve_unchanged_fields_when_updating_only_timestamp_for_updat
     assert_eq!(result.updated, updated_at);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_all_records_when_all_exist_for_get_shop_records() {
     let repository = get_repository().await;
     let record1 = ShopRecord::from(Faker.fake::<Shop>());
@@ -194,7 +194,7 @@ async fn should_return_all_records_when_all_exist_for_get_shop_records() {
     assert_eq!(result.items, expected);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_only_existing_records_when_some_do_not_exist_for_get_shop_records() {
     let repository = get_repository().await;
     let record1 = ShopRecord::from(Faker.fake::<Shop>());
@@ -224,7 +224,7 @@ async fn should_return_only_existing_records_when_some_do_not_exist_for_get_shop
     assert_eq!(result.items, expected);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_raw_shop_name_record_not_exists_for_get_raw_shop_name_record() {
     let repository = get_repository().await;
 
@@ -236,7 +236,7 @@ async fn should_return_none_when_raw_shop_name_record_not_exists_for_get_raw_sho
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_some_when_raw_shop_name_record_exists_for_get_raw_shop_name_record() {
     let repository = get_repository().await;
 
@@ -254,7 +254,7 @@ async fn should_return_some_when_raw_shop_name_record_exists_for_get_raw_shop_na
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_different_raw_shop_name_not_exists_for_get_raw_shop_name_record() {
     let repository = get_repository().await;
 

@@ -124,19 +124,17 @@ pub async fn get_postgres_client() -> PgPool {
     pool
 }
 
-/// Test helper representing a plain Postgres (RDS-compatible) database for integration tests.
+/// Test helper representing a plain Postgres database for integration tests.
 ///
-/// Unlike the other [`IntegrationTestService`] implementations this helper does **not** use
-/// LocalStack. It spins up a real Postgres Docker container via [`testcontainers`] and manages
-/// it independently.
+/// Unlike AWS service helpers this helper does **not** use LocalStack. It spins up a real
+/// Postgres Docker container via [`testcontainers`] and manages it independently.
 ///
 /// # Lifecycle
 ///
 /// - **Before each test** (`set_up`): Starts the Postgres container (once per process), then
-///   opens a fresh connection and runs every `*.sql` file found in `migrations_dir` in
-///   lexicographic (filename) order — mirroring exactly what `sqlx::migrate!` does at runtime.
-///   All migration files use `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` guards,
-///   making the setup idempotent across tests in the same suite.
+///   opens a fresh connection, runs every `*.sql` file found in `migrations_dir` in
+///   lexicographic (filename) order — mirroring exactly what `sqlx::migrate!` does at runtime —
+///   then runs `setup_script` when supplied.
 /// - **After each test** (`tear_down`): Opens a fresh connection and truncates every user
 ///   table in the `public` schema so that each test starts with a clean slate. Table
 ///   definitions (DDL) are preserved.
@@ -154,9 +152,9 @@ pub async fn get_postgres_client() -> PgPool {
 /// ```rust
 /// use test_api::*;
 ///
-/// const RDS: Rds = Rds { migrations_dir: "src/my-crate/migrations" };
+/// const POSTGRES: Postgres = Postgres::new("src/my-crate/migrations");
 ///
-/// #[localstack_test(services = [RDS])]
+/// #[aura_integration_test(services = [POSTGRES])]
 /// async fn should_insert_and_read_row() {
 ///     let pool = get_postgres_client().await;
 ///     sqlx::query("INSERT INTO items (id) VALUES (1)").execute(pool).await.unwrap();
@@ -166,22 +164,43 @@ pub async fn get_postgres_client() -> PgPool {
 /// # Notes
 ///
 /// - `service_names` returns `&[]` because Postgres is not a LocalStack service. The
-///   `#[localstack_test]` macro will still start LocalStack if other services in the same
+///   `#[aura_integration_test]` macro will still start LocalStack if other services in the same
 ///   test require it.
 /// - The container is shared across all tests within the same test-suite binary. Only the
 ///   data is reset between tests.
 /// - Adding a new migration file to `migrations_dir` is automatically picked up by all tests
 ///   — no changes to test code required.
-#[derive(Debug)]
-pub struct Rds {
+#[derive(Debug, Clone, Copy)]
+pub struct Postgres {
     /// Path to the directory containing versioned `*.sql` migration files, relative to the
     /// workspace root. Files are executed in lexicographic (filename) order, matching the
     /// ordering used by `sqlx::migrate!` at runtime.
     pub migrations_dir: &'static str,
+    /// Optional SQL file, relative to workspace root, run after migrations and before the test.
+    pub setup_script: Option<&'static str>,
+}
+
+impl Postgres {
+    pub const fn new(migrations_dir: &'static str) -> Self {
+        Self {
+            migrations_dir,
+            setup_script: None,
+        }
+    }
+
+    pub const fn with_setup_script(
+        migrations_dir: &'static str,
+        setup_script: &'static str,
+    ) -> Self {
+        Self {
+            migrations_dir,
+            setup_script: Some(setup_script),
+        }
+    }
 }
 
 #[async_trait]
-impl IntegrationTestService for Rds {
+impl IntegrationTestService for Postgres {
     /// Returns an empty slice because Postgres is managed independently of LocalStack.
     fn service_names(&self) -> &'static [&'static str] {
         &[]
@@ -228,6 +247,23 @@ impl IntegrationTestService for Rds {
             });
 
             debug!(path = %path.display(), "Applied migration file.");
+        }
+
+        if let Some(setup_script) = self.setup_script {
+            let script_path = Path::new(workspace_root).join(setup_script);
+            let sql = std::fs::read_to_string(&script_path).unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read setup script '{}': {e}",
+                    script_path.display()
+                )
+            });
+            conn.execute(sqlx::raw_sql(&sql)).await.unwrap_or_else(|e| {
+                panic!(
+                    "Failed to execute setup script '{}': {e}",
+                    script_path.display()
+                )
+            });
+            debug!(path = %script_path.display(), "Applied setup script.");
         }
 
         debug!(

@@ -18,7 +18,7 @@ async fn get_repository() -> PartnerShopApplicationDynamoDbRepositoryImpl<'stati
     PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_put_partner_shop_application_record() {
     let repository = get_repository().await;
 
@@ -37,7 +37,7 @@ fn should_put_partner_shop_application_record() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_return_none_when_partner_shop_application_record_not_exists() {
     let repository = get_repository().await;
 
@@ -49,7 +49,7 @@ fn should_return_none_when_partner_shop_application_record_not_exists() {
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_update_partner_shop_application_record_state() {
     let repository = get_repository().await;
 
@@ -100,7 +100,7 @@ fn should_update_partner_shop_application_record_state() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_delete_partner_shop_application_record() {
     let repository = get_repository().await;
 
@@ -128,7 +128,7 @@ fn should_delete_partner_shop_application_record() {
     assert!(after.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_all_partner_shop_application_records() {
     let repository = get_repository().await;
 
@@ -148,7 +148,7 @@ fn should_query_all_partner_shop_application_records() {
     assert!(actual.len() >= 5);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_all_returns_records_when_exist() {
     let repository = get_repository().await;
 
@@ -162,7 +162,7 @@ fn should_query_all_returns_records_when_exist() {
     let _ = actual;
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_put_and_get_multiple_records_for_same_user() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -186,7 +186,7 @@ fn should_put_and_get_multiple_records_for_same_user() {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_all_partner_shop_application_records_by_user() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -212,7 +212,7 @@ fn should_query_all_partner_shop_application_records_by_user() {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_return_empty_when_querying_by_user_with_no_records() {
     let repository = get_repository().await;
 

@@ -42,7 +42,7 @@ async fn create_admin_user(user_service: &impl UserService) -> UserId {
     user_id
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_respond_application_by_id_for_admin() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

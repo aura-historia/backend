@@ -23,7 +23,7 @@ use product_api::get_product_history::handle;
 use std::time::{Duration, SystemTime};
 use test_api::*;
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_respond_200() {
     let ddb_client = get_dynamodb_client().await;
     let product_repository = ProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");

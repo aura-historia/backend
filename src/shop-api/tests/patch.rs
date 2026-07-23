@@ -85,7 +85,7 @@ async fn seed_partner_user_with_token(
     (user_id, raw_token)
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_respond_updated_shop_when_admin_patches_shop() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);
@@ -127,7 +127,7 @@ async fn should_200_respond_updated_shop_when_admin_patches_shop() {
     assert_eq!(200, response.status_code);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_respond_updated_shop_when_partner_patches_shop() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);
@@ -175,7 +175,7 @@ async fn should_200_respond_updated_shop_when_partner_patches_shop() {
     assert_eq!(200, response.status_code);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_respond_updated_shop_when_access_token_patches_shop() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);

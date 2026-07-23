@@ -1194,7 +1194,7 @@ async fn wait_until_log_retention_is_set(
 // Verifies CreateLogGroup events trigger the retention Lambda in LocalStack.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_set_retention_policy_when_cloudwatch_log_group_is_created() {
     let client = aws_sdk_cloudwatchlogs::Client::new(test_api::localstack::get_aws_config().await);
     let log_group_name = format!(
@@ -1227,7 +1227,7 @@ async fn should_set_retention_policy_when_cloudwatch_log_group_is_created() {
 // Verifies EventBridge routing and Lambda IAM access for each event type.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1264,7 +1264,7 @@ async fn should_materialize_product_in_dynamodb_when_put_new_item() {
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_domain_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1327,7 +1327,7 @@ async fn should_materialize_product_in_dynamodb_for_domain_event() {
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_estimate_price_changed_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1399,7 +1399,7 @@ async fn should_materialize_product_in_dynamodb_for_estimate_price_changed_event
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_url_changed_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1461,7 +1461,7 @@ async fn should_materialize_product_in_dynamodb_for_url_changed_event() {
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_images_changed_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1530,7 +1530,7 @@ async fn should_materialize_product_in_dynamodb_for_images_changed_event() {
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_auction_time_changed_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1596,7 +1596,7 @@ async fn should_materialize_product_in_dynamodb_for_auction_time_changed_event()
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1679,7 +1679,7 @@ async fn should_materialize_product_in_dynamodb_for_enrichment_event() {
 // Verifies the full translate-lambda wiring:
 // ENRICHMENT_EMBEDDED event → DDB stream → EventBridge → translate Lambda
 // → ENRICHMENT_TRANSLATED_TITLE events written back to DynamoDB.
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_translated_titles_in_dynamodb_when_domain_created_event() {
     use common::language::domain::Language;
     use common::language::record::{LanguageRecord, TextRecord};
@@ -1773,7 +1773,7 @@ async fn should_materialize_translated_titles_in_dynamodb_when_domain_created_ev
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_policy_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -1866,7 +1866,7 @@ async fn should_materialize_product_in_dynamodb_for_policy_event() {
 // and that the user API enforces Cognito auth (IAM policy).
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_create_dynamodb_user_record_on_signup() {
     let cfn = get_cfn_output();
     let cognito = get_cognito_client().await;
@@ -1911,7 +1911,7 @@ async fn should_create_dynamodb_user_record_on_signup() {
     assert!(res.is_some_and(|r| r.email == email));
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_get_and_patch_user_account() {
     let user = create_random_test_user().await;
     let url = format!(
@@ -1981,7 +1981,7 @@ async fn should_get_and_patch_user_account() {
 }
 
 /*
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_delete_user_from_cognito_and_dynamodb() {
     let cfn = get_cfn_output();
     let user = create_random_test_user().await;
@@ -2042,7 +2042,7 @@ async fn should_delete_user_from_cognito_and_dynamodb() {
 }
 */
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_manage_user_access_tokens() {
     let user = create_random_test_user().await;
     let url = format!(
@@ -2114,7 +2114,7 @@ async fn should_manage_user_access_tokens() {
     assert_eq!(204, delete_response.status());
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_complete_oauth_authorization_code_flow() {
     let cfn = get_cfn_output();
     let user = create_random_test_user().await;
@@ -2292,7 +2292,7 @@ async fn should_complete_oauth_authorization_code_flow() {
     assert!(!introspection.active);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_manage_oauth_client_metadata() {
     let cfn = get_cfn_output();
     let admin = create_admin_test_user().await;
@@ -2391,7 +2391,7 @@ async fn should_manage_oauth_client_metadata() {
 // and the associated IAM policies.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_send_email_to_user_when_watched_product_has_update() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -2533,7 +2533,7 @@ async fn should_send_email_to_user_when_watched_product_has_update() {
 
 /**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_send_email_to_user_when_product_matches_search_filter() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -2609,7 +2609,7 @@ async fn should_send_email_to_user_when_product_matches_search_filter() {
 // slug-based routing, history endpoint, and authenticated personalization.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     let repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -2648,7 +2648,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_ids() {
     assert_eq!("GBP", body["item"]["price"]["offer"]["currency"]);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_when_anon_and_product_does_exist_for_slug_ids() {
     let repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -2685,7 +2685,7 @@ async fn should_respond_200_when_anon_and_product_does_exist_for_slug_ids() {
     assert_eq!("GBP", body["item"]["price"]["offer"]["currency"]);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_product_history() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -2767,7 +2767,7 @@ async fn should_respond_200_for_product_history() {
     assert_eq!("STATE_CHANGED", history[1]["eventType"]);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_personalized_when_authenticated_and_product_exists_for_ids() {
     let user = create_random_test_user().await;
 
@@ -2816,7 +2816,7 @@ async fn should_respond_200_personalized_when_authenticated_and_product_exists_f
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_personalized_when_authenticated_and_product_exists_for_slug_ids() {
     let user = create_random_test_user().await;
 
@@ -2873,7 +2873,7 @@ async fn should_respond_200_personalized_when_authenticated_and_product_exists_f
 
 /**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_202_when_similar_products_embedding_not_computed() {
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -2929,7 +2929,7 @@ async fn should_respond_202_when_similar_products_embedding_not_computed() {
 }
 
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_when_similar_products_computed_for_anon() {
     let product_dynamodb_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -3016,7 +3016,7 @@ async fn should_respond_200_when_similar_products_computed_for_anon() {
 }
 
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_and_personalize_similar_products_for_authenticated() {
     let user = create_random_test_user().await;
     let user_id: UserId = user.sub.into();
@@ -3146,7 +3146,7 @@ async fn should_respond_200_and_personalize_similar_products_for_authenticated()
 // access for watchlist records.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_post_get_patch_delete_watchlist_product() {
     let user = create_random_test_user().await;
 
@@ -3276,7 +3276,7 @@ async fn should_post_get_patch_delete_watchlist_product() {
 // search filters stored in DynamoDB.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_get_all_search_filters_when_authorized() {
     let repository = UserSearchFilterDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -3355,7 +3355,7 @@ async fn should_get_all_search_filters_when_authorized() {
     assert_eq!(expected2_name, actual2.name);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_post_get_patch_delete_search_filter() {
     let user = create_random_test_user().await;
     let user_id = UserId::from(user.sub);
@@ -3465,7 +3465,7 @@ async fn should_post_get_patch_delete_search_filter() {
     assert_eq!(404, get_after_delete.status());
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_embed_search_filter_and_create_match_when_periodic_hybrid_matching_runs() {
     let cfn = get_cfn_output();
     let user = create_random_test_user().await;
@@ -3642,7 +3642,7 @@ async fn should_embed_search_filter_and_create_match_when_periodic_hybrid_matchi
     assert!(updated_filter.last_hybrid_search_matched > document.last_hybrid_search_matched);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_patch_search_filter_product_match_feedback_when_authorized() {
     use search_filter::dynamodb::repository::{
         UserSearchFilterDynamoDbRepository, UserSearchFilterDynamoDbRepositoryImpl,
@@ -3710,7 +3710,7 @@ async fn should_patch_search_filter_product_match_feedback_when_authorized() {
 
 /**
 #[ignore = "Cannot get Localstack-Lambda to reach OpenSearch"]
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_when_shop_search_hits() {
     let os_client = get_opensearch_client().await;
     let repository = ShopOpenSearchRepositoryImpl::new(os_client);
@@ -3755,7 +3755,7 @@ async fn should_respond_200_when_shop_search_hits() {
 }
 */
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_shop_get_by_id() {
     let shop = prepare_test_shop().await;
 
@@ -3774,7 +3774,7 @@ async fn should_respond_200_for_shop_get_by_id() {
     assert_eq!(shop.domains, body.domains);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_shop_get_by_slug() {
     let shop = prepare_test_shop().await;
 
@@ -3799,7 +3799,7 @@ async fn should_respond_200_for_shop_get_by_slug() {
 // PATCH shop, PUT api-key, and GET partner shops endpoints.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_shop_patch_by_partner() {
     let user = create_random_test_user().await;
 
@@ -3855,7 +3855,7 @@ async fn should_respond_200_for_shop_patch_by_partner() {
     assert_eq!(200, response.status());
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_201_for_shop_post_by_admin() {
     let admin = create_admin_test_user().await;
     let stack = get_cfn_output();
@@ -3873,7 +3873,7 @@ async fn should_respond_201_for_shop_post_by_admin() {
     assert_eq!(201, response.status());
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_get_shops() {
     let user = create_random_test_user().await;
     let user_id = UserId::from(user.sub);
@@ -3919,7 +3919,7 @@ async fn should_respond_200_for_partner_get_shops() {
 // patch-all, delete-one, delete-all, seeding data directly via DynamoDB.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_get_patch_delete_notifications() {
     let user = create_random_test_user().await;
     let repository = NotificationDynamoDbRepositoryImpl::new(
@@ -4078,7 +4078,7 @@ fn valid_new_partner_application_payload(name: &str) -> PostPartnerShopApplicati
 // application endpoints with Cognito JWT authentication.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_application_get_all() {
     let user = create_random_test_user().await;
 
@@ -4101,7 +4101,7 @@ async fn should_respond_200_for_partner_application_get_all() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_201_for_partner_application_post() {
     let user = create_random_test_user().await;
     let url = format!(
@@ -4129,7 +4129,7 @@ async fn should_respond_201_for_partner_application_post() {
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_application_get_one() {
     let user = create_random_test_user().await;
     let base_url = format!(
@@ -4168,7 +4168,7 @@ async fn should_respond_200_for_partner_application_get_one() {
     assert_eq!(created.id, gotten.id);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_application_patch() {
     let user = create_random_test_user().await;
     let base_url = format!(
@@ -4220,7 +4220,7 @@ async fn should_respond_200_for_partner_application_patch() {
     assert_eq!(created.id, patched.id);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_204_for_partner_application_delete() {
     let user = create_random_test_user().await;
     let base_url = format!(
@@ -4288,7 +4288,7 @@ async fn create_admin_test_user() -> TestUser {
     user
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_partner_application_get_all() {
     let admin = create_admin_test_user().await;
     let user = create_random_test_user().await;
@@ -4329,7 +4329,7 @@ async fn should_respond_200_for_admin_partner_application_get_all() {
     assert!(!actual.is_empty());
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_partner_application_get_one() {
     let admin = create_admin_test_user().await;
     let user = create_random_test_user().await;
@@ -4375,7 +4375,7 @@ async fn should_respond_200_for_admin_partner_application_get_one() {
     assert_eq!(created.id, actual.id);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_partner_application_patch() {
     let admin = create_admin_test_user().await;
     let user = create_random_test_user().await;
@@ -4442,7 +4442,7 @@ async fn should_respond_200_for_admin_partner_application_patch() {
     assert_eq!(created.id, patched.id);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_decision_approve() {
     let admin = create_admin_test_user().await;
     let user = create_random_test_user().await;
@@ -4572,7 +4572,7 @@ async fn should_respond_200_for_admin_decision_approve() {
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_decision_reject() {
     let admin = create_admin_test_user().await;
     let user = create_random_test_user().await;
@@ -4907,17 +4907,17 @@ async fn post_woocommerce_webhook(topic: &str, body: &str) {
     assert_woocommerce_product(topic, shop_record.shop_id).await;
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_woocommerce_created_webhook() {
     post_woocommerce_webhook("product.created", WOOCOMMERCE_CREATED_BODY).await;
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_woocommerce_updated_webhook() {
     post_woocommerce_webhook("product.updated", WOOCOMMERCE_UPDATED_BODY).await;
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_woocommerce_deleted_webhook() {
     let (shop_record, api_key) = prepare_woocommerce_partner_shop().await;
 
@@ -4940,7 +4940,7 @@ async fn should_respond_200_for_woocommerce_deleted_webhook() {
     assert_woocommerce_product("product.deleted", shop_record.shop_id).await;
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_post_products() {
     let (shop_record, api_key) = prepare_partner_shop().await;
     let api_key_str: String = api_key.into();
@@ -4977,7 +4977,7 @@ async fn should_respond_200_for_partner_post_products() {
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_delete_partner_product_and_cleanup_user_resources() {
     use product_watchlist::dynamodb::record::{
         WatchlistProductRecord, mk_gsi1_pk as mk_watchlist_gsi1_pk,
@@ -5251,7 +5251,7 @@ async fn should_delete_partner_product_and_cleanup_user_resources() {
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_preserve_partner_post_product_image_order_when_read_via_rest_api() {
     let (shop_record, api_key) = prepare_partner_shop().await;
     let api_key_str: String = api_key.into();
@@ -5309,7 +5309,7 @@ async fn should_preserve_partner_post_product_image_order_when_read_via_rest_api
 
 // ─── Product Pipeline Embed Text (Lambda) ─────────────────────────────────────
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;
@@ -5382,7 +5382,7 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_patch_products() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5433,7 +5433,7 @@ async fn should_respond_200_for_partner_patch_products() {
     .await;
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_put_products_when_creating_new() {
     let (shop_record, api_key) = prepare_partner_shop().await;
     let api_key_str: String = api_key.into();
@@ -5472,7 +5472,7 @@ async fn should_respond_200_for_partner_put_products_when_creating_new() {
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_partner_put_products_when_updating_existing() {
     let product_repository = ProductDynamoDbRepositoryImpl::new(
         get_dynamodb_client().await,
@@ -5529,7 +5529,7 @@ async fn should_respond_200_for_partner_put_products_when_updating_existing() {
 // do not have additional match records counted beyond their limit.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_count_search_filter_matches_for_current_month_for_quota_enforcement() {
     use search_filter::core::quota::SearchFilterQuota;
     use search_filter::dynamodb::repository::{
@@ -5674,7 +5674,7 @@ async fn put_stripe_event(detail_type: &str, detail: serde_json::Value) {
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_set_tier_and_stripe_customer_id_when_subscription_created_event() {
     let stack = get_cfn_output();
     let user = create_random_test_user().await;
@@ -5738,7 +5738,7 @@ async fn should_set_tier_and_stripe_customer_id_when_subscription_created_event(
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_update_tier_when_subscription_updated_event() {
     let stack = get_cfn_output();
     let user = create_random_test_user().await;
@@ -5820,7 +5820,7 @@ async fn should_update_tier_when_subscription_updated_event() {
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_set_free_tier_when_subscription_deleted_event() {
     let stack = get_cfn_output();
     let user = create_random_test_user().await;
@@ -5904,7 +5904,7 @@ async fn should_set_free_tier_when_subscription_deleted_event() {
 // MockStripeService, so no real Stripe credentials are required.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_201_for_billing_checkout_and_persist_stripe_customer_id_when_user_has_none() {
     let stack = get_cfn_output();
     let user = create_random_test_user().await;
@@ -5953,7 +5953,7 @@ async fn should_201_for_billing_checkout_and_persist_stripe_customer_id_when_use
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_409_for_billing_checkout_when_user_already_has_stripe_customer_id() {
     let stack = get_cfn_output();
     let user = create_random_test_user().await;
@@ -5998,7 +5998,7 @@ async fn should_409_for_billing_checkout_when_user_already_has_stripe_customer_i
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_201_for_billing_portal_when_user_has_stripe_customer_id() {
     let stack = get_cfn_output();
     let user = create_random_test_user().await;
@@ -6047,7 +6047,7 @@ async fn should_201_for_billing_portal_when_user_has_stripe_customer_id() {
     assert!(body.get("userId").is_none(), "got {body:?}");
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_422_for_billing_portal_when_user_has_no_stripe_customer_id() {
     let stack = get_cfn_output();
     let user = create_random_test_user().await;
@@ -6072,7 +6072,7 @@ async fn should_422_for_billing_portal_when_user_has_no_stripe_customer_id() {
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_201_for_billing_manage_with_checkout_for_free_and_portal_for_paid_user() {
     let stack = get_cfn_output();
     let user = create_random_test_user().await;
@@ -6185,7 +6185,7 @@ async fn wait_until_user_document_exists(user_id: impl Into<String>) -> UserDocu
  */
 
 /*
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_user_search() {
     let admin = create_admin_test_user().await;
 
@@ -6200,7 +6200,7 @@ async fn should_respond_200_for_admin_user_search() {
 }
 */
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_user_get() {
     let admin = create_admin_test_user().await;
     let user = create_random_test_user().await;
@@ -6223,7 +6223,7 @@ async fn should_respond_200_for_admin_user_get() {
     assert_eq!(user_id, body.user_id);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_200_for_admin_user_patch() {
     let admin = create_admin_test_user().await;
     let user = create_random_test_user().await;
@@ -6263,7 +6263,7 @@ async fn should_respond_200_for_admin_user_patch() {
 }
 
 /*
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_respond_204_for_admin_user_delete() {
     let admin = create_admin_test_user().await;
     let user = create_random_test_user().await;
@@ -6298,7 +6298,7 @@ async fn should_respond_204_for_admin_user_delete() {
 // Verifies DynamoDB Streams → EventBridge → SQS → Lambda → OpenSearch routing.
 // ---------------------------------------------------------------------------
 /*
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_index_user_to_opensearch_on_create() {
     let user = create_random_test_user().await;
     let user_id = UserId::from(user.sub);
@@ -6307,7 +6307,7 @@ async fn should_index_user_to_opensearch_on_create() {
     assert_eq!(user_id, document.user_id);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_update_user_document_in_opensearch_on_patch() {
     let admin = create_admin_test_user().await;
     let user = create_random_test_user().await;
@@ -6355,7 +6355,7 @@ async fn should_update_user_document_in_opensearch_on_patch() {
 // Triggered via DynamoDB Streams → EventBridge → UserTierUpdateQ → Lambda.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
     use search_filter::{
         core::quota::SearchFilterQuota,
@@ -6465,7 +6465,7 @@ async fn should_deactivate_over_quota_search_filters_when_tier_is_downgraded() {
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded() {
     use search_filter::dynamodb::{
         repository::UserSearchFilterDynamoDbRepository,
@@ -6561,7 +6561,7 @@ async fn should_reactivate_plan_restricted_search_filters_when_tier_is_upgraded(
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded() {
     use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId};
     use product_watchlist::{
@@ -6661,7 +6661,7 @@ async fn should_deactivate_over_quota_watchlist_entries_when_tier_is_downgraded(
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_reactivate_plan_restricted_watchlist_entries_when_tier_is_upgraded() {
     use common::{product_id::ProductId, shop_id::ShopId, shops_product_id::ShopsProductId};
     use product_watchlist::dynamodb::{
@@ -6927,7 +6927,7 @@ async fn wait_for_shopify_product(
     }
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_create_product_in_dynamodb_when_shopify_create_event() {
     let shop_record = seed_shopify_acceptance_shop().await;
     let shop_id = shop_record.shop_id;
@@ -6942,7 +6942,7 @@ async fn should_create_product_in_dynamodb_when_shopify_create_event() {
     );
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_update_product_in_dynamodb_when_shopify_update_event() {
     // Use a different product id to keep tests independent
     const PRODUCT_ID: u64 = SHOPIFY_ACCEPTANCE_PRODUCT_ID + 1;
@@ -6961,7 +6961,7 @@ async fn should_update_product_in_dynamodb_when_shopify_update_event() {
     assert_eq!(record.shop_id, shop_id);
 }
 
-#[localstack_test(services = [Cloudformation()])]
+#[aura_integration_test(services = [Cloudformation()])]
 async fn should_set_product_removed_in_dynamodb_when_shopify_delete_event() {
     const PRODUCT_ID: u64 = SHOPIFY_ACCEPTANCE_PRODUCT_ID + 2;
     let shop_record = seed_shopify_acceptance_shop().await;

@@ -51,7 +51,7 @@ fn repeated_query_text(query: &str, repetitions: usize) -> String {
         .join(" ")
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_no_hits() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -99,7 +99,7 @@ async fn should_200_when_no_hits() {
     assert_eq!(0, response_data.total.unwrap());
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_any_product_query_matches() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -208,7 +208,7 @@ async fn should_200_when_any_product_query_matches() {
     );
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_filter_products_when_geo_filters_are_given() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -301,7 +301,7 @@ async fn should_200_filter_products_when_geo_filters_are_given() {
     assert_eq!(expected.product_id, response_data.items[0].item.product_id);
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_sort_price_asc() {
     let product_query = "search after price asc title";
     let ddb_client = get_dynamodb_client().await;
@@ -466,7 +466,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     );
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_sort_price_desc() {
     let product_query = "search after price desc title";
     let ddb_client = get_dynamodb_client().await;
@@ -636,7 +636,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_sort_
     );
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_implicit_sort_score() {
     let product_query = "search after implicit score title";
     let ddb_client = get_dynamodb_client().await;
@@ -768,7 +768,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_impli
     }))
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_for_native_hybrid_product_api() {
     let product_query = "search after native hybrid title";
     let ddb_client = get_dynamodb_client().await;
@@ -955,7 +955,7 @@ async fn should_200_when_following_search_after_for_native_hybrid_product_api() 
     assert_eq!(75, ids_1.len() + ids_2.len() + ids_3.len());
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_scalar_search_after_for_native_hybrid_get_product_api() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -1082,7 +1082,7 @@ async fn should_200_when_following_scalar_search_after_for_native_hybrid_get_pro
     assert!(!ids_1.contains(&response_data_2.items[0].item.product_id));
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_following_search_after_from_previous_response_for_explicit_sort_score() {
     let product_query = "search after explicit score title";
     let ddb_client = get_dynamodb_client().await;
@@ -1225,7 +1225,7 @@ async fn should_200_when_following_search_after_from_previous_response_for_expli
 #[case(Some(datetime!(2000 - 01 - 05 0:00 UTC)), None)]
 #[case(Some(datetime!(2025 - 01 - 05 0:00 UTC)), Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(30)).unwrap()))]
 #[trace]
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_created_query(
     #[case] min: Option<OffsetDateTime>,
     #[case] max: Option<OffsetDateTime>,
@@ -1341,7 +1341,7 @@ async fn should_200_when_created_query(
 #[case(Some(datetime!(2000 - 01 - 05 0:00 UTC)), None)]
 #[case(Some(datetime!(2025 - 01 - 05 0:00 UTC)), Some(OffsetDateTime::now_utc().checked_add(time::Duration::seconds(30)).unwrap()))]
 #[trace]
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_updated_query(
     #[case] min: Option<OffsetDateTime>,
     #[case] max: Option<OffsetDateTime>,
@@ -1450,7 +1450,7 @@ async fn should_200_when_updated_query(
     }
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_personalized_when_authenticated_and_not_watching() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -1570,7 +1570,7 @@ async fn should_200_personalized_when_authenticated_and_not_watching() {
 #[case("es", "Spanish title", Language::Es)]
 #[case("it", "Italian title", Language::It)]
 #[trace]
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_respond_200_and_respect_language_query_param(
     #[case] _language_query: &str,
     #[case] expected_title: &str,
@@ -1674,7 +1674,7 @@ async fn should_respond_200_and_respect_language_query_param(
 #[case([ShopTypeData::Marketplace].into())]
 #[case([ShopTypeData::AuctionHouse, ShopTypeData::CommercialDealer].into())]
 #[trace]
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -1777,7 +1777,7 @@ async fn should_200_when_shop_type_query(#[case] query: HashSet<ShopTypeData>) {
 #[case(["Sotheby's", "Christie's"].into())]
 #[case(["Sotheby's", "Christie's", "Heritage Auctions"].into())]
 #[trace]
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashSet<&str>) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -1887,7 +1887,7 @@ async fn should_200_when_shop_name_query_for_keyword_filter(#[case] query: HashS
 #[case(["Sotheby's", "Christie's"].into())]
 #[case(["Sotheby's", "Christie's", "Heritage Auctions"].into())]
 #[trace]
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -1989,7 +1989,7 @@ async fn should_200_when_exclude_shop_name_query(#[case] query: HashSet<&str>) {
     );
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_auction_start_range_is_given() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -2088,7 +2088,7 @@ async fn should_200_when_auction_start_range_is_given() {
     assert_eq!(30, response_data.items.len());
 }
 
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_auction_end_range_is_given() {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -2193,7 +2193,7 @@ async fn should_200_when_auction_end_range_is_given() {
 #[case(["Sotheby's"].into())]
 #[case(["Sotheby's", "Christie's"].into())]
 #[trace]
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_seller_name_query_for_keyword_filter(#[case] query: HashSet<&str>) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");
@@ -2302,7 +2302,7 @@ async fn should_200_when_seller_name_query_for_keyword_filter(#[case] query: Has
 #[case(["Sotheby's"].into())]
 #[case(["Sotheby's", "Christie's"].into())]
 #[trace]
-#[localstack_test(services = [OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [OpenSearch(), DynamoDB()])]
 async fn should_200_when_exclude_seller_name_query(#[case] query: HashSet<&str>) {
     let ddb_client = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb_client, "table_1");

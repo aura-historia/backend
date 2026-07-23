@@ -239,7 +239,7 @@ async fn query_events(
 // Integration tests assert on both the domain event records and the materialized
 // product record that is written inline by the command service.
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_write_domain_created_event_when_shopify_create_event_with_real_payload() {
     let (shop_repo, product_repo) = get_repositories().await;
 
@@ -288,7 +288,7 @@ async fn should_write_domain_created_event_when_shopify_create_event_with_real_p
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_write_domain_created_event_when_shopify_update_event_without_existing_product() {
     let (shop_repo, product_repo) = get_repositories().await;
 
@@ -339,7 +339,7 @@ async fn should_write_domain_created_event_when_shopify_update_event_without_exi
 /// products/update event with inventory_quantity > 0 (state=Available). Because
 /// the product already exists, the service generates a DOMAIN_STATE_CHANGED event
 /// rather than a DOMAIN_CREATED one.
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_write_state_changed_event_when_shopify_update_event_with_existing_product() {
     let (shop_repo, product_repo) = get_repositories().await;
 
@@ -394,7 +394,7 @@ async fn should_write_state_changed_event_when_shopify_update_event_with_existin
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_write_removed_state_event_when_shopify_delete_event_with_real_payload() {
     let (shop_repo, product_repo) = get_repositories().await;
 
@@ -445,7 +445,7 @@ async fn should_write_removed_state_event_when_shopify_delete_event_with_real_pa
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_report_partial_failure_when_one_message_cannot_be_processed() {
     let (shop_repo, product_repo) = get_repositories().await;
 

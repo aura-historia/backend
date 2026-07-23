@@ -8,8 +8,9 @@ use std::collections::HashSet;
 
 use test_api::*;
 
-const RDS: Rds = Rds {
+const POSTGRES: Postgres = Postgres {
     migrations_dir: "src/crawler/migrations",
+    setup_script: None,
 };
 
 // ---------------------------------------------------------------------------
@@ -31,7 +32,7 @@ fn make_shop(shop_id: ShopId, domain: &str) -> RegisteredShop {
 // ---------------------------------------------------------------------------
 
 #[serial_test::serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn deactivate_shops_not_in_should_delete_domains_of_deactivated_shops() {
     let pool = get_postgres_client().await;
     let repo = ShopRegistrationRepositoryImpl::new(pool.clone());
@@ -98,7 +99,7 @@ async fn deactivate_shops_not_in_should_delete_domains_of_deactivated_shops() {
 // ---------------------------------------------------------------------------
 
 #[serial_test::serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn deactivate_shops_not_in_should_not_touch_active_shop_domains() {
     let pool = get_postgres_client().await;
     let repo = ShopRegistrationRepositoryImpl::new(pool.clone());
@@ -131,7 +132,7 @@ async fn deactivate_shops_not_in_should_not_touch_active_shop_domains() {
 // ---------------------------------------------------------------------------
 
 #[serial_test::serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn deactivate_shops_not_in_should_return_zero_when_nothing_to_deactivate() {
     let pool = get_postgres_client().await;
     let repo = ShopRegistrationRepositoryImpl::new(pool.clone());

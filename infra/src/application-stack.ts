@@ -161,6 +161,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       artifactBucket,
       mailTemplateBucket,
       table: props.storage.table,
+      postgres: props.storage.postgres,
       queues: props.queues.catalog,
       search: props.search,
     });
@@ -169,6 +170,7 @@ export class ApplicationComputeStack extends cdk.Stack {
       config,
       commitSha: parameters.commitSha,
       table: props.storage.table,
+      postgres: props.storage.postgres,
       mailTemplateBucket,
       search: props.search,
     });
@@ -300,6 +302,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       artifactBucket,
       mailTemplateBucket,
       table: this.storage.table,
+      postgres: this.storage.postgres,
       queues: this.queues.catalog,
       search: this.search,
     });
@@ -308,6 +311,7 @@ export class ApplicationEphemeralStack extends cdk.Stack {
       config,
       commitSha: parameters.commitSha,
       table: this.storage.table,
+      postgres: this.storage.postgres,
       mailTemplateBucket,
       search: this.search,
     });
@@ -431,6 +435,9 @@ function dataOutputs(
   },
 ): void {
   new cdk.CfnOutput(stack, "DynamodbTable1Name", { value: resources.storage.table.tableName });
+  new cdk.CfnOutput(stack, "PostgresHost", { value: resources.storage.postgres.host });
+  new cdk.CfnOutput(stack, "PostgresPort", { value: resources.storage.postgres.port });
+  new cdk.CfnOutput(stack, "PostgresDatabase", { value: resources.storage.postgres.database });
   new cdk.CfnOutput(stack, "OpensearchDomainName", { value: resources.search.domainName });
   new cdk.CfnOutput(stack, "OutputOpensearchEndpointUrl", {
     key: "OpensearchEndpointUrl",

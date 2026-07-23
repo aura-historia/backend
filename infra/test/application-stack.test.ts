@@ -178,6 +178,9 @@ describe("Application stacks", () => {
       expect(templates.api.toJSON().Outputs?.ApiCloudFrontDistributionDomainName).toBeDefined();
     }
     expect(templates.data.toJSON().Outputs?.DynamodbTable1Name).toBeDefined();
+    expect(templates.data.toJSON().Outputs?.PostgresHost).toBeDefined();
+    expect(templates.data.toJSON().Outputs?.PostgresPort).toBeDefined();
+    expect(templates.data.toJSON().Outputs?.PostgresDatabase).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.CognitoUserPoolId).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.CognitoUserPoolClientPublicId).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.CognitoUserPoolClientAdminId).toBeUndefined();
@@ -495,6 +498,24 @@ describe("Application stacks", () => {
         EmailMessage: Match.stringLikeRegexp("<p class=\\\"greeting\\\">Verify your email</p>"),
       }),
     });
+  });
+
+  test.each(STAGES)("Postgres connection settings are explicit for %s", (stage) => {
+    const templates = synthesize(stage);
+    const json = JSON.stringify(templateList(templates).map((template) => template.toJSON()));
+
+    if (stage === "ephemeral") {
+      expect(json).toContain("host.docker.internal");
+      expect(json).toContain("POSTGRES_MAX_CONNECTIONS");
+      expect(json).toContain("postgres");
+      return;
+    }
+
+    expect(json).toContain(`{{resolve:ssm:/postgres/${stage}/host}}`);
+    expect(json).toContain(`{{resolve:ssm:/postgres/${stage}/port}}`);
+    expect(json).toContain(`{{resolve:ssm:/postgres/${stage}/database}}`);
+    expect(json).toContain(`{{resolve:ssm:/postgres/${stage}/username}}`);
+    expect(json).toContain(`{{resolve:ssm:/secrets/${stage}/postgres-password}}`);
   });
 
   test("real stages resolve external integration settings from SSM", () => {

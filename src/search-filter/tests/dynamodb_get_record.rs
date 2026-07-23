@@ -10,7 +10,7 @@ async fn get_repository() -> UserSearchFilterDynamoDbRepositoryImpl<'static> {
     UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_table_empty() {
     let actual = get_repository()
         .await
@@ -21,7 +21,7 @@ async fn should_return_none_when_table_empty() {
     assert!(actual.is_none())
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_partition_empty() {
     let repository = get_repository().await;
     for record in fake::vec![UserSearchFilterRecord; 42] {
@@ -39,7 +39,7 @@ async fn should_return_none_when_partition_empty() {
     assert!(actual.is_none())
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_partition_non_empty_but_filter_id_not_exists() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -61,7 +61,7 @@ async fn should_return_none_when_partition_non_empty_but_filter_id_not_exists() 
     assert!(actual.is_none())
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_some_when_partition_non_empty_and_filter_id_exists() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -91,7 +91,7 @@ async fn should_return_some_when_partition_non_empty_and_filter_id_exists() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_embedding_when_record_has_embedding() {
     let repository = get_repository().await;
     let mut expected = Faker.fake::<UserSearchFilterRecord>();

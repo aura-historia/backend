@@ -2,6 +2,8 @@
 
 Single-table design. Table name pattern: `table_1-{stage}` (e.g. `table_1-dev`).
 
+Migration note: business truth is moving to Postgres. This table remains current for not-yet-migrated entities and the long-term DynamoDB owners documented in `docs/storage.md`.
+
 Stream: `NEW_IMAGE`, feeds the `DynamoDbEventBus` via an EventBridge Pipe.
 
 TTL attribute: `ttl` (Unix timestamp).

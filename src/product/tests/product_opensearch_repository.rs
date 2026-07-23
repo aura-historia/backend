@@ -37,7 +37,7 @@ use test_api::*;
 use time::OffsetDateTime;
 use time::macros::datetime;
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_create_product_document() {
     let product_id = ProductId::new();
     let expected = ProductDocument {
@@ -150,7 +150,7 @@ async fn should_create_product_document() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_create_product_documents() {
     let product_id1 = ProductId::new();
     let expected1 = ProductDocument {
@@ -363,7 +363,7 @@ async fn should_create_product_documents() {
     assert_eq!(expected2, actual2);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_update_product_document() {
     let product_id = ProductId::new();
     let initial = ProductDocument {
@@ -562,7 +562,7 @@ async fn should_update_product_document() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents() {
     let expected = ProductDocument {
         product_id: Default::default(),
@@ -721,7 +721,7 @@ async fn should_search_product_documents() {
     )
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_any_product_query_matches() {
     let mut madonna = Faker.fake::<ProductDocument>();
     madonna.title_en = Some("Madonna oil painting renaissance artwork".into());
@@ -782,7 +782,7 @@ async fn should_search_product_documents_when_any_product_query_matches() {
     );
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_with_percolator_query() {
     let expected_product_id = ProductId::new();
     let expected = ProductDocument {
@@ -919,7 +919,7 @@ async fn should_search_product_documents_with_percolator_query() {
     );
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_all_arguments_are_given() {
     let products = fake::vec![ProductDocument; 1000];
     let client = get_opensearch_client().await;
@@ -990,7 +990,7 @@ async fn should_search_product_documents_when_all_arguments_are_given() {
 #[test_attr(apply(test))]
 #[case(&[ProductState::Available])]
 #[case(&[ProductState::Reserved, ProductState::Listed, ProductState::Removed])]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_states_are_given(#[case] states: &[ProductState]) {
     let products = fake::vec![ProductDocument; 3000]
         .into_iter()
@@ -1057,7 +1057,7 @@ async fn should_search_product_documents_when_states_are_given(#[case] states: &
     );
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_no_states_are_given() {
     let items = fake::vec![ProductDocument; 100]
         .into_iter()
@@ -1124,7 +1124,7 @@ async fn should_search_product_documents_when_no_states_are_given() {
 #[case(RangeQuery { min: Some(500u64.into()), max: None })]
 #[case(RangeQuery { min: None, max: Some(8888u64.into()) })]
 #[case(RangeQuery { min: None, max: None })]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_price_range_is_given(
     #[case] price_query: RangeQuery<MonetaryAmount>,
 ) {
@@ -1225,7 +1225,7 @@ async fn should_search_product_documents_when_price_range_is_given(
     );
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_respecting_paging_when_sorted_by_price() {
     let products = fake::vec![ProductDocument; 1000]
         .into_iter()
@@ -1309,7 +1309,7 @@ async fn should_search_product_documents_respecting_paging_when_sorted_by_price(
     assert_eq!(expected_products, actual_items);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_respecting_search_after_when_sorted_by_price() {
     let mut expected_products = fake::vec![ProductDocument; 200]
         .into_iter()
@@ -1397,7 +1397,7 @@ async fn should_search_product_documents_respecting_search_after_when_sorted_by_
     assert_eq!(expected_products, actual_items);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_country_query_is_given() {
     let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let expected_country = isocountry::CountryCode::DEU;
@@ -1441,7 +1441,7 @@ async fn should_search_product_documents_when_country_query_is_given() {
     assert_eq!(HashSet::from_iter([expected.product_id]), hits);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_continent_query_is_given() {
     let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let mut expected = Faker.fake::<ProductDocument>();
@@ -1481,7 +1481,7 @@ async fn should_search_product_documents_when_continent_query_is_given() {
     assert_eq!(HashSet::from_iter([expected.product_id]), hits);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_geo_address_distance_query_is_given() {
     let repository = ProductOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let mut expected = Faker.fake::<ProductDocument>();
@@ -1526,7 +1526,7 @@ async fn should_search_product_documents_when_geo_address_distance_query_is_give
     assert_eq!(HashSet::from_iter([expected.product_id]), hits);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_delete_product_document() {
     let product_id = ProductId::new();
     let mut document = Faker.fake::<ProductDocument>();
@@ -1555,7 +1555,7 @@ async fn should_delete_product_document() {
     assert!(actual.is_err());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_get_product_document() {
     let product_id = ProductId::new();
     let expected = ProductDocument {
@@ -2441,7 +2441,7 @@ const EXAMPLE_EMBEDDING: [f32; 768] = [
     -0.006709233,
     0.019880014,
 ];
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_return_k_nearest_neighbors() {
     let client = get_opensearch_client().await;
     let repository = ProductOpenSearchRepositoryImpl::new(client);
@@ -2470,7 +2470,7 @@ async fn should_return_k_nearest_neighbors() {
 #[test_attr(apply(test))]
 #[case(&[ShopType::AuctionHouse])]
 #[case(&[ShopType::AuctionHouse, ShopType::CommercialDealer])]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_shop_types_are_given(
     #[case] shop_types: &[ShopType],
 ) {
@@ -2544,7 +2544,7 @@ async fn should_search_product_documents_when_shop_types_are_given(
 #[case(&["Sotheby's"])]
 #[case(&["Sotheby's", "Christie's", "Heritage Auctions"])]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_shop_names_are_given_for_keyword_filter(
     #[case] shop_names: &[&str],
 ) {
@@ -2635,7 +2635,7 @@ async fn should_search_product_documents_when_shop_names_are_given_for_keyword_f
 #[case(&["Sotheby's"])]
 #[case(&["Sotheby's", "Christie's", "Heritage Auctions"])]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_excluded_shop_names_are_given(
     #[case] exclude_shop_names: &[&str],
 ) {
@@ -2728,7 +2728,7 @@ async fn should_search_product_documents_when_excluded_shop_names_are_given(
 #[case(&["Sotheby's"])]
 #[case(&["Sotheby's", "Christie's", "Heritage Auctions"])]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_seller_names_are_given_for_keyword_filter(
     #[case] seller_names: &[&str],
 ) {
@@ -2819,7 +2819,7 @@ async fn should_search_product_documents_when_seller_names_are_given_for_keyword
 #[case(&["Sotheby's"])]
 #[case(&["Sotheby's", "Christie's", "Heritage Auctions"])]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_excluded_seller_names_are_given(
     #[case] exclude_seller_names: &[&str],
 ) {
@@ -2916,7 +2916,7 @@ async fn should_search_product_documents_when_excluded_seller_names_are_given(
 #[case(&["imperial-antiques"])]
 #[case(&["imperial-antiques", "vintage-collectibles", "heritage-gallery"])]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_shop_slug_ids_are_given(
     #[case] shop_slug_ids: &[&str],
 ) {
@@ -3011,7 +3011,7 @@ async fn should_search_product_documents_when_shop_slug_ids_are_given(
 #[case(&["imperial-antiques"])]
 #[case(&["imperial-antiques", "vintage-collectibles", "heritage-gallery"])]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
     #[case] exclude_shop_slug_ids: &[&str],
 ) {
@@ -3113,7 +3113,7 @@ async fn should_search_product_documents_when_excluded_shop_slug_ids_are_given(
 #[case(&["imperial-antiques"])]
 #[case(&["imperial-antiques", "vintage-seller", "heritage-auctions"])]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_seller_slug_ids_are_given(
     #[case] seller_slug_ids: &[&str],
 ) {
@@ -3208,7 +3208,7 @@ async fn should_search_product_documents_when_seller_slug_ids_are_given(
 #[case(&["imperial-antiques"])]
 #[case(&["imperial-antiques", "vintage-seller", "heritage-auctions"])]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given(
     #[case] exclude_seller_slug_ids: &[&str],
 ) {
@@ -3306,7 +3306,7 @@ async fn should_search_product_documents_when_excluded_seller_slug_ids_are_given
 #[case(RangeQuery { min: Some(datetime!(2026-01-01 0:00 UTC)), max: Some(datetime!(2026-01-31 23:59 UTC)) })]
 #[case(RangeQuery { min: Some(datetime!(2026-02-01 0:00 UTC)), max: None })]
 #[case(RangeQuery { min: None, max: Some(datetime!(2026-12-31 23:59 UTC)) })]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_auction_start_range_is_given(
     #[case] auction_start_query: RangeQuery<OffsetDateTime>,
 ) {
@@ -3431,7 +3431,7 @@ async fn should_search_product_documents_when_auction_start_range_is_given(
 #[case(RangeQuery { min: Some(datetime!(2026-01-01 0:00 UTC)), max: Some(datetime!(2026-01-31 23:59 UTC)) })]
 #[case(RangeQuery { min: Some(datetime!(2026-06-01 0:00 UTC)), max: None })]
 #[case(RangeQuery { min: None, max: Some(datetime!(2026-12-31 23:59 UTC)) })]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_auction_end_range_is_given(
     #[case] auction_end_query: RangeQuery<OffsetDateTime>,
 ) {
@@ -3556,7 +3556,7 @@ async fn should_search_product_documents_when_auction_end_range_is_given(
 #[case(RangeQuery { min: Some(datetime!(2026-01-01 0:00 UTC)), max: Some(datetime!(2026-01-31 23:59 UTC)) })]
 #[case(RangeQuery { min: Some(datetime!(2026-06-01 0:00 UTC)), max: None })]
 #[case(RangeQuery { min: None, max: Some(datetime!(2026-12-31 23:59 UTC)) })]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_search_product_documents_when_query_is_empty(
     #[case] auction_end_query: RangeQuery<OffsetDateTime>,
 ) {
@@ -3738,7 +3738,7 @@ fn search_with_query(query: &str) -> ProductSearch {
     }
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_return_bm25_and_knn_hits_when_both_branches_match_for_product_search() {
     let bm25_only = make_product_doc(|doc| {
         set_titles(doc, "Rolex Submariner Vintage 1965");
@@ -3780,7 +3780,7 @@ async fn should_return_bm25_and_knn_hits_when_both_branches_match_for_product_se
     assert!(returned_ids.contains(&knn_only.product_id));
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_rank_dual_match_first_when_both_branches_contribute_for_product_search() {
     let query = "Meissen porcelain figurine 1750";
     let dual_match = make_product_doc(|doc| {
@@ -3820,7 +3820,7 @@ async fn should_rank_dual_match_first_when_both_branches_contribute_for_product_
     );
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_exclude_embedding_from_source_when_returning_hybrid_hits_for_product_search() {
     let doc = make_product_doc(|product| {
         set_titles(product, "Tea Cup Set");
@@ -3853,7 +3853,7 @@ async fn should_exclude_embedding_from_source_when_returning_hybrid_hits_for_pro
     assert!(hit.source.embedding.is_none());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_honor_page_size_when_loading_first_hybrid_page_for_product_search() {
     let docs: Vec<ProductDocument> = (0..6)
         .map(|idx| {
@@ -3884,7 +3884,7 @@ async fn should_honor_page_size_when_loading_first_hybrid_page_for_product_searc
     assert_eq!(3, response.hits.hits.len());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_apply_state_filter_when_running_hybrid_search_for_product_search() {
     let available = make_product_doc(|doc| {
         set_titles(doc, "Bronze Statue");
@@ -3923,7 +3923,7 @@ async fn should_apply_state_filter_when_running_hybrid_search_for_product_search
     assert!(!returned_ids.contains(&sold.product_id));
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_apply_price_filter_when_running_hybrid_search_for_product_search() {
     let emb = one_hot_embedding(250, 1.0);
     let in_range = make_product_doc(|doc| {

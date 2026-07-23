@@ -42,7 +42,7 @@ async fn create_admin_user(user_service: &impl UserService) -> UserId {
     user_id
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_respond_all_applications_for_admin() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -87,7 +87,7 @@ async fn should_200_respond_all_applications_for_admin() {
     assert_eq!(application.id, actual[0].id);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_403_respond_when_non_admin_calls_admin_get_all() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

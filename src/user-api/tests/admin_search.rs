@@ -12,7 +12,7 @@ use user::service::cognito_admin_service::MockCognitoAdminService;
 use user::service::user_service::UserServiceImpl;
 use user_api::handler;
 
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_200_filter_users_when_geo_filters_are_given_for_admin_search() {
     let dynamodb_repository =
         UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

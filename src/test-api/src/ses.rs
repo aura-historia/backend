@@ -31,7 +31,7 @@ pub async fn get_ses_client() -> &'static Client {
 
 /// Marker type representing the SES service in LocalStack-based tests.
 ///
-/// Implements [`IntegrationTestService`] for use with the `#[localstack_test]` macro.
+/// Implements [`IntegrationTestService`] for use with the `#[aura_integration_test]` macro.
 ///
 /// On [`set_up`](IntegrationTestService::set_up), verifies the sender email identity
 /// (`no-reply@notify.aura-historia.com`) so that Lambdas running inside LocalStack can

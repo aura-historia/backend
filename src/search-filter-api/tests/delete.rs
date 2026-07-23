@@ -22,7 +22,7 @@ fn user_ctx(user_id: common::user_id::UserId) -> common::actor::RequestContext {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_delete_search_filter() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
