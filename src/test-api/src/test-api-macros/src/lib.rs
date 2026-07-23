@@ -43,7 +43,6 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 ///
 /// - Requires Tokio runtime (`#[tokio::test]`) test execution.
 /// - The attribute must be in the format: `services = [ServiceA, ServiceB, ...]`.
-/// - `aura_integration_test` is a legacy alias. Prefer `aura_integration_test`.
 /// - Malformed input will panic at compile time.
 ///
 /// # See also
