@@ -18,7 +18,7 @@ async fn get_repository() -> UserSearchFilterDynamoDbRepositoryImpl<'static> {
     UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_no_match_record_exists() {
     let actual = get_repository()
         .await
@@ -34,7 +34,7 @@ async fn should_return_none_when_no_match_record_exists() {
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_and_get_match_record() {
     let repository = get_repository().await;
     let expected = Faker.fake::<UserSearchFilterMatchRecord>();
@@ -57,7 +57,7 @@ async fn should_put_and_get_match_record() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_update_match_record_feedback() {
     let repository = get_repository().await;
     let mut expected = Faker.fake::<UserSearchFilterMatchRecord>();
@@ -90,7 +90,7 @@ async fn should_update_match_record_feedback() {
     assert_eq!(expected.shops_product_id, actual.shops_product_id);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_query_all_match_records_for_user() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -121,7 +121,7 @@ async fn should_query_all_match_records_for_user() {
     assert_eq!(5, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_query_match_records_for_specific_filter() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -171,7 +171,7 @@ async fn should_query_match_records_for_specific_filter() {
     assert!(actual.iter().all(|r| r.user_search_filter_id == filter_id));
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_empty_when_no_match_records_for_user() {
     let repository = get_repository().await;
 
@@ -183,7 +183,7 @@ async fn should_return_empty_when_no_match_records_for_user() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_batch_match_records() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -207,7 +207,7 @@ async fn should_put_batch_match_records() {
     assert_eq!(5, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_query_match_key_parts_for_product_id() {
     let repository = get_repository().await;
     let product_id = ProductId::new();
@@ -258,7 +258,7 @@ async fn should_query_match_key_parts_for_product_id() {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_delete_match_records_by_key_parts() {
     let repository = get_repository().await;
     let product_id = ProductId::new();
@@ -331,7 +331,7 @@ async fn should_delete_match_records_by_key_parts() {
     assert!(actual.is_some());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_count_match_records_between_dates() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -383,7 +383,7 @@ async fn should_count_match_records_between_dates() {
     assert_eq!(3, count);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_zero_when_no_match_records_between_dates() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -397,7 +397,7 @@ async fn should_return_zero_when_no_match_records_between_dates() {
     assert_eq!(0, count);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_exclude_records_outside_date_range_for_between() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -451,7 +451,7 @@ async fn should_exclude_records_outside_date_range_for_between() {
     assert_eq!(1, count);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_isolate_users_for_between_count() {
     let repository = get_repository().await;
     let user_id = UserId::new();

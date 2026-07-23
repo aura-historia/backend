@@ -26,7 +26,7 @@ use user::service::{
 #[case("created", "desc", 20)]
 #[case("updated", "asc", 20)]
 #[case("updated", "desc", 20)]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_follow_up_search_after_query(
     #[case] sort: &str,
     #[case] order: &str,
@@ -127,7 +127,7 @@ async fn should_follow_up_search_after_query(
 #[case([shop::data::shop_type_data::ShopTypeData::Marketplace].into())]
 #[case([shop::data::shop_type_data::ShopTypeData::AuctionHouse, shop::data::shop_type_data::ShopTypeData::Marketplace].into())]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_200_when_shop_type_query(
     #[case] query: std::collections::HashSet<shop::data::shop_type_data::ShopTypeData>,
 ) {
@@ -195,7 +195,7 @@ async fn should_200_when_shop_type_query(
 #[case([ShopPartnerStatusData::Scraped].into())]
 #[case([ShopPartnerStatusData::Partnered, ShopPartnerStatusData::Scraped].into())]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_200_when_partner_status_query_via_post(
     #[case] query: std::collections::HashSet<ShopPartnerStatusData>,
 ) {
@@ -262,7 +262,7 @@ async fn should_200_when_partner_status_query_via_post(
 #[case("PARTNERED", ShopPartnerStatusData::Partnered)]
 #[case("SCRAPED", ShopPartnerStatusData::Scraped)]
 #[trace]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_200_when_partner_status_query_via_get(
     #[case] partner_status_query_param: &str,
     #[case] expected_status: ShopPartnerStatusData,

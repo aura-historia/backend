@@ -215,7 +215,7 @@ async fn wait_until_cleanup_gsis_are_visible(
     }
 }
 
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_delete_product_and_cleanup_user_resources_when_deleted_lifecycle_event_received() {
     let dynamodb_client = get_dynamodb_client().await;
     let watchlist_repository =

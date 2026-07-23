@@ -11,7 +11,7 @@ use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-const RDS: Rds = Rds {
+const POSTGRES: Rds = Rds {
     migrations_dir: "src/crawler/migrations",
 };
 
@@ -41,7 +41,7 @@ async fn insert_shop(pool: &PgPool, shop_id: ShopId) {
         .unwrap();
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_insert_and_find_removed_schema_for_shop() {
     let pool = get_postgres_client().await;
     let repository = RemovedPageSchemaRepositoryImpl::new(&pool);
@@ -67,7 +67,7 @@ async fn should_insert_and_find_removed_schema_for_shop() {
     );
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_update_removed_schema_for_only_target_shop() {
     let pool = get_postgres_client().await;
     let repository = RemovedPageSchemaRepositoryImpl::new(&pool);
@@ -109,7 +109,7 @@ async fn should_update_removed_schema_for_only_target_shop() {
     );
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn should_delete_removed_schema_when_parent_shop_is_deleted() {
     let pool = get_postgres_client().await;
     let repository = RemovedPageSchemaRepositoryImpl::new(&pool);

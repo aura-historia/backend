@@ -3,7 +3,7 @@ use aws_sdk_sqs::types::DeleteMessageBatchRequestEntry;
 use aws_tests_common::get_cfn_output;
 use opensearch::http::response::Response;
 use std::{collections::HashMap, error::Error};
-pub use test_api::localstack_test;
+pub use test_api::aura_integration_test;
 use test_api::{get_dynamodb_client, get_opensearch_client, get_sqs_client};
 use tracing::debug;
 

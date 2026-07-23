@@ -12,7 +12,7 @@ use user::service::{
     authenticator_service::MockAuthenticatorService, user_service::MockUserService,
 };
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_201_respond_created_shop_when_admin_posts_shop() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);

@@ -107,7 +107,7 @@ fn mk_record(query: &str, enhanced_description: Option<&str>) -> UserSearchFilte
     record
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_embed_query_and_enhanced_description_when_syncing_insert_for_opensearch() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let mut record = mk_record(
@@ -126,7 +126,7 @@ async fn should_embed_query_and_enhanced_description_when_syncing_insert_for_ope
     assert_eq!(actual.embedding, Some(embedding(42)));
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_sync_persisted_embedding_when_query_text_is_unchanged_for_opensearch_sync() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let mut record = mk_record("antique lamp", Some("brass table lamp"));
@@ -149,7 +149,7 @@ async fn should_sync_persisted_embedding_when_query_text_is_unchanged_for_opense
     assert_eq!(actual.embedding, Some(embedding(24)));
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_update_embedding_when_query_text_changes_for_opensearch_sync() {
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let existing_record = mk_record("antique lamp", Some("brass table lamp"));

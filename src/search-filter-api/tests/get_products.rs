@@ -157,7 +157,7 @@ async fn create_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
     user.user_id
 }
 
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_200_when_success_without_enhanced_description() {
     let client = get_dynamodb_client().await;
     let opensearch = get_opensearch_client().await;
@@ -204,7 +204,7 @@ async fn should_200_when_success_without_enhanced_description() {
     assert!(actual.items.is_empty());
 }
 
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_preview_products_with_percolator_query_semantics() {
     let client = get_dynamodb_client().await;
     let opensearch = get_opensearch_client().await;
@@ -264,7 +264,7 @@ async fn should_preview_products_with_percolator_query_semantics() {
     assert!(actual.search_after.is_none());
 }
 
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_return_hardcoded_preview_size_without_pagination() {
     let client = get_dynamodb_client().await;
     let opensearch = get_opensearch_client().await;
@@ -318,7 +318,7 @@ async fn should_return_hardcoded_preview_size_without_pagination() {
     assert!(actual.search_after.is_none());
 }
 
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_400_when_size_provided() {
     let client = get_dynamodb_client().await;
     let opensearch = get_opensearch_client().await;
@@ -362,7 +362,7 @@ async fn should_400_when_size_provided() {
     assert_eq!(400, actual.status);
 }
 
-#[localstack_test(services = [DynamoDB(), OpenSearch()])]
+#[aura_integration_test(services = [DynamoDB(), OpenSearch()])]
 async fn should_400_when_search_after_provided() {
     let client = get_dynamodb_client().await;
     let opensearch = get_opensearch_client().await;

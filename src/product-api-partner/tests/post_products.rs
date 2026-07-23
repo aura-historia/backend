@@ -160,7 +160,7 @@ async fn receive_forwarded_command() -> AsyncProductCommandData {
     serde_json::from_str(message.body.as_deref().unwrap()).unwrap()
 }
 
-#[localstack_test(services = [DynamoDB(), SQS])]
+#[aura_integration_test(services = [DynamoDB(), SQS])]
 async fn should_return_202_and_forward_create_command_when_products_created_successfully() {
     let shop_id = common::shop_id::ShopId::new();
     let async_product_command_service =

@@ -51,7 +51,7 @@ async fn seed_record(
 
 // ── GET /api/v1/me/notifications ────────────────────────────────────────────
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_with_empty_list_when_no_notifications() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -86,7 +86,7 @@ async fn should_200_with_empty_list_when_no_notifications() {
     assert!(body.search_after.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_with_correct_total_when_user_record_also_exists() {
     // Regression test: count_notification_records previously had no lower-bound on the sort
     // key, so it also counted non-notification records that share the same partition key
@@ -135,7 +135,7 @@ async fn should_200_with_correct_total_when_user_record_also_exists() {
     assert_eq!(Some(2), body.total);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_with_seeded_notifications() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -180,7 +180,7 @@ async fn should_200_with_seeded_notifications() {
     assert!(returned_ids.contains(&record3.origin_event_id));
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_with_cursor_pagination() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -251,7 +251,7 @@ async fn should_200_with_cursor_pagination() {
 
 // ── PATCH /api/v1/me/notifications/{eventId} ────────────────────────────────
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_patch_one_updates_seen() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -290,7 +290,7 @@ async fn should_200_when_patch_one_updates_seen() {
     assert!(data.seen);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_404_when_patch_one_notification_not_found() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -322,7 +322,7 @@ async fn should_404_when_patch_one_notification_not_found() {
 
 // ── PATCH /api/v1/me/notifications ──────────────────────────────────────────
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_patch_all_marks_all_seen() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -364,7 +364,7 @@ async fn should_200_when_patch_all_marks_all_seen() {
     assert!(returned_ids.contains(&record2.origin_event_id));
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_patch_all_without_body() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -397,7 +397,7 @@ async fn should_200_when_patch_all_without_body() {
 
 // ── DELETE /api/v1/me/notifications/{eventId} ───────────────────────────────
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_204_when_delete_one_removes_notification() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -442,7 +442,7 @@ async fn should_204_when_delete_one_removes_notification() {
     assert_eq!(0, body.items.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_404_when_delete_one_notification_not_found() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -473,7 +473,7 @@ async fn should_404_when_delete_one_notification_not_found() {
 
 // ── DELETE /api/v1/me/notifications ─────────────────────────────────────────
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_204_when_delete_all_removes_all_notifications() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");
@@ -519,7 +519,7 @@ async fn should_204_when_delete_all_removes_all_notifications() {
     assert_eq!(0, body.items.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_204_when_delete_all_with_no_notifications() {
     let client = get_dynamodb_client().await;
     let notification_repository = NotificationDynamoDbRepositoryImpl::new(client, "table_1");

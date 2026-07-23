@@ -7,7 +7,7 @@ use search_filter::dynamodb::{
 use test_api::*;
 use time::OffsetDateTime;
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_update_search_filter_record() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -71,7 +71,7 @@ async fn should_update_search_filter_record() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_update_multiple_times() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

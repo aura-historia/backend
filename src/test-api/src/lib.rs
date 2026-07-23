@@ -43,7 +43,7 @@ pub use serial_test::serial;
 pub use ses::*;
 #[cfg(feature = "sqs")]
 pub use sqs::{Sqs, SqsBuilder, SqsBuilderError, get_sqs_client};
-pub use test_api_macros::{aura_integration_test, localstack_test};
+pub use test_api_macros::{aura_integration_test};
 pub use tokio;
 
 /// A trait for defining integration test lifecycle behavior for an Aura integration test service.

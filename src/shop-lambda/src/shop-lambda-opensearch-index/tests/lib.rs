@@ -41,7 +41,7 @@ fn mk_event_bridge_payload(product_record: &ShopRecord) -> String {
     serde_json::to_string(&event).unwrap()
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_index_shop_document_when_not_exists() {
     let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 
@@ -60,7 +60,7 @@ async fn should_index_shop_document_when_not_exists() {
     assert_eq!(ShopDocument::from(shop_record), actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_index_shop_document_when_exists() {
     let repository = ShopOpenSearchRepositoryImpl::new(get_opensearch_client().await);
 

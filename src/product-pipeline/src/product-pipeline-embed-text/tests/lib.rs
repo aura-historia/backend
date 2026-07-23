@@ -92,7 +92,7 @@ fn mk_domain_event_record_for_product(product_record: &ProductRecord) -> Product
     event.into()
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
     let client = get_dynamodb_client().await;
     let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -177,7 +177,7 @@ async fn should_embed_product_when_domain_created_event_triggers_pipeline() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_process_multiple_products_in_single_handler_invocation() {
     let client = get_dynamodb_client().await;
     let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -263,7 +263,7 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_failure_when_product_not_found_in_dynamodb() {
     let client = get_dynamodb_client().await;
     let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -301,7 +301,7 @@ async fn should_return_failure_when_product_not_found_in_dynamodb() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_no_failures_when_record_has_no_title() {
     let client = get_dynamodb_client().await;
     let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");

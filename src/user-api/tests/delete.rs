@@ -16,7 +16,7 @@ fn system_ctx() -> common::actor::RequestContext {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_204_when_deleting_existing_user() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let mut cognito = MockCognitoAdminService::default();

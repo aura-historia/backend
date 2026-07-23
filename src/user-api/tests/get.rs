@@ -14,7 +14,7 @@ fn system_ctx() -> common::actor::RequestContext {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_respond_user_when_exists() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = UserServiceImpl::new(&repository);

@@ -50,7 +50,7 @@ async fn create_admin_user(user_service: &impl UserService) -> UserId {
     user_id
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_admin_updates_application_shop_name() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -108,7 +108,7 @@ async fn should_200_when_admin_updates_application_shop_name() {
     assert_eq!(application.id, actual.id);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_admin_submits_approve_decision() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -199,7 +199,7 @@ async fn should_200_when_admin_submits_approve_decision() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_admin_submits_reject_decision() {
     let repository =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

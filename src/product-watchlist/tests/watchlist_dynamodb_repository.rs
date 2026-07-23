@@ -16,7 +16,7 @@ async fn get_repository() -> WatchlistProductDynamoDbRepositoryImpl<'static> {
     WatchlistProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_put_watchlist_record() {
     let repository = get_repository().await;
 
@@ -39,7 +39,7 @@ fn should_put_watchlist_record() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_delete_watchlist_record() {
     let repository = get_repository().await;
 
@@ -69,7 +69,7 @@ fn should_delete_watchlist_record() {
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_watchlist_records_when_lower_bounded_created_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -103,7 +103,7 @@ fn should_query_watchlist_records_when_lower_bounded_created_for_scan_index_true
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_watchlist_records_when_higher_bounded_created_for_scan_index_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -142,7 +142,7 @@ fn should_query_watchlist_records_when_higher_bounded_created_for_scan_index_fal
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_watchlist_records_when_not_bound_created_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -174,7 +174,7 @@ fn should_query_watchlist_records_when_not_bound_created_for_scan_index_true() {
     assert_eq!(records, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_watchlist_records_and_respect_limit_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -208,7 +208,7 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_true() {
     assert_eq!(records.into_iter().take(10).collect::<Vec<_>>(), actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_watchlist_records_and_respect_limit_for_scan_index_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -245,7 +245,7 @@ fn should_query_watchlist_records_and_respect_limit_for_scan_index_false() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_set_notifications_true_for_update() {
     let repository = get_repository().await;
 
@@ -287,7 +287,7 @@ fn should_set_notifications_true_for_update() {
     assert!(!actual.gsi1_sk.is_empty());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_set_notifications_false_for_update() {
     let repository = get_repository().await;
 
@@ -329,7 +329,7 @@ fn should_set_notifications_false_for_update() {
     assert!(!actual.gsi1_sk.is_empty());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_all_users_watching_product() {
     let repository = get_repository().await;
 
@@ -357,7 +357,7 @@ fn should_query_all_users_watching_product() {
     assert_eq!(42, actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_delete_watchlist_records_by_key_parts() {
     let repository = get_repository().await;
     let product_id = ProductId::new();
@@ -425,7 +425,7 @@ fn should_delete_watchlist_records_by_key_parts() {
     assert!(actual.is_some());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_count_watchlist_records_and_respect_limit_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -455,7 +455,7 @@ fn should_count_watchlist_records_and_respect_limit_for_scan_index_true() {
     assert_eq!(42, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_count_watchlist_records_and_respect_limit_for_scan_index_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -485,7 +485,7 @@ fn should_count_watchlist_records_and_respect_limit_for_scan_index_false() {
     assert_eq!(420, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_watchlist_records_all_for_scan_index_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -507,7 +507,7 @@ fn should_query_watchlist_records_all_for_scan_index_true() {
     assert_eq!(expected.len(), actual.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 fn should_query_watchlist_records_all_for_scan_index_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();

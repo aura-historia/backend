@@ -152,7 +152,7 @@ async fn seed_match_records(
     timestamps
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc() {
     let client = get_dynamodb_client().await;
     let (service, get_product_service, personalization_service) = setup_services(client);
@@ -228,7 +228,7 @@ async fn should_200_when_sort_created_asc() {
     assert_eq!(23, actual.total.unwrap());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_asc_search_after() {
     let client = get_dynamodb_client().await;
     let (service, get_product_service, personalization_service) = setup_services(client);
@@ -308,7 +308,7 @@ async fn should_200_when_sort_created_asc_search_after() {
     assert_eq!(15, actual.total.unwrap());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_desc() {
     let client = get_dynamodb_client().await;
     let (service, get_product_service, personalization_service) = setup_services(client);
@@ -385,7 +385,7 @@ async fn should_200_when_sort_created_desc() {
     assert_eq!(23, actual.total.unwrap());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_when_sort_created_desc_search_after() {
     let client = get_dynamodb_client().await;
     let (service, get_product_service, personalization_service) = setup_services(client);
@@ -465,7 +465,7 @@ async fn should_200_when_sort_created_desc_search_after() {
     assert_eq!(7, actual.total.unwrap());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_empty_when_no_matches() {
     let client = get_dynamodb_client().await;
     let (service, get_product_service, personalization_service) = setup_services(client);
@@ -513,7 +513,7 @@ async fn should_200_empty_when_no_matches() {
     assert_eq!(0, actual.total.unwrap());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_only_return_matches_for_specific_filter() {
     let client = get_dynamodb_client().await;
     let (service, get_product_service, personalization_service) = setup_services(client);
@@ -611,7 +611,7 @@ async fn create_free_user(client: &'static aws_sdk_dynamodb::Client) -> UserId {
     user.user_id
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_hide_products_when_search_filter_match_quota_exceeded() {
     let client = get_dynamodb_client().await;
     let (service, get_product_service, personalization_service) = setup_services(client);

@@ -15,7 +15,7 @@ use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-const RDS: Rds = Rds {
+const POSTGRES: Rds = Rds {
     migrations_dir: "src/crawler/migrations",
 };
 
@@ -99,7 +99,7 @@ async fn review_url_count(pool: &PgPool, review_id: Uuid) -> i64 {
         .unwrap()
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
@@ -172,7 +172,7 @@ async fn approved_schema_candidate_edit_updates_live_schema_and_audit_payload() 
     assert_eq!(edits[0]["operation"], "approved_schema_live_update");
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_pages() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());
@@ -221,7 +221,7 @@ async fn concurrent_schema_reviews_return_same_pending_review_without_duplicate_
     assert_eq!(review_page_count(&pool, first_id).await, 1);
 }
 
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn concurrent_url_pattern_reviews_return_same_pending_review_without_duplicate_urls() {
     let pool = get_postgres_client().await;
     let review_repository = CrawlerReviewRepository::new(pool.clone());

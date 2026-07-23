@@ -2,10 +2,10 @@ use test_api::*;
 
 const SQS: Sqs = Sqs { name: "test_sqs" };
 
-#[localstack_test(services = [SQS])]
+#[aura_integration_test(services = [SQS])]
 async fn should_run_without_errors() {}
 
-#[localstack_test(services = [SQS])]
+#[aura_integration_test(services = [SQS])]
 async fn should_post_to_sqs() {
     let client = get_sqs_client().await;
     let _ = client
@@ -29,7 +29,7 @@ async fn should_post_to_sqs() {
     )
 }
 
-#[localstack_test(services = [SQS, Sqs { name: "test_sqs_foo" }])]
+#[aura_integration_test(services = [SQS, Sqs { name: "test_sqs_foo" }])]
 async fn should_create_multiple_sqs() {
     let client = get_sqs_client().await;
 

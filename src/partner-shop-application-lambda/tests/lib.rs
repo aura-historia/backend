@@ -81,7 +81,7 @@ async fn seed_user_record(user_repo: &UserDynamoDbRepositoryImpl<'_>, user_id: U
 // WAIT_FOR_REVIEW integration tests
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_set_state_to_in_review_and_store_task_token_for_wait_for_review() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -141,7 +141,7 @@ async fn should_set_state_to_in_review_and_store_task_token_for_wait_for_review(
 // APPROVE integration tests
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_create_shop_and_approve_for_new_application() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -204,7 +204,7 @@ async fn should_create_shop_and_approve_for_new_application() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_link_existing_shop_and_approve_for_existing_application() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -283,7 +283,7 @@ async fn should_link_existing_shop_and_approve_for_existing_application() {
 // REJECT integration tests
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_set_state_to_rejected_for_new_application_reject() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -337,7 +337,7 @@ async fn should_set_state_to_rejected_for_new_application_reject() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_set_state_to_rejected_for_existing_application_reject() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -399,7 +399,7 @@ async fn should_set_state_to_rejected_for_existing_application_reject() {
 // Error case integration tests
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_error_when_application_not_found_for_approve() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -431,7 +431,7 @@ async fn should_return_error_when_application_not_found_for_approve() {
     assert!(result.is_err());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_error_when_application_not_found_for_reject() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -463,7 +463,7 @@ async fn should_return_error_when_application_not_found_for_reject() {
     assert!(result.is_err());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_error_when_task_token_missing_for_wait_for_review() {
     let partner_app_repo =
         PartnerShopApplicationDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

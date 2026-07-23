@@ -23,7 +23,7 @@ async fn get_repository() -> ProductDynamoDbRepositoryImpl<'static> {
     ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_product_records_for_single_record() {
     let expected = Faker.fake::<ProductRecord>();
 
@@ -43,7 +43,7 @@ async fn should_put_product_records_for_single_record() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_product_records_for_multiple_records() {
     let now1 = OffsetDateTime::now_utc();
     let shop_id = ShopId::new();
@@ -288,7 +288,7 @@ async fn should_put_product_records_for_multiple_records() {
 #[case(ProductEventRecord::Enrichment(Faker.fake()))]
 #[case(ProductEventRecord::Policy(Faker.fake()))]
 #[trace]
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_product_event_records_for_single_record(#[case] expected: ProductEventRecord) {
     get_repository()
         .await
@@ -313,7 +313,7 @@ async fn should_put_product_event_records_for_single_record(#[case] expected: Pr
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_product_event_records_for_multiple_records() {
     let shop_id = ShopId::new();
     let now1 = OffsetDateTime::now_utc();
@@ -586,7 +586,7 @@ async fn should_put_product_event_records_for_multiple_records() {
     assert_eq!(vec![expected1, expected2], actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_update_product_record() {
     let now = OffsetDateTime::now_utc();
     let shop_id = ShopId::new();
@@ -802,7 +802,7 @@ async fn should_update_product_record() {
 // transact_write_product_create
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_write_event_and_product_record_atomically_when_product_does_not_exist() {
     let repo = get_repository().await;
 
@@ -852,7 +852,7 @@ async fn should_write_event_and_product_record_atomically_when_product_does_not_
     assert_eq!(1, event_count, "exactly one event record must be written");
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_fail_transact_write_create_when_product_already_exists() {
     let repo = get_repository().await;
 
@@ -889,7 +889,7 @@ async fn should_fail_transact_write_create_when_product_already_exists() {
 // transact_write_product_update
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_write_event_and_update_product_record_atomically_when_event_id_matches() {
     let repo = get_repository().await;
 
@@ -943,7 +943,7 @@ async fn should_write_event_and_update_product_record_atomically_when_event_id_m
     assert_eq!(ProductStateRecord::Sold, stored.state);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_fail_transact_write_update_when_event_id_does_not_match() {
     let repo = get_repository().await;
 

@@ -34,7 +34,7 @@ use user::service::user_service::UserServiceImpl;
 #[case(true, false)]
 #[case(true, true)]
 #[trace]
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_respond_with_patched_notifications(
     #[case] old_notifications: bool,
     #[case] new_notifications: bool,

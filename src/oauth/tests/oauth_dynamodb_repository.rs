@@ -73,7 +73,7 @@ async fn repository() -> OAuthDynamoDbRepositoryImpl<'static> {
     OAuthDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1")
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_and_get_client_record() {
     let repository = repository().await;
     let secret = RawOAuthClientSecret::new();
@@ -93,7 +93,7 @@ async fn should_put_and_get_client_record() {
     assert_eq!(client, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_query_client_records() {
     let repository = repository().await;
     let secret = RawOAuthClientSecret::new();
@@ -114,7 +114,7 @@ async fn should_query_client_records() {
     assert_eq!(vec![client], queried);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_update_client_record() {
     let repository = repository().await;
     let secret = RawOAuthClientSecret::new();
@@ -171,7 +171,7 @@ async fn should_update_client_record() {
     assert_eq!(HashSet::from([Scope::ShopsManage]), updated.scopes);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_delete_client_record() {
     let repository = repository().await;
     let secret = RawOAuthClientSecret::new();
@@ -195,7 +195,7 @@ async fn should_delete_client_record() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_and_get_authorization_code_record() {
     let repository = repository().await;
     let secret = RawOAuthClientSecret::new();
@@ -216,7 +216,7 @@ async fn should_put_and_get_authorization_code_record() {
     assert_eq!(code, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_delete_authorization_code_record() {
     let repository = repository().await;
     let secret = RawOAuthClientSecret::new();
@@ -241,7 +241,7 @@ async fn should_delete_authorization_code_record() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_and_get_third_party_exchange_code_record() {
     let repository = repository().await;
     let code = third_party_exchange_code();
@@ -260,7 +260,7 @@ async fn should_put_and_get_third_party_exchange_code_record() {
     assert_eq!(code, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_delete_third_party_exchange_code_record() {
     let repository = repository().await;
     let code = third_party_exchange_code();

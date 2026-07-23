@@ -59,7 +59,7 @@ fn search_filter_record(
     filter.into()
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_deactivate_over_quota_resources_when_tier_is_downgraded() {
     let ddb = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb, "table_1");
@@ -130,7 +130,7 @@ async fn should_deactivate_over_quota_resources_when_tier_is_downgraded() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_reactivate_restricted_resources_when_tier_is_upgraded() {
     let ddb = get_dynamodb_client().await;
     let watchlist_repository = WatchlistProductDynamoDbRepositoryImpl::new(ddb, "table_1");

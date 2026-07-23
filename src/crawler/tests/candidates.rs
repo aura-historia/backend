@@ -9,7 +9,7 @@ use crawler::spider::classification::url_metadata_repository::{
 use std::collections::HashMap;
 use test_api::*;
 
-const RDS: Rds = Rds {
+const POSTGRES: Rds = Rds {
     migrations_dir: "src/crawler/migrations",
 };
 
@@ -77,7 +77,7 @@ async fn insert_domain_for_shop(
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_return_empty_when_no_eligible_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -96,7 +96,7 @@ async fn spider_should_return_empty_when_no_eligible_candidates_exist() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_return_candidate_with_correct_domain_id_when_never_crawled() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -123,7 +123,7 @@ async fn spider_should_return_candidate_with_correct_domain_id_when_never_crawle
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_not_return_candidate_when_recently_crawled() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -150,7 +150,7 @@ async fn spider_should_not_return_candidate_when_recently_crawled() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_return_candidate_when_crawled_more_than_7_days_ago() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -179,7 +179,7 @@ async fn spider_should_return_candidate_when_crawled_more_than_7_days_ago() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_not_return_candidate_when_shop_is_inactive() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -207,7 +207,7 @@ async fn spider_should_not_return_candidate_when_shop_is_inactive() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_respect_limit_when_multiple_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -237,7 +237,7 @@ async fn spider_should_respect_limit_when_multiple_candidates_exist() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_return_each_domain_separately_for_shop_with_multiple_domains() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -271,7 +271,7 @@ async fn spider_should_return_each_domain_separately_for_shop_with_multiple_doma
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_return_correct_shop_id_on_candidate() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -298,7 +298,7 @@ async fn spider_should_return_correct_shop_id_on_candidate() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_return_crawl_failure_metadata_on_candidate() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -336,7 +336,7 @@ async fn spider_should_return_crawl_failure_metadata_on_candidate() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -375,7 +375,7 @@ async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn spider_should_order_never_crawled_before_stale_crawled() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
@@ -437,7 +437,7 @@ async fn insert_product_url(
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_return_empty_when_no_eligible_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -455,7 +455,7 @@ async fn scraper_should_return_empty_when_no_eligible_candidates_exist() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_return_candidate_when_product_url_never_scraped() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -485,7 +485,7 @@ async fn scraper_should_return_candidate_when_product_url_never_scraped() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_not_return_candidate_when_recently_scraped() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -518,7 +518,7 @@ async fn scraper_should_not_return_candidate_when_recently_scraped() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -552,7 +552,7 @@ async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -581,7 +581,7 @@ async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_class_is_called() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -628,7 +628,7 @@ async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_c
 }
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -658,7 +658,7 @@ async fn scraper_should_not_return_candidate_when_shop_is_inactive() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_not_return_candidate_when_state_is_excluded() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -704,7 +704,7 @@ async fn scraper_should_not_return_candidate_when_state_is_excluded() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_return_candidate_for_all_included_states() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -758,7 +758,7 @@ async fn scraper_should_return_candidate_for_all_included_states() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -790,7 +790,7 @@ async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_cap_domains_and_urls_per_domain_when_fetching_candidates() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -861,7 +861,7 @@ async fn scraper_should_cap_domains_and_urls_per_domain_when_fetching_candidates
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_randomize_selected_domains_across_repeated_fetches() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -902,7 +902,7 @@ async fn scraper_should_randomize_selected_domains_across_repeated_fetches() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_order_urls_within_selected_domain_by_oldest_work_first() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -951,7 +951,7 @@ async fn scraper_should_order_urls_within_selected_domain_by_oldest_work_first()
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1003,7 +1003,7 @@ async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_should_order_never_scraped_before_stale() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1049,7 +1049,7 @@ async fn scraper_should_order_never_scraped_before_stale() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1090,7 +1090,7 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidates() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1129,7 +1129,7 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_seed_urls_should_exclude_current_url() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1164,7 +1164,7 @@ async fn scraper_seed_urls_should_exclude_current_url() {
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligible_states() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
@@ -1268,7 +1268,7 @@ async fn scraper_seed_urls_should_only_include_same_shop_product_urls_in_eligibl
 // ---------------------------------------------------------------------------
 
 #[serial]
-#[localstack_test(services = [RDS])]
+#[aura_integration_test(services = [POSTGRES])]
 async fn scraper_seed_urls_should_respect_limit() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());

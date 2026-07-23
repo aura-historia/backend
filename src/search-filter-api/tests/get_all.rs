@@ -21,7 +21,7 @@ fn user_ctx(user_id: common::user_id::UserId) -> common::actor::RequestContext {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -109,7 +109,7 @@ async fn should_return_actual_search_filters_sorted_oldest_for_order_asc() {
     assert_eq!(81, json["total"]);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_actual_search_filters_sortet_latest_for_order_desc() {
     let repository =
         UserSearchFilterDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

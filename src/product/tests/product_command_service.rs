@@ -127,7 +127,7 @@ fn make_product_record(cmd: &CreateProductCommand) -> ProductRecord {
     event_record.try_into().unwrap()
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
@@ -151,7 +151,7 @@ async fn should_write_all_products_to_dynamodb_as_created_when_none_exist() {
     assert!(all_created);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_not_create_duplicate_products_when_already_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
@@ -197,7 +197,7 @@ async fn should_not_create_duplicate_products_when_already_exist() {
     assert!(all_created);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
@@ -252,7 +252,7 @@ async fn should_write_no_product_update_events_when_all_exist_and_no_changes() {
     assert_eq!(400, items.len());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_write_product_updates_when_all_exist_and_actual_changes() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
@@ -307,7 +307,7 @@ async fn should_write_product_updates_when_all_exist_and_actual_changes() {
     assert!(all_event_records_are_state_changed);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_failures_when_updating_non_existent_products() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
@@ -342,7 +342,7 @@ async fn should_return_failures_when_updating_non_existent_products() {
     assert_eq!(expected_sorted, actual_keys);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_create_new_products_via_upsert_when_none_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
@@ -375,7 +375,7 @@ async fn should_create_new_products_via_upsert_when_none_exist() {
     assert!(all_created);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_update_existing_products_via_upsert_when_all_exist() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
@@ -434,7 +434,7 @@ async fn should_update_existing_products_via_upsert_when_all_exist() {
     assert!(all_event_records_are_state_changed);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_merge_duplicate_upsert_commands_for_same_product() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
@@ -503,7 +503,7 @@ async fn should_merge_duplicate_upsert_commands_for_same_product() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_create_and_update_mixed_products_via_upsert() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;
@@ -581,7 +581,7 @@ async fn should_create_and_update_mixed_products_via_upsert() {
 // second invocation lands on the update path, applying the state change.
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_converge_state_when_upsert_is_retried_after_concurrent_create() {
     let repository = ProductDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = command_product_service(&repository).await;

@@ -16,7 +16,7 @@ async fn get_repository() -> UserSearchFilterDynamoDbRepositoryImpl<'static> {
 #[test_attr(apply(test))]
 #[case::scan_index_forward_false(false)]
 #[case::scan_index_forward_true(true)]
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_no_records_when_partition_empty(#[case] scan_index_forward: bool) {
     let actual = get_repository()
         .await
@@ -32,7 +32,7 @@ async fn should_return_no_records_when_partition_empty(#[case] scan_index_forwar
 #[test_attr(apply(test))]
 #[case::scan_index_forward_false(false)]
 #[case::scan_index_forward_true(true)]
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_records_only_for_target_user(#[case] scan_index_forward: bool) {
     let repository = get_repository().await;
     let expected = Faker.fake::<UserSearchFilterRecord>();
@@ -54,7 +54,7 @@ async fn should_return_records_only_for_target_user(#[case] scan_index_forward: 
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_sort_by_time_aka_uuidv7_asc_when_scan_index_forward_true() {
     let repository = get_repository().await;
     let user_id = UserId::new();
@@ -81,7 +81,7 @@ async fn should_sort_by_time_aka_uuidv7_asc_when_scan_index_forward_true() {
     assert_eq!(records, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_sort_by_time_aka_uuidv7_desc_when_scan_index_forward_false() {
     let repository = get_repository().await;
     let user_id = UserId::new();

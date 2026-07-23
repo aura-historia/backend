@@ -73,7 +73,7 @@ async fn seed_partner_user_with_token(
     (user_id, raw_token)
 }
 
-#[localstack_test(services = [DynamoDB(), SQS])]
+#[aura_integration_test(services = [DynamoDB(), SQS])]
 async fn should_return_202_and_forward_woocommerce_create_webhook_to_sqs() {
     let ddb_client = get_dynamodb_client().await;
     let shop_repository = ShopDynamoDbRepositoryImpl::new(ddb_client, "table_1");

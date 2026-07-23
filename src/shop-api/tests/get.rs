@@ -22,7 +22,7 @@ fn system_ctx() -> common::actor::RequestContext {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_respond_shop() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);
@@ -65,7 +65,7 @@ async fn should_200_respond_shop() {
     assert_eq!(GetShopData::from(expected), actual)
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_200_respond_shop_for_slug() {
     let repository = ShopDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let get_service = GetShopServiceImpl::new(&repository);

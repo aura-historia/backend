@@ -7,7 +7,7 @@
 ## Core Design
 
 - Macros for test-api helpers and fixtures.
-- `#[aura_integration_test]` is primary integration-test macro; `#[localstack_test]` remains legacy alias.
+- `#[aura_integration_test]` is primary integration-test macro; `#[aura_integration_test]` remains legacy alias.
 - Macro helper crate. Keep expansion surface tiny and obvious.
 
 ## Ownership

@@ -27,7 +27,7 @@ use std::collections::HashSet;
 use test_api::*;
 use time::macros::datetime;
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_index_user_search_filter_document() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -46,7 +46,7 @@ async fn should_index_user_search_filter_document() {
     assert_eq!(expected, actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_update_user_search_filter_document_when_indexing_same_id_again() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -67,7 +67,7 @@ async fn should_update_user_search_filter_document_when_indexing_same_id_again()
     assert_eq!(second, actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_index_user_search_filter_document_with_query_embedding() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -84,7 +84,7 @@ async fn should_index_user_search_filter_document_with_query_embedding() {
     assert_eq!(actual.embedding, Some(embedding(25)));
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_update_query_embedding_when_indexing_same_filter_again() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -105,7 +105,7 @@ async fn should_update_query_embedding_when_indexing_same_filter_again() {
     assert_eq!(actual.embedding, Some(embedding(77)));
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_delete_user_search_filter_document() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -131,7 +131,7 @@ async fn should_delete_user_search_filter_document() {
     assert!(search_response.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_return_empty_percolate_result_when_index_has_no_documents() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -144,7 +144,7 @@ async fn should_return_empty_percolate_result_when_index_has_no_documents() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_query_is_empty() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -171,7 +171,7 @@ async fn should_percolate_document_when_query_is_empty() {
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_product_query_matches_title_in_selected_language() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -189,7 +189,7 @@ async fn should_percolate_document_when_product_query_matches_title_in_selected_
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_any_product_query_matches_title_in_selected_language() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -210,7 +210,7 @@ async fn should_percolate_document_when_any_product_query_matches_title_in_selec
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_product_query_does_not_match() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -228,7 +228,7 @@ async fn should_not_percolate_document_when_product_query_does_not_match() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_shop_name_matches() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -245,7 +245,7 @@ async fn should_percolate_document_when_shop_name_matches() {
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_shop_name_does_not_match() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -263,7 +263,7 @@ async fn should_not_percolate_document_when_shop_name_does_not_match() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_excluded_shop_name_matches_product() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -281,7 +281,7 @@ async fn should_not_percolate_document_when_excluded_shop_name_matches_product()
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_excluded_shop_name_does_not_match_product() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -298,7 +298,7 @@ async fn should_percolate_document_when_excluded_shop_name_does_not_match_produc
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_shop_type_matches() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -315,7 +315,7 @@ async fn should_percolate_document_when_shop_type_matches() {
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_shop_type_does_not_match() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -333,7 +333,7 @@ async fn should_not_percolate_document_when_shop_type_does_not_match() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_state_matches() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -351,7 +351,7 @@ async fn should_percolate_document_when_state_matches() {
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_state_does_not_match() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -370,7 +370,7 @@ async fn should_not_percolate_document_when_state_does_not_match() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_price_is_greater_than_or_equal_to_minimum_for_currency() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -391,7 +391,7 @@ async fn should_percolate_document_when_price_is_greater_than_or_equal_to_minimu
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_price_is_below_minimum_for_currency() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -413,7 +413,7 @@ async fn should_not_percolate_document_when_price_is_below_minimum_for_currency(
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_price_is_less_than_or_equal_to_maximum_for_currency() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -434,7 +434,7 @@ async fn should_percolate_document_when_price_is_less_than_or_equal_to_maximum_f
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_price_is_above_maximum_for_currency() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -456,7 +456,7 @@ async fn should_not_percolate_document_when_price_is_above_maximum_for_currency(
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_price_is_within_min_and_max_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -477,7 +477,7 @@ async fn should_percolate_document_when_price_is_within_min_and_max_range() {
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_price_is_outside_min_and_max_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -499,7 +499,7 @@ async fn should_not_percolate_document_when_price_is_outside_min_and_max_range()
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_usd_price_range_matches_usd_price() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -521,7 +521,7 @@ async fn should_percolate_document_when_usd_price_range_matches_usd_price() {
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_selected_currency_price_field_is_missing() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -542,7 +542,7 @@ async fn should_not_percolate_document_when_selected_currency_price_field_is_mis
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_created_is_within_min_and_max_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -562,7 +562,7 @@ async fn should_percolate_document_when_created_is_within_min_and_max_range() {
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_created_is_outside_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -583,7 +583,7 @@ async fn should_not_percolate_document_when_created_is_outside_range() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_updated_is_within_min_and_max_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -603,7 +603,7 @@ async fn should_percolate_document_when_updated_is_within_min_and_max_range() {
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_updated_is_outside_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -624,7 +624,7 @@ async fn should_not_percolate_document_when_updated_is_outside_range() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_auction_start_is_within_min_and_max_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -644,7 +644,7 @@ async fn should_percolate_document_when_auction_start_is_within_min_and_max_rang
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_auction_start_is_outside_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -665,7 +665,7 @@ async fn should_not_percolate_document_when_auction_start_is_outside_range() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_document_when_auction_end_is_within_min_and_max_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -685,7 +685,7 @@ async fn should_percolate_document_when_auction_end_is_within_min_and_max_range(
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_auction_end_is_outside_range() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -706,7 +706,7 @@ async fn should_not_percolate_document_when_auction_end_is_outside_range() {
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_auction_start_query_is_given_but_product_has_no_auction_start()
  {
     let client = get_opensearch_client().await;
@@ -728,7 +728,7 @@ async fn should_not_percolate_document_when_auction_start_query_is_given_but_pro
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_not_percolate_document_when_auction_end_query_is_given_but_product_has_no_auction_end()
  {
     let client = get_opensearch_client().await;
@@ -750,7 +750,7 @@ async fn should_not_percolate_document_when_auction_end_query_is_given_but_produ
     assert!(actual.is_empty());
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_only_documents_that_match_when_multiple_filters_are_indexed() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -782,7 +782,7 @@ async fn should_percolate_only_documents_that_match_when_multiple_filters_are_in
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_multiple_documents_when_all_match() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -1162,7 +1162,7 @@ fn silver_tea_set_product_document() -> ProductDocument {
     "argent sterling victorien",
     LanguageRecord::Fr
 )]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 #[tokio::test]
 async fn should_percolate_victorian_silver_tea_set_when_query_matches(
     #[case] query: &'static str,
@@ -1191,7 +1191,7 @@ async fn should_percolate_victorian_silver_tea_set_when_query_matches(
 #[case::en_chinese_ceramic("Ming dynasty blue white porcelain vase", LanguageRecord::En)]
 #[case::de_chinese_ceramic("Blau-Weiß-Porzellan Ming Drachen", LanguageRecord::De)]
 #[case::fr_chinese_ceramic("porcelaine Ming bleu dragon", LanguageRecord::Fr)]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 #[tokio::test]
 async fn should_not_percolate_victorian_silver_tea_set_when_query_does_not_match(
     #[case] query: &'static str,
@@ -1332,7 +1332,7 @@ fn ming_vase_product_document() -> ProductDocument {
     LanguageRecord::De
 )]
 #[case::fr_origin_period_and_motif("Ming porcelaine Jiajing dragon", LanguageRecord::Fr)]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 #[tokio::test]
 async fn should_percolate_ming_dynasty_vase_when_query_matches(
     #[case] query: &'static str,
@@ -1354,7 +1354,7 @@ async fn should_percolate_ming_dynasty_vase_when_query_matches(
     assert_eq!(vec![expected], actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_percolate_ming_dynasty_vase_when_long_query_misses_one_detail() {
     let client = get_opensearch_client().await;
     let repository = UserSearchFilterOpenSearchRepositoryImpl::new(client);
@@ -1382,7 +1382,7 @@ async fn should_percolate_ming_dynasty_vase_when_long_query_misses_one_detail() 
 #[case::en_silver_tea("Victorian sterling silver tea service", LanguageRecord::En)]
 #[case::de_silver_tea("Sterling Silber Teeservice viktorianisch", LanguageRecord::De)]
 #[case::fr_silver_tea("argent sterling victorien service", LanguageRecord::Fr)]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 #[tokio::test]
 async fn should_not_percolate_ming_dynasty_vase_when_query_does_not_match(
     #[case] query: &'static str,
@@ -1523,7 +1523,7 @@ fn louis_xv_fauteuil_product_document() -> ProductDocument {
     "Louis fauteuil Aubusson Rococo",
     LanguageRecord::Fr
 )]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 #[tokio::test]
 async fn should_percolate_louis_xv_fauteuil_when_query_matches(
     #[case] query: &'static str,
@@ -1551,7 +1551,7 @@ async fn should_percolate_louis_xv_fauteuil_when_query_matches(
 #[case::en_chinese_ceramic("Ming dynasty blue white porcelain vase", LanguageRecord::En)]
 #[case::de_chinese_ceramic("Blau Weiß Porzellan Ming Drachen", LanguageRecord::De)]
 #[case::fr_chinese_ceramic("Ming porcelaine bleu dragon Jiajing", LanguageRecord::Fr)]
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 #[tokio::test]
 async fn should_not_percolate_louis_xv_fauteuil_when_query_does_not_match(
     #[case] query: &'static str,

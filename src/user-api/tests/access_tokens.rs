@@ -14,7 +14,7 @@ fn system_ctx() -> common::actor::RequestContext {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_crud_access_tokens() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let service = UserServiceImpl::new(&repository);

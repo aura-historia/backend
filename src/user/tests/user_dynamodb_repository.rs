@@ -7,7 +7,7 @@ use user::dynamodb::{
     user_record_update::UserRecordUpdate,
 };
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_not_exists() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
 
@@ -16,7 +16,7 @@ async fn should_return_none_when_not_exists() {
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_some_when_exists() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let expected = Faker.fake::<UserRecord>();
@@ -44,7 +44,7 @@ async fn should_return_some_when_exists() {
 #[case(Faker.fake())]
 #[case(Faker.fake())]
 #[case(Faker.fake())]
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_update_user_record(#[case] user_record_update: UserRecordUpdate) {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let initial = Faker.fake::<UserRecord>();
@@ -84,7 +84,7 @@ async fn should_update_user_record(#[case] user_record_update: UserRecordUpdate)
     assert_eq!(updated, actual);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_delete_user_record_when_exists() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let record = Faker.fake::<UserRecord>();
@@ -103,7 +103,7 @@ async fn should_delete_user_record_when_exists() {
     assert!(after.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_not_error_when_deleting_non_existent_user_record() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
 
@@ -112,7 +112,7 @@ async fn should_not_error_when_deleting_non_existent_user_record() {
     assert!(result.is_ok());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_find_user_record_by_stripe_customer_id_when_set() {
     use common::stripe_customer_id::StripeCustomerId;
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
@@ -138,7 +138,7 @@ async fn should_find_user_record_by_stripe_customer_id_when_set() {
 // add_partner_shop
 // ---------------------------------------------------------------------------
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_add_shop_id_to_partner_shops_when_adding_to_empty_set() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_id: ShopId = Faker.fake();
@@ -156,7 +156,7 @@ async fn should_add_shop_id_to_partner_shops_when_adding_to_empty_set() {
     assert_eq!(updated.partner_shops, std::iter::once(shop_id).collect());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_preserve_existing_shop_when_adding_new_shop_to_partner_shops() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_id_1: ShopId = Faker.fake();
@@ -183,7 +183,7 @@ async fn should_preserve_existing_shop_when_adding_new_shop_to_partner_shops() {
     assert_eq!(updated.partner_shops.len(), 2);
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_be_idempotent_when_adding_same_shop_to_partner_shops_twice() {
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
     let shop_id: ShopId = Faker.fake();
@@ -209,7 +209,7 @@ async fn should_be_idempotent_when_adding_same_shop_to_partner_shops_twice() {
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_none_when_finding_user_by_unknown_stripe_customer_id() {
     use common::stripe_customer_id::StripeCustomerId;
     let repository = UserDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");

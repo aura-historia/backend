@@ -142,7 +142,7 @@ fn make_event(
     }
 }
 
-#[localstack_test(services = [DynamoDB(), SQS])]
+#[aura_integration_test(services = [DynamoDB(), SQS])]
 async fn should_return_202_when_upserting_product() {
     let shop_id = common::shop_id::ShopId::new();
     let command_product_service =

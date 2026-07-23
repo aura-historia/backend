@@ -43,7 +43,7 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 ///
 /// - Requires Tokio runtime (`#[tokio::test]`) test execution.
 /// - The attribute must be in the format: `services = [ServiceA, ServiceB, ...]`.
-/// - `localstack_test` is a legacy alias. Prefer `aura_integration_test`.
+/// - `aura_integration_test` is a legacy alias. Prefer `aura_integration_test`.
 /// - Malformed input will panic at compile time.
 ///
 /// # See also
@@ -52,15 +52,6 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 ///
 #[proc_macro_attribute]
 pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStream {
-    expand_aura_integration_test(attr, item)
-}
-
-#[proc_macro_attribute]
-pub fn localstack_test(attr: TokenStream, item: TokenStream) -> TokenStream {
-    expand_aura_integration_test(attr, item)
-}
-
-fn expand_aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
     let attr_expr = attr.to_string();
 

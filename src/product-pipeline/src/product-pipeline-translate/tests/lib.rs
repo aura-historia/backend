@@ -104,7 +104,7 @@ fn mk_embedded_record(
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline() {
     let client = get_dynamodb_client().await;
     let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -246,7 +246,7 @@ async fn should_translate_title_when_enrichment_embedded_event_triggers_pipeline
     );
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_process_multiple_products_in_single_handler_invocation() {
     let client = get_dynamodb_client().await;
     let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");
@@ -377,7 +377,7 @@ async fn should_process_multiple_products_in_single_handler_invocation() {
     }
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_return_failure_when_product_not_found_in_dynamodb() {
     let client = get_dynamodb_client().await;
     let repository = ProductDynamoDbRepositoryImpl::new(client, "table_1");

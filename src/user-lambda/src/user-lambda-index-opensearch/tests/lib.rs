@@ -40,7 +40,7 @@ fn mk_event_bridge_payload(user_record: &UserRecord) -> String {
     serde_json::to_string(&event).unwrap()
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_index_user_document_when_not_exists() {
     let repository = UserOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let user_record = Faker.fake::<UserRecord>();
@@ -59,7 +59,7 @@ async fn should_index_user_document_when_not_exists() {
     assert_eq!(UserDocument::from(user_record), actual);
 }
 
-#[localstack_test(services = [OpenSearch()])]
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_update_user_document_when_already_exists() {
     let repository = UserOpenSearchRepositoryImpl::new(get_opensearch_client().await);
     let user_record: UserRecord = Faker.fake();

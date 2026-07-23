@@ -8,7 +8,7 @@ use strum::IntoEnumIterator;
 use test_api::*;
 use time::OffsetDateTime;
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_get_none_when_not_exists() {
     let repository = FxRateDynamoDbRepositoryImpl::new(get_dynamodb_client().await, "table_1");
 
@@ -17,7 +17,7 @@ async fn should_get_none_when_not_exists() {
     assert!(actual.is_none());
 }
 
-#[localstack_test(services = [DynamoDB()])]
+#[aura_integration_test(services = [DynamoDB()])]
 async fn should_put_then_get_some_when_exists() {
     let mut rates = HashMap::new();
     for src in Currency::iter() {
