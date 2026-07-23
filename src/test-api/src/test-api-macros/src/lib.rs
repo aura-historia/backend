@@ -27,7 +27,9 @@ use syn::{Expr, ExprArray, ItemFn, parse_macro_input};
 /// pub struct S3;
 ///
 /// impl S3 {
-///     pub const SERVICE_NAME: &'static str = "s3";
+///     pub fn service_names() -> &'static [&'static str] {
+///         "s3"
+///     }
 ///
 ///     pub async fn set_up() {
 ///         // setup logic
