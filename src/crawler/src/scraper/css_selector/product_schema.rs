@@ -123,7 +123,7 @@ pub struct ProductCssSelectorSchema {
     pub default_currency: Option<CurrencyDto>,
 
     #[schemars(
-        description = "Crawler-only raw shipping attributes keyed by stable camelCase names such as rawShipment, rawShipmentNote, rawShipmentMin, or rawShipmentMax. Use only for visible product-specific shipping values that do not yet have normalized product fields. Extract raw values only; do not normalize or derive values."
+        description = "Crawler-only raw product attributes keyed by stable camelCase names from the configured raw attribute registry, such as rawShipment, rawCondition, rawMaterial, rawYear, rawCategory, rawMeasurements, or rawOrigin. Use only for visible product-specific values that do not yet have normalized product fields. Extract raw values only; do not normalize or derive values."
     )]
     #[serde(
         skip_serializing_if = "BTreeMap::is_empty",
@@ -1492,19 +1492,48 @@ mod tests {
     }
 
     #[test]
-    fn should_extract_raw_shipping_attributes_when_rules_present() {
+    fn should_extract_raw_attributes_when_rules_present() {
         let html = Html::parse_document(
             r#"<html><body>
               <h1>Chair</h1>
               <span id="state">Available</span>
               <img src="/chair.jpg">
               <p class="shipping">Shipping takes four to six weeks</p>
+              <p class="condition">Good condition with restored polish</p>
+              <p class="material">Walnut and brass</p>
+              <p class="year">Circa 1830</p>
+              <p class="category">Furniture / Seating</p>
+              <p class="measurements">H 90 cm x W 45 cm x D 50 cm</p>
+              <span class="height">90 cm</span>
+              <span class="width">45 cm</span>
+              <span class="depth">50 cm</span>
+              <span class="diameter">30 cm</span>
+              <span class="weight">12 kg</span>
+              <p class="origin">Southern Germany</p>
+              <span class="country">Germany</span>
+              <span class="region">Bavaria</span>
               <span class="blank">   </span>
             </body></html>"#,
         );
         let mut raw_attributes = BTreeMap::new();
         raw_attributes.insert("rawShipment".to_string(), text_rule_all(".shipping"));
         raw_attributes.insert("rawShipmentNote".to_string(), text_rule_all(".blank"));
+        raw_attributes.insert("rawCondition".to_string(), text_rule_all(".condition"));
+        raw_attributes.insert("rawMaterial".to_string(), text_rule_all(".material"));
+        raw_attributes.insert("rawYear".to_string(), text_rule_all(".year"));
+        raw_attributes.insert("rawCategoryPath".to_string(), text_rule_all(".category"));
+        raw_attributes.insert(
+            "rawMeasurements".to_string(),
+            text_rule_all(".measurements"),
+        );
+        raw_attributes.insert("rawHeight".to_string(), text_rule_all(".height"));
+        raw_attributes.insert("rawWidth".to_string(), text_rule_all(".width"));
+        raw_attributes.insert("rawDepth".to_string(), text_rule_all(".depth"));
+        raw_attributes.insert("rawDiameter".to_string(), text_rule_all(".diameter"));
+        raw_attributes.insert("rawWeight".to_string(), text_rule_all(".weight"));
+        raw_attributes.insert("rawOrigin".to_string(), text_rule_all(".origin"));
+        raw_attributes.insert("rawCountry".to_string(), text_rule_all(".country"));
+        raw_attributes.insert("rawRegion".to_string(), text_rule_all(".region"));
         let schema = ProductCssSelectorSchema {
             raw_attributes,
             ..minimal_schema("<ignored>").1
@@ -1515,6 +1544,58 @@ mod tests {
         assert_eq!(
             result.raw_attributes.get("rawShipment"),
             Some(&vec!["Shipping takes four to six weeks".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawCondition"),
+            Some(&vec!["Good condition with restored polish".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawMaterial"),
+            Some(&vec!["Walnut and brass".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawYear"),
+            Some(&vec!["Circa 1830".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawCategoryPath"),
+            Some(&vec!["Furniture / Seating".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawMeasurements"),
+            Some(&vec!["H 90 cm x W 45 cm x D 50 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawHeight"),
+            Some(&vec!["90 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawWidth"),
+            Some(&vec!["45 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawDepth"),
+            Some(&vec!["50 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawDiameter"),
+            Some(&vec!["30 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawWeight"),
+            Some(&vec!["12 kg".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawOrigin"),
+            Some(&vec!["Southern Germany".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawCountry"),
+            Some(&vec!["Germany".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawRegion"),
+            Some(&vec!["Bavaria".to_string()])
         );
         assert!(!result.raw_attributes.contains_key("rawShipmentNote"));
     }

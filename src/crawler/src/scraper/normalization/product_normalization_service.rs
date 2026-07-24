@@ -348,10 +348,20 @@ mod tests {
             ],
             auction_start: Some("2024-06-01T10:00:00Z".into()),
             auction_end: Some("2024-07-01T10:00:00Z".into()),
-            raw_attributes: [(
-                "rawShipment".to_string(),
-                vec!["Shipping takes four to six weeks".to_string()],
-            )]
+            raw_attributes: [
+                (
+                    "rawMaterial".to_string(),
+                    vec!["Walnut and brass".to_string()],
+                ),
+                (
+                    "rawMeasurements".to_string(),
+                    vec!["H 90 cm x W 45 cm x D 50 cm".to_string()],
+                ),
+                (
+                    "rawOrigin".to_string(),
+                    vec!["Southern Germany".to_string()],
+                ),
+            ]
             .into(),
         };
 
@@ -393,8 +403,16 @@ mod tests {
             datetime!(2024-07-01 10:00:00 UTC)
         );
         assert_eq!(
-            result.raw_attributes.get("rawShipment"),
-            Some(&vec!["Shipping takes four to six weeks".to_string()])
+            result.raw_attributes.get("rawMaterial"),
+            Some(&vec!["Walnut and brass".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawMeasurements"),
+            Some(&vec!["H 90 cm x W 45 cm x D 50 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawOrigin"),
+            Some(&vec!["Southern Germany".to_string()])
         );
     }
 

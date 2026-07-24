@@ -436,18 +436,32 @@ mod tests {
         .expect("generated response should serialize")
     }
 
-    fn sample_schema_with_raw_shipping() -> ProductCssSelectorSchema {
-        ProductCssSelectorSchema {
-            raw_attributes: [(
-                "rawShipment".to_string(),
+    fn sample_schema_with_raw_attributes() -> ProductCssSelectorSchema {
+        let raw_attributes = [
+            ("rawShipment", ".shipping"),
+            ("rawCondition", ".condition"),
+            ("rawMaterial", ".material"),
+            ("rawYear", ".year"),
+            ("rawCategory", ".category"),
+            ("rawMeasurements", ".measurements"),
+            ("rawOrigin", ".origin"),
+        ]
+        .into_iter()
+        .map(|(key, selector)| {
+            (
+                key.to_string(),
                 ExtractionRule {
-                    selector: ".shipping".into(),
+                    selector: selector.into(),
                     additional_selectors: vec![],
                     extract: ExtractionKind::Text,
                     cardinality: ExtractionCardinality::All,
                 },
-            )]
-            .into(),
+            )
+        })
+        .collect();
+
+        ProductCssSelectorSchema {
+            raw_attributes,
             ..sample_css_schema()
         }
     }
@@ -868,8 +882,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_preserve_raw_shipping_schema_from_mocked_llm_response() {
-        let css_schema = sample_schema_with_raw_shipping();
+    async fn should_preserve_raw_attribute_schema_from_mocked_llm_response() {
+        let css_schema = sample_schema_with_raw_attributes();
         let service = ProductSchemaServiceImpl {
             create_llm: Box::new(MockLlmProviderReturning(css_schema)),
             append_llm: Box::new(MockLlmProvider),
@@ -888,10 +902,40 @@ mod tests {
         assert_eq!(
             result.schemas[0]
                 .raw_attributes
-                .get("rawShipment")
+                .get("rawMaterial")
                 .map(|rule| rule.selector.to_string()),
-            Some(".shipping".to_string())
+            Some(".material".to_string())
         );
+    }
+
+    fn assert_raw_attribute_instruction(instruction: &str) {
+        assert!(instruction.contains("configured raw attribute groups"));
+        assert!(instruction.contains("Do not generate arbitrary raw attribute keys"));
+        assert!(instruction.contains("Prefer the broad group key"));
+        assert!(instruction.contains("specific measurement or origin keys only"));
+        assert!(instruction.contains("rawShipment"));
+        assert!(instruction.contains("rawShipmentNote"));
+        assert!(instruction.contains("rawShipmentMin"));
+        assert!(instruction.contains("rawShipmentMax"));
+        assert!(instruction.contains("rawCondition"));
+        assert!(instruction.contains("rawConditionNote"));
+        assert!(instruction.contains("rawMaterial"));
+        assert!(instruction.contains("rawMaterialNote"));
+        assert!(instruction.contains("rawYear"));
+        assert!(instruction.contains("rawYearNote"));
+        assert!(instruction.contains("rawCategory"));
+        assert!(instruction.contains("rawCategoryPath"));
+        assert!(instruction.contains("rawMeasurements"));
+        assert!(instruction.contains("rawHeight"));
+        assert!(instruction.contains("rawWidth"));
+        assert!(instruction.contains("rawDepth"));
+        assert!(instruction.contains("rawDiameter"));
+        assert!(instruction.contains("rawWeight"));
+        assert!(instruction.contains("rawMeasurementNote"));
+        assert!(instruction.contains("rawOrigin"));
+        assert!(instruction.contains("rawCountry"));
+        assert!(instruction.contains("rawRegion"));
+        assert!(instruction.contains("rawOriginNote"));
     }
 
     #[tokio::test]
@@ -935,13 +979,7 @@ mod tests {
         assert!(instruction.contains("not one schema per page"));
         assert!(instruction.contains("The schemas field contains one ProductCssSelectorSchema"));
         assert!(instruction.contains("multiple schemas ordered as described"));
-        assert!(instruction.contains("configured raw attribute groups"));
-        assert!(instruction.contains("shipping only"));
-        assert!(instruction.contains("rawShipment"));
-        assert!(instruction.contains("rawShipmentNote"));
-        assert!(instruction.contains("rawShipmentMin"));
-        assert!(instruction.contains("rawShipmentMax"));
-        assert!(!instruction.contains("rawMaterial"));
+        assert_raw_attribute_instruction(&instruction);
     }
 
     #[test]
@@ -955,13 +993,7 @@ mod tests {
         assert!(instruction.contains("Return no schemas and include a short reason"));
         assert!(instruction.contains("removed_schema must include selector"));
         assert!(instruction.contains("exactly one of text or regex"));
-        assert!(instruction.contains("configured raw attribute groups"));
-        assert!(instruction.contains("shipping only"));
-        assert!(instruction.contains("rawShipment"));
-        assert!(instruction.contains("rawShipmentNote"));
-        assert!(instruction.contains("rawShipmentMin"));
-        assert!(instruction.contains("rawShipmentMax"));
-        assert!(!instruction.contains("rawMaterial"));
+        assert_raw_attribute_instruction(&instruction);
     }
 
     #[test]
@@ -1041,17 +1073,17 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_generated_schemas_response_with_raw_shipping_attributes() {
-        let payload = generated_response_json(vec![sample_schema_with_raw_shipping()]);
+    fn should_parse_generated_schemas_response_with_raw_attributes() {
+        let payload = generated_response_json(vec![sample_schema_with_raw_attributes()]);
 
         let parsed = parse_product_schemas_response(&payload).unwrap();
 
         assert_eq!(
             parsed.schemas[0]
                 .raw_attributes
-                .get("rawShipment")
+                .get("rawOrigin")
                 .map(|rule| rule.selector.to_string()),
-            Some(".shipping".to_string())
+            Some(".origin".to_string())
         );
     }
 

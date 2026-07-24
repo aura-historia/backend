@@ -491,8 +491,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn file_push_service_includes_raw_shipping_attributes() {
-        let path = temp_output_path("raw_shipping");
+    async fn file_push_service_includes_raw_attributes() {
+        let path = temp_output_path("raw_attributes");
         let _ = std::fs::remove_file(&path);
 
         let service = FileProductPushService::new(path.clone());
@@ -503,6 +503,13 @@ mod tests {
             "rawShipment".to_string(),
             vec!["Shipping takes four to six weeks".to_string()],
         );
+        product.raw_attributes.insert(
+            "rawMaterial".to_string(),
+            vec!["Walnut and brass".to_string()],
+        );
+        product
+            .raw_attributes
+            .insert("rawYear".to_string(), vec!["Circa 1830".to_string()]);
         let item = make_push_item(product, &candidate);
 
         service.push(vec![item]).await;
@@ -513,6 +520,11 @@ mod tests {
             parsed[0]["raw_attributes"]["rawShipment"][0],
             "Shipping takes four to six weeks"
         );
+        assert_eq!(
+            parsed[0]["raw_attributes"]["rawMaterial"][0],
+            "Walnut and brass"
+        );
+        assert_eq!(parsed[0]["raw_attributes"]["rawYear"][0], "Circa 1830");
 
         let _ = std::fs::remove_file(&path);
     }

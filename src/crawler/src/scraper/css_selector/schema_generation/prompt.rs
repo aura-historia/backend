@@ -34,10 +34,130 @@ const SHIPPING_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
     },
 ];
 
-const RAW_ATTRIBUTE_GROUPS: &[RawAttributeGroup] = &[RawAttributeGroup {
-    name: "shipping",
-    definitions: SHIPPING_RAW_ATTRIBUTES,
-}];
+const CONDITION_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
+    RawAttributeDefinition {
+        key: "rawCondition",
+        description: "complete visible condition text",
+    },
+    RawAttributeDefinition {
+        key: "rawConditionNote",
+        description: "condition note, caveat, defect, restoration, wear, or damage text",
+    },
+];
+
+const MATERIAL_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
+    RawAttributeDefinition {
+        key: "rawMaterial",
+        description: "complete visible material or composition text",
+    },
+    RawAttributeDefinition {
+        key: "rawMaterialNote",
+        description: "material note, finish, technique, surface, or construction text",
+    },
+];
+
+const YEAR_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
+    RawAttributeDefinition {
+        key: "rawYear",
+        description: "complete visible year, date, period, era, or circa text",
+    },
+    RawAttributeDefinition {
+        key: "rawYearNote",
+        description: "year, date, period, era, or attribution note",
+    },
+];
+
+const CATEGORY_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
+    RawAttributeDefinition {
+        key: "rawCategory",
+        description: "complete visible product category, type, or classification text",
+    },
+    RawAttributeDefinition {
+        key: "rawCategoryPath",
+        description: "visible breadcrumb or category path text",
+    },
+];
+
+const MEASUREMENT_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
+    RawAttributeDefinition {
+        key: "rawMeasurements",
+        description: "complete visible dimensions, size, measurements, or weight text",
+    },
+    RawAttributeDefinition {
+        key: "rawHeight",
+        description: "visible height text",
+    },
+    RawAttributeDefinition {
+        key: "rawWidth",
+        description: "visible width text",
+    },
+    RawAttributeDefinition {
+        key: "rawDepth",
+        description: "visible depth text",
+    },
+    RawAttributeDefinition {
+        key: "rawDiameter",
+        description: "visible diameter text",
+    },
+    RawAttributeDefinition {
+        key: "rawWeight",
+        description: "visible weight text",
+    },
+    RawAttributeDefinition {
+        key: "rawMeasurementNote",
+        description: "measurement note, unit note, approximation, or size caveat text",
+    },
+];
+
+const ORIGIN_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
+    RawAttributeDefinition {
+        key: "rawOrigin",
+        description: "complete visible origin, provenance, maker location, or place text",
+    },
+    RawAttributeDefinition {
+        key: "rawCountry",
+        description: "visible country text",
+    },
+    RawAttributeDefinition {
+        key: "rawRegion",
+        description: "visible region, city, locality, or area text",
+    },
+    RawAttributeDefinition {
+        key: "rawOriginNote",
+        description: "origin, provenance, attribution, or locality note",
+    },
+];
+
+const RAW_ATTRIBUTE_GROUPS: &[RawAttributeGroup] = &[
+    RawAttributeGroup {
+        name: "shipping",
+        definitions: SHIPPING_RAW_ATTRIBUTES,
+    },
+    RawAttributeGroup {
+        name: "condition",
+        definitions: CONDITION_RAW_ATTRIBUTES,
+    },
+    RawAttributeGroup {
+        name: "material",
+        definitions: MATERIAL_RAW_ATTRIBUTES,
+    },
+    RawAttributeGroup {
+        name: "year",
+        definitions: YEAR_RAW_ATTRIBUTES,
+    },
+    RawAttributeGroup {
+        name: "category",
+        definitions: CATEGORY_RAW_ATTRIBUTES,
+    },
+    RawAttributeGroup {
+        name: "measurements",
+        definitions: MEASUREMENT_RAW_ATTRIBUTES,
+    },
+    RawAttributeGroup {
+        name: "origin",
+        definitions: ORIGIN_RAW_ATTRIBUTES,
+    },
+];
 
 fn raw_attributes_instruction() -> String {
     let mut definitions = String::new();
@@ -55,7 +175,7 @@ fn raw_attributes_instruction() -> String {
     }
 
     format!(
-        "Generate raw_attributes selector rules only for configured raw attribute groups. V1 configured group is shipping only.{definitions} Use these keys exactly. Do not generate arbitrary raw attribute keys. Add a raw_attributes rule only when exact visible product-specific shipping data is present in the YAML projection. Extract raw text only; do not derive, normalize, calculate, or split values that are not separately visible. Omit raw_attributes or omit individual keys when no precise selector-bound shipping data exists."
+        "Generate raw_attributes selector rules only for configured raw attribute groups.{definitions} Use these keys exactly. Do not generate arbitrary raw attribute keys. Prefer the broad group key when a page exposes combined text for a group. Use specific measurement or origin keys only when the exact value is separately visible. Add a raw_attributes rule only when exact visible product-specific data from a configured group is present in the YAML projection. Extract raw text only; do not derive, split, normalize, translate, calculate, or infer values that are not separately visible. Omit raw_attributes or omit individual keys when no precise selector-bound value exists."
     )
 }
 
