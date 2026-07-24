@@ -204,6 +204,7 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
                 images,
                 auction_start,
                 auction_end,
+                raw_attributes: raw.raw_attributes,
             },
             llm_calls_used,
         })
@@ -257,6 +258,7 @@ mod tests {
             images: vec![],
             auction_start: None,
             auction_end: None,
+            raw_attributes: Default::default(),
         }
     }
 
@@ -346,6 +348,11 @@ mod tests {
             ],
             auction_start: Some("2024-06-01T10:00:00Z".into()),
             auction_end: Some("2024-07-01T10:00:00Z".into()),
+            raw_attributes: [(
+                "rawShipment".to_string(),
+                vec!["Shipping takes four to six weeks".to_string()],
+            )]
+            .into(),
         };
 
         let result = svc.normalize(raw, base_url(), None).await.unwrap().product;
@@ -384,6 +391,10 @@ mod tests {
         assert_eq!(
             result.auction_end.unwrap(),
             datetime!(2024-07-01 10:00:00 UTC)
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawShipment"),
+            Some(&vec!["Shipping takes four to six weeks".to_string()])
         );
     }
 

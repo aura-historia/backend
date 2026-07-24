@@ -773,6 +773,7 @@ mod tests {
             images: vec![],
             auction_start: None,
             auction_end: None,
+            raw_attributes: Default::default(),
         }
     }
 

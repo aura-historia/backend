@@ -40,6 +40,7 @@
 //! ```
 
 use common::shop_id::ShopId;
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::Arc;
@@ -106,6 +107,7 @@ pub struct DemoProduct {
     pub images: Vec<ProductImageData>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
+    pub raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
 impl From<NormalizedProduct> for DemoProduct {
@@ -122,6 +124,7 @@ impl From<NormalizedProduct> for DemoProduct {
             images: p.images.into_iter().map(Into::into).collect(),
             auction_start: p.auction_start,
             auction_end: p.auction_end,
+            raw_attributes: p.raw_attributes,
         }
     }
 }

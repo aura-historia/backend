@@ -412,6 +412,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         }
     }
 
@@ -433,6 +434,22 @@ mod tests {
             "risks": [],
         }))
         .expect("generated response should serialize")
+    }
+
+    fn sample_schema_with_raw_shipping() -> ProductCssSelectorSchema {
+        ProductCssSelectorSchema {
+            raw_attributes: [(
+                "rawShipment".to_string(),
+                ExtractionRule {
+                    selector: ".shipping".into(),
+                    additional_selectors: vec![],
+                    extract: ExtractionKind::Text,
+                    cardinality: ExtractionCardinality::All,
+                },
+            )]
+            .into(),
+            ..sample_css_schema()
+        }
     }
 
     fn removed_append_response_json() -> String {
@@ -851,6 +868,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_preserve_raw_shipping_schema_from_mocked_llm_response() {
+        let css_schema = sample_schema_with_raw_shipping();
+        let service = ProductSchemaServiceImpl {
+            create_llm: Box::new(MockLlmProviderReturning(css_schema)),
+            append_llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
+            service_tier: None,
+            repository: Box::new(MockShopsProductSchemaRepository::new()),
+        };
+
+        let result = service
+            .create_product_schemas(&[
+                "<html><body><p class=\"shipping\">Ships in 2 weeks</p></body></html>".to_string(),
+            ])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.schemas[0]
+                .raw_attributes
+                .get("rawShipment")
+                .map(|rule| rule.selector.to_string()),
+            Some(".shipping".to_string())
+        );
+    }
+
+    #[tokio::test]
     async fn should_propagate_database_error_when_find_fails_for_get() {
         let shop_id = ShopId::new();
 
@@ -891,6 +935,13 @@ mod tests {
         assert!(instruction.contains("not one schema per page"));
         assert!(instruction.contains("The schemas field contains one ProductCssSelectorSchema"));
         assert!(instruction.contains("multiple schemas ordered as described"));
+        assert!(instruction.contains("configured raw attribute groups"));
+        assert!(instruction.contains("shipping only"));
+        assert!(instruction.contains("rawShipment"));
+        assert!(instruction.contains("rawShipmentNote"));
+        assert!(instruction.contains("rawShipmentMin"));
+        assert!(instruction.contains("rawShipmentMax"));
+        assert!(!instruction.contains("rawMaterial"));
     }
 
     #[test]
@@ -904,6 +955,13 @@ mod tests {
         assert!(instruction.contains("Return no schemas and include a short reason"));
         assert!(instruction.contains("removed_schema must include selector"));
         assert!(instruction.contains("exactly one of text or regex"));
+        assert!(instruction.contains("configured raw attribute groups"));
+        assert!(instruction.contains("shipping only"));
+        assert!(instruction.contains("rawShipment"));
+        assert!(instruction.contains("rawShipmentNote"));
+        assert!(instruction.contains("rawShipmentMin"));
+        assert!(instruction.contains("rawShipmentMax"));
+        assert!(!instruction.contains("rawMaterial"));
     }
 
     #[test]
@@ -980,6 +1038,21 @@ mod tests {
             SchemaLlmEvaluationConfidence::High
         );
         assert!(parsed.evaluation.is_high_confidence_approval());
+    }
+
+    #[test]
+    fn should_parse_generated_schemas_response_with_raw_shipping_attributes() {
+        let payload = generated_response_json(vec![sample_schema_with_raw_shipping()]);
+
+        let parsed = parse_product_schemas_response(&payload).unwrap();
+
+        assert_eq!(
+            parsed.schemas[0]
+                .raw_attributes
+                .get("rawShipment")
+                .map(|rule| rule.selector.to_string()),
+            Some(".shipping".to_string())
+        );
     }
 
     #[test]

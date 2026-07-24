@@ -185,6 +185,9 @@ fn evaluate_schema_fields(
     if let Some(rule) = &schema.auction_end {
         fields.push(evaluate_rule("auction_end", rule, html));
     }
+    for (field, rule) in &schema.raw_attributes {
+        fields.push(evaluate_rule(field, rule, html));
+    }
     fields
 }
 
@@ -266,12 +269,20 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         }
     }
 
     fn schema_with_price(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
             price: Some(text_rule("#price")),
+            ..schema(title_selector)
+        }
+    }
+
+    fn schema_with_raw_shipping(title_selector: &str) -> ProductCssSelectorSchema {
+        ProductCssSelectorSchema {
+            raw_attributes: [("rawShipment".to_string(), text_rule("#shipping"))].into(),
             ..schema(title_selector)
         }
     }
@@ -353,5 +364,27 @@ mod tests {
 
         assert!(schema_matrix_has_required_coverage(&matrix));
         assert_eq!(unused_schema_indices(&matrix), vec![1]);
+    }
+
+    #[test]
+    fn should_report_raw_shipping_selector_fields_when_configured() {
+        let schemas = vec![schema_with_raw_shipping("h1")];
+        let pages = vec![SchemaReviewPageInput {
+            url: "https://example.com/product".to_string(),
+            role: PAGE_ROLE_PRIMARY.to_string(),
+            raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><span id=\"state\">Available</span><img src=\"a.jpg\"><span id=\"shipping\">4 - 6 weeks</span></body></html>".to_string(),
+        }];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+        let fields = &matrix.candidates[0].pages[0].fields;
+
+        assert!(fields.iter().any(|field| field.field == "rawShipment"));
+        assert_eq!(
+            matrix.candidates[0].pages[0]
+                .extracted
+                .as_ref()
+                .and_then(|raw| raw.raw_attributes.get("rawShipment")),
+            Some(&vec!["4 - 6 weeks".to_string()])
+        );
     }
 }

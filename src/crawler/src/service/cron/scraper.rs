@@ -4,7 +4,7 @@ use crate::scraper::candidate_service::{
     ProductSnapshot, ScraperCandidate, ScraperCandidateService,
 };
 use crate::scraper::scraper_service::{ScraperError, ScraperService};
-use crate::service::product_push::{ProductPushService, normalize_to_upsert};
+use crate::service::product_push::{ProductPushItem, ProductPushService, normalize_to_upsert};
 use crate::spider::advisory_lock::{LocalLockManager, ShopLock, UrlLock};
 use common::shop_id::ShopId;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -19,10 +19,7 @@ struct ScrapeDomainContext {
     scraper: Arc<dyn ScraperService>,
     scraper_candidates: Arc<dyn ScraperCandidateService>,
     lock_manager: Arc<LocalLockManager>,
-    command_tx: mpsc::UnboundedSender<(
-        product::service::product_command::UpsertProductCommand,
-        CandidateMeta,
-    )>,
+    command_tx: mpsc::UnboundedSender<(ProductPushItem, CandidateMeta)>,
     budget_exhausted_shops: Arc<Mutex<HashSet<ShopId>>>,
     schema_pending_shops: Arc<Mutex<HashSet<ShopId>>>,
 }
@@ -38,10 +35,7 @@ struct CandidateMeta {
 }
 
 struct ScrapeCandidateOutcome {
-    command: Option<(
-        product::service::product_command::UpsertProductCommand,
-        CandidateMeta,
-    )>,
+    command: Option<(ProductPushItem, CandidateMeta)>,
     errored: bool,
     skipped: bool,
 }
@@ -71,20 +65,17 @@ struct ScheduledScrapeDomainOutcome {
 async fn flush_batch(
     push_service: &Arc<dyn ProductPushService>,
     scraper_candidates: &Arc<dyn ScraperCandidateService>,
-    batch: Vec<(
-        product::service::product_command::UpsertProductCommand,
-        CandidateMeta,
-    )>,
+    batch: Vec<(ProductPushItem, CandidateMeta)>,
 ) {
-    let (commands, metas): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
+    let (products, metas): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
 
     // Keep a copy of shops_product_ids in order so we can re-match after push.
-    let ids_in_order: Vec<String> = commands
+    let ids_in_order: Vec<String> = products
         .iter()
-        .map(|c| c.shops_product_id.to_string())
+        .map(|product| product.command.shops_product_id.to_string())
         .collect();
 
-    let succeeded = push_service.push(commands).await;
+    let succeeded = push_service.push(products).await;
     let succeeded_ids: std::collections::HashSet<String> = succeeded
         .iter()
         .map(|c| c.shops_product_id.to_string())
@@ -167,6 +158,7 @@ async fn scrape_candidate(
         .await
     {
         Ok(Some(scraped)) => {
+            let raw_attributes = scraped.product.raw_attributes.clone();
             let meta = CandidateMeta {
                 shop_id: candidate.shop_id,
                 url: candidate.url.clone(),
@@ -174,7 +166,15 @@ async fn scrape_candidate(
                 snapshot: scraped.snapshot,
             };
             ScrapeCandidateOutcome {
-                command: normalize_to_upsert(scraped.product, &candidate).map(|cmd| (cmd, meta)),
+                command: normalize_to_upsert(scraped.product, &candidate).map(|command| {
+                    (
+                        ProductPushItem {
+                            command,
+                            raw_attributes,
+                        },
+                        meta,
+                    )
+                }),
                 errored: false,
                 skipped: false,
             }
@@ -382,10 +382,8 @@ impl CrawlerCronJob {
         let mut active_domains: HashSet<String> = HashSet::new();
         let mut pending_domains: VecDeque<(String, Vec<ScraperCandidate>)> = VecDeque::new();
         let mut join_set: JoinSet<ScheduledScrapeDomainOutcome> = JoinSet::new();
-        let (command_tx, mut command_rx) = mpsc::unbounded_channel::<(
-            product::service::product_command::UpsertProductCommand,
-            CandidateMeta,
-        )>();
+        let (command_tx, mut command_rx) =
+            mpsc::unbounded_channel::<(ProductPushItem, CandidateMeta)>();
 
         let budget_exhausted_shops = Arc::new(Mutex::new(HashSet::new()));
         let schema_pending_shops = Arc::new(Mutex::new(HashSet::new()));
@@ -402,10 +400,7 @@ impl CrawlerCronJob {
         let push_service = Arc::clone(&self.product_push);
         let scraper_candidates_push = Arc::clone(&self.scraper_candidates);
         let push_collector = tokio::spawn(async move {
-            let mut pending: Vec<(
-                product::service::product_command::UpsertProductCommand,
-                CandidateMeta,
-            )> = Vec::new();
+            let mut pending: Vec<(ProductPushItem, CandidateMeta)> = Vec::new();
 
             while let Some(pair) = command_rx.recv().await {
                 pending.push(pair);

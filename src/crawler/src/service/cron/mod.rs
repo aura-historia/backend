@@ -28,8 +28,14 @@ pub(super) mod test_support {
 
     pub(super) fn noop_product_push() -> Box<MockProductPushService> {
         let mut push = MockProductPushService::new();
-        push.expect_push()
-            .returning(|cmds| Box::pin(async move { cmds }));
+        push.expect_push().returning(|products| {
+            Box::pin(async move {
+                products
+                    .into_iter()
+                    .map(|product| product.command)
+                    .collect()
+            })
+        });
         Box::new(push)
     }
 

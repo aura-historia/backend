@@ -52,6 +52,7 @@ fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         auction_start: None,
         auction_end: None,
         default_currency: None,
+        raw_attributes: Default::default(),
     }
 }
 

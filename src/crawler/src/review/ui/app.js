@@ -39,6 +39,7 @@ const schemaHighlightColors = {
     auction_start: '#9333ea',
     auction_end: '#dc2626'
 };
+const rawAttributeHighlightColor = '#64748b';
 
 applyTheme(theme);
 
@@ -576,11 +577,13 @@ function renderSchemaLegend(schema) {
 }
 
 function renderSchemaDiff(current, compare) {
-    const fields = [...selectorFields, 'default_currency'];
+    const rawAttributeFields = Array.from(new Set(Object.keys(current?.raw_attributes || {}).concat(Object.keys(compare?.raw_attributes || {}))))
+        .map(field => `raw_attributes.${field}`);
+    const fields = [...selectorFields, 'default_currency', ...rawAttributeFields];
     return `<div class="schema-diff">${
         fields.map(field => {
-            const left = normalizeRuleValue(current ? current[field] : undefined);
-            const right = normalizeRuleValue(compare ? compare[field] : undefined);
+            const left = normalizeRuleValue(schemaFieldValue(current, field));
+            const right = normalizeRuleValue(schemaFieldValue(compare, field));
             const status = diffStatus(left, right);
             return `<div class="diff-row">
               <div class="diff-field">${escapeHtml(displayName(field))}</div>
@@ -592,6 +595,12 @@ function renderSchemaDiff(current, compare) {
             </div>`;
         }).join('')
     }</div>`;
+}
+
+function schemaFieldValue(schema, field) {
+    if (!schema) return undefined;
+    if (!field.startsWith('raw_attributes.')) return schema[field];
+    return (schema.raw_attributes || {})[field.slice('raw_attributes.'.length)];
 }
 
 function diffStatus(left, right) {
@@ -745,7 +754,8 @@ function defaultSchema() {
         images: defaultRuleFor('images'),
         auction_start: null,
         auction_end: null,
-        default_currency: null
+        default_currency: null,
+        raw_attributes: {}
     };
 }
 
@@ -881,6 +891,12 @@ function schemaHighlightRules(schema) {
         const selectors = [rule.selector].concat(rule.additional_selectors || []).filter(Boolean);
         if (!selectors.length) continue;
         rules.push({field: displayName(field), selectors, color: schemaHighlightColors[field] || '#2563eb'});
+    }
+    for (const [field, rule] of Object.entries((schema && schema.raw_attributes) || {})) {
+        if (!rule || !rule.selector) continue;
+        const selectors = [rule.selector].concat(rule.additional_selectors || []).filter(Boolean);
+        if (!selectors.length) continue;
+        rules.push({field: displayName(field), selectors, color: rawAttributeHighlightColor});
     }
     return rules;
 }

@@ -5,6 +5,60 @@ const SAMPLE_DESCRIPTION: &str = "The samples below are compact YAML projections
 const SELECTOR_GROUNDING_INSTRUCTION: &str = "Only use CSS selectors that can be derived from tags, attrs, text, and tree context visible in the YAML projection. Never invent class names, ids, attributes, or selector paths that are not present in the YAML. Every non-null selector must be product-specific and must apply to every sample covered by that schema. Optional fields must be null unless an exact selector is visible in the YAML and clearly extracts non-empty product-specific content from the page or template. Prefer null over guessed selectors, generic wrappers, layout containers, or whole-page content selectors. For description, use null unless a precise product-description selector is visible; do not use generic selectors such as .description-wrapper or .HTMLPageContent unless those exact classes appear in the YAML on nodes containing product description text.";
 const CONFIDENCE_INSTRUCTION: &str = "Use confidence HIGH only when selectors are product-specific and likely safe for unattended approval after deterministic validation. Use MEDIUM for plausible schemas with ambiguity. Use LOW when selectors or fields are uncertain. MEDIUM and LOW require human review.";
 
+struct RawAttributeDefinition {
+    key: &'static str,
+    description: &'static str,
+}
+
+struct RawAttributeGroup {
+    name: &'static str,
+    definitions: &'static [RawAttributeDefinition],
+}
+
+const SHIPPING_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
+    RawAttributeDefinition {
+        key: "rawShipment",
+        description: "complete visible shipping, delivery, dispatch, pickup, or collection text",
+    },
+    RawAttributeDefinition {
+        key: "rawShipmentNote",
+        description: "shipping note, limitation, region, pickup-only text, or special delivery condition",
+    },
+    RawAttributeDefinition {
+        key: "rawShipmentMin",
+        description: "visible lower bound of a shipping or delivery time range",
+    },
+    RawAttributeDefinition {
+        key: "rawShipmentMax",
+        description: "visible upper bound of a shipping or delivery time range",
+    },
+];
+
+const RAW_ATTRIBUTE_GROUPS: &[RawAttributeGroup] = &[RawAttributeGroup {
+    name: "shipping",
+    definitions: SHIPPING_RAW_ATTRIBUTES,
+}];
+
+fn raw_attributes_instruction() -> String {
+    let mut definitions = String::new();
+    for group in RAW_ATTRIBUTE_GROUPS {
+        let _ = std::fmt::Write::write_fmt(
+            &mut definitions,
+            format_args!(" Raw attribute group `{}` supports:", group.name),
+        );
+        for definition in group.definitions {
+            let _ = std::fmt::Write::write_fmt(
+                &mut definitions,
+                format_args!(" `{}` ({})", definition.key, definition.description),
+            );
+        }
+    }
+
+    format!(
+        "Generate raw_attributes selector rules only for configured raw attribute groups. V1 configured group is shipping only.{definitions} Use these keys exactly. Do not generate arbitrary raw attribute keys. Add a raw_attributes rule only when exact visible product-specific shipping data is present in the YAML projection. Extract raw text only; do not derive, normalize, calculate, or split values that are not separately visible. Omit raw_attributes or omit individual keys when no precise selector-bound shipping data exists."
+    )
+}
+
 pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String {
     let prompt_pages: Vec<String> = if html_pages.is_empty() {
         Vec::new()
@@ -54,11 +108,13 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
          Return schemas ordered by specificity and completeness: first the schema with the most non-null extraction rules, then fallback templates with fewer applicable rules. When rule counts tie, put the schema with more specific product-focused selectors first.\n\
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
+         {raw_attributes_instruction}\n\
          Return ONLY ProductSchemaGenerationResponse JSON with fields schemas, confidence, summary, and risks. The schemas field contains one ProductCssSelectorSchema for one product template or multiple schemas ordered as described above.\n\
          {confidence_instruction}\n\
          {sample_description}\n\
          Here are the page {sample_label} samples:{samples}",
         selector_grounding_instruction = SELECTOR_GROUNDING_INSTRUCTION,
+        raw_attributes_instruction = raw_attributes_instruction(),
         confidence_instruction = CONFIDENCE_INSTRUCTION,
         sample_description = SAMPLE_DESCRIPTION,
         sample_label = SAMPLE_LABEL
@@ -77,12 +133,14 @@ pub(super) fn build_append_schema_instruction(html: &str) -> String {
           For removed, removed_schema must include selector and exactly one of text or regex. Use text for stable exact visible text. Use regex for variable removed messages like \"the table from 2020 is not available anymore\"; regex must be valid Rust regex syntax and match the selected normalized text after trimming, whitespace collapse, and lowercasing.\n\
           For product, this schema will be appended to a set of existing schemas from the same shop. Focus on this specific layout and make the selectors resilient.\n\
           {selector_grounding_instruction}\n\
+          {raw_attributes_instruction}\n\
           Return ONLY ProductSchemaGenerationResponse JSON.\n\
           {confidence_instruction}\n\
           {sample_description}\n\
           Here is the page {sample_label}:\n\
           {prompt_page}",
         selector_grounding_instruction = SELECTOR_GROUNDING_INSTRUCTION,
+        raw_attributes_instruction = raw_attributes_instruction(),
         confidence_instruction = CONFIDENCE_INSTRUCTION,
         sample_description = SAMPLE_DESCRIPTION,
         sample_label = SAMPLE_LABEL

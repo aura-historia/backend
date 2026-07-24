@@ -100,6 +100,7 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
         auction_start: None,
         auction_end: None,
         default_currency: None,
+        raw_attributes: Default::default(),
     }
 }
 
@@ -172,6 +173,7 @@ pub(super) fn normalized_product(url: Url) -> NormalizedProduct {
         images: vec![],
         auction_start: None,
         auction_end: None,
+        raw_attributes: Default::default(),
     }
 }
 
