@@ -2,13 +2,14 @@
 
 ## Purpose
 
-- Own bare-metal async worker runtime skeleton for #1341.
+- Own bare-metal async worker runtime, Sequin CDC ingestion, and in-memory worker queues for #1341.
 
 ## Core Design
 
-- `main.rs` bootstraps logging, config, health server, and graceful shutdown.
-- `lib.rs` owns runtime config, health/readiness endpoints, server loop, and bounded in-memory queue primitives.
-- Worker consumes future Sequin CDC, routes domain changes to in-memory queues, then sub-workers handle retries/DLQ in process.
+- `main.rs` bootstraps logging, config, health/CDC server, and graceful shutdown.
+- `lib.rs` owns runtime config, `/health`, `/ready`, `/cdc/sequin`, server loop, and bounded queue primitives.
+- `cdc.rs` normalizes Sequin JSON to domain jobs and fans out after route validation.
+- `retry.rs` owns in-process retry, idempotency memory, and in-memory DLQ helpers.
 - No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs.
 
 ## Ownership
@@ -26,6 +27,8 @@
 
 - Keep runtime glue thin.
 - Queue payloads should be domain types or domain IDs, not Sequin/AWS envelopes.
+- Ack Sequin only after all relevant bounded queue enqueues succeed.
+- Use domain idempotency keys; Sequin IDs/LSNs are logs only.
 - Keep queue abstraction replaceable by SQS/Lambda/ECS later.
 
 ## Verification

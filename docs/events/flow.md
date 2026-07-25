@@ -103,6 +103,8 @@ No intermediate product command SQS queue. No `202 accepted because queued` beha
 
 ## Sequin fanout contract
 
+`aura-historia-worker` exposes `POST /cdc/sequin` for CDC delivery.
+
 There is no durable `worker_inbox` table.
 
 Minimum ingest steps:
@@ -113,7 +115,8 @@ Minimum ingest steps:
 4. Derive domain-first `idempotency_key` and `ordering_key`.
 5. Map change to one or more domain jobs.
 6. Enqueue every job to every relevant bounded in-memory queue.
-7. Ack Sequin only after all enqueue operations succeed.
+7. Return `202` to Sequin only after all enqueue operations succeed.
+8. Return non-2xx when fanout fails so Sequin retries.
 
 Crash rule:
 
@@ -123,17 +126,17 @@ Crash rule:
 - MVP accepts this risk.
 - No scheduled inconsistency checker or repair job is part of v1.
 
-## CDC routing draft
+## CDC routing
 
 | Source table | Operation | Route |
 |---|---|---|
 | `product_events` | INSERT | Product projector; percolator for domain/enrichment; watchlist notifications for price/state; enrichment pipeline for create/embed; delete cleanup for lifecycle delete. |
-| `products` | INSERT/MODIFY | No default downstream route. Product events are the projection trigger to avoid double-firing. Use products CDC only for future explicit non-event projections. |
-| `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. |
-| `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync; user tier checks if state/feature-relevant. |
-| `search_filter_matches` | INSERT/MODIFY/DELETE | Usually no downstream route except observability. `origin_event_id` links to `product_events.event_id`. |
-| `users` | INSERT/MODIFY/DELETE | User tier enforcement for tier changes; no user OpenSearch projection. |
-| `product_watchlist` | INSERT/MODIFY/DELETE | Usually no downstream route except tier enforcement; product events drive notifications. |
+| `products` | INSERT/MODIFY/DELETE | No default downstream route. Product events are the projection trigger to avoid double-firing. Use products CDC only for future explicit non-event projections. |
+| `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. Idempotency: `(shop_id, version, op)`. |
+| `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for search/embedding/language/currency/state/notifications changes. Idempotency: `(user_search_filter_id, version, op)`. |
+| `search_filter_matches` | INSERT/MODIFY/DELETE | No default downstream route. `origin_event_id` links to `product_events.event_id`. |
+| `users` | MODIFY | User tier enforcement for tier changes; no user OpenSearch projection. Idempotency: `(user_id, version)`. |
+| `product_watchlist` | INSERT/MODIFY/DELETE | No default downstream route; product events drive notifications. |
 | `partner_shop_applications` | INSERT/MODIFY | No generic worker route unless notification behavior requires it. |
 
 ## Domain jobs
@@ -207,7 +210,7 @@ MVP has no worker-owned Postgres tables.
 - No dead-letter table.
 - No scheduled inconsistency checker or repair job.
 
-Sub-workers may retry transient failures while the process is alive. If the process dies after Sequin ack, queued jobs can be lost. This risk is accepted for MVP.
+Sub-workers may retry transient failures while the process is alive. Exhausted retries move to an in-memory DLQ helper for logging/metrics while the process remains alive. If the process dies after Sequin ack, queued or DLQ jobs can be lost. This risk is accepted for MVP.
 
 ## Operations notes
 

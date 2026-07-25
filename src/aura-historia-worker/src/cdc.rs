@@ -1,0 +1,846 @@
+use std::collections::{BTreeMap, HashMap};
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
+
+use serde::{Deserialize, Deserializer};
+use serde_json::Value;
+use tokio::sync::mpsc;
+use tracing::{debug, warn};
+
+use crate::InMemoryQueueSender;
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct CdcBatch {
+    #[serde(default, alias = "id", alias = "webhook_id")]
+    pub delivery_id: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default, alias = "events", alias = "records")]
+    pub changes: Vec<CdcChange>,
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+pub struct CdcChange {
+    #[serde(default, alias = "table_schema")]
+    pub schema: Option<String>,
+    #[serde(alias = "relation")]
+    pub table: String,
+    #[serde(
+        alias = "op",
+        alias = "action",
+        deserialize_with = "deserialize_operation"
+    )]
+    pub operation: CdcOperation,
+    #[serde(default, alias = "keys")]
+    pub primary_key: BTreeMap<String, Value>,
+    #[serde(default, alias = "new", alias = "new_record")]
+    pub record: Option<Value>,
+    #[serde(default, rename = "old", alias = "old_record", alias = "previous")]
+    pub old_record: Option<Value>,
+    #[serde(default, alias = "changed")]
+    pub changed_columns: Vec<String>,
+    #[serde(default)]
+    pub commit_lsn: Option<String>,
+    #[serde(default)]
+    pub commit_timestamp: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CdcOperation {
+    Insert,
+    Update,
+    Delete,
+}
+
+impl Display for CdcOperation {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CdcOperation::Insert => write!(formatter, "insert"),
+            CdcOperation::Update => write!(formatter, "update"),
+            CdcOperation::Delete => write!(formatter, "delete"),
+        }
+    }
+}
+
+impl FromStr for CdcOperation {
+    type Err = CdcOperationParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "insert" | "create" => Ok(Self::Insert),
+            "update" | "modify" => Ok(Self::Update),
+            "delete" | "remove" => Ok(Self::Delete),
+            _ => Err(CdcOperationParseError {
+                value: value.to_owned(),
+            }),
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+#[error("unsupported CDC operation: {value}")]
+pub struct CdcOperationParseError {
+    value: String,
+}
+
+fn deserialize_operation<'de, D>(deserializer: D) -> Result<CdcOperation, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    CdcOperation::from_str(&value).map_err(serde::de::Error::custom)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DomainJob {
+    pub target_queue: WorkerQueue,
+    pub idempotency_key: IdempotencyKey,
+    pub ordering_key: OrderingKey,
+    pub payload: DomainJobPayload,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WorkerQueue {
+    ProductOpenSearch,
+    ProductDeleteCleanup,
+    WatchlistNotification,
+    SearchFilterPercolator,
+    ProductEmbed,
+    ProductTranslate,
+    ShopOpenSearch,
+    SearchFilterOpenSearch,
+    UserTierEnforcement,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IdempotencyKey(String);
+
+impl IdempotencyKey {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OrderingKey(String);
+
+impl OrderingKey {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DomainJobPayload {
+    ProductEvent(ProductEventJob),
+    ProductDelete(ProductDeleteJob),
+    ShopChanged(ShopChangedJob),
+    SearchFilterChanged(SearchFilterChangedJob),
+    UserTierChanged(UserTierChangedJob),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductEventJob {
+    pub event_id: String,
+    pub product_id: String,
+    pub event_type: String,
+    pub event_group: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductDeleteJob {
+    pub event_id: String,
+    pub product_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShopChangedJob {
+    pub shop_id: String,
+    pub version: i64,
+    pub operation: CdcOperation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchFilterChangedJob {
+    pub user_id: String,
+    pub user_search_filter_id: String,
+    pub version: i64,
+    pub operation: CdcOperation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserTierChangedJob {
+    pub user_id: String,
+    pub version: i64,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct WorkerQueueRegistry {
+    queues: HashMap<WorkerQueue, InMemoryQueueSender<DomainJob>>,
+}
+
+impl WorkerQueueRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_queue(
+        mut self,
+        queue: WorkerQueue,
+        sender: InMemoryQueueSender<DomainJob>,
+    ) -> Self {
+        self.queues.insert(queue, sender);
+        self
+    }
+
+    async fn enqueue(&self, job: DomainJob) -> Result<(), CdcFanoutError> {
+        let Some(sender) = self.queues.get(&job.target_queue) else {
+            return Err(CdcFanoutError::MissingQueue(job.target_queue));
+        };
+        sender
+            .enqueue(job)
+            .await
+            .map_err(|error| CdcFanoutError::QueueClosed(error.0.target_queue))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CdcFanout {
+    registry: WorkerQueueRegistry,
+}
+
+impl CdcFanout {
+    pub fn new(registry: WorkerQueueRegistry) -> Self {
+        Self { registry }
+    }
+
+    pub async fn ingest_json(&self, body: &str) -> Result<usize, CdcIngestError> {
+        let batch: CdcBatch = serde_json::from_str(body).map_err(CdcIngestError::InvalidJson)?;
+        self.ingest_batch(&batch).await
+    }
+
+    pub async fn ingest_batch(&self, batch: &CdcBatch) -> Result<usize, CdcIngestError> {
+        let mut enqueued = 0;
+
+        for change in &batch.changes {
+            for job in route_change(change)? {
+                self.registry.enqueue(job).await?;
+                enqueued += 1;
+            }
+        }
+
+        debug!(
+            changes = batch.changes.len(),
+            enqueued, "CDC batch fanned out"
+        );
+        Ok(enqueued)
+    }
+}
+
+pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
+    let table = CdcTable::from(change.table.as_str());
+    match (table, change.operation) {
+        (CdcTable::ProductEvents, CdcOperation::Insert) => product_event_jobs(change),
+        (CdcTable::ProductEvents, _) => Ok(Vec::new()),
+        (CdcTable::Shops, operation) => shop_changed_job(change, operation),
+        (CdcTable::SearchFilters, operation) => search_filter_changed_job(change, operation),
+        (CdcTable::Users, CdcOperation::Update) => user_tier_changed_job(change),
+        (CdcTable::Users, _) => Ok(Vec::new()),
+        (CdcTable::Unknown(table), _) => {
+            warn!(%table, operation = %change.operation, "ignoring unregistered CDC table");
+            Ok(Vec::new())
+        }
+        (
+            CdcTable::Products
+            | CdcTable::ProductWatchlist
+            | CdcTable::SearchFilterMatches
+            | CdcTable::UserPartnerShops
+            | CdcTable::PartnerShopApplications,
+            _,
+        ) => Ok(Vec::new()),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CdcTable {
+    ProductEvents,
+    Products,
+    Shops,
+    SearchFilters,
+    SearchFilterMatches,
+    Users,
+    ProductWatchlist,
+    UserPartnerShops,
+    PartnerShopApplications,
+    Unknown(String),
+}
+
+impl From<&str> for CdcTable {
+    fn from(value: &str) -> Self {
+        match value {
+            "product_events" => Self::ProductEvents,
+            "products" => Self::Products,
+            "shops" => Self::Shops,
+            "search_filters" => Self::SearchFilters,
+            "search_filter_matches" => Self::SearchFilterMatches,
+            "users" => Self::Users,
+            "product_watchlist" => Self::ProductWatchlist,
+            "user_partner_shops" => Self::UserPartnerShops,
+            "partner_shop_applications" => Self::PartnerShopApplications,
+            other => Self::Unknown(other.to_owned()),
+        }
+    }
+}
+
+fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
+    let row = required_row(change)?;
+    let event_id = required_string(row, "event_id")?;
+    let product_id = required_string(row, "product_id")?;
+    let event_type = required_string(row, "event_type")?;
+    let event_group = required_string(row, "event_group")?;
+    let base_job = ProductEventJob {
+        event_id: event_id.clone(),
+        product_id: product_id.clone(),
+        event_type: event_type.clone(),
+        event_group: event_group.clone(),
+    };
+    let idempotency_key = IdempotencyKey::new(format!("product-event:{event_id}"));
+    let ordering_key = OrderingKey::new(format!("product:{product_id}"));
+
+    let mut jobs = vec![domain_job(
+        WorkerQueue::ProductOpenSearch,
+        idempotency_key.clone(),
+        ordering_key.clone(),
+        DomainJobPayload::ProductEvent(base_job.clone()),
+    )];
+
+    if matches!(event_group.as_str(), "DOMAIN" | "ENRICHMENT") {
+        jobs.push(domain_job(
+            WorkerQueue::SearchFilterPercolator,
+            idempotency_key.clone(),
+            ordering_key.clone(),
+            DomainJobPayload::ProductEvent(base_job.clone()),
+        ));
+    }
+
+    if matches!(
+        event_type.as_str(),
+        "DOMAIN_PRICE_CHANGED" | "DOMAIN_STATE_CHANGED"
+    ) {
+        jobs.push(domain_job(
+            WorkerQueue::WatchlistNotification,
+            idempotency_key.clone(),
+            ordering_key.clone(),
+            DomainJobPayload::ProductEvent(base_job.clone()),
+        ));
+    }
+
+    if event_type == "DOMAIN_CREATED" {
+        jobs.push(domain_job(
+            WorkerQueue::ProductEmbed,
+            idempotency_key.clone(),
+            ordering_key.clone(),
+            DomainJobPayload::ProductEvent(base_job.clone()),
+        ));
+    }
+
+    if event_type == "ENRICHMENT_EMBEDDED" {
+        jobs.push(domain_job(
+            WorkerQueue::ProductTranslate,
+            idempotency_key.clone(),
+            ordering_key.clone(),
+            DomainJobPayload::ProductEvent(base_job.clone()),
+        ));
+    }
+
+    if event_type == "LIFECYCLE_DELETED" {
+        jobs.push(domain_job(
+            WorkerQueue::ProductDeleteCleanup,
+            idempotency_key,
+            ordering_key,
+            DomainJobPayload::ProductDelete(ProductDeleteJob {
+                event_id,
+                product_id,
+            }),
+        ));
+    }
+
+    Ok(jobs)
+}
+
+fn shop_changed_job(
+    change: &CdcChange,
+    operation: CdcOperation,
+) -> Result<Vec<DomainJob>, CdcRouteError> {
+    let row = row_for_operation(change)?;
+    let shop_id = required_string(row, "shop_id")?;
+    let version = integer_field(row, "version").unwrap_or(0);
+
+    Ok(vec![domain_job(
+        WorkerQueue::ShopOpenSearch,
+        IdempotencyKey::new(format!("shop:{shop_id}:{version}:{operation}")),
+        OrderingKey::new(format!("shop:{shop_id}")),
+        DomainJobPayload::ShopChanged(ShopChangedJob {
+            shop_id,
+            version,
+            operation,
+        }),
+    )])
+}
+
+fn search_filter_changed_job(
+    change: &CdcChange,
+    operation: CdcOperation,
+) -> Result<Vec<DomainJob>, CdcRouteError> {
+    if operation == CdcOperation::Update
+        && !has_any_changed_column(
+            change,
+            &[
+                "search",
+                "embedding",
+                "language",
+                "currency",
+                "state",
+                "notifications",
+            ],
+        )
+    {
+        return Ok(Vec::new());
+    }
+
+    let row = row_for_operation(change)?;
+    let user_search_filter_id = required_string(row, "user_search_filter_id")?;
+    let user_id = required_string(row, "user_id")?;
+    let version = integer_field(row, "version").unwrap_or(0);
+
+    Ok(vec![domain_job(
+        WorkerQueue::SearchFilterOpenSearch,
+        IdempotencyKey::new(format!(
+            "search-filter:{user_search_filter_id}:{version}:{operation}"
+        )),
+        OrderingKey::new(format!("search-filter:{user_search_filter_id}")),
+        DomainJobPayload::SearchFilterChanged(SearchFilterChangedJob {
+            user_id,
+            user_search_filter_id,
+            version,
+            operation,
+        }),
+    )])
+}
+
+fn user_tier_changed_job(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
+    if !has_tier_change(change) {
+        return Ok(Vec::new());
+    }
+
+    let row = required_row(change)?;
+    let user_id = required_string(row, "user_id")?;
+    let version = integer_field(row, "version").unwrap_or(0);
+
+    Ok(vec![domain_job(
+        WorkerQueue::UserTierEnforcement,
+        IdempotencyKey::new(format!("user-tier:{user_id}:{version}")),
+        OrderingKey::new(format!("user:{user_id}")),
+        DomainJobPayload::UserTierChanged(UserTierChangedJob { user_id, version }),
+    )])
+}
+
+fn domain_job(
+    target_queue: WorkerQueue,
+    idempotency_key: IdempotencyKey,
+    ordering_key: OrderingKey,
+    payload: DomainJobPayload,
+) -> DomainJob {
+    DomainJob {
+        target_queue,
+        idempotency_key,
+        ordering_key,
+        payload,
+    }
+}
+
+fn row_for_operation(change: &CdcChange) -> Result<&Value, CdcRouteError> {
+    match change.operation {
+        CdcOperation::Delete => change.old_record.as_ref().ok_or(CdcRouteError::MissingRow),
+        CdcOperation::Insert | CdcOperation::Update => required_row(change),
+    }
+}
+
+fn required_row(change: &CdcChange) -> Result<&Value, CdcRouteError> {
+    change.record.as_ref().ok_or(CdcRouteError::MissingRow)
+}
+
+fn required_string(row: &Value, field: &'static str) -> Result<String, CdcRouteError> {
+    string_field(row, field).ok_or(CdcRouteError::MissingColumn(field))
+}
+
+fn string_field(row: &Value, field: &str) -> Option<String> {
+    let value = row.get(field)?;
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn integer_field(row: &Value, field: &str) -> Option<i64> {
+    row.get(field)?.as_i64()
+}
+
+fn has_any_changed_column(change: &CdcChange, relevant_columns: &[&str]) -> bool {
+    change.changed_columns.is_empty()
+        || change
+            .changed_columns
+            .iter()
+            .any(|column| relevant_columns.contains(&column.as_str()))
+}
+
+fn has_tier_change(change: &CdcChange) -> bool {
+    if !change.changed_columns.is_empty() {
+        return change.changed_columns.iter().any(|column| column == "tier");
+    }
+
+    let Some(new) = &change.record else {
+        return false;
+    };
+    let Some(old) = &change.old_record else {
+        return true;
+    };
+
+    string_field(new, "tier") != string_field(old, "tier")
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum CdcIngestError {
+    #[error("invalid CDC JSON")]
+    InvalidJson(#[source] serde_json::Error),
+    #[error(transparent)]
+    Route(#[from] CdcRouteError),
+    #[error(transparent)]
+    Fanout(#[from] CdcFanoutError),
+}
+
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+pub enum CdcRouteError {
+    #[error("CDC change missing row data")]
+    MissingRow,
+    #[error("CDC row missing required column {0}")]
+    MissingColumn(&'static str),
+}
+
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+pub enum CdcFanoutError {
+    #[error("worker queue is not registered: {0:?}")]
+    MissingQueue(WorkerQueue),
+    #[error("worker queue closed before fanout: {0:?}")]
+    QueueClosed(WorkerQueue),
+}
+
+impl From<mpsc::error::SendError<DomainJob>> for CdcFanoutError {
+    fn from(error: mpsc::error::SendError<DomainJob>) -> Self {
+        Self::QueueClosed(error.0.target_queue)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{QueueConfig, in_memory_queue};
+
+    fn product_event_change(event_type: &str, event_group: &str) -> CdcChange {
+        CdcChange {
+            schema: Some("public".to_owned()),
+            table: "product_events".to_owned(),
+            operation: CdcOperation::Insert,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "event_id": "40000000-0000-0000-0000-000000000001",
+                "product_id": "30000000-0000-0000-0000-000000000001",
+                "event_type": event_type,
+                "event_group": event_group,
+            })),
+            old_record: None,
+            changed_columns: Vec::new(),
+            commit_lsn: None,
+            commit_timestamp: None,
+        }
+    }
+
+    #[test]
+    fn should_route_product_created_event_to_projection_percolator_and_embed()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&product_event_change("DOMAIN_CREATED", "DOMAIN"))?;
+
+        assert_eq!(3, jobs.len());
+        assert!(
+            jobs.iter()
+                .any(|job| job.target_queue == WorkerQueue::ProductOpenSearch)
+        );
+        assert!(
+            jobs.iter()
+                .any(|job| job.target_queue == WorkerQueue::SearchFilterPercolator)
+        );
+        assert!(
+            jobs.iter()
+                .any(|job| job.target_queue == WorkerQueue::ProductEmbed)
+        );
+        assert!(jobs.iter().all(|job| job.idempotency_key.as_str()
+            == "product-event:40000000-0000-0000-0000-000000000001"));
+        assert!(
+            jobs.iter()
+                .all(|job| job.ordering_key.as_str()
+                    == "product:30000000-0000-0000-0000-000000000001")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_route_product_price_event_to_watchlist_notifications()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&product_event_change("DOMAIN_PRICE_CHANGED", "DOMAIN"))?;
+
+        assert!(
+            jobs.iter()
+                .any(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_route_product_delete_event_to_cleanup() -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&product_event_change("LIFECYCLE_DELETED", "LIFECYCLE"))?;
+
+        assert!(
+            jobs.iter()
+                .any(|job| job.target_queue == WorkerQueue::ProductDeleteCleanup)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_ignore_products_table_to_avoid_double_fire() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let jobs = route_change(&CdcChange {
+            schema: Some("public".to_owned()),
+            table: "products".to_owned(),
+            operation: CdcOperation::Update,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({ "product_id": "p1" })),
+            old_record: None,
+            changed_columns: Vec::new(),
+            commit_lsn: None,
+            commit_timestamp: None,
+        })?;
+
+        assert!(jobs.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn should_route_shop_change_with_domain_id_version_key()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&CdcChange {
+            schema: Some("public".to_owned()),
+            table: "shops".to_owned(),
+            operation: CdcOperation::Update,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "shop_id": "20000000-0000-0000-0000-000000000001",
+                "version": 7,
+            })),
+            old_record: None,
+            changed_columns: vec!["name".to_owned()],
+            commit_lsn: None,
+            commit_timestamp: None,
+        })?;
+
+        assert_eq!(1, jobs.len());
+        assert_eq!(WorkerQueue::ShopOpenSearch, jobs[0].target_queue);
+        assert_eq!(
+            "shop:20000000-0000-0000-0000-000000000001:7:update",
+            jobs[0].idempotency_key.as_str()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_route_search_filter_when_relevant_columns_change()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&CdcChange {
+            schema: Some("public".to_owned()),
+            table: "search_filters".to_owned(),
+            operation: CdcOperation::Update,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "user_id": "10000000-0000-0000-0000-000000000001",
+                "user_search_filter_id": "50000000-0000-0000-0000-000000000001",
+                "version": 3,
+            })),
+            old_record: None,
+            changed_columns: vec!["search".to_owned()],
+            commit_lsn: None,
+            commit_timestamp: None,
+        })?;
+
+        assert_eq!(1, jobs.len());
+        assert_eq!(WorkerQueue::SearchFilterOpenSearch, jobs[0].target_queue);
+        assert_eq!(
+            "search-filter:50000000-0000-0000-0000-000000000001:3:update",
+            jobs[0].idempotency_key.as_str()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_ignore_search_filter_when_irrelevant_columns_change()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&CdcChange {
+            schema: Some("public".to_owned()),
+            table: "search_filters".to_owned(),
+            operation: CdcOperation::Update,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "user_id": "10000000-0000-0000-0000-000000000001",
+                "user_search_filter_id": "50000000-0000-0000-0000-000000000001",
+                "version": 3,
+            })),
+            old_record: None,
+            changed_columns: vec!["updated".to_owned()],
+            commit_lsn: None,
+            commit_timestamp: None,
+        })?;
+
+        assert!(jobs.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn should_route_user_tier_change() -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&CdcChange {
+            schema: Some("public".to_owned()),
+            table: "users".to_owned(),
+            operation: CdcOperation::Update,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "user_id": "10000000-0000-0000-0000-000000000001",
+                "tier": "PREMIUM",
+                "version": 4,
+            })),
+            old_record: Some(serde_json::json!({
+                "user_id": "10000000-0000-0000-0000-000000000001",
+                "tier": "FREE",
+                "version": 3,
+            })),
+            changed_columns: vec!["tier".to_owned()],
+            commit_lsn: None,
+            commit_timestamp: None,
+        })?;
+
+        assert_eq!(1, jobs.len());
+        assert_eq!(WorkerQueue::UserTierEnforcement, jobs[0].target_queue);
+        assert_eq!(
+            "user-tier:10000000-0000-0000-0000-000000000001:4",
+            jobs[0].idempotency_key.as_str()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_ignore_unknown_table() -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&CdcChange {
+            schema: Some("public".to_owned()),
+            table: "future_table".to_owned(),
+            operation: CdcOperation::Insert,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({ "id": "1" })),
+            old_record: None,
+            changed_columns: Vec::new(),
+            commit_lsn: None,
+            commit_timestamp: None,
+        })?;
+
+        assert!(jobs.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_ack_after_all_jobs_are_enqueued() -> Result<(), Box<dyn std::error::Error>> {
+        let (product_sender, mut product_receiver) = in_memory_queue(QueueConfig::new(8))?;
+        let (percolator_sender, mut percolator_receiver) = in_memory_queue(QueueConfig::new(8))?;
+        let (embed_sender, mut embed_receiver) = in_memory_queue(QueueConfig::new(8))?;
+        let registry = WorkerQueueRegistry::new()
+            .with_queue(WorkerQueue::ProductOpenSearch, product_sender)
+            .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
+            .with_queue(WorkerQueue::ProductEmbed, embed_sender);
+        let fanout = CdcFanout::new(registry);
+        let batch = CdcBatch {
+            delivery_id: Some("delivery-1".to_owned()),
+            source: Some("postgres".to_owned()),
+            changes: vec![product_event_change("DOMAIN_CREATED", "DOMAIN")],
+        };
+
+        let enqueued = fanout.ingest_batch(&batch).await?;
+
+        assert_eq!(3, enqueued);
+        assert!(product_receiver.recv().await.is_some());
+        assert!(percolator_receiver.recv().await.is_some());
+        assert!(embed_receiver.recv().await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_fail_fanout_when_target_queue_is_missing() {
+        let fanout = CdcFanout::new(WorkerQueueRegistry::new());
+        let batch = CdcBatch {
+            delivery_id: Some("delivery-1".to_owned()),
+            source: Some("postgres".to_owned()),
+            changes: vec![product_event_change("DOMAIN_CREATED", "DOMAIN")],
+        };
+
+        let result = fanout.ingest_batch(&batch).await;
+
+        assert!(matches!(
+            result,
+            Err(CdcIngestError::Fanout(CdcFanoutError::MissingQueue(
+                WorkerQueue::ProductOpenSearch
+            )))
+        ));
+    }
+
+    #[test]
+    fn should_parse_sequin_like_json_with_aliases() -> Result<(), Box<dyn std::error::Error>> {
+        let batch: CdcBatch = serde_json::from_str(
+            r#"{
+                "id": "delivery-1",
+                "source": "postgres",
+                "events": [
+                    {
+                        "table_schema": "public",
+                        "relation": "product_events",
+                        "op": "insert",
+                        "keys": { "event_id": "40000000-0000-0000-0000-000000000001" },
+                        "new": {
+                            "event_id": "40000000-0000-0000-0000-000000000001",
+                            "product_id": "30000000-0000-0000-0000-000000000001",
+                            "event_type": "DOMAIN_CREATED",
+                            "event_group": "DOMAIN"
+                        }
+                    }
+                ]
+            }"#,
+        )?;
+
+        assert_eq!(Some("delivery-1".to_owned()), batch.delivery_id);
+        assert_eq!(1, batch.changes.len());
+        assert_eq!(CdcOperation::Insert, batch.changes[0].operation);
+        Ok(())
+    }
+}
