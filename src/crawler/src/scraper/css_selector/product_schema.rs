@@ -287,15 +287,19 @@ impl ProductCssSelectorSchema {
 
         let mut raw_attributes = BTreeMap::new();
         for (field, rule) in &self.raw_attributes {
-            let values: Vec<String> = rule
-                .apply(html)
-                .map_err(|source| ApplySchemaError::RawAttribute {
-                    field: field.clone(),
-                    source,
-                })?
-                .into_iter()
-                .filter(|value| !value.trim().is_empty())
-                .collect();
+            let values: Vec<String> = match rule.apply(html) {
+                Ok(values) => values,
+                Err(ExtractionError::NoElementMatched { .. }) => continue,
+                Err(source) => {
+                    return Err(ApplySchemaError::RawAttribute {
+                        field: field.clone(),
+                        source,
+                    });
+                }
+            }
+            .into_iter()
+            .filter(|value| !value.trim().is_empty())
+            .collect();
             if !values.is_empty() {
                 raw_attributes.insert(field.clone(), values);
             }
@@ -1534,6 +1538,10 @@ mod tests {
         raw_attributes.insert("rawOrigin".to_string(), text_rule_all(".origin"));
         raw_attributes.insert("rawCountry".to_string(), text_rule_all(".country"));
         raw_attributes.insert("rawRegion".to_string(), text_rule_all(".region"));
+        raw_attributes.insert(
+            "rawOriginNote".to_string(),
+            text_rule_all(".missing-origin-note"),
+        );
         let schema = ProductCssSelectorSchema {
             raw_attributes,
             ..minimal_schema("<ignored>").1
@@ -1598,5 +1606,51 @@ mod tests {
             Some(&vec!["Bavaria".to_string()])
         );
         assert!(!result.raw_attributes.contains_key("rawShipmentNote"));
+        assert!(!result.raw_attributes.contains_key("rawOriginNote"));
+    }
+
+    #[test]
+    fn should_ignore_missing_raw_attribute_rule_when_selector_matches_nothing() {
+        let html = Html::parse_document(
+            r#"<html><body>
+              <h1>Chair</h1>
+              <span id="state">Available</span>
+              <img src="/chair.jpg">
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            raw_attributes: [(
+                "rawMaterial".to_string(),
+                text_rule_all(".missing-material"),
+            )]
+            .into(),
+            ..minimal_schema("<ignored>").1
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert!(result.raw_attributes.is_empty());
+    }
+
+    #[test]
+    fn should_return_err_raw_attribute_when_selector_is_malformed() {
+        let html = Html::parse_document(
+            r#"<html><body>
+              <h1>Chair</h1>
+              <span id="state">Available</span>
+              <img src="/chair.jpg">
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            raw_attributes: [("rawMaterial".to_string(), text_rule_all("!!! invalid !!!"))].into(),
+            ..minimal_schema("<ignored>").1
+        };
+
+        let err = schema.apply(&html).unwrap_err();
+
+        assert!(
+            matches!(err, ApplySchemaError::RawAttribute { ref field, .. } if field == "rawMaterial"),
+            "unexpected variant: {err}"
+        );
     }
 }
