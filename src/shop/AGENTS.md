@@ -8,6 +8,7 @@
 
 - Shop domain, repositories, search, and geocoding services.
 - Root modules: `core`, `data`, `dynamodb`, `opensearch`, `service`.
+- `migrations/` holds target Postgres shop schema with inline `shop_domains`.
 - Main neighbors: `common`, `geo`.
 - Library crate. Keep domain, persistence, and service seams explicit.
 

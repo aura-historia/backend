@@ -8,6 +8,7 @@
 
 - Product watchlist domain and persistence, including product-delete cleanup.
 - Root modules: `core`, `data`, `dynamodb`, `service`.
+- `migrations/` holds target Postgres product-watchlist schema.
 - Main neighbors: `common`, `product`, `user`.
 - Library crate. Keep domain, persistence, and service seams explicit.
 

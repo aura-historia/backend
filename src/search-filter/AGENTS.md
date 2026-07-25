@@ -8,6 +8,7 @@
 
 - Saved search filter domain, repositories, and match logic.
 - Root modules: `core`, `data`, `dynamodb`, `opensearch`, `service`.
+- `migrations/` holds target Postgres search-filter and match schema.
 - Main neighbors: `common`, `geo`, `product`, `product-pipeline-embed-text`, `shop`, `user`.
 - Library crate. Keep domain, persistence, and service seams explicit.
 - A search-filter is a saved search to alert user on new/updated desired products

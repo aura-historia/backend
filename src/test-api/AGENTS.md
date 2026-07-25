@@ -32,6 +32,7 @@
 - Tests prove behavior, not implementation trivia.
 - Share helpers before copy-paste fixtures.
 - Prefer `Postgres`/`OperationalBackendPostgres` and `postgres` feature over legacy `Rds`/`rds` in new tests.
+- Use `Postgres::with_additional_migrations` for cross-crate schemas with foreign keys.
 
 ## Verification
 
