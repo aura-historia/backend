@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+aura-historia-api = { workspace = true }
+aura-historia-worker = { workspace = true }
 aws-tests = { workspace = true }
 acceptance-tests = { workspace = true }
 cognito = { workspace = true }
@@ -50,6 +52,8 @@ partner-shop-application-lambda = { workspace = true }
 [workspace]
 members = [
     "src/acceptance-tests",
+    "src/aura-historia-api",
+    "src/aura-historia-worker",
     "src/aws-tests",
     "src/cognito",
     "src/cloudwatch-log-retention-lambda",
@@ -95,6 +99,8 @@ members = [
 ]
 
 [workspace.dependencies]
+aura-historia-api = { path = "src/aura-historia-api" }
+aura-historia-worker = { path = "src/aura-historia-worker" }
 async-stream = "0.3.6"
 base64 = "0.23.0"
 async-trait = "0.1.89"
