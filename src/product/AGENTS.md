@@ -8,7 +8,7 @@
 
 - Product domain, repositories, and core product services.
 - Root modules: `core`, `data`, `dynamodb`, `opensearch`, `service`.
-- `migrations/` holds target Postgres product and product-event schema.
+
 - Main neighbors: `common`, `fxrate`, `geo`, `shop`.
 - Library crate. Keep domain, persistence, and service seams explicit.
 

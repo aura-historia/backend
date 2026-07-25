@@ -5,10 +5,6 @@ const POSTGRES_WITH_SETUP: Postgres = Postgres::with_setup_script(
     "src/test-api/tests/fixtures/rds_migrations",
     "src/test-api/tests/fixtures/postgres_setup.sql",
 );
-const POSTGRES_WITH_EXTRA_MIGRATIONS: Postgres = Postgres::with_additional_migrations(
-    "src/test-api/tests/fixtures/rds_migrations",
-    &["src/test-api/tests/fixtures/extra_postgres_migrations"],
-);
 
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_run_without_errors() {}
@@ -38,34 +34,6 @@ async fn should_run_setup_script_after_migrations() {
 
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM test_items WHERE name = $1")
         .bind("from-setup-script")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-    assert_eq!(1, count);
-}
-
-#[aura_integration_test(services = [POSTGRES_WITH_EXTRA_MIGRATIONS])]
-async fn should_run_additional_migration_dirs_after_primary_dir() {
-    let pool = get_postgres_client().await;
-
-    let item_id: i32 =
-        sqlx::query_scalar("INSERT INTO test_items (name, value) VALUES ($1, $2) RETURNING id")
-            .bind("base-row")
-            .bind(7)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-
-    sqlx::query("INSERT INTO extra_test_items (id, source_item_id, name) VALUES ($1, $2, $3)")
-        .bind(1)
-        .bind(item_id)
-        .bind("extra-row")
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM extra_test_items")
         .fetch_one(&pool)
         .await
         .unwrap();

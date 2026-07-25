@@ -48,10 +48,10 @@ Do not assume Postgres is on the same machine as API or worker.
 
 ## Migration location
 
-Each business crate owns SQLx migrations under:
+The repo owns one Postgres business schema under:
 
 ```text
-src/<crate>/migrations/
+migrations/
 ```
 
 Use sortable filenames:
@@ -60,7 +60,7 @@ Use sortable filenames:
 YYYYMMDDHHMMSS_short_description.sql
 ```
 
-Migration files must be idempotent where integration tests re-run them (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`). Keep table names owned by the crate unless a documented cross-crate relation exists.
+Migration files must be idempotent where integration tests re-run them (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`). Prefer one shared schema because cross-domain relations are common.
 
 ## Repository pattern
 
@@ -81,7 +81,7 @@ Suggested shape:
 src/<crate>/src/postgres/mod.rs
 src/<crate>/src/postgres/repository.rs
 src/<crate>/src/postgres/<entity>_row.rs
-src/<crate>/migrations/...
+migrations/...
 ```
 
 ## Schema map
@@ -388,8 +388,7 @@ Use `test-api` for repository integration tests:
 ```rust
 use test_api::*;
 
-const POSTGRES: Postgres =
-    Postgres::new("src/<crate>/migrations");
+const POSTGRES: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [POSTGRES])]
 async fn should_persist_entity_when_valid() {
@@ -402,7 +401,7 @@ If seed data is needed:
 
 ```rust
 const POSTGRES: Postgres = Postgres::with_setup_script(
-    "src/<crate>/migrations",
+    "migrations",
     "src/<crate>/tests/fixtures/setup.sql",
 );
 ```

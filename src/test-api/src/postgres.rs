@@ -8,8 +8,6 @@ use std::str::FromStr;
 use tokio::sync::OnceCell;
 use tracing::debug;
 
-const NO_ADDITIONAL_MIGRATIONS: &[&str] = &[];
-
 const POSTGRES_USER: &str = "postgres";
 const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
@@ -154,7 +152,7 @@ pub async fn get_postgres_client() -> PgPool {
 /// ```rust
 /// use test_api::*;
 ///
-/// const POSTGRES: Postgres = Postgres::new("src/my-crate/migrations");
+/// const POSTGRES: Postgres = Postgres::new("migrations");
 ///
 /// #[aura_integration_test(services = [POSTGRES])]
 /// async fn should_insert_and_read_row() {
@@ -178,9 +176,6 @@ pub struct Postgres {
     /// workspace root. Files are executed in lexicographic (filename) order, matching the
     /// ordering used by `sqlx::migrate!` at runtime.
     pub migrations_dir: &'static str,
-    /// Additional migration directories, relative to the workspace root, run after `migrations_dir`
-    /// in the order supplied. Use this for cross-crate schemas with foreign keys.
-    pub additional_migrations_dirs: &'static [&'static str],
     /// Optional SQL file, relative to workspace root, run after migrations and before the test.
     pub setup_script: Option<&'static str>,
 }
@@ -189,7 +184,6 @@ impl Postgres {
     pub const fn new(migrations_dir: &'static str) -> Self {
         Self {
             migrations_dir,
-            additional_migrations_dirs: NO_ADDITIONAL_MIGRATIONS,
             setup_script: None,
         }
     }
@@ -200,38 +194,9 @@ impl Postgres {
     ) -> Self {
         Self {
             migrations_dir,
-            additional_migrations_dirs: NO_ADDITIONAL_MIGRATIONS,
             setup_script: Some(setup_script),
         }
     }
-
-    pub const fn with_additional_migrations(
-        migrations_dir: &'static str,
-        additional_migrations_dirs: &'static [&'static str],
-    ) -> Self {
-        Self {
-            migrations_dir,
-            additional_migrations_dirs,
-            setup_script: None,
-        }
-    }
-
-    pub const fn with_setup_script_and_additional_migrations(
-        migrations_dir: &'static str,
-        setup_script: &'static str,
-        additional_migrations_dirs: &'static [&'static str],
-    ) -> Self {
-        Self {
-            migrations_dir,
-            additional_migrations_dirs,
-            setup_script: Some(setup_script),
-        }
-    }
-}
-
-fn migration_dirs(postgres: &Postgres) -> impl Iterator<Item = &'static str> {
-    std::iter::once(postgres.migrations_dir)
-        .chain(postgres.additional_migrations_dirs.iter().copied())
 }
 
 #[async_trait]
@@ -247,45 +212,41 @@ impl IntegrationTestService for Postgres {
         ensure_container_started().await;
 
         let workspace_root = env!("CARGO_WORKSPACE_DIR");
+        let dir_path = Path::new(workspace_root).join(self.migrations_dir);
+
+        // Collect all *.sql files and sort by filename so they run in migration order.
+        let mut entries: Vec<_> = std::fs::read_dir(&dir_path)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to read migrations directory '{}': {e}",
+                    dir_path.display()
+                )
+            })
+            .filter_map(|entry| {
+                let entry = entry.expect("Failed to read directory entry");
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("sql") {
+                    Some(path)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        entries.sort();
+
         let mut conn = open_connection().await;
-        let mut applied_count = 0usize;
 
-        for migrations_dir in migration_dirs(self) {
-            let dir_path = Path::new(workspace_root).join(migrations_dir);
+        for path in &entries {
+            let sql = std::fs::read_to_string(path).unwrap_or_else(|e| {
+                panic!("Failed to read migration file '{}': {e}", path.display())
+            });
 
-            // Collect all *.sql files and sort by filename so they run in migration order.
-            let mut entries: Vec<_> = std::fs::read_dir(&dir_path)
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to read migrations directory '{}': {e}",
-                        dir_path.display()
-                    )
-                })
-                .filter_map(|entry| {
-                    let entry = entry.expect("Failed to read directory entry");
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) == Some("sql") {
-                        Some(path)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            conn.execute(sqlx::raw_sql(&sql)).await.unwrap_or_else(|e| {
+                panic!("Failed to execute migration file '{}': {e}", path.display())
+            });
 
-            entries.sort();
-
-            for path in &entries {
-                let sql = std::fs::read_to_string(path).unwrap_or_else(|e| {
-                    panic!("Failed to read migration file '{}': {e}", path.display())
-                });
-
-                conn.execute(sqlx::raw_sql(&sql)).await.unwrap_or_else(|e| {
-                    panic!("Failed to execute migration file '{}': {e}", path.display())
-                });
-
-                applied_count += 1;
-                debug!(path = %path.display(), "Applied migration file.");
-            }
+            debug!(path = %path.display(), "Applied migration file.");
         }
 
         if let Some(setup_script) = self.setup_script {
@@ -307,8 +268,7 @@ impl IntegrationTestService for Postgres {
 
         debug!(
             migrations_dir = self.migrations_dir,
-            additional_migrations_dirs = ?self.additional_migrations_dirs,
-            count = applied_count,
+            count = entries.len(),
             "All migration files applied."
         );
     }
