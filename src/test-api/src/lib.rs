@@ -14,6 +14,8 @@ mod opensearch;
 #[cfg(feature = "postgres")]
 mod postgres;
 mod s3;
+#[cfg(feature = "sequin")]
+mod sequin;
 #[cfg(feature = "ses")]
 mod ses;
 mod signal;
@@ -34,8 +36,10 @@ pub use eventbridge::get_eventbridge_client;
 #[cfg(feature = "opensearch")]
 pub use opensearch::{OpenSearch, get_opensearch_client, read_by_id, refresh_index};
 #[cfg(feature = "postgres")]
-pub use postgres::{Postgres, get_postgres_client};
+pub use postgres::{Postgres, get_postgres_client, get_postgres_host_gateway_connection_string};
 pub use s3::S3;
+#[cfg(feature = "sequin")]
+pub use sequin::*;
 pub use serial_test::serial;
 #[cfg(feature = "ses")]
 pub use ses::*;

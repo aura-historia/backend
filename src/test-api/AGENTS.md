@@ -7,7 +7,7 @@
 ## Core Design
 
 - LocalStack and AWS integration test harness.
-- Root modules: `api_gateway`, `cloudformation`, `cognito`, `dynamodb`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `ses`, `signal`, `sqs`.
+- Root modules: `api_gateway`, `cloudformation`, `cognito`, `dynamodb`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `sequin`, `ses`, `signal`, `sqs`.
 - Child crates: `test-api-macros`.
 - Main neighbors: `aws-tests-common`, `common`, `test-api-macros`, `user`.
 - Test crate. Favor stable helpers and black-box assertions.
@@ -33,6 +33,7 @@
 - Share helpers before copy-paste fixtures.
 - Prefer `Postgres`/`OperationalBackendPostgres` and `postgres` feature over legacy `Rds`/`rds` in new tests.
 - Use `Postgres::new("migrations")` for the shared business schema.
+- Use `start_sequin(<worker-webhook-url>)` when a test must verify real Sequin webhook delivery to a local worker endpoint.
 
 ## Verification
 

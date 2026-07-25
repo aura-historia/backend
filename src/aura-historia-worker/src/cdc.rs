@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -223,7 +223,7 @@ impl CdcFanout {
     }
 
     pub async fn ingest_json(&self, body: &str) -> Result<usize, CdcIngestError> {
-        let batch: CdcBatch = serde_json::from_str(body).map_err(CdcIngestError::InvalidJson)?;
+        let batch = parse_cdc_batch(body).map_err(CdcIngestError::InvalidJson)?;
         self.ingest_batch(&batch).await
     }
 
@@ -243,6 +243,90 @@ impl CdcFanout {
         );
         Ok(enqueued)
     }
+}
+
+fn parse_cdc_batch(body: &str) -> Result<CdcBatch, serde_json::Error> {
+    let value: Value = serde_json::from_str(body)?;
+
+    if value.get("data").is_some() {
+        return serde_json::from_value::<SequinWebhookBatch>(value).map(Into::into);
+    }
+
+    if value.get("metadata").is_some() && value.get("record").is_some() {
+        return serde_json::from_value::<SequinWebhookMessage>(value).map(CdcBatch::from);
+    }
+
+    serde_json::from_value(value)
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+struct SequinWebhookBatch {
+    data: Vec<SequinWebhookMessage>,
+}
+
+impl From<SequinWebhookBatch> for CdcBatch {
+    fn from(batch: SequinWebhookBatch) -> Self {
+        Self {
+            delivery_id: None,
+            source: Some("sequin-webhook".to_owned()),
+            changes: batch.data.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+struct SequinWebhookMessage {
+    record: Option<Value>,
+    #[serde(default)]
+    changes: Option<Map<String, Value>>,
+    #[serde(deserialize_with = "deserialize_operation")]
+    action: CdcOperation,
+    metadata: SequinWebhookMetadata,
+}
+
+impl From<SequinWebhookMessage> for CdcBatch {
+    fn from(message: SequinWebhookMessage) -> Self {
+        Self {
+            delivery_id: None,
+            source: Some("sequin-webhook".to_owned()),
+            changes: vec![message.into()],
+        }
+    }
+}
+
+impl From<SequinWebhookMessage> for CdcChange {
+    fn from(message: SequinWebhookMessage) -> Self {
+        let changed_columns = message
+            .changes
+            .as_ref()
+            .map(|changes| changes.keys().cloned().collect())
+            .unwrap_or_default();
+
+        Self {
+            schema: Some(message.metadata.table_schema),
+            table: message.metadata.table_name,
+            operation: message.action,
+            primary_key: BTreeMap::new(),
+            record: message.record,
+            old_record: message.changes.map(Value::Object),
+            changed_columns,
+            commit_lsn: message.metadata.commit_lsn.map(|value| match value {
+                Value::String(value) => value,
+                other => other.to_string(),
+            }),
+            commit_timestamp: message.metadata.commit_timestamp,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+struct SequinWebhookMetadata {
+    table_schema: String,
+    table_name: String,
+    #[serde(default)]
+    commit_lsn: Option<Value>,
+    #[serde(default)]
+    commit_timestamp: Option<String>,
 }
 
 pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
@@ -817,7 +901,7 @@ mod tests {
 
     #[test]
     fn should_parse_sequin_like_json_with_aliases() -> Result<(), Box<dyn std::error::Error>> {
-        let batch: CdcBatch = serde_json::from_str(
+        let batch = parse_cdc_batch(
             r#"{
                 "id": "delivery-1",
                 "source": "postgres",
@@ -841,6 +925,63 @@ mod tests {
         assert_eq!(Some("delivery-1".to_owned()), batch.delivery_id);
         assert_eq!(1, batch.changes.len());
         assert_eq!(CdcOperation::Insert, batch.changes[0].operation);
+        Ok(())
+    }
+
+    #[test]
+    fn should_parse_real_sequin_webhook_message() -> Result<(), Box<dyn std::error::Error>> {
+        let batch = parse_cdc_batch(
+            r#"{
+                "record": {
+                    "event_id": "40000000-0000-0000-0000-000000000001",
+                    "product_id": "30000000-0000-0000-0000-000000000001",
+                    "event_type": "PRODUCT_CREATED",
+                    "event_group": "DOMAIN"
+                },
+                "changes": null,
+                "action": "insert",
+                "metadata": {
+                    "table_schema": "public",
+                    "table_name": "product_events",
+                    "commit_timestamp": "2026-07-25T12:00:00Z",
+                    "commit_lsn": 123456789
+                }
+            }"#,
+        )?;
+
+        assert_eq!(Some("sequin-webhook".to_owned()), batch.source);
+        assert_eq!(1, batch.changes.len());
+        assert_eq!("product_events", batch.changes[0].table);
+        assert_eq!(CdcOperation::Insert, batch.changes[0].operation);
+        assert_eq!(Some("123456789".to_owned()), batch.changes[0].commit_lsn);
+        Ok(())
+    }
+
+    #[test]
+    fn should_parse_real_sequin_webhook_batch() -> Result<(), Box<dyn std::error::Error>> {
+        let batch = parse_cdc_batch(
+            r#"{
+                "data": [
+                    {
+                        "record": {
+                            "user_id": "10000000-0000-0000-0000-000000000001",
+                            "tier": "PREMIUM",
+                            "version": 2
+                        },
+                        "changes": { "tier": "FREE" },
+                        "action": "update",
+                        "metadata": {
+                            "table_schema": "public",
+                            "table_name": "users"
+                        }
+                    }
+                ]
+            }"#,
+        )?;
+
+        assert_eq!(1, batch.changes.len());
+        assert_eq!("users", batch.changes[0].table);
+        assert_eq!(vec!["tier".to_owned()], batch.changes[0].changed_columns);
         Ok(())
     }
 }

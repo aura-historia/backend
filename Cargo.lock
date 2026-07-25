@@ -8158,6 +8158,7 @@ name = "test-api"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aura-historia-worker",
  "aws-config",
  "aws-sdk-account",
  "aws-sdk-cloudformation",
@@ -8170,6 +8171,7 @@ dependencies = [
  "aws-sdk-sqs",
  "aws-tests-common",
  "aws_lambda_events",
+ "base64 0.23.0",
  "common",
  "ctrlc",
  "derive_builder",

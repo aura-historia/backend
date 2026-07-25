@@ -143,6 +143,8 @@ Crash rule:
 
 Worker sub-jobs use domain payloads or compact IDs. They do not use DynamoDB stream records and should not depend on raw Sequin JSON outside the router.
 
+Current router jobs carry compact domain refs. Sub-worker implementation issues must introduce typed DTOs/payloads where behavior depends on event/change fields. Those DTOs should be derived from Postgres/domain rows, not from Sequin envelopes.
+
 Examples:
 
 - `ProductEventJob`
@@ -220,5 +222,6 @@ Postgres is business truth and Sequin depends on replication health. Production 
 
 - Use Postgres integration tests for repositories.
 - Use fake CDC envelopes for router fanout tests.
+- Use `test-api` Sequin helpers for real Sequin webhook delivery tests when CDC behavior matters.
 - Use existing LocalStack OpenSearch for projection/percolator tests.
 - Keep DynamoDB and CDK/CloudFormation helpers for AWS survivor tests.
