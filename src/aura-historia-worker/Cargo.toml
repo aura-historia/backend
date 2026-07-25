@@ -1,0 +1,13 @@
+[package]
+name = "aura-historia-worker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

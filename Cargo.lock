@@ -219,10 +219,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "aura-historia-api"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "rstest",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
  "acceptance-tests",
+ "aura-historia-api",
+ "aura-historia-worker",
  "aws-tests",
  "cloudwatch-log-retention-lambda",
  "cognito",
@@ -264,6 +277,17 @@ dependencies = [
  "user-api",
  "user-lambda",
  "webhook-api",
+]
+
+[[package]]
+name = "aura-historia-worker"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "rstest",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

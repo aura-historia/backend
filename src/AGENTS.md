@@ -8,7 +8,7 @@
 
 ## Core Design
 
-- Workspace split by job: domain libs hold rules, `*-api` crates speak HTTP, `*-lambda` crates speak event/runtime, test crates prove behavior.
+- Workspace split by job: domain libs hold rules, `*-api`/`aura-historia-api` crates speak HTTP, `aura-historia-worker` handles async CDC/queues, survivor `*-lambda` crates speak AWS event/runtime, test crates prove behavior.
 - Keep reusable logic in domain or service modules. Handler `main.rs`, route files, and Lambda bootstrap stay thin.
 - Shared OpenSearch assets under `src/opensearch/` stay governed here unless they grow own durable boundary.
 - Crate submodule-design
@@ -87,6 +87,8 @@
 ## Child DOX Index
 
 - `src/acceptance-tests/AGENTS.md` — `acceptance-tests` crate.
+- `src/aura-historia-api/AGENTS.md` — `aura-historia-api` crate.
+- `src/aura-historia-worker/AGENTS.md` — `aura-historia-worker` crate.
 - `src/aws-tests/AGENTS.md` — `aws-tests` crate.
 - `src/ci-determinator/AGENTS.md` — `ci-determinator` crate.
 - `src/cloudwatch-log-retention-lambda/AGENTS.md` — `cloudwatch-log-retention-lambda` crate.
