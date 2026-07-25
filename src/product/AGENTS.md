@@ -7,7 +7,7 @@
 ## Core Design
 
 - Product domain, repositories, and core product services.
-- Root modules: `core`, `data`, `dynamodb`, `opensearch`, `service`.
+- Root modules: `core`, `data`, `dynamodb`, `opensearch`, `postgres`, `service`.
 
 - Main neighbors: `common`, `fxrate`, `geo`, `shop`.
 - Library crate. Keep domain, persistence, and service seams explicit.
@@ -28,8 +28,11 @@
 ## Work Guidance
 
 - Think caveman. Talk caveman. Few word.
-- Service and repository split stay clean.
+- Exactly one repository per data source: DynamoDB, OpenSearch, Postgres.
+- Product service facade hides source/storage choice from callers and uses domain types.
 - Keep transport and runtime glue out of domain core.
+- Postgres module owns SQL for products and product-events. Persist product row and product-events in one transaction.
+- Postgres must not map through DynamoDB records.
 
 ## Verification
 

@@ -5,6 +5,9 @@ pub mod command_service;
 pub mod get_service;
 pub mod product_command;
 
+#[cfg(all(feature = "postgres", feature = "service"))]
+pub mod product_service;
+
 #[cfg(feature = "opensearch")]
 pub mod query_service;
 
