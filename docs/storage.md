@@ -16,7 +16,7 @@ Postgres owns business truth for:
 - product-watchlist
 - search-filters
 - search-filter matches
-- worker processed-job markers, dead letters, and schedules
+
 
 DynamoDB keeps:
 
@@ -145,10 +145,7 @@ erDiagram
         uuid product_id PK,FK
         uuid origin_event_id FK
     }
-    WORKER_PROCESSED_JOBS {
-        text worker_name PK
-        text idempotency_key PK
-    }
+
 ```
 
 ## Schema draft
@@ -294,7 +291,7 @@ Indexes:
 
 - `(product_id, event_time asc)`
 - `(shop_id, shops_product_id, event_time asc)`
-- `(event_type, event_time asc)` for worker routing/backfill
+- `(event_type, event_time asc)` for worker routing
 
 Product writes insert `product_events` and update `products` in one transaction.
 
@@ -366,16 +363,16 @@ Indexes:
 
 ### Worker
 
-No `worker_inbox` table. Sequin delivery is acknowledged after the router has delivered all derived domain jobs to the relevant bounded in-memory queues.
+No worker-owned Postgres tables in MVP.
 
-`worker_processed_jobs`
+- No `worker_inbox`.
+- No `worker_processed_jobs`.
+- No `worker_dead_letters`.
+- No `worker_schedules`.
 
-- `worker_name text not null`
-- `idempotency_key text not null`
-- `processed_at timestamptz not null default now()`
-- primary key `(worker_name, idempotency_key)`
+Sequin delivery is acknowledged after the router has delivered all derived domain jobs to the relevant bounded in-memory queues. If the worker process or host dies after ack, those in-memory jobs can be lost. MVP accepts this risk and does not add a scheduled inconsistency checker or repair job.
 
-Use domain-first idempotency keys:
+Use domain-first idempotency keys inside jobs and target writes where easy:
 
 - product jobs: `product_events.event_id`
 - shop jobs: `(shop_id, version, op)`
@@ -383,28 +380,6 @@ Use domain-first idempotency keys:
 - user tier jobs: `(user_id, version)`
 - match jobs: `(user_search_filter_id, product_id, origin_event_id)`
 
-`worker_dead_letters`
-
-- `dead_letter_id uuid primary key`
-- `worker_name text not null`
-- `idempotency_key text not null`
-- `job_type text not null`
-- `error_kind text not null`
-- `error_message text not null`
-- `payload jsonb not null`
-- `created timestamptz not null default now()`
-- unique `(worker_name, idempotency_key)` where appropriate
-
-Optional:
-
-`worker_schedules`
-
-- `job_name text primary key`
-- `next_run_at timestamptz not null`
-- `locked_by text null`
-- `locked_until timestamptz null`
-
-Used for periodic matcher multi-instance safety.
 
 ## Test pattern
 

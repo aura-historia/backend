@@ -25,7 +25,7 @@ Design must keep a later move back to AWS practical. API and worker should be no
 - No product command SQS buffer for migrated writes.
 - No users OpenSearch index in target design.
 - No crawler migration. Crawler is separate and out of scope.
-- No exactly-once external side effects. Use idempotency, retry, and repair/backfill.
+- No exactly-once external side effects. MVP accepts in-memory worker loss risk after Sequin ack.
 
 ## AWS stays
 
@@ -68,7 +68,7 @@ Postgres owns:
 - product-watchlist
 - search-filters
 - search-filter matches
-- worker processed-job markers, dead letters, and schedules
+
 
 DynamoDB owns:
 
@@ -117,17 +117,17 @@ Target flow:
 4. Worker derives domain-first idempotency and ordering keys.
 5. Worker pushes every derived domain job to all relevant bounded in-memory queues.
 6. Worker acknowledges Sequin after all enqueue operations succeed.
-7. Sub-workers own retry/backoff and dead-letter behavior.
-8. Sub-workers record processed-job markers or dead letters where durable visibility is needed.
+7. Sub-workers run jobs from memory. MVP has no worker-owned Postgres tables for retry, processed markers, dead letters, or schedules.
 
 Crash rule:
 
 - Crash before Sequin ack: Sequin redelivers.
 - Crash after Sequin ack but before sub-worker completion: in-memory jobs may be lost.
-- Lost projection jobs are repaired by rebuild/backfill because OpenSearch is rebuildable.
-- Jobs with user-visible side effects must make their first external effect idempotent and durable, such as inserting a DynamoDB notification keyed by domain origin event.
+- Crash after Sequin ack may lose queued in-memory jobs.
+- MVP accepts this risk. No scheduled inconsistency checker or repair job is part of the initial migration.
+- Side effects should still be idempotent where easy, but this is not the v1 durability boundary.
 
-This accepts process-memory queues as the first fanout boundary for lower cost and simpler local tests. It requires repair/backfill tooling for any side effect that cannot be safely recomputed.
+This accepts process-memory queues as the first fanout boundary for lower cost and simpler local tests.
 
 ## Domain job rule
 
@@ -172,7 +172,7 @@ Minimum rules:
 - User tier workers use `(user_id, version)`.
 - Search-filter matches have a unique key preventing duplicate user/filter/product matches.
 - Notifications are idempotent by user and domain origin event where domain allows it.
-- `worker_processed_jobs.worker_name + idempotency_key` is unique where durable processed markers are useful.
+
 
 Use Sequin IDs, LSNs, or raw envelope IDs only as observability fields or last-resort fallback. Do not couple core idempotency to Sequin where a stable domain key exists.
 
@@ -200,8 +200,7 @@ Postgres becomes business truth. Before production cutover, add:
 - Sequin replication slot lag monitoring
 - database connection monitoring
 - schema migration rollout/rollback runbook
-- worker queue lag, retry, and dead-letter alerts
-- rebuild/backfill runbooks for OpenSearch and worker-derived side effects
+- worker queue lag and error alerts
 
 ## Deployment target
 
@@ -219,7 +218,7 @@ CloudFront fronts the API. The Hetzner origin must use TLS and origin protection
 
 ## Open questions
 
-- Exact migration/backfill need for pre-production data.
+- Exact data carry-over need for pre-production data.
 - Exact Sequin delivery mode and auth for worker endpoint.
 - Exact deployment tool: Docker Compose, systemd, Terraform, Ansible, or mix.
 - Metrics sink for Hetzner-hosted logs/metrics.
