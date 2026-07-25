@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use aura_historia_worker::cdc::{CdcFanout, DomainJob, WorkerQueue, WorkerQueueRegistry};
-use aura_historia_worker::{QueueConfig, WorkerRuntime, in_memory_queue};
+use aura_historia_worker::cdc::WorkerQueue;
+use aura_historia_worker::{QueueConfig, WorkerRuntime};
 use sqlx::Executor;
 use test_api::*;
 use tokio::net::TcpListener;
@@ -11,15 +11,7 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, Sequin::worker_webhook()])]
 async fn should_deliver_product_event_change_to_worker_queues() {
-    let (product_sender, mut product_receiver) =
-        in_memory_queue::<DomainJob>(QueueConfig::new(8)).unwrap();
-    let (percolator_sender, mut percolator_receiver) =
-        in_memory_queue::<DomainJob>(QueueConfig::new(8)).unwrap();
-    let runtime = WorkerRuntime::new(CdcFanout::new(
-        WorkerQueueRegistry::new()
-            .with_queue(WorkerQueue::ProductOpenSearch, product_sender)
-            .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender),
-    ));
+    let (runtime, mut receivers) = WorkerRuntime::with_all_queues(QueueConfig::new(8)).unwrap();
     let listener = TcpListener::bind(get_sequin_worker_webhook_bind_addr())
         .await
         .unwrap();
@@ -38,35 +30,30 @@ async fn should_deliver_product_event_change_to_worker_queues() {
     pool.execute(sqlx::raw_sql(fixture)).await.unwrap();
 
     let product_job =
-        match tokio::time::timeout(Duration::from_secs(60), product_receiver.recv()).await {
-            Ok(job) => job,
-            Err(error) => {
-                panic!(
-                    "timed out waiting for Sequin product job: {error}\nstdout:\n{}\nstderr:\n{}",
-                    sequin.stdout_string().await,
-                    sequin.stderr_string().await
-                )
-            }
-        };
-    let percolator_job = match tokio::time::timeout(
-        Duration::from_secs(60),
-        percolator_receiver.recv(),
-    )
-    .await
-    {
-        Ok(job) => job,
-        Err(error) => {
-            panic!(
-                "timed out waiting for Sequin percolator job: {error}\nstdout:\n{}\nstderr:\n{}",
-                sequin.stdout_string().await,
-                sequin.stderr_string().await
-            )
-        }
-    };
+        recv_or_dump_sequin_logs(&mut receivers, WorkerQueue::ProductOpenSearch, sequin).await;
+    let percolator_job =
+        recv_or_dump_sequin_logs(&mut receivers, WorkerQueue::SearchFilterPercolator, sequin).await;
 
     let _send_result = shutdown_tx.send(());
     server.await.unwrap().unwrap();
 
     assert!(product_job.is_some());
     assert!(percolator_job.is_some());
+}
+
+async fn recv_or_dump_sequin_logs(
+    receivers: &mut aura_historia_worker::cdc::WorkerQueueReceivers,
+    queue: WorkerQueue,
+    sequin: &RunningSequin,
+) -> Option<aura_historia_worker::cdc::DomainJob> {
+    match receivers.recv_timeout(queue, Duration::from_secs(60)).await {
+        Ok(job) => job,
+        Err(error) => {
+            panic!(
+                "timed out waiting for Sequin job on {queue:?}: {error}\nstdout:\n{}\nstderr:\n{}",
+                sequin.stdout_string().await,
+                sequin.stderr_string().await
+            )
+        }
+    }
 }

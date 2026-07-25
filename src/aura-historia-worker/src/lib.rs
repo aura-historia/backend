@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info};
 
-use crate::cdc::{CdcFanout, CdcIngestError, WorkerQueueRegistry};
+use crate::cdc::{CdcFanout, CdcIngestError, WorkerQueueReceivers, WorkerQueueRegistry};
 
 pub const WORKER_HEALTH_BIND_ADDR_ENV: &str = "AURA_HISTORIA_WORKER_HEALTH_BIND_ADDR";
 const DEFAULT_WORKER_HEALTH_BIND_ADDR: &str = "0.0.0.0:8081";
@@ -134,11 +134,22 @@ where
 #[derive(Debug, Clone)]
 pub struct WorkerRuntime {
     cdc_fanout: CdcFanout,
+    _default_receivers: Option<Arc<Mutex<WorkerQueueReceivers>>>,
 }
 
 impl WorkerRuntime {
     pub fn new(cdc_fanout: CdcFanout) -> Self {
-        Self { cdc_fanout }
+        Self {
+            cdc_fanout,
+            _default_receivers: None,
+        }
+    }
+
+    pub fn with_all_queues(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (registry, receivers) = WorkerQueueRegistry::with_all_queues(config)?;
+        Ok((Self::new(CdcFanout::new(registry)), receivers))
     }
 
     pub fn empty() -> Self {
@@ -152,7 +163,12 @@ impl WorkerRuntime {
 
 impl Default for WorkerRuntime {
     fn default() -> Self {
-        Self::empty()
+        let (runtime, receivers) = Self::with_all_queues(QueueConfig::new(1024))
+            .expect("default queue capacity should be valid");
+        Self {
+            cdc_fanout: runtime.cdc_fanout,
+            _default_receivers: Some(Arc::new(Mutex::new(receivers))),
+        }
     }
 }
 

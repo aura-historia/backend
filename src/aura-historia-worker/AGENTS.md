@@ -7,7 +7,7 @@
 ## Core Design
 
 - `main.rs` bootstraps logging, config, health/CDC server, and graceful shutdown.
-- `lib.rs` owns runtime config, `/health`, `/ready`, `/cdc/sequin`, server loop, and bounded queue primitives.
+- `lib.rs` owns runtime config, `/health`, `/ready`, `/cdc/sequin`, server loop, default all-queue runtime, and bounded queue primitives.
 - `cdc.rs` normalizes Sequin webhook JSON to domain jobs and fans out after route validation.
 - `retry.rs` owns in-process retry, idempotency memory, and in-memory DLQ helpers.
 - No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs.
@@ -26,6 +26,7 @@
 ## Work Guidance
 
 - Keep runtime glue thin.
+- Register all known worker queues by default; tests and runtime code should not hand-register only a subset unless testing missing-queue failure.
 - Queue payloads should be domain types or domain IDs, not Sequin/AWS envelopes.
 - Sub-worker implementation must extract typed DTOs/payloads from Postgres/domain rows when behavior needs event/change fields; do not consume raw Sequin JSON outside router.
 - Ack Sequin only after all relevant bounded queue enqueues succeed.

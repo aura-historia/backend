@@ -7,7 +7,9 @@ use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use crate::InMemoryQueueSender;
+use crate::{
+    InMemoryQueueReceiver, InMemoryQueueSender, QueueConfig, QueueConfigError, in_memory_queue,
+};
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 pub struct CdcBatch {
@@ -50,6 +52,20 @@ pub enum CdcOperation {
     Insert,
     Update,
     Delete,
+}
+
+impl WorkerQueue {
+    pub const ALL: [Self; 9] = [
+        Self::ProductOpenSearch,
+        Self::ProductDeleteCleanup,
+        Self::WatchlistNotification,
+        Self::SearchFilterPercolator,
+        Self::ProductEmbed,
+        Self::ProductTranslate,
+        Self::ShopOpenSearch,
+        Self::SearchFilterOpenSearch,
+        Self::UserTierEnforcement,
+    ];
 }
 
 impl Display for CdcOperation {
@@ -192,6 +208,21 @@ impl WorkerQueueRegistry {
         Self::default()
     }
 
+    pub fn with_all_queues(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let mut registry = Self::new();
+        let mut receivers = WorkerQueueReceivers::new();
+
+        for queue in WorkerQueue::ALL {
+            let (sender, receiver) = in_memory_queue::<DomainJob>(config)?;
+            registry = registry.with_queue(queue, sender);
+            receivers.insert(queue, receiver);
+        }
+
+        Ok((registry, receivers))
+    }
+
     pub fn with_queue(
         mut self,
         queue: WorkerQueue,
@@ -209,6 +240,33 @@ impl WorkerQueueRegistry {
             .enqueue(job)
             .await
             .map_err(|error| CdcFanoutError::QueueClosed(error.0.target_queue))
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct WorkerQueueReceivers {
+    receivers: HashMap<WorkerQueue, InMemoryQueueReceiver<DomainJob>>,
+}
+
+impl WorkerQueueReceivers {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn insert(&mut self, queue: WorkerQueue, receiver: InMemoryQueueReceiver<DomainJob>) {
+        self.receivers.insert(queue, receiver);
+    }
+
+    pub async fn recv(&mut self, queue: WorkerQueue) -> Option<DomainJob> {
+        self.receivers.get_mut(&queue)?.recv().await
+    }
+
+    pub async fn recv_timeout(
+        &mut self,
+        queue: WorkerQueue,
+        duration: std::time::Duration,
+    ) -> Result<Option<DomainJob>, tokio::time::error::Elapsed> {
+        tokio::time::timeout(duration, self.recv(queue)).await
     }
 }
 
