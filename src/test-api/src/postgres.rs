@@ -13,6 +13,7 @@ const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
 const POSTGRES_PORT: u16 = 5432;
 const POSTGRES_CONTAINER_NAME: &str = "aura-historia-aws-backend-postgres-test";
+const HOST_GATEWAY: &str = "host.docker.internal";
 
 /// Guards the one-time startup of the Postgres container.
 ///
@@ -21,9 +22,17 @@ const POSTGRES_CONTAINER_NAME: &str = "aura-historia-aws-backend-postgres-test";
 static POSTGRES_CONTAINER_STARTED: OnceCell<()> = OnceCell::const_new();
 
 fn connection_string() -> String {
+    postgres_connection_string("localhost", POSTGRES_DB)
+}
+
+pub fn get_postgres_host_gateway_connection_string(database: &str) -> String {
+    postgres_connection_string(HOST_GATEWAY, database)
+}
+
+fn postgres_connection_string(host: &str, database: &str) -> String {
     format!(
-        "postgres://{}:{}@localhost:{}/{}",
-        POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_PORT, POSTGRES_DB,
+        "postgres://{}:{}@{}:{}/{}",
+        POSTGRES_USER, POSTGRES_PASSWORD, host, POSTGRES_PORT, database,
     )
 }
 
@@ -64,6 +73,8 @@ async fn ensure_container_started() {
                 .with_user(POSTGRES_USER)
                 .with_password(POSTGRES_PASSWORD)
                 .with_db_name(POSTGRES_DB)
+                .with_tag("16-alpine")
+                .with_cmd(["-c", "fsync=off", "-c", "wal_level=logical"])
                 .with_container_name(POSTGRES_CONTAINER_NAME)
                 .with_mapped_port(POSTGRES_PORT, POSTGRES_PORT.tcp())
                 .start()

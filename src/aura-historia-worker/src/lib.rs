@@ -1,14 +1,21 @@
+pub mod cdc;
+pub mod retry;
+
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
+use std::sync::Arc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info};
+
+use crate::cdc::{CdcFanout, CdcIngestError, WorkerQueueReceivers, WorkerQueueRegistry};
 
 pub const WORKER_HEALTH_BIND_ADDR_ENV: &str = "AURA_HISTORIA_WORKER_HEALTH_BIND_ADDR";
 const DEFAULT_WORKER_HEALTH_BIND_ADDR: &str = "0.0.0.0:8081";
-const REQUEST_BUFFER_BYTES: usize = 8192;
+const REQUEST_BUFFER_BYTES: usize = 65_536;
+pub const SEQUIN_CDC_PATH: &str = "/cdc/sequin";
 
 pub trait WorkerJob: Send + 'static {}
 
@@ -124,23 +131,64 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkerRuntime {
+    cdc_fanout: CdcFanout,
+    _default_receivers: Option<Arc<Mutex<WorkerQueueReceivers>>>,
+}
+
+impl WorkerRuntime {
+    pub fn new(cdc_fanout: CdcFanout) -> Self {
+        Self {
+            cdc_fanout,
+            _default_receivers: None,
+        }
+    }
+
+    pub fn with_all_queues(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (registry, receivers) = WorkerQueueRegistry::with_all_queues(config)?;
+        Ok((Self::new(CdcFanout::new(registry)), receivers))
+    }
+
+    pub fn empty() -> Self {
+        Self::new(CdcFanout::new(WorkerQueueRegistry::new()))
+    }
+
+    pub async fn ingest_cdc_json(&self, body: &str) -> Result<usize, CdcIngestError> {
+        self.cdc_fanout.ingest_json(body).await
+    }
+}
+
+impl Default for WorkerRuntime {
+    fn default() -> Self {
+        let (runtime, receivers) = Self::with_all_queues(QueueConfig::new(1024))
+            .expect("default queue capacity should be valid");
+        Self {
+            cdc_fanout: runtime.cdc_fanout,
+            _default_receivers: Some(Arc::new(Mutex::new(receivers))),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HealthResponse {
+pub struct HttpResponse {
     pub status_code: u16,
     pub body: &'static str,
 }
 
-pub fn route(method: &str, path: &str) -> HealthResponse {
+pub fn route(method: &str, path: &str) -> HttpResponse {
     match (method, path) {
-        ("GET", "/health") => HealthResponse {
+        ("GET", "/health") => HttpResponse {
             status_code: 200,
             body: "ok\n",
         },
-        ("GET", "/ready") => HealthResponse {
+        ("GET", "/ready") => HttpResponse {
             status_code: 200,
             body: "ready\n",
         },
-        _ => HealthResponse {
+        _ => HttpResponse {
             status_code: 404,
             body: "not found\n",
         },
@@ -151,28 +199,52 @@ pub async fn run_until_shutdown<S>(config: WorkerConfig, shutdown: S) -> Result<
 where
     S: Future<Output = ()>,
 {
+    run_until_shutdown_with_runtime(config, WorkerRuntime::default(), shutdown).await
+}
+
+pub async fn run_until_shutdown_with_runtime<S>(
+    config: WorkerConfig,
+    runtime: WorkerRuntime,
+    shutdown: S,
+) -> Result<(), WorkerRunError>
+where
+    S: Future<Output = ()>,
+{
     let listener = TcpListener::bind(config.health_bind_addr())
         .await
         .map_err(WorkerRunError::Bind)?;
-    serve(listener, shutdown).await
+    serve_with_runtime(listener, runtime, shutdown).await
 }
 
 pub async fn serve<S>(listener: TcpListener, shutdown: S) -> Result<(), WorkerRunError>
 where
     S: Future<Output = ()>,
 {
+    serve_with_runtime(listener, WorkerRuntime::default(), shutdown).await
+}
+
+pub async fn serve_with_runtime<S>(
+    listener: TcpListener,
+    runtime: WorkerRuntime,
+    shutdown: S,
+) -> Result<(), WorkerRunError>
+where
+    S: Future<Output = ()>,
+{
     let local_addr = listener.local_addr().map_err(WorkerRunError::LocalAddr)?;
-    info!(bind_addr = %local_addr, "aura-historia-worker health server listening");
+    info!(bind_addr = %local_addr, "aura-historia-worker health and CDC server listening");
     tokio::pin!(shutdown);
+    let runtime = Arc::new(runtime);
 
     loop {
         tokio::select! {
             accept_result = listener.accept() => {
                 let (stream, peer_addr) = accept_result.map_err(WorkerRunError::Accept)?;
-                debug!(%peer_addr, "accepted worker health connection");
+                let runtime = Arc::clone(&runtime);
+                debug!(%peer_addr, "accepted worker connection");
                 tokio::spawn(async move {
-                    if let Err(error) = handle_connection(stream).await {
-                        error!(%error, "worker health connection failed");
+                    if let Err(error) = handle_connection(stream, runtime).await {
+                        error!(%error, "worker connection failed");
                     }
                 });
             }
@@ -184,30 +256,78 @@ where
     }
 }
 
-async fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> {
+async fn handle_connection(
+    mut stream: TcpStream,
+    runtime: Arc<WorkerRuntime>,
+) -> Result<(), std::io::Error> {
     let mut buffer = [0_u8; REQUEST_BUFFER_BYTES];
     let bytes_read = stream.read(&mut buffer).await?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let (method, path) = parse_request_line(&request).unwrap_or(("", ""));
-    let response = route(method, path);
+    let parsed_request = parse_http_request(&request);
+    let response = handle_request(parsed_request, runtime).await;
     write_response(&mut stream, response).await
 }
 
-fn parse_request_line(request: &str) -> Option<(&str, &str)> {
-    let line = request.lines().next()?;
+async fn handle_request(
+    parsed_request: Option<HttpRequest<'_>>,
+    runtime: Arc<WorkerRuntime>,
+) -> HttpResponse {
+    let Some(request) = parsed_request else {
+        return HttpResponse {
+            status_code: 400,
+            body: "bad request\n",
+        };
+    };
+
+    if request.method == "POST" && request.path == SEQUIN_CDC_PATH {
+        return match runtime.ingest_cdc_json(request.body).await {
+            Ok(_) => HttpResponse {
+                status_code: 202,
+                body: "accepted\n",
+            },
+            Err(CdcIngestError::InvalidJson(_)) => HttpResponse {
+                status_code: 400,
+                body: "invalid CDC JSON\n",
+            },
+            Err(error) => {
+                error!(%error, "CDC fanout failed; requesting Sequin retry");
+                HttpResponse {
+                    status_code: 503,
+                    body: "CDC fanout failed\n",
+                }
+            }
+        };
+    }
+
+    route(request.method, request.path)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HttpRequest<'a> {
+    method: &'a str,
+    path: &'a str,
+    body: &'a str,
+}
+
+fn parse_http_request(request: &str) -> Option<HttpRequest<'_>> {
+    let (head, body) = request.split_once("\r\n\r\n").unwrap_or((request, ""));
+    let line = head.lines().next()?;
     let mut parts = line.split_whitespace();
     let method = parts.next()?;
     let path = parts.next()?;
-    Some((method, path))
+    Some(HttpRequest { method, path, body })
 }
 
 async fn write_response(
     stream: &mut TcpStream,
-    response: HealthResponse,
+    response: HttpResponse,
 ) -> Result<(), std::io::Error> {
     let status = match response.status_code {
         200 => "200 OK",
+        202 => "202 Accepted",
+        400 => "400 Bad Request",
         404 => "404 Not Found",
+        503 => "503 Service Unavailable",
         _ => "500 Internal Server Error",
     };
     let bytes = response.body.as_bytes();
@@ -239,6 +359,7 @@ mod tests {
     use std::net::SocketAddr;
 
     use super::*;
+    use crate::cdc::{CdcFanout, DomainJob, WorkerQueue, WorkerQueueRegistry};
     use rstest::rstest;
     use tokio::sync::oneshot;
 
@@ -347,17 +468,93 @@ mod tests {
             let _ = shutdown_rx.await;
         }));
 
-        let mut stream = TcpStream::connect(addr).await?;
-        stream
-            .write_all(b"GET /health HTTP/1.1\r\nhost: localhost\r\n\r\n")
-            .await?;
-        let mut response = String::new();
-        stream.read_to_string(&mut response).await?;
+        let response = request(addr, "GET /health HTTP/1.1\r\nhost: localhost\r\n\r\n").await?;
         let _send_result = shutdown_tx.send(());
         server.await??;
 
         assert!(response.starts_with("HTTP/1.1 200 OK"));
         assert!(response.ends_with("ok\n"));
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_accept_sequin_cdc_after_fanout() -> Result<(), Box<dyn std::error::Error>> {
+        let (product_sender, mut product_receiver) =
+            in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
+        let (percolator_sender, mut percolator_receiver) =
+            in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
+        let (embed_sender, mut embed_receiver) = in_memory_queue::<DomainJob>(QueueConfig::new(8))?;
+        let runtime = WorkerRuntime::new(CdcFanout::new(
+            WorkerQueueRegistry::new()
+                .with_queue(WorkerQueue::ProductOpenSearch, product_sender)
+                .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender)
+                .with_queue(WorkerQueue::ProductEmbed, embed_sender),
+        ));
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(serve_with_runtime(listener, runtime, async move {
+            let _ = shutdown_rx.await;
+        }));
+        let body = r#"{
+            "changes": [
+                {
+                    "table": "product_events",
+                    "operation": "insert",
+                    "record": {
+                        "event_id": "40000000-0000-0000-0000-000000000001",
+                        "product_id": "30000000-0000-0000-0000-000000000001",
+                        "event_type": "DOMAIN_CREATED",
+                        "event_group": "DOMAIN"
+                    }
+                }
+            ]
+        }"#;
+        let request_text = format!(
+            "POST {SEQUIN_CDC_PATH} HTTP/1.1\r\nhost: localhost\r\ncontent-length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+
+        let response = request(addr, &request_text).await?;
+        let _send_result = shutdown_tx.send(());
+        server.await??;
+
+        assert!(response.starts_with("HTTP/1.1 202 Accepted"));
+        assert!(product_receiver.recv().await.is_some());
+        assert!(percolator_receiver.recv().await.is_some());
+        assert!(embed_receiver.recv().await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_sequin_cdc_json() -> Result<(), Box<dyn std::error::Error>> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(serve(listener, async move {
+            let _ = shutdown_rx.await;
+        }));
+        let request_text = format!(
+            "POST {SEQUIN_CDC_PATH} HTTP/1.1\r\nhost: localhost\r\ncontent-length: 8\r\n\r\nnot-json"
+        );
+
+        let response = request(addr, &request_text).await?;
+        let _send_result = shutdown_tx.send(());
+        server.await??;
+
+        assert!(response.starts_with("HTTP/1.1 400 Bad Request"));
+        Ok(())
+    }
+
+    async fn request(
+        addr: SocketAddr,
+        request_text: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let mut stream = TcpStream::connect(addr).await?;
+        stream.write_all(request_text.as_bytes()).await?;
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await?;
+        Ok(response)
     }
 }
