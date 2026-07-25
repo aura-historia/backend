@@ -23,10 +23,9 @@ Design must keep a later move back to AWS practical. API and worker should be no
 
 - No API Gateway adapter while migrating API routes.
 - No product command SQS buffer for migrated writes.
-- No DynamoDB auth/access-token cache.
-- No user OpenSearch index in target design.
+- No users OpenSearch index in target design.
 - No crawler migration. Crawler is separate and out of scope.
-- No exactly-once external side effects. Use idempotency and retry.
+- No exactly-once external side effects. Use idempotency, retry, and repair/backfill.
 
 ## AWS stays
 
@@ -34,11 +33,12 @@ Design must keep a later move back to AWS practical. API and worker should be no
 |---|---|
 | Cognito | Identity provider only. API verifies JWTs directly. |
 | DynamoDB notifications | Notification TTL and insert-to-send workflow. |
+| DynamoDB access tokens | Keep existing access-token storage and lookup. |
+| DynamoDB OAuth clients and codes | Keep OAuth clients, authorization codes, and third-party exchange codes. |
 | `notification-send` Lambda | Sends external notifications through SES/S3 template flow. |
 | Step Functions | Partner-shop-application workflow engine. Its Lambda writes business rows to Postgres directly. |
 | Shopify Lambda | Shopify event intake stays in AWS, then writes product rows/events to Postgres directly. Its AWS SQS queue is external intake buffering, not a product command buffer. |
 | Stripe Lambda | Stripe subscription event intake stays in AWS, writes user rows to Postgres directly. |
-| OAuth clients and codes | Stay in DynamoDB. Access tokens move to Postgres only. |
 | FxRate Lambda | Scheduled FX-rate update stays in AWS/DynamoDB. |
 | CloudWatch log-retention Lambda | Stays for AWS logs. |
 | CloudFront/WAF | Public edge for Hetzner API origin. |
@@ -61,7 +61,6 @@ Minimum rules:
 Postgres owns:
 
 - users
-- access tokens
 - shops
 - partner-shop-applications
 - products
@@ -69,11 +68,12 @@ Postgres owns:
 - product-watchlist
 - search-filters
 - search-filter matches
-- worker inbox/checkpoints/failures/idempotency
+- worker processed-job markers, dead letters, and schedules
 
-DynamoDB owns only:
+DynamoDB owns:
 
 - notifications
+- access tokens
 - OAuth clients
 - OAuth authorization codes
 - OAuth third-party exchange codes
@@ -96,29 +96,38 @@ API/webhook/Shopify write flow:
 3. Decide domain event(s).
 4. In one Postgres transaction:
    - insert `product_events`
-   - update `products` materialized row
+   - update `products` materialized row, including `products.event_id`
 5. Commit.
 6. Return success/failure to caller.
 7. Sequin delivers committed changes to `aura-historia-worker`.
 
 No intermediate product command queue. No `202 accepted because queued` semantics for migrated product writes.
 
-## CDC and worker durability
+## CDC and worker delivery
 
-In-memory worker queues are not durable.
+There is no durable `worker_inbox` table.
 
-Sequin delivery must first land in a durable Postgres worker inbox before ack. Worker sub-queues are only execution buffers.
+A CDC change is complete from the Sequin side only after `aura-historia-worker` fans it out to every relevant bounded in-memory sub-worker queue.
 
 Target flow:
 
 1. Postgres commit creates/updates/deletes business rows.
 2. Sequin sends CDC event to `aura-historia-worker`.
-3. Worker validates and stores `worker_inbox` row idempotently.
-4. Worker acknowledges Sequin only after durable inbox write.
-5. Router leases inbox rows and maps them to domain jobs.
-6. Sub-workers consume bounded in-memory queues.
-7. Each sub-worker records processed idempotency key or failure.
-8. Retry/backoff or poison row handles failures.
+3. Worker validates source/table/operation and maps the change to domain jobs.
+4. Worker derives domain-first idempotency and ordering keys.
+5. Worker pushes every derived domain job to all relevant bounded in-memory queues.
+6. Worker acknowledges Sequin after all enqueue operations succeed.
+7. Sub-workers own retry/backoff and dead-letter behavior.
+8. Sub-workers record processed-job markers or dead letters where durable visibility is needed.
+
+Crash rule:
+
+- Crash before Sequin ack: Sequin redelivers.
+- Crash after Sequin ack but before sub-worker completion: in-memory jobs may be lost.
+- Lost projection jobs are repaired by rebuild/backfill because OpenSearch is rebuildable.
+- Jobs with user-visible side effects must make their first external effect idempotent and durable, such as inserting a DynamoDB notification keyed by domain origin event.
+
+This accepts process-memory queues as the first fanout boundary for lower cost and simpler local tests. It requires repair/backfill tooling for any side effect that cannot be safely recomputed.
 
 ## Domain job rule
 
@@ -127,12 +136,12 @@ Sub-workers consume domain jobs, not raw infrastructure payloads.
 Examples:
 
 - `ProductEventJob { event_id, product_id, event_type }`
-- `ShopChangedJob { shop_id }`
-- `SearchFilterChangedJob { user_id, user_search_filter_id, op }`
-- `UserTierChangedJob { user_id }`
+- `ShopChangedJob { shop_id, version }`
+- `SearchFilterChangedJob { user_id, user_search_filter_id, version, op }`
+- `UserTierChangedJob { user_id, version }`
 - `PeriodicMatcherJob`
 
-Raw Sequin envelopes stay at the edge.
+Raw Sequin envelopes stay at the router edge.
 
 ## Worker sub-workers
 
@@ -151,14 +160,21 @@ Raw Sequin envelopes stay at the edge.
 
 ## Idempotency and ordering
 
+Prefer domain IDs or domain versions over technology-specific CDC IDs.
+
 Minimum rules:
 
-- `product_events.event_id` is unique.
-- `worker_inbox.source + source_event_id` is unique. Derive `source_event_id` from Sequin event ID when present, otherwise from `lsn + table + primary key + operation`.
-- `worker_processed_events.worker + idempotency_key` is unique.
+- Product events use `product_events.event_id`.
+- Product materialized writes use `products.event_id`.
+- Product workers use `event_id` as the idempotency key and `product_id` as the ordering key.
+- Shop workers use `(shop_id, version, op)` where version changes on each shop mutation.
+- Search-filter workers use `(user_search_filter_id, version, op)`.
+- User tier workers use `(user_id, version)`.
 - Search-filter matches have a unique key preventing duplicate user/filter/product matches.
-- Notifications are idempotent by user and origin event where domain allows it.
-- Product projectors use event timestamp/version/LSN to avoid stale overwrite where practical.
+- Notifications are idempotent by user and domain origin event where domain allows it.
+- `worker_processed_jobs.worker_name + idempotency_key` is unique where durable processed markers are useful.
+
+Use Sequin IDs, LSNs, or raw envelope IDs only as observability fields or last-resort fallback. Do not couple core idempotency to Sequin where a stable domain key exists.
 
 Ordering:
 
@@ -170,7 +186,7 @@ Ordering:
 
 - Prefer fast Postgres integration tests over full LocalStack CloudFormation tests.
 - Use existing LocalStack OpenSearch support for projection/percolator tests and mapping bootstrap.
-- Keep DynamoDB test helpers for notification/OAuth/FX survivor tests.
+- Keep DynamoDB test helpers for notification/OAuth/access-token/FX survivor tests.
 - Keep CDK/CloudFormation acceptance deployment ability for infra/survivor wiring.
 - Move most REST acceptance coverage to `aura-historia-api` + Postgres + targeted LocalStack services.
 
@@ -184,7 +200,8 @@ Postgres becomes business truth. Before production cutover, add:
 - Sequin replication slot lag monitoring
 - database connection monitoring
 - schema migration rollout/rollback runbook
-- worker inbox lag and poison-count alerts
+- worker queue lag, retry, and dead-letter alerts
+- rebuild/backfill runbooks for OpenSearch and worker-derived side effects
 
 ## Deployment target
 

@@ -11,11 +11,11 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 | Postgres | Database | Business source of truth and transactional product/event writes. |
 | `product_events` | Postgres table | Product domain/enrichment/policy/lifecycle event log. |
 | Sequin | CDC | Delivers committed Postgres changes to worker ingestion. |
-| `worker_inbox` | Postgres table | Durable CDC/job inbox before in-memory queues. |
-| `aura-historia-worker` router | Rust process | Maps CDC/inbox rows to domain jobs. |
-| In-memory sub-worker queues | Worker buffers | Bounded execution buffers, not durability boundary. |
+| `aura-historia-worker` router | Rust process | Maps CDC rows to domain jobs and fans them out to queues. |
+| In-memory sub-worker queues | Worker buffers | Bounded execution buffers. Own retry/DLQ behavior. |
 | OpenSearch | Search projection | Rebuildable product/shop/search-filter projection. |
 | DynamoDB notifications | AWS DynamoDB | Notification TTL and insert-to-send behavior. |
+| DynamoDB access tokens | AWS DynamoDB | Existing access-token storage and lookup. |
 | `notification-send` | AWS Lambda | Sends external notifications through SES. |
 | FxRate Lambda | AWS Lambda | Updates FX rates in DynamoDB. |
 | Shopify Lambda | AWS Lambda | Handles Shopify events, writes Postgres directly. |
@@ -33,8 +33,10 @@ flowchart TD
     SFN["Step Functions Lambda"]
     PG[(Postgres)]
     SEQ["Sequin CDC"]
-    INBOX[(worker_inbox)]
     ROUTER["aura-historia-worker router"]
+    PQ["product queues"]
+    SQ["shop queues"]
+    UFQ["user/search-filter queues"]
     OS[(OpenSearch)]
     DDBN[(DynamoDB notifications)]
     SEND["notification-send Lambda"]
@@ -48,15 +50,19 @@ flowchart TD
     SFN -->|"sync partner-app/shop/user update"| PG
 
     PG -->|"committed row changes"| SEQ
-    SEQ -->|"deliver CDC"| INBOX
-    INBOX --> ROUTER
+    SEQ -->|"deliver CDC"| ROUTER
+    ROUTER -->|"ack after all fanout succeeds"| SEQ
 
-    ROUTER -->|"product projection jobs"| OS
-    ROUTER -->|"shop projection jobs"| OS
-    ROUTER -->|"search-filter percolator docs"| OS
-    ROUTER -->|"match/watchlist/tier updates"| PG
-    ROUTER -->|"notification records"| DDBN
-    ROUTER -->|"enrichment events + product update"| PG
+    ROUTER --> PQ
+    ROUTER --> SQ
+    ROUTER --> UFQ
+
+    PQ -->|"product projections"| OS
+    PQ -->|"match/watchlist/enrichment"| PG
+    PQ -->|"notification records"| DDBN
+    SQ -->|"shop projections"| OS
+    UFQ -->|"search-filter docs"| OS
+    UFQ -->|"tier/search-filter updates"| PG
 
     DDBN -->|"stream/event rule"| SEND
     SEND --> SES
@@ -75,43 +81,46 @@ sequenceDiagram
     participant PG as Postgres
     participant Sequin
     participant Worker as aura-historia-worker
+    participant Queue as In-memory queues
     participant OS as OpenSearch
 
     Caller->>API: product create/update/delete
     API->>PG: begin transaction
     API->>PG: lock/read product row
     API->>PG: insert product_events
-    API->>PG: upsert/update products
+    API->>PG: upsert/update products.event_id
     API->>PG: commit
     API-->>Caller: success/failure after commit
     PG-->>Sequin: CDC after commit
     Sequin->>Worker: deliver CDC
-    Worker->>PG: insert worker_inbox idempotently
-    Worker-->>Sequin: ack after durable write
-    Worker->>OS: project product/search side effects
+    Worker->>Worker: map to domain jobs
+    Worker->>Queue: enqueue to all relevant queues
+    Worker-->>Sequin: ack after fanout succeeds
+    Queue->>OS: project product/search side effects
 ```
 
 No intermediate product command SQS queue. No `202 accepted because queued` behavior for migrated writes.
 
-## Durable worker inbox
+## Sequin fanout contract
 
-Sequin delivery is not processed directly in memory.
+There is no durable `worker_inbox` table.
 
 Minimum ingest steps:
 
 1. Receive CDC envelope.
 2. Validate source/table/operation.
-3. Derive stable `source_event_id`, `aggregate_type`, `aggregate_id`, and `ordering_key`.
-4. Insert into `worker_inbox` with unique `(source, source_event_id)`.
-5. Ack Sequin only after insert succeeds or duplicate is detected.
-6. Router leases pending inbox rows and pushes domain jobs to bounded in-memory queues.
-7. Sub-worker records processed idempotency key or failure.
+3. Build domain change from row keys and before/after values.
+4. Derive domain-first `idempotency_key` and `ordering_key`.
+5. Map change to one or more domain jobs.
+6. Enqueue every job to every relevant bounded in-memory queue.
+7. Ack Sequin only after all enqueue operations succeed.
 
 Crash rule:
 
-- Crash before inbox insert: Sequin redelivers.
-- Crash after inbox insert before ack: duplicate delivery becomes no-op insert.
-- Crash after enqueue: inbox row remains retryable unless processed marker exists.
+- Crash before Sequin ack: Sequin redelivers.
+- Crash after Sequin ack: queued in-memory jobs may be lost if the process dies before sub-workers finish.
+- Lost projection jobs are recoverable by rebuild/backfill.
+- User-visible side effects need durable idempotent first writes, for example DynamoDB notification rows keyed by user and origin event.
 
 ## CDC routing draft
 
@@ -119,9 +128,9 @@ Crash rule:
 |---|---|---|
 | `product_events` | INSERT | Product projector; percolator for domain/enrichment; watchlist notifications for price/state; enrichment pipeline for create/embed; delete cleanup for lifecycle delete. |
 | `products` | INSERT/MODIFY | No default downstream route. Product events are the projection trigger to avoid double-firing. Use products CDC only for explicit backfills or future non-event projections. |
-| `shops` / `shop_domains` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. |
+| `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. |
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync; user tier checks if state/feature-relevant. |
-| `search_filter_matches` | INSERT/MODIFY/DELETE | Usually no downstream route except observability/backfill. |
+| `search_filter_matches` | INSERT/MODIFY/DELETE | Usually no downstream route except observability/backfill. `origin_event_id` links to `product_events.event_id`. |
 | `users` | INSERT/MODIFY/DELETE | User tier enforcement for tier changes; no user OpenSearch projection. |
 | `product_watchlist` | INSERT/MODIFY/DELETE | Usually no downstream route except tier/backfill; product events drive notifications. |
 | `partner_shop_applications` | INSERT/MODIFY | No generic worker route unless notification/backfill requires it. |
@@ -147,10 +156,10 @@ Examples:
 | Product delete cleanup | `product-lambda-delete-product` | Lifecycle deleted job | OpenSearch delete, Postgres watchlist/match cleanup. |
 | Watchlist notification generator | `product-lambda-update-notify-user` | Price/state product event job | DynamoDB notification inserts. |
 | Search-filter percolator | `search-filter-lambda-percolate-product` | Domain/enrichment product event job | Postgres matches, DynamoDB notifications. |
-| Product embed | `product-pipeline-embed-text` | Domain created job | Postgres enrichment event + product update. |
+| Product embed | `product-pipeline-embed-text` | Domain created job | Postgres enrichment event + product update. Embedding stored in Postgres only. |
 | Product translate | `product-pipeline-translate` | Enrichment embedded job | Postgres enrichment event + product update. |
 | Shop OpenSearch projector | `shop-lambda-opensearch-index` | Shop changed job | OpenSearch shop document write. |
-| Search-filter OpenSearch sync | `search-filter-lambda-opensearch-sync` | Search-filter changed job | OpenSearch percolator document write/delete. |
+| Search-filter OpenSearch sync | `search-filter-lambda-opensearch-sync` | Search-filter changed job | OpenSearch percolator document write/delete. Search-filter embedding stored in Postgres only. |
 | User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
 | Periodic matcher | ECS periodic matcher | Scheduled job | OpenSearch product search, Postgres matches, DynamoDB notifications. |
 
@@ -169,37 +178,49 @@ These AWS event flows stay:
 
 ## Idempotency
 
+Prefer domain IDs or domain versions over Sequin IDs.
+
 Minimum unique keys:
 
 | Area | Key |
 |---|---|
 | Product event | `product_events.event_id` |
-| Worker inbox | `(source, source_event_id)`, where `source_event_id` is Sequin event ID or derived from `lsn + table + primary key + operation` |
-| Worker processed | `(worker_name, idempotency_key)` |
-| Search-filter match | `(user_search_filter_id, product_id)` plus user/filter/product lookup indexes |
+| Product materialized state | `products.event_id` |
+| Product worker job | `(worker_name, product_events.event_id)` |
+| Shop worker job | `(worker_name, shop_id, version, op)` |
+| Search-filter worker job | `(worker_name, user_search_filter_id, version, op)` |
+| User tier worker job | `(worker_name, user_id, version)` |
+| Search-filter match | `(user_search_filter_id, product_id)` plus `origin_event_id` FK to `product_events.event_id` |
 | Notification | user + origin event where domain allows |
+
+Sequin ID/LSN can be logged for debugging, but do not make it the normal idempotency key when a domain key exists.
 
 External sends remain at-least-once. Notification duplicate protection is at record creation, not SES delivery.
 
 ## Retry and poison handling
 
-Each inbox row has:
+Sub-workers own retry, backoff, and dead-letter behavior after enqueue.
 
-- `status`
-- `attempts`
-- `next_attempt_at`
-- `locked_by`
-- `locked_until`
+Minimum queue/job state:
 
-Sub-workers retry transient failures with backoff. Permanent failures move to `worker_failures` and keep enough payload to debug/replay.
+- domain job payload
+- `worker_name`
+- `idempotency_key`
+- attempts
+- next attempt time
+- last error
+
+Permanent failures are written to `worker_dead_letters` with enough payload to debug/replay.
 
 ## Operations notes
 
-Postgres is business truth and Sequin depends on replication health. Production cutover needs backup/restore, WAL/PITR or accepted RPO, Sequin slot lag monitoring, worker inbox lag alerts, poison-count alerts, and Postgres connection monitoring.
+Postgres is business truth and Sequin depends on replication health. Production cutover needs backup/restore, WAL/PITR or accepted RPO, Sequin slot lag monitoring, worker queue lag alerts, dead-letter alerts, and Postgres connection monitoring.
+
+Because there is no durable inbox, projection rebuild and worker replay/backfill tools are part of the reliability model.
 
 ## Test guidance
 
-- Use Postgres integration tests for repository and inbox behavior.
-- Use fake CDC envelopes for router tests.
+- Use Postgres integration tests for repositories and durable processed/dead-letter markers.
+- Use fake CDC envelopes for router fanout tests.
 - Use existing LocalStack OpenSearch for projection/percolator tests.
 - Keep DynamoDB and CDK/CloudFormation helpers for AWS survivor tests.

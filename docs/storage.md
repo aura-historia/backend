@@ -9,7 +9,6 @@ See `docs/hetzner_postgres_sequin_migration.md` for the architecture ADR.
 Postgres owns business truth for:
 
 - users
-- access tokens
 - shops
 - partner-shop-applications
 - products
@@ -17,11 +16,12 @@ Postgres owns business truth for:
 - product-watchlist
 - search-filters
 - search-filter matches
-- worker inbox/checkpoints/failures/idempotency
+- worker processed-job markers, dead letters, and schedules
 
 DynamoDB keeps:
 
 - notifications with TTL and insert-to-send behavior
+- access tokens, as today
 - OAuth clients
 - OAuth authorization codes
 - OAuth third-party exchange codes
@@ -29,9 +29,7 @@ DynamoDB keeps:
 
 OpenSearch keeps search projections only. It is rebuildable.
 
-There is no target DynamoDB access-token cache and no target users OpenSearch index.
-
-Crawler storage is out of scope for this migration.
+There is no target users OpenSearch index. Crawler storage is out of scope for this migration.
 
 ## Postgres runtime contract
 
@@ -86,6 +84,73 @@ src/<crate>/src/postgres/<entity>_row.rs
 src/<crate>/migrations/...
 ```
 
+## Schema map
+
+```mermaid
+erDiagram
+    USERS ||--o{ USER_PARTNER_SHOPS : owns
+    SHOPS ||--o{ USER_PARTNER_SHOPS : grants
+    USERS ||--o{ PARTNER_SHOP_APPLICATIONS : applies
+    SHOPS ||--o{ PARTNER_SHOP_APPLICATIONS : existing_shop
+    SHOPS ||--o{ PRODUCTS : shop
+    SHOPS ||--o{ PRODUCTS : seller
+    PRODUCTS ||--o{ PRODUCT_EVENTS : emits
+    USERS ||--o{ PRODUCT_WATCHLIST : watches
+    PRODUCTS ||--o{ PRODUCT_WATCHLIST : watched
+    USERS ||--o{ SEARCH_FILTERS : owns
+    SEARCH_FILTERS ||--o{ SEARCH_FILTER_MATCHES : matches
+    PRODUCTS ||--o{ SEARCH_FILTER_MATCHES : matched_product
+    PRODUCT_EVENTS ||--o{ SEARCH_FILTER_MATCHES : origin_event
+
+    USERS {
+        uuid user_id PK
+        text email UK
+        text tier
+        text role
+        text stripe_customer_id UK
+        bigint version
+    }
+    SHOPS {
+        uuid shop_id PK
+        text shop_slug_id UK
+        text name
+        text_array shop_domains
+        bigint version
+    }
+    PRODUCTS {
+        uuid product_id PK
+        uuid event_id FK
+        uuid shop_id FK
+        uuid seller_id FK
+        text shops_product_id
+        jsonb product_images
+        real_array embedding
+    }
+    PRODUCT_EVENTS {
+        uuid event_id PK
+        uuid product_id FK
+        text event_type
+        jsonb payload
+        timestamptz event_time
+    }
+    SEARCH_FILTERS {
+        uuid user_search_filter_id PK
+        uuid user_id FK
+        jsonb search
+        real_array embedding
+        bigint version
+    }
+    SEARCH_FILTER_MATCHES {
+        uuid user_search_filter_id PK,FK
+        uuid product_id PK,FK
+        uuid origin_event_id FK
+    }
+    WORKER_PROCESSED_JOBS {
+        text worker_name PK
+        text idempotency_key PK
+    }
+```
+
 ## Schema draft
 
 ### Users
@@ -106,6 +171,7 @@ src/<crate>/migrations/...
 - flattened address columns
 - `geo_address_lat double precision null`
 - `geo_address_lon double precision null`
+- `version bigint not null default 1`
 - audit columns: `created_by`, `updated_by`, `created`, `updated`
 
 `user_partner_shops`
@@ -114,25 +180,7 @@ src/<crate>/migrations/...
 - `shop_id uuid references shops(shop_id) on delete cascade`
 - primary key `(user_id, shop_id)`
 
-`access_tokens`
-
-- `access_token_id uuid primary key`
-- `user_id uuid references users(user_id) on delete cascade`
-- `name text not null`
-- `token_prefix text not null`
-- `token_short text not null`
-- `token_hash text not null`
-- `origin text not null`
-- `oauth_client_id uuid null`
-- `expires timestamptz null`
-- audit columns
-- unique `(token_prefix, token_short)`
-
-`access_token_scopes`
-
-- `access_token_id uuid references access_tokens(access_token_id) on delete cascade`
-- `scope text not null`
-- primary key `(access_token_id, scope)`
+Access tokens stay in DynamoDB as today. Do not add `access_tokens` or `access_token_scopes` to Postgres.
 
 ### Shops
 
@@ -143,6 +191,7 @@ src/<crate>/migrations/...
 - `name text not null`
 - `shop_type text not null`
 - `partner_status text not null`
+- `shop_domains text[] not null default '{}'`
 - `shopify_domain text null unique`
 - `shopify_currency text null`
 - `shopify_language text null`
@@ -158,18 +207,17 @@ src/<crate>/migrations/...
 - `phone text null`
 - `email text null`
 - `affiliate_configuration jsonb null`
+- `version bigint not null default 1`
 - audit columns
 
-`shop_domains`
+Indexes:
 
-- `shop_id uuid references shops(shop_id) on delete cascade`
-- `domain text not null unique`
-- primary key `(shop_id, domain)`
+- GIN on `shop_domains` for domain lookup.
+- `(partner_status, updated desc)` if needed by admin lists.
 
-`shop_raw_name_aliases`
+`shop_domains` is intentionally inline because domains are aggregate-owned values. Canonicalize domains in the repository. If strict global uniqueness per domain becomes mandatory at the database layer, re-normalize domains into a child table.
 
-- `raw_shop_name text primary key`
-- `shop_id uuid not null references shops(shop_id) on delete cascade`
+No `shop_raw_name_aliases` table. It is unused and should not be migrated.
 
 ### Partner shop applications
 
@@ -183,6 +231,7 @@ src/<crate>/migrations/...
 - `existing_shop_id uuid null references shops(shop_id)`
 - new-shop payload columns: name, type, domains, url, image, address, phone, email
 - `task_token text null`
+- `version bigint not null default 1`
 - audit columns
 
 Indexes:
@@ -198,7 +247,7 @@ Indexes:
 - `product_slug_id text not null`
 - `shop_slug_id text not null`
 - `seller_slug_id text not null`
-- `last_event_id uuid not null`
+- `event_id uuid not null references product_events(event_id)`
 - `shop_id uuid not null references shops(shop_id)`
 - `seller_id uuid not null references shops(shop_id)`
 - `shops_product_id text not null`
@@ -212,7 +261,8 @@ Indexes:
 - `lifecycle text not null`
 - `url text not null`
 - `view_url text not null`
-- `embedding real[] null` or `vector` if pgvector is adopted later
+- `product_images jsonb not null default '[]'`
+- `embedding real[] null`
 - `auction_start timestamptz null`
 - `auction_end timestamptz null`
 - audit columns
@@ -224,13 +274,9 @@ Constraints/indexes:
 - index `(seller_id)`
 - index `(lifecycle, updated desc)`
 
-`product_images`
+`product_images` is intentionally inline because images are ordered aggregate-owned values and are not queried independently. Store objects with at least `position`, `url`, and optional `prohibited_content`.
 
-- `product_id uuid references products(product_id) on delete cascade`
-- `position int not null`
-- `url text not null`
-- `prohibited_content text null`
-- primary key `(product_id, position)`
+`embedding` is stored only. Do not add ANN search or pgvector behavior until a later task explicitly needs it.
 
 `product_events`
 
@@ -282,16 +328,19 @@ Indexes:
 - `state text not null`
 - search criteria columns where stable and `search jsonb not null` for flexible criteria
 - `enhanced_search_description text null`
-- `embedding real[] null` or `vector` if pgvector is adopted later
+- `embedding real[] null`
 - `language text not null`
 - `currency text not null`
 - `last_hybrid_search_matched timestamptz not null default '1970-01-01T00:00:00Z'`
+- `version bigint not null default 1`
 - audit columns
 
 Indexes:
 
 - `(user_id, created desc)`
 - `(state, updated desc)`
+
+`embedding` is stored only. Do not add ANN search or pgvector behavior until a later task explicitly needs it.
 
 `search_filter_matches`
 
@@ -300,7 +349,7 @@ Indexes:
 - `product_id uuid not null references products(product_id) on delete cascade`
 - `shop_id uuid not null`
 - `shops_product_id text not null`
-- `origin_event_id uuid not null`
+- `origin_event_id uuid not null references product_events(event_id)`
 - `user_search_filter_name text null`
 - `enhanced_match_reason text null`
 - `feedback boolean null`
@@ -312,49 +361,39 @@ Indexes:
 - `(user_id, created desc)`
 - `(user_id, user_search_filter_id, created desc)`
 - `(product_id)`
+- `(origin_event_id)`
 - unique `(user_id, user_search_filter_id, shop_id, shops_product_id)`
 
 ### Worker
 
-`worker_inbox`
+No `worker_inbox` table. Sequin delivery is acknowledged after the router has delivered all derived domain jobs to the relevant bounded in-memory queues.
 
-- `inbox_id uuid primary key`
-- `source text not null`
-- `source_event_id text not null` — Sequin event ID, or derived from `source_lsn + table_name + primary key + operation`
-- `source_lsn pg_lsn null`
-- `table_name text not null`
-- `operation text not null`
-- `aggregate_type text not null`
-- `aggregate_id text not null`
-- `ordering_key text not null`
-- `payload jsonb not null`
-- `status text not null`
-- `attempts int not null default 0`
-- `next_attempt_at timestamptz not null default now()`
-- `locked_by text null`
-- `locked_until timestamptz null`
-- `created timestamptz not null default now()`
-- `updated timestamptz not null default now()`
-- unique `(source, source_event_id)`
-- index `(status, next_attempt_at)`
-- index `(ordering_key, created)`
-
-`worker_processed_events`
+`worker_processed_jobs`
 
 - `worker_name text not null`
 - `idempotency_key text not null`
 - `processed_at timestamptz not null default now()`
 - primary key `(worker_name, idempotency_key)`
 
-`worker_failures`
+Use domain-first idempotency keys:
 
-- `failure_id uuid primary key`
-- `inbox_id uuid not null references worker_inbox(inbox_id)`
+- product jobs: `product_events.event_id`
+- shop jobs: `(shop_id, version, op)`
+- search-filter jobs: `(user_search_filter_id, version, op)`
+- user tier jobs: `(user_id, version)`
+- match jobs: `(user_search_filter_id, product_id, origin_event_id)`
+
+`worker_dead_letters`
+
+- `dead_letter_id uuid primary key`
 - `worker_name text not null`
+- `idempotency_key text not null`
+- `job_type text not null`
 - `error_kind text not null`
 - `error_message text not null`
 - `payload jsonb not null`
 - `created timestamptz not null default now()`
+- unique `(worker_name, idempotency_key)` where appropriate
 
 Optional:
 
