@@ -33,4 +33,5 @@
 
 - `.agents/skills/add-backend-lambda/SKILL.md` — add Lambda workflow.
 - `.agents/skills/add-entity-type/SKILL.md` — add entity/type workflow.
+- `.agents/skills/github-workflow/SKILL.md` — GitHub issue, branch, push, and PR workflow.
 - `.agents/skills/add-rest-api-endpoint/SKILL.md` — add REST endpoint workflow.

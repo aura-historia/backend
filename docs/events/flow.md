@@ -1,120 +1,221 @@
 # Event Flow
 
-All events originate from DynamoDB Stream changes on `table_1`. An EventBridge Pipe
-(`TableOneStreamToEventBusPipe`) filters relevant stream records and forwards them to the
-`DynamoDbEventBus`. EventBridge rules on that bus fan out to dedicated SQS queues, each
-consumed by a Lambda function.
+This document describes the target event flow for #1341. Current AWS DynamoDB Stream/EventBridge/SQS/Lambda rails stay only for AWS survivor workflows until cutover.
 
----
+See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 
-## Components
+## Target components
 
 | Component | Type | Purpose |
-|-----------|------|---------|
-| `table_1` | DynamoDB Table | Single event-store and read-model table |
-| `DynamoDbEventBus` | EventBridge Bus | Central routing bus for all DynamoDB stream events |
-| `TableOneStreamToEventBusPipe` | EventBridge Pipe | Filters DynamoDB stream records and publishes to the event bus |
-| `ProductMaterializeDynamoDbQ` | SQS + Lambda | Writes materialized product view to DynamoDB |
-| `ProductMaterializeOpenSearchQ` | SQS + Lambda | Indexes product updates in OpenSearch, including lifecycle |
-| `ProductDeleteProductQ` | SQS + Lambda | Deletes product from OpenSearch and removes watchlist/search-filter matches |
-| `ProductUpdateNotifyUserQ` | SQS + Lambda | Notifies watchlist users on price/state changes |
-| `SearchFilterPercolateProductQ` | SQS + Lambda | Matches products against saved search filters, notifies users |
-| `ProductPipelineTranslateQ` | SQS + Lambda | Translates product titles and descriptions (ML, GPU) |
-| `ProductPipelineEmbedTextQ` | SQS + Lambda | Creates vector embeddings via Gemini Embedding API |
-| `ShopOpenSearchIndexQ` | SQS + Lambda | Indexes shop records in OpenSearch |
-| `SearchFilterOpenSearchSyncQ` | SQS + Lambda | Syncs search filters to OpenSearch percolation queries |
-| `NotificationSendQ` | SQS + Lambda | Sends external notifications via SES |
-| `FxRateSyncLambda` | Lambda (scheduled) | Updates foreign exchange rates (every 12 h) |
+|---|---|---|
+| Postgres | Database | Business source of truth and transactional product/event writes. |
+| `product_events` | Postgres table | Product domain/enrichment/policy/lifecycle event log. |
+| Sequin | CDC | Delivers committed Postgres changes to worker ingestion. |
+| `aura-historia-worker` router | Rust process | Maps CDC rows to domain jobs and fans them out to queues. |
+| In-memory sub-worker queues | Worker buffers | Bounded execution buffers. Not durable. |
+| OpenSearch | Search projection | Rebuildable product/shop/search-filter projection. |
+| DynamoDB notifications | AWS DynamoDB | Notification TTL and insert-to-send behavior. |
+| DynamoDB access tokens | AWS DynamoDB | Existing access-token storage and lookup. |
+| `notification-send` | AWS Lambda | Sends external notifications through SES. |
+| FxRate Lambda | AWS Lambda | Updates FX rates in DynamoDB. |
+| Shopify Lambda | AWS Lambda | Handles Shopify events, writes Postgres directly. |
+| Stripe Lambda | AWS Lambda | Handles Stripe subscription events, writes Postgres directly. |
+| Step Functions | AWS workflow | Partner-shop-application workflow. |
+| CloudWatch log-retention Lambda | AWS Lambda | Keeps AWS log retention policy. |
 
----
-
-## Event Routing Diagram
+## Target routing diagram
 
 ```mermaid
 flowchart TD
-    API["Partner API\n(POST/PATCH/PUT/DELETE products)"]
-    DB[("DynamoDB\ntable_1")]
-    PIPE["EventBridge Pipe\nTableOneStreamToEventBusPipe"]
-    BUS["EventBridge Bus\nDynamoDbEventBus"]
+    API["aura-historia-api"]
+    SHOPIFY["Shopify Lambda"]
+    STRIPE["Stripe Lambda"]
+    SFN["Step Functions Lambda"]
+    PG[(Postgres)]
+    SEQ["Sequin CDC"]
+    ROUTER["aura-historia-worker router"]
+    PQ["product queues"]
+    SQ["shop queues"]
+    UFQ["user/search-filter queues"]
+    OS[(OpenSearch)]
+    DDBN[(DynamoDB notifications)]
+    SEND["notification-send Lambda"]
+    SES["SES"]
+    FX["FxRate Lambda"]
+    DDBFX[(DynamoDB FX rate)]
 
-    API -->|"write event record"| DB
-    DB -->|"DynamoDB Stream\n(NEW_IMAGE)"| PIPE
-    PIPE -->|"filtered INSERT/MODIFY/REMOVE"| BUS
+    API -->|"sync business transaction"| PG
+    SHOPIFY -->|"sync product/event transaction"| PG
+    STRIPE -->|"sync user update"| PG
+    SFN -->|"sync partner-app/shop/user update"| PG
 
-    %% Materialization
-    BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* / LIFECYCLE_* (INSERT)"| MatDDB["ProductMaterializeDynamoDbQ\n→ Lambda\n(write materialized view)"]
-    BUS -->|"DOMAIN_* / ENRICHMENT_* / POLICY_* / LIFECYCLE_* (INSERT)"| MatOS["ProductMaterializeOpenSearchQ\n→ Lambda\n(index in OpenSearch)"]
-    BUS -->|"LIFECYCLE_DELETED (INSERT)"| DeleteProduct["ProductDeleteProductQ\n→ Lambda\n(delete OpenSearch + cleanup user records)"]
+    PG -->|"committed row changes"| SEQ
+    SEQ -->|"deliver CDC"| ROUTER
+    ROUTER -->|"ack after all fanout succeeds"| SEQ
 
-    %% User notifications (only price & state changes)
-    BUS -->|"DOMAIN_PRICE_* / DOMAIN_STATE_* (INSERT)"| NotifyUser["ProductUpdateNotifyUserQ\n→ Lambda\n(notify watchlist users)"]
-    BUS -->|"DOMAIN_* / ENRICHMENT_* (INSERT)"| Percolate["SearchFilterPercolateProductQ\n→ Lambda\n(match saved search filters)"]
+    ROUTER --> PQ
+    ROUTER --> SQ
+    ROUTER --> UFQ
 
-    %% Enrichment pipeline (chained: embed-text fires first, translate fires second)
-    BUS -->|"DOMAIN_CREATED (INSERT)"| EmbedText["ProductPipelineEmbedTextQ\n→ Lambda\n(vector embedding via Gemini)"]
-    BUS -->|"ENRICHMENT_EMBEDDED (INSERT)"| Translate["ProductPipelineTranslateQ\n→ Lambda\n(translate title & description)"]
+    PQ -->|"product projections"| OS
+    PQ -->|"match/watchlist/enrichment"| PG
+    PQ -->|"notification records"| DDBN
+    SQ -->|"shop projections"| OS
+    UFQ -->|"search-filter docs"| OS
+    UFQ -->|"tier/search-filter updates"| PG
 
-    %% Enrichment pipeline writes back to DynamoDB
-    EmbedText -->|"write ENRICHMENT_EMBEDDED\n(transact-write with materialized record)"| DB
-    Translate -->|"write ENRICHMENT_TRANSLATED_TITLE\n(transact-write with materialized record)"| DB
+    DDBN -->|"stream/event rule"| SEND
+    SEND --> SES
 
-    %% Shop & search filter sync
-    BUS -->|"shop#details (INSERT/MODIFY)"| ShopOS["ShopOpenSearchIndexQ\n→ Lambda\n(index shop in OpenSearch)"]
-    BUS -->|"search_filter#* (INSERT/MODIFY/REMOVE)"| SFSync["SearchFilterOpenSearchSyncQ\n→ Lambda\n(sync percolation query)"]
-
-    %% External notification send
-    BUS -->|"user#notification#* + external=true (INSERT)"| SendNotif["NotificationSendQ\n→ Lambda\n(send email via SES)"]
-
-    %% Scheduled
-    SCHED2["Scheduler (every 12 h)"] --> FxRate["FxRateSyncLambda\n(update FX rates in DynamoDB)"]
+    FX --> DDBFX
 ```
 
----
+## Product write flow
 
-## Event-Chain State Diagram
-
-The diagram below shows which product event types cause new event types to be written back to
-`table_1` by the enrichment pipeline. `[*]` is the Mermaid notation for the initial state;
-events starting from `[*]` are written purely by the external API and have no preceding product
-event.
+Product writes are synchronous.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> DOMAIN_CREATED
-    [*] --> DOMAIN_STATE_CHANGED
-    [*] --> DOMAIN_PRICE_CHANGED
-    [*] --> DOMAIN_ESTIMATE_PRICE_CHANGED
-    [*] --> DOMAIN_URL_CHANGED
-    [*] --> DOMAIN_IMAGES_CHANGED
-    [*] --> DOMAIN_AUCTION_TIME_CHANGED
-    [*] --> LIFECYCLE_DELETED
+sequenceDiagram
+    participant Caller
+    participant API as aura-historia-api or AWS intake Lambda
+    participant PG as Postgres
+    participant Sequin
+    participant Worker as aura-historia-worker
+    participant Queue as In-memory queues
+    participant OS as OpenSearch
 
-    DOMAIN_CREATED --> ENRICHMENT_EMBEDDED
-    ENRICHMENT_EMBEDDED --> ENRICHMENT_TRANSLATED_TITLE
+    Caller->>API: product create/update/delete
+    API->>PG: begin transaction
+    API->>PG: lock/read product row
+    API->>PG: insert product_events
+    API->>PG: upsert/update products.event_id
+    API->>PG: commit
+    API-->>Caller: success/failure after commit
+    PG-->>Sequin: CDC after commit
+    Sequin->>Worker: deliver CDC
+    Worker->>Worker: map to domain jobs
+    Worker->>Queue: enqueue to all relevant queues
+    Worker-->>Sequin: ack after fanout succeeds
+    Queue->>OS: project product/search side effects
 ```
 
----
+No intermediate product command SQS queue. No `202 accepted because queued` behavior for migrated writes.
 
-## Stream Filter Details
+## Sequin fanout contract
 
-The EventBridge Pipe applies the following DynamoDB Filter Criteria before publishing to the bus:
+There is no durable `worker_inbox` table.
 
-| Filter | `pk` pattern | `sk` pattern | Operation |
-|--------|-------------|-------------|-----------|
-| Product events | `product#shop_id#*` | `product#event#*` | INSERT |
-| User details | `user#*` | `user#details` | MODIFY |
-| Shop details | `shop#shop_id#*` | `shop#details` | INSERT, MODIFY |
-| User notifications | `user#*` | `user#notification#origin_event_id#*` | INSERT |
-| Search filters | `user#*` | `search_filter#*` | INSERT, MODIFY, REMOVE |
+Minimum ingest steps:
 
----
+1. Receive CDC envelope.
+2. Validate source/table/operation.
+3. Build domain change from row keys and before/after values.
+4. Derive domain-first `idempotency_key` and `ordering_key`.
+5. Map change to one or more domain jobs.
+6. Enqueue every job to every relevant bounded in-memory queue.
+7. Ack Sequin only after all enqueue operations succeed.
 
-## Dead Letter Queues
+Crash rule:
 
-Every SQS queue has a corresponding DLQ. Retry limits:
+- Crash before Sequin ack: Sequin redelivers.
+- Crash after Sequin ack: queued in-memory jobs may be lost if the process dies before sub-workers finish.
+- Crash after Sequin ack may lose queued in-memory jobs.
+- MVP accepts this risk.
+- No scheduled inconsistency checker or repair job is part of v1.
 
-| Queue | Max Retries |
-|-------|-------------|
-| Materialization queues | 5 |
-| Notification queues | 5 |
-| Pipeline queues | 3 |
+## CDC routing draft
+
+| Source table | Operation | Route |
+|---|---|---|
+| `product_events` | INSERT | Product projector; percolator for domain/enrichment; watchlist notifications for price/state; enrichment pipeline for create/embed; delete cleanup for lifecycle delete. |
+| `products` | INSERT/MODIFY | No default downstream route. Product events are the projection trigger to avoid double-firing. Use products CDC only for future explicit non-event projections. |
+| `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. |
+| `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync; user tier checks if state/feature-relevant. |
+| `search_filter_matches` | INSERT/MODIFY/DELETE | Usually no downstream route except observability. `origin_event_id` links to `product_events.event_id`. |
+| `users` | INSERT/MODIFY/DELETE | User tier enforcement for tier changes; no user OpenSearch projection. |
+| `product_watchlist` | INSERT/MODIFY/DELETE | Usually no downstream route except tier enforcement; product events drive notifications. |
+| `partner_shop_applications` | INSERT/MODIFY | No generic worker route unless notification behavior requires it. |
+
+## Domain jobs
+
+Worker sub-jobs use domain payloads or compact IDs. They do not use DynamoDB stream records and should not depend on raw Sequin JSON outside the router.
+
+Examples:
+
+- `ProductEventJob`
+- `ProductDeletedJob`
+- `SearchFilterChangedJob`
+- `ShopChangedJob`
+- `UserTierChangedJob`
+- `PeriodicMatcherJob`
+
+## Target sub-workers
+
+| Sub-worker | Replaces | Input | Side effects |
+|---|---|---|---|
+| Product OpenSearch projector | `product-lambda-materialize-opensearch` | Product event job | OpenSearch product document create/update/delete. |
+| Product delete cleanup | `product-lambda-delete-product` | Lifecycle deleted job | OpenSearch delete, Postgres watchlist/match cleanup. |
+| Watchlist notification generator | `product-lambda-update-notify-user` | Price/state product event job | DynamoDB notification inserts. |
+| Search-filter percolator | `search-filter-lambda-percolate-product` | Domain/enrichment product event job | Postgres matches, DynamoDB notifications. |
+| Product embed | `product-pipeline-embed-text` | Domain created job | Postgres enrichment event + product update. Embedding stored in Postgres only. |
+| Product translate | `product-pipeline-translate` | Enrichment embedded job | Postgres enrichment event + product update. |
+| Shop OpenSearch projector | `shop-lambda-opensearch-index` | Shop changed job | OpenSearch shop document write. |
+| Search-filter OpenSearch sync | `search-filter-lambda-opensearch-sync` | Search-filter changed job | OpenSearch percolator document write/delete. Search-filter embedding stored in Postgres only. |
+| User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
+| Periodic matcher | ECS periodic matcher | Scheduled job | OpenSearch product search, Postgres matches, DynamoDB notifications. |
+
+## AWS survivor event flow
+
+These AWS event flows stay:
+
+| Source | Route | Target |
+|---|---|---|
+| DynamoDB notification insert | Stream/EventBridge/SQS | `notification-send` Lambda |
+| EventBridge schedule | cron | `fxrate-lambda` |
+| Shopify partner EventBridge/SQS | Shopify product events | `shopify-lambda`; this is external intake buffering before sync Postgres product/event writes, not the removed product command queue. |
+| Stripe partner EventBridge | subscription events | `stripe-lambda` |
+| Step Functions | partner app workflow | `partner-shop-application-lambda`; Lambda writes Postgres business rows directly. |
+| CloudWatch log group events | EventBridge | CloudWatch log-retention Lambda |
+
+## Idempotency
+
+Prefer domain IDs or domain versions over Sequin IDs.
+
+Minimum unique keys:
+
+| Area | Key |
+|---|---|
+| Product event | `product_events.event_id` |
+| Product materialized state | `products.event_id` |
+| Product worker job | `product_events.event_id` |
+| Shop worker job | `(shop_id, version, op)` |
+| Search-filter worker job | `(user_search_filter_id, version, op)` |
+| User tier worker job | `(user_id, version)` |
+| Search-filter match | `(user_search_filter_id, product_id)` plus `origin_event_id` FK to `product_events.event_id` |
+| Notification | user + origin event where domain allows |
+
+Sequin ID/LSN can be logged for debugging, but do not make it the normal idempotency key when a domain key exists.
+
+External sends remain at-least-once. Notification duplicate protection is at record creation, not SES delivery.
+
+## Retry and failure handling
+
+MVP has no worker-owned Postgres tables.
+
+- No durable inbox.
+- No processed-job table.
+- No dead-letter table.
+- No scheduled inconsistency checker or repair job.
+
+Sub-workers may retry transient failures while the process is alive. If the process dies after Sequin ack, queued jobs can be lost. This risk is accepted for MVP.
+
+## Operations notes
+
+Postgres is business truth and Sequin depends on replication health. Production cutover needs backup/restore, WAL/PITR or accepted RPO, Sequin replication lag monitoring, worker queue/error alerts, and Postgres connection monitoring.
+
+## Test guidance
+
+- Use Postgres integration tests for repositories.
+- Use fake CDC envelopes for router fanout tests.
+- Use existing LocalStack OpenSearch for projection/percolator tests.
+- Keep DynamoDB and CDK/CloudFormation helpers for AWS survivor tests.
