@@ -1,9 +1,9 @@
 ---
-name: autonomously-push-changes
+name: github-workflow
 description: Use when asked to autonomously create GitHub issues, start issue work, push branches, or open pull requests in the Aura Historia backend. Covers branch names, issue/project fields, PR titles/descriptions, and state transitions.
 ---
 
-# Autonomously Push Changes
+# GitHub Workflow
 
 Use this skill when the user asks you to work with GitHub, not just local files.
 
