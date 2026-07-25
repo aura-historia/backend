@@ -12,7 +12,7 @@ use shop::dynamodb::repository::ShopDynamoDbRepositoryImpl;
 use shop::service::get_service::GetShopServiceImpl;
 use tracing::debug;
 
-const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "aura-historia";
+const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "project-2c6e1dcc-3fb9-4910-adc";
 const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
 
 #[tokio::main]
