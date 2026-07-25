@@ -8,6 +8,7 @@
 
 - Partner shop application domain and persistence.
 - Root modules: `core`, `data`, `dynamodb`, `service`.
+
 - Main neighbors: `common`, `geo`, `shop`.
 - Library crate. Keep domain, persistence, and service seams explicit.
 - Shops can apply to become partner: manage shop data and integrate for publishing products.

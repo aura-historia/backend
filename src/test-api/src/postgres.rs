@@ -152,7 +152,7 @@ pub async fn get_postgres_client() -> PgPool {
 /// ```rust
 /// use test_api::*;
 ///
-/// const POSTGRES: Postgres = Postgres::new("src/my-crate/migrations");
+/// const POSTGRES: Postgres = Postgres::new("migrations");
 ///
 /// #[aura_integration_test(services = [POSTGRES])]
 /// async fn should_insert_and_read_row() {

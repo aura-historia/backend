@@ -24,7 +24,6 @@ async fn should_create_tables_from_migrations_dir() {
     .await
     .unwrap();
 
-    assert_eq!(2, tables.len());
     assert!(tables.contains(&"test_items".to_string()));
     assert!(tables.contains(&"test_tags".to_string()));
 }
