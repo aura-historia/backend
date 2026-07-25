@@ -6,7 +6,8 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use reqwest::StatusCode;
 use sqlx::Executor;
-use std::net::TcpListener;
+use std::net::{SocketAddr, TcpListener};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use testcontainers::core::{Host, IntoContainerPort, WaitFor};
@@ -22,14 +23,32 @@ const SECRET_KEY_BASE: &str = "wDPLYus0pvD6qJhKJICO4dauYPXfO/Yl782Zjtpew5qRBDp7C
 const VAULT_KEY: &str = "2Sig69bIpuSm2kv0VQfDekET2qy8qUZGI8v3/h3ASiY=";
 static SEQUIN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DEFAULT_SEQUIN: OnceCell<RunningSequin> = OnceCell::const_new();
+static WORKER_WEBHOOK_SEQUIN: OnceCell<RunningSequin> = OnceCell::const_new();
+static WORKER_WEBHOOK_PORT: OnceLock<u16> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
-pub struct Sequin;
+pub struct Sequin {
+    mode: SequinMode,
+}
 
 impl Sequin {
     pub const fn new() -> Self {
-        Self
+        Self {
+            mode: SequinMode::NoSink,
+        }
     }
+
+    pub const fn worker_webhook() -> Self {
+        Self {
+            mode: SequinMode::WorkerWebhook,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SequinMode {
+    NoSink,
+    WorkerWebhook,
 }
 
 impl Default for Sequin {
@@ -45,7 +64,14 @@ impl IntegrationTestService for Sequin {
     }
 
     async fn set_up(&self) {
-        get_or_start_sequin().await;
+        match self.mode {
+            SequinMode::NoSink => {
+                get_or_start_sequin().await;
+            }
+            SequinMode::WorkerWebhook => {
+                get_or_start_worker_webhook_sequin().await;
+            }
+        }
     }
 }
 
@@ -74,12 +100,22 @@ impl RunningSequin {
 
 pub async fn get_or_start_sequin() -> &'static RunningSequin {
     DEFAULT_SEQUIN
-        .get_or_init(|| async { start_sequin_without_sink().await })
+        .get_or_init(|| async { start_sequin_container(None).await })
         .await
 }
 
-async fn start_sequin_without_sink() -> RunningSequin {
-    start_sequin_container(None).await
+pub async fn get_or_start_worker_webhook_sequin() -> &'static RunningSequin {
+    WORKER_WEBHOOK_SEQUIN
+        .get_or_init(|| async {
+            let port = worker_webhook_port();
+            let webhook_url = format!("http://host.docker.internal:{port}/cdc/sequin");
+            start_sequin_container(Some(&webhook_url)).await
+        })
+        .await
+}
+
+pub fn get_sequin_worker_webhook_bind_addr() -> SocketAddr {
+    SocketAddr::from(([0, 0, 0, 0], worker_webhook_port()))
 }
 
 pub async fn start_sequin(webhook_url: &str) -> RunningSequin {
@@ -156,72 +192,26 @@ fn find_free_port() -> u16 {
         .port()
 }
 
+fn worker_webhook_port() -> u16 {
+    *WORKER_WEBHOOK_PORT.get_or_init(find_free_port)
+}
+
 fn sequin_resource_suffix() -> String {
     let sequence = SEQUIN_SEQUENCE.fetch_add(1, Ordering::SeqCst);
     format!("{}_{}", std::process::id(), sequence)
 }
 
 fn sequin_config_yaml(webhook_url: Option<&str>, suffix: &str) -> String {
-    let sink_yaml = webhook_url
-        .map(|url| {
-            format!(
-                r#"
-http_endpoints:
-  - name: "worker"
-    url: "{url}"
+    let mut config = include_str!("sequin/base.yaml").replace("__SUFFIX__", suffix);
 
-sinks:
-  - name: "worker-product-events"
-    database: "aura-historia-business-{suffix}"
-    source:
-      include_tables:
-        - "public.product_events"
-    actions:
-      - insert
-    batch_size: 1
-    destination:
-      type: "webhook"
-      http_endpoint: "worker"
-      batch: false
-"#,
-            )
-        })
-        .unwrap_or_default();
+    if let Some(url) = webhook_url {
+        let sink_yaml = include_str!("sequin/webhook-sink.yaml")
+            .replace("__SUFFIX__", suffix)
+            .replace("__WEBHOOK_URL__", url);
+        config.push_str(&sink_yaml);
+    }
 
-    format!(
-        r#"account:
-  name: "aura-historia-test"
-
-users:
-  - email: "admin@example.com"
-    password: "sequinpassword!"
-
-api_tokens:
-  - name: "test"
-    token: "test-token"
-
-databases:
-  - name: "aura-historia-business-{suffix}"
-    username: "postgres"
-    password: "postgres"
-    hostname: "host.docker.internal"
-    port: 5432
-    database: "postgres"
-    pool_size: 3
-    slot:
-      name: "aura_historia_test_slot_{suffix}"
-      create_if_not_exists: true
-    publication:
-      name: "aura_historia_test_pub_{suffix}"
-      create_if_not_exists: true
-      init_sql: |-
-        create publication aura_historia_test_pub_{suffix} for table public.product_events with (publish_via_partition_root = true)
-    await_database:
-      timeout_ms: 30000
-      interval_ms: 1000
-
-{sink_yaml}"#,
-    )
+    config
 }
 
 async fn wait_for_sequin_health(endpoint_url: &str, container: &ContainerAsync<GenericImage>) {

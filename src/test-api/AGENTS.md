@@ -33,7 +33,7 @@
 - Share helpers before copy-paste fixtures.
 - Prefer `Postgres`/`OperationalBackendPostgres` and `postgres` feature over legacy `Rds`/`rds` in new tests.
 - Use `Postgres::new("migrations")` for the shared business schema.
-- Use `start_sequin(<worker-webhook-url>)` when a test must verify real Sequin webhook delivery to a local worker endpoint.
+- Use `Sequin::worker_webhook()` in `#[aura_integration_test]` plus `get_sequin_worker_webhook_bind_addr()` when a test must verify real Sequin webhook delivery to a local worker endpoint.
 
 ## Verification
 

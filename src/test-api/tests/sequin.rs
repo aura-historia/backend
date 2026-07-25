@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use aura_historia_worker::cdc::{CdcFanout, DomainJob, WorkerQueue, WorkerQueueRegistry};
-use aura_historia_worker::{QueueConfig, SEQUIN_CDC_PATH, WorkerRuntime, in_memory_queue};
+use aura_historia_worker::{QueueConfig, WorkerRuntime, in_memory_queue};
 use sqlx::Executor;
 use test_api::*;
 use tokio::net::TcpListener;
@@ -9,7 +9,7 @@ use tokio::sync::oneshot;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, Sequin::worker_webhook()])]
 async fn should_deliver_product_event_change_to_worker_queues() {
     let (product_sender, mut product_receiver) =
         in_memory_queue::<DomainJob>(QueueConfig::new(8)).unwrap();
@@ -20,8 +20,9 @@ async fn should_deliver_product_event_change_to_worker_queues() {
             .with_queue(WorkerQueue::ProductOpenSearch, product_sender)
             .with_queue(WorkerQueue::SearchFilterPercolator, percolator_sender),
     ));
-    let listener = TcpListener::bind("0.0.0.0:0").await.unwrap();
-    let worker_addr = listener.local_addr().unwrap();
+    let listener = TcpListener::bind(get_sequin_worker_webhook_bind_addr())
+        .await
+        .unwrap();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let server = tokio::spawn(aura_historia_worker::serve_with_runtime(
         listener,
@@ -30,11 +31,7 @@ async fn should_deliver_product_event_change_to_worker_queues() {
             let _ = shutdown_rx.await;
         },
     ));
-    let worker_webhook_url = format!(
-        "http://host.docker.internal:{}{SEQUIN_CDC_PATH}",
-        worker_addr.port()
-    );
-    let sequin = start_sequin(&worker_webhook_url).await;
+    let sequin = get_or_start_worker_webhook_sequin().await;
 
     let pool = get_postgres_client().await;
     let fixture = include_str!("fixtures/business_schema_relations.sql");
