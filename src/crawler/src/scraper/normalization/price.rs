@@ -74,13 +74,10 @@ pub(super) fn parse_price(
         .or(fallback_currency)
         .ok_or(PriceError::UnknownCurrency)?;
 
-    // Remove known currency symbols / codes so they don't confuse the number
-    // parser.
-    let stripped =
-        regex!(r"(?i)(EUR|USD|GBP|AUD|CAD|NZD|NZ\$|A\$|C\$|\$|£|€)").replace_all(raw, "");
+    let number = extract_price_number_candidate(raw).ok_or(PriceError::ParseFailure)?;
 
     // Remove whitespace and apostrophes used as thousands separators.
-    let stripped = stripped.replace([' ', '\u{00a0}', '\'', '_'], "");
+    let stripped = number.replace([' ', '\u{00a0}', '\'', '_'], "");
 
     // Determine whether comma or dot is the decimal separator, then split.
     let (integer_part, fraction_part): (&str, &str) =
@@ -188,6 +185,81 @@ fn normalise_fraction(frac: &str, exponent: u32) -> String {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct PriceNumberCandidate {
+    value: String,
+    start: usize,
+    end: usize,
+}
+
+fn extract_price_number_candidate(raw: &str) -> Option<String> {
+    let candidates = extract_price_number_candidates(raw);
+    let currency_marker = first_currency_marker_span(raw);
+
+    match currency_marker {
+        Some(marker) => candidates
+            .into_iter()
+            .min_by_key(|candidate| {
+                distance_between_spans((candidate.start, candidate.end), marker)
+            })
+            .map(|candidate| candidate.value),
+        None => candidates
+            .into_iter()
+            .next()
+            .map(|candidate| candidate.value),
+    }
+}
+
+fn extract_price_number_candidates(raw: &str) -> Vec<PriceNumberCandidate> {
+    let mut candidates = Vec::new();
+    let mut start = None;
+    let mut last_digit_end = 0usize;
+
+    for (idx, ch) in raw.char_indices() {
+        if ch.is_ascii_digit() {
+            if start.is_none() {
+                start = Some(idx);
+            }
+            last_digit_end = idx + ch.len_utf8();
+        } else if start.is_some() && matches!(ch, '.' | ',' | '\'' | '_' | ' ' | '\u{00a0}') {
+            continue;
+        } else if let Some(s) = start.take() {
+            candidates.push(price_number_candidate(raw, s, last_digit_end));
+        }
+    }
+
+    if let Some(s) = start {
+        candidates.push(price_number_candidate(raw, s, last_digit_end));
+    }
+
+    candidates
+}
+
+fn price_number_candidate(raw: &str, start: usize, end: usize) -> PriceNumberCandidate {
+    let trimmed = raw[start..end].trim();
+    let leading_trimmed = raw[start..end].len() - raw[start..end].trim_start().len();
+    let trailing_trimmed = raw[start..end].len() - raw[start..end].trim_end().len();
+
+    PriceNumberCandidate {
+        value: trimmed.to_string(),
+        start: start + leading_trimmed,
+        end: end - trailing_trimmed,
+    }
+}
+
+fn first_currency_marker_span(raw: &str) -> Option<(usize, usize)> {
+    regex!(r"(?i)(EUR|USD|GBP|AUD|CAD|NZD|NZ\$|A\$|C\$|\$|\x{00A3}|\x{20AC})")
+        .find(raw)
+        .map(|m| (m.start(), m.end()))
+}
+
+fn distance_between_spans(left: (usize, usize), right: (usize, usize)) -> usize {
+    right
+        .0
+        .saturating_sub(left.1)
+        .max(left.0.saturating_sub(right.1))
+}
+
 /// Returns `true` when the string slice is exactly 3 ASCII digits, which
 /// indicates a thousands-separator group rather than a decimal fraction.
 fn is_thousands_group(s: &str) -> bool {
@@ -290,8 +362,8 @@ mod tests {
     use common::currency::domain::Currency;
 
     use super::{
-        PriceError, detect_currency, is_price_on_request_marker, normalise_fraction, parse_price,
-        split_decimal,
+        PriceError, detect_currency, extract_price_number_candidate, is_price_on_request_marker,
+        normalise_fraction, parse_price, split_decimal,
     };
 
     // -----------------------------------------------------------------------
@@ -360,6 +432,12 @@ mod tests {
     #[case("$1,500", 150000, Currency::Usd)]
     #[case("$10,000", 1000000, Currency::Usd)]
     #[case("£1,800,000", 180000000, Currency::Gbp)]
+    #[case("Preis: \u{20ac} 680,00 inkl. MwSt.", 68000, Currency::Eur)]
+    #[case("\u{20ac} 680,00 inkl. MwSt.", 68000, Currency::Eur)]
+    #[case("Item 02092 Price: \u{20ac} 680,00", 68000, Currency::Eur)]
+    #[case("Item 02092 Price: $1,125", 112500, Currency::Usd)]
+    #[case("Art.-Nr. 02092 Preis 680,00 \u{20ac}", 68000, Currency::Eur)]
+    #[case("02092 / GBP 1,234.56", 123456, Currency::Gbp)]
     fn should_parse_price_when_valid_string_provided(
         #[case] raw: &str,
         #[case] expected_amount: u64,
@@ -411,6 +489,7 @@ mod tests {
     #[case("1590", Currency::Eur, 159000u64)]
     #[case("1590", Currency::Gbp, 159000u64)]
     #[case("1.234,56", Currency::Eur, 123456u64)]
+    #[case("680,00 inkl. MwSt.", Currency::Eur, 68000u64)]
     fn should_parse_bare_price_when_fallback_currency_provided(
         #[case] raw: &str,
         #[case] fallback: Currency,
@@ -419,6 +498,18 @@ mod tests {
         let (amount, currency) = parse_price(raw, Some(fallback)).unwrap();
         assert_eq!(*amount, expected_amount, "amount mismatch for '{}'", raw);
         assert_eq!(currency, fallback, "currency mismatch for '{}'", raw);
+    }
+
+    #[rstest]
+    #[case("Preis:  680,00 inkl. MwSt.", Some("680,00"))]
+    #[case("  1 234.56 gross", Some("1 234.56"))]
+    #[case("Item 02092 Price: \u{20ac} 680,00", Some("680,00"))]
+    #[case("Item 02092 Price: $1,125", Some("1,125"))]
+    #[case("Art.-Nr. 02092 Preis 680,00 \u{20ac}", Some("680,00"))]
+    #[case("02092 / GBP 1,234.56", Some("1,234.56"))]
+    #[case("no numbers here", None)]
+    fn should_extract_price_number_candidate(#[case] raw: &str, #[case] expected: Option<&str>) {
+        assert_eq!(extract_price_number_candidate(raw).as_deref(), expected);
     }
 
     // -----------------------------------------------------------------------
