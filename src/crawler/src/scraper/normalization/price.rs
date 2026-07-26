@@ -254,13 +254,10 @@ fn first_currency_marker_span(raw: &str) -> Option<(usize, usize)> {
 }
 
 fn distance_between_spans(left: (usize, usize), right: (usize, usize)) -> usize {
-    if left.1 <= right.0 {
-        right.0 - left.1
-    } else if right.1 <= left.0 {
-        left.0 - right.1
-    } else {
-        0
-    }
+    right
+        .0
+        .saturating_sub(left.1)
+        .max(left.0.saturating_sub(right.1))
 }
 
 /// Returns `true` when the string slice is exactly 3 ASCII digits, which
