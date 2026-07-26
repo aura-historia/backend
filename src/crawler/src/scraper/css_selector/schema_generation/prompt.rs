@@ -136,6 +136,33 @@ const ORIGIN_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
     },
 ];
 
+const CREATOR_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
+    RawAttributeDefinition {
+        key: "rawArtistName",
+        description: "visible artist or creator name",
+    },
+    RawAttributeDefinition {
+        key: "rawMakerName",
+        description: "visible maker, manufacturer, or workshop name",
+    },
+    RawAttributeDefinition {
+        key: "rawDesignerName",
+        description: "visible designer name",
+    },
+    RawAttributeDefinition {
+        key: "rawBrandName",
+        description: "visible product-specific brand or label name",
+    },
+    RawAttributeDefinition {
+        key: "rawSignature",
+        description: "visible signed, unsigned, signature, or maker mark text",
+    },
+    RawAttributeDefinition {
+        key: "rawCreatorNote",
+        description: "visible attribution, follower-of, school-of, studio, workshop, or authorship note",
+    },
+];
+
 const RAW_ATTRIBUTE_GROUPS: &[RawAttributeGroup] = &[
     RawAttributeGroup {
         name: "shipping",
@@ -165,6 +192,10 @@ const RAW_ATTRIBUTE_GROUPS: &[RawAttributeGroup] = &[
         name: "origin",
         definitions: ORIGIN_RAW_ATTRIBUTES,
     },
+    RawAttributeGroup {
+        name: "creator",
+        definitions: CREATOR_RAW_ATTRIBUTES,
+    },
 ];
 
 fn raw_attributes_instruction() -> String {
@@ -183,7 +214,7 @@ fn raw_attributes_instruction() -> String {
     }
 
     format!(
-        "Generate raw_attributes selector rules only for configured raw attribute groups.{definitions} Use these keys exactly. Do not generate arbitrary raw attribute keys. Prefer the broad group key when a page exposes combined text for a group. Use specific measurement or origin keys only when the exact value is separately visible. Add a raw_attributes rule only when exact visible product-specific data from a configured group is present in the YAML projection. Extract raw text only; do not derive, split, normalize, translate, calculate, or infer values that are not separately visible. Omit raw_attributes or omit individual keys when no precise selector-bound value exists."
+        "Generate raw_attributes selector rules only for configured raw attribute groups.{definitions} Use these keys exactly. Do not generate arbitrary raw attribute keys. Prefer the broad group key when a page exposes combined text for a group. Prefer specific creator keys when a field label explicitly names artist, maker, designer, brand, or signature; use rawCreatorNote for combined or attribution-style creator text. Use specific measurement or origin keys only when the exact value is separately visible. Add a raw_attributes rule only when exact visible product-specific data from a configured group is present in the YAML projection. Extract raw text only; do not derive, split, normalize, translate, calculate, or infer values that are not separately visible. Do not infer artist, maker, designer, brand, or signature from title, URL, navigation, meta author, seller, or page boilerplate. Omit raw_attributes or omit individual keys when no precise selector-bound value exists."
     )
 }
 

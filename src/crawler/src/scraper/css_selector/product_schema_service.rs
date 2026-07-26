@@ -447,6 +447,12 @@ mod tests {
             ("rawTags", ".tags"),
             ("rawMeasurements", ".measurements"),
             ("rawOrigin", ".origin"),
+            ("rawArtistName", ".artist"),
+            ("rawMakerName", ".maker"),
+            ("rawDesignerName", ".designer"),
+            ("rawBrandName", ".brand"),
+            ("rawSignature", ".signature"),
+            ("rawCreatorNote", ".creator-note"),
         ]
         .into_iter()
         .map(|(key, selector)| {
@@ -915,6 +921,13 @@ mod tests {
                 .map(|rule| rule.selector.to_string()),
             Some(".period".to_string())
         );
+        assert_eq!(
+            result.schemas[0]
+                .raw_attributes
+                .get("rawArtistName")
+                .map(|rule| rule.selector.to_string()),
+            Some(".artist".to_string())
+        );
     }
 
     fn assert_raw_attribute_instruction(instruction: &str) {
@@ -947,6 +960,17 @@ mod tests {
         assert!(instruction.contains("rawCountry"));
         assert!(instruction.contains("rawRegion"));
         assert!(instruction.contains("rawOriginNote"));
+        assert!(instruction.contains("rawArtistName"));
+        assert!(instruction.contains("rawMakerName"));
+        assert!(instruction.contains("rawDesignerName"));
+        assert!(instruction.contains("rawBrandName"));
+        assert!(instruction.contains("rawSignature"));
+        assert!(instruction.contains("rawCreatorNote"));
+        assert!(instruction.contains("specific creator keys"));
+        assert!(instruction.contains("rawCreatorNote for combined"));
+        assert!(instruction.contains("Do not infer artist"));
+        assert!(instruction.contains("meta author"));
+        assert!(instruction.contains("seller"));
     }
 
     #[tokio::test]
@@ -1102,6 +1126,13 @@ mod tests {
                 .get("rawPeriod")
                 .map(|rule| rule.selector.to_string()),
             Some(".period".to_string())
+        );
+        assert_eq!(
+            parsed.schemas[0]
+                .raw_attributes
+                .get("rawCreatorNote")
+                .map(|rule| rule.selector.to_string()),
+            Some(".creator-note".to_string())
         );
     }
 

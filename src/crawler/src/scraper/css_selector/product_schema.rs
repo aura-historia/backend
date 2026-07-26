@@ -123,7 +123,7 @@ pub struct ProductCssSelectorSchema {
     pub default_currency: Option<CurrencyDto>,
 
     #[schemars(
-        description = "Crawler-only raw product attributes keyed by stable camelCase names from the configured raw attribute registry, such as rawShipment, rawCondition, rawMaterial, rawYear, rawPeriod, rawCategory, rawTags, rawMeasurements, or rawOrigin. Use only for visible product-specific values that do not yet have normalized product fields. Extract raw values only; do not normalize or derive values."
+        description = "Crawler-only raw product attributes keyed by stable camelCase names from the configured raw attribute registry, such as rawShipment, rawCondition, rawMaterial, rawYear, rawPeriod, rawCategory, rawTags, rawMeasurements, rawOrigin, or rawArtistName. Use only for visible product-specific values that do not yet have normalized product fields. Extract raw values only; do not normalize or derive values."
     )]
     #[serde(
         skip_serializing_if = "BTreeMap::is_empty",
@@ -1518,6 +1518,12 @@ mod tests {
               <p class="origin">Southern Germany</p>
               <span class="country">Germany</span>
               <span class="region">Bavaria</span>
+              <span class="artist">Marta Maas-Fjetterstrom</span>
+              <span class="maker">Chuanlhong Ceramic</span>
+              <span class="designer">Eileen Gray</span>
+              <span class="brand">Knoll</span>
+              <span class="signature">Signed lower right</span>
+              <p class="creator-note">School of Antwerp attribution</p>
               <span class="blank">   </span>
             </body></html>"#,
         );
@@ -1542,6 +1548,12 @@ mod tests {
         raw_attributes.insert("rawOrigin".to_string(), text_rule_all(".origin"));
         raw_attributes.insert("rawCountry".to_string(), text_rule_all(".country"));
         raw_attributes.insert("rawRegion".to_string(), text_rule_all(".region"));
+        raw_attributes.insert("rawArtistName".to_string(), text_rule_all(".artist"));
+        raw_attributes.insert("rawMakerName".to_string(), text_rule_all(".maker"));
+        raw_attributes.insert("rawDesignerName".to_string(), text_rule_all(".designer"));
+        raw_attributes.insert("rawBrandName".to_string(), text_rule_all(".brand"));
+        raw_attributes.insert("rawSignature".to_string(), text_rule_all(".signature"));
+        raw_attributes.insert("rawCreatorNote".to_string(), text_rule_all(".creator-note"));
         raw_attributes.insert(
             "rawOriginNote".to_string(),
             text_rule_all(".missing-origin-note"),
@@ -1617,6 +1629,30 @@ mod tests {
             result.raw_attributes.get("rawRegion"),
             Some(&vec!["Bavaria".to_string()])
         );
+        assert_eq!(
+            result.raw_attributes.get("rawArtistName"),
+            Some(&vec!["Marta Maas-Fjetterstrom".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawMakerName"),
+            Some(&vec!["Chuanlhong Ceramic".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawDesignerName"),
+            Some(&vec!["Eileen Gray".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawBrandName"),
+            Some(&vec!["Knoll".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawSignature"),
+            Some(&vec!["Signed lower right".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawCreatorNote"),
+            Some(&vec!["School of Antwerp attribution".to_string()])
+        );
         assert!(!result.raw_attributes.contains_key("rawShipmentNote"));
         assert!(!result.raw_attributes.contains_key("rawOriginNote"));
     }
@@ -1637,6 +1673,10 @@ mod tests {
                     text_rule_all(".missing-material"),
                 ),
                 ("rawPeriod".to_string(), text_rule_all(".missing-period")),
+                (
+                    "rawArtistName".to_string(),
+                    text_rule_all(".missing-artist"),
+                ),
             ]
             .into(),
             ..minimal_schema("<ignored>").1
