@@ -1356,32 +1356,23 @@ mod tests {
     #[test]
     fn should_build_embed_content_url_for_vertex_endpoint() {
         assert_eq!(
-            MultimodalEmbeddingServiceImpl::build_embed_content_url(
-                "project-2c6e1dcc-3fb9-4910-adc",
-                "us"
-            ),
-            "https://aiplatform.us.rep.googleapis.com/v1/projects/project-2c6e1dcc-3fb9-4910-adc/locations/us/publishers/google/models/gemini-embedding-2:embedContent"
+            MultimodalEmbeddingServiceImpl::build_embed_content_url("aura-historia", "us"),
+            "https://aiplatform.us.rep.googleapis.com/v1/projects/aura-historia/locations/us/publishers/google/models/gemini-embedding-2:embedContent"
+        );
+        assert_eq!(
+            MultimodalEmbeddingServiceImpl::build_embed_content_url("aura-historia", "eu"),
+            "https://aiplatform.eu.rep.googleapis.com/v1/projects/aura-historia/locations/eu/publishers/google/models/gemini-embedding-2:embedContent"
         );
         assert_eq!(
             MultimodalEmbeddingServiceImpl::build_embed_content_url(
-                "project-2c6e1dcc-3fb9-4910-adc",
-                "eu"
-            ),
-            "https://aiplatform.eu.rep.googleapis.com/v1/projects/project-2c6e1dcc-3fb9-4910-adc/locations/eu/publishers/google/models/gemini-embedding-2:embedContent"
-        );
-        assert_eq!(
-            MultimodalEmbeddingServiceImpl::build_embed_content_url(
-                "project-2c6e1dcc-3fb9-4910-adc",
+                "aura-historia",
                 "europe-west3"
             ),
-            "https://europe-west3-aiplatform.googleapis.com/v1/projects/project-2c6e1dcc-3fb9-4910-adc/locations/europe-west3/publishers/google/models/gemini-embedding-2:embedContent"
+            "https://europe-west3-aiplatform.googleapis.com/v1/projects/aura-historia/locations/europe-west3/publishers/google/models/gemini-embedding-2:embedContent"
         );
         assert_eq!(
-            MultimodalEmbeddingServiceImpl::build_embed_content_url(
-                "project-2c6e1dcc-3fb9-4910-adc",
-                "global"
-            ),
-            "https://aiplatform.googleapis.com/v1/projects/project-2c6e1dcc-3fb9-4910-adc/locations/global/publishers/google/models/gemini-embedding-2:embedContent"
+            MultimodalEmbeddingServiceImpl::build_embed_content_url("aura-historia", "global"),
+            "https://aiplatform.googleapis.com/v1/projects/aura-historia/locations/global/publishers/google/models/gemini-embedding-2:embedContent"
         );
     }
 
