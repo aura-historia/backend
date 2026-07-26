@@ -329,5 +329,76 @@
       "auction_end": null,
       "seller_name": null
     }
+  },
+  {
+    "html": "tests/fixtures/html/wandel-antik_available.html",
+    "raw_state": "Sie m\u00f6chten diesen Artikel erwerben? Kontaktieren Sie uns:",
+    "state_record": "AVAILABLE",
+    "schema": {
+      "shops_product_id": {
+        "selector": ".elementor-repeater-item-57316fe .elementor-post-info__item--type-custom",
+        "type": "text"
+      },
+      "title": {
+        "selector": ".elementor-element-2b71f4d h1.elementor-heading-title",
+        "type": "text"
+      },
+      "description": {
+        "selector": ".elementor-element-5a5f73f .elementor-widget-container p",
+        "type": "text",
+        "cardinality": "all"
+      },
+      "price": {
+        "selector": ".elementor-repeater-item-a30c344 .elementor-post-info__item--type-custom",
+        "type": "text"
+      },
+      "state": {
+        "selector": ".elementor-element-eec5a29 h2.elementor-heading-title",
+        "type": "text"
+      },
+      "images": {
+        "selector": ".elementor-element-c9ea44e img",
+        "type": "image_url",
+        "cardinality": "all"
+      },
+      "default_currency": "EUR"
+    },
+    "raw": {
+      "shops_product_id": "Artikel-Nr:\u00a002092",
+      "title": "Franz. Art Deco Deckenlampe, signiert Degue",
+      "description": [
+        "Die franz\u00f6sische Art Deco Deckenlampe aus Gusseisen ist signiert mit Degue. Die Tulpen und die halbrunde Mittelschale aus gesandstrahltem Glas sind mit floralen Mustern geometrisch stilisiert und wirken sehr plastisch. Die Lampe leuchtet auch im Inneren. Leider ist eines der Au\u00dfengl\u00e4ser leicht besch\u00e4digt. Die \u00e4u\u00dferen Gl\u00e4ser sind durch eine separate Aufh\u00e4ngung befestigt, die Leuchte wurde neu verkabelt.",
+        "Ma\u00dfe: H60 x D65 cm"
+      ],
+      "price": "Preis:\u00a0\u20ac\u00a0680,00 inkl. MwSt.",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "Sie m\u00f6chten diesen Artikel erwerben? Kontaktieren Sie uns:",
+      "images": [
+        "https://wandel-antik.de/wp-content/uploads/2092_2092_-_Franzoesische__Art_Deco_Deckenlampe_aus_Gusseisen__signiert_Degue_zoom.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "artikel-nr-02092",
+      "title": "Franz. Art Deco Deckenlampe, signiert Degue",
+      "description": "Die franz\u00f6sische Art Deco Deckenlampe aus Gusseisen ist signiert mit Degue. Die Tulpen und die halbrunde Mittelschale aus gesandstrahltem Glas sind mit floralen Mustern geometrisch stilisiert und wirken sehr plastisch. Die Lampe leuchtet auch im Inneren. Leider ist eines der Au\u00dfengl\u00e4ser leicht besch\u00e4digt. Die \u00e4u\u00dferen Gl\u00e4ser sind durch eine separate Aufh\u00e4ngung befestigt, die Leuchte wurde neu verkabelt.\n\nMa\u00dfe: H60 x D65 cm",
+      "price": 68000,
+      "price_currency": "EUR",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "AVAILABLE",
+      "url": "https://wandel-antik.de/produkte/02092-franz-art-deco-deckenlampe-signiert-degue/?utm_source=aura_historia&utm_medium=referral",
+      "images": [
+        "https://wandel-antik.de/wp-content/uploads/2092_2092_-_Franzoesische__Art_Deco_Deckenlampe_aus_Gusseisen__signiert_Degue_zoom.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
   }
 ]
