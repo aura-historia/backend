@@ -442,7 +442,9 @@ mod tests {
             ("rawCondition", ".condition"),
             ("rawMaterial", ".material"),
             ("rawYear", ".year"),
+            ("rawPeriod", ".period"),
             ("rawCategory", ".category"),
+            ("rawTags", ".tags"),
             ("rawMeasurements", ".measurements"),
             ("rawOrigin", ".origin"),
         ]
@@ -906,6 +908,13 @@ mod tests {
                 .map(|rule| rule.selector.to_string()),
             Some(".material".to_string())
         );
+        assert_eq!(
+            result.schemas[0]
+                .raw_attributes
+                .get("rawPeriod")
+                .map(|rule| rule.selector.to_string()),
+            Some(".period".to_string())
+        );
     }
 
     fn assert_raw_attribute_instruction(instruction: &str) {
@@ -922,9 +931,11 @@ mod tests {
         assert!(instruction.contains("rawMaterial"));
         assert!(instruction.contains("rawMaterialNote"));
         assert!(instruction.contains("rawYear"));
+        assert!(instruction.contains("rawPeriod"));
         assert!(instruction.contains("rawYearNote"));
         assert!(instruction.contains("rawCategory"));
         assert!(instruction.contains("rawCategoryPath"));
+        assert!(instruction.contains("rawTags"));
         assert!(instruction.contains("rawMeasurements"));
         assert!(instruction.contains("rawHeight"));
         assert!(instruction.contains("rawWidth"));
@@ -1084,6 +1095,13 @@ mod tests {
                 .get("rawOrigin")
                 .map(|rule| rule.selector.to_string()),
             Some(".origin".to_string())
+        );
+        assert_eq!(
+            parsed.schemas[0]
+                .raw_attributes
+                .get("rawPeriod")
+                .map(|rule| rule.selector.to_string()),
+            Some(".period".to_string())
         );
     }
 

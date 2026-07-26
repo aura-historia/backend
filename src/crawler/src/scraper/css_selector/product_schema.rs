@@ -123,7 +123,7 @@ pub struct ProductCssSelectorSchema {
     pub default_currency: Option<CurrencyDto>,
 
     #[schemars(
-        description = "Crawler-only raw product attributes keyed by stable camelCase names from the configured raw attribute registry, such as rawShipment, rawCondition, rawMaterial, rawYear, rawCategory, rawMeasurements, or rawOrigin. Use only for visible product-specific values that do not yet have normalized product fields. Extract raw values only; do not normalize or derive values."
+        description = "Crawler-only raw product attributes keyed by stable camelCase names from the configured raw attribute registry, such as rawShipment, rawCondition, rawMaterial, rawYear, rawPeriod, rawCategory, rawTags, rawMeasurements, or rawOrigin. Use only for visible product-specific values that do not yet have normalized product fields. Extract raw values only; do not normalize or derive values."
     )]
     #[serde(
         skip_serializing_if = "BTreeMap::is_empty",
@@ -1506,7 +1506,9 @@ mod tests {
               <p class="condition">Good condition with restored polish</p>
               <p class="material">Walnut and brass</p>
               <p class="year">Circa 1830</p>
+              <p class="period">Biedermeier period</p>
               <p class="category">Furniture / Seating</p>
+              <p class="tags">antique, chair, seating</p>
               <p class="measurements">H 90 cm x W 45 cm x D 50 cm</p>
               <span class="height">90 cm</span>
               <span class="width">45 cm</span>
@@ -1525,7 +1527,9 @@ mod tests {
         raw_attributes.insert("rawCondition".to_string(), text_rule_all(".condition"));
         raw_attributes.insert("rawMaterial".to_string(), text_rule_all(".material"));
         raw_attributes.insert("rawYear".to_string(), text_rule_all(".year"));
+        raw_attributes.insert("rawPeriod".to_string(), text_rule_all(".period"));
         raw_attributes.insert("rawCategoryPath".to_string(), text_rule_all(".category"));
+        raw_attributes.insert("rawTags".to_string(), text_rule_all(".tags"));
         raw_attributes.insert(
             "rawMeasurements".to_string(),
             text_rule_all(".measurements"),
@@ -1566,8 +1570,16 @@ mod tests {
             Some(&vec!["Circa 1830".to_string()])
         );
         assert_eq!(
+            result.raw_attributes.get("rawPeriod"),
+            Some(&vec!["Biedermeier period".to_string()])
+        );
+        assert_eq!(
             result.raw_attributes.get("rawCategoryPath"),
             Some(&vec!["Furniture / Seating".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawTags"),
+            Some(&vec!["antique, chair, seating".to_string()])
         );
         assert_eq!(
             result.raw_attributes.get("rawMeasurements"),
@@ -1619,10 +1631,13 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            raw_attributes: [(
-                "rawMaterial".to_string(),
-                text_rule_all(".missing-material"),
-            )]
+            raw_attributes: [
+                (
+                    "rawMaterial".to_string(),
+                    text_rule_all(".missing-material"),
+                ),
+                ("rawPeriod".to_string(), text_rule_all(".missing-period")),
+            ]
             .into(),
             ..minimal_schema("<ignored>").1
         };

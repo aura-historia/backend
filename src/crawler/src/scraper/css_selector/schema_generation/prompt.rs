@@ -59,11 +59,15 @@ const MATERIAL_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
 const YEAR_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
     RawAttributeDefinition {
         key: "rawYear",
-        description: "complete visible year, date, period, era, or circa text",
+        description: "visible exact date, year, circa text, or date of manufacture",
+    },
+    RawAttributeDefinition {
+        key: "rawPeriod",
+        description: "visible period, era, century, or period category text",
     },
     RawAttributeDefinition {
         key: "rawYearNote",
-        description: "year, date, period, era, or attribution note",
+        description: "date, period, era, or attribution note",
     },
 ];
 
@@ -75,6 +79,10 @@ const CATEGORY_RAW_ATTRIBUTES: &[RawAttributeDefinition] = &[
     RawAttributeDefinition {
         key: "rawCategoryPath",
         description: "visible breadcrumb or category path text",
+    },
+    RawAttributeDefinition {
+        key: "rawTags",
+        description: "visible product tags, labels, keywords, styles, or taxonomy terms",
     },
 ];
 
