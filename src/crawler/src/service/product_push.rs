@@ -24,6 +24,7 @@ use product::data::product_state_data::ProductStateData;
 use product::service::command_service::CommandProductService;
 use product::service::product_command::UpsertProductCommand;
 use shop::core::shop_type::ShopType;
+use std::collections::BTreeMap;
 use time::OffsetDateTime;
 use tracing::{debug, error, warn};
 
@@ -44,7 +45,13 @@ use crate::scraper::normalization::product::NormalizedProduct;
 #[async_trait]
 #[mockall::automock]
 pub trait ProductPushService: Send + Sync {
-    async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand>;
+    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<UpsertProductCommand>;
+}
+
+#[derive(Debug, Clone)]
+pub struct ProductPushItem {
+    pub command: UpsertProductCommand,
+    pub raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -66,10 +73,14 @@ impl ProductPushServiceImpl {
 impl ProductPushService for ProductPushServiceImpl {
     #[tracing::instrument(
         name = "product_push_batch",
-        skip(self, commands),
-        fields(total = commands.len())
+        skip(self, products),
+        fields(total = products.len())
     )]
-    async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
+    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<UpsertProductCommand> {
+        let commands: Vec<UpsertProductCommand> = products
+            .into_iter()
+            .map(|product| product.command)
+            .collect();
         let count = commands.len();
         let failed = self.command_service.upsert(commands.clone()).await;
         if !failed.is_empty() {
@@ -154,6 +165,8 @@ struct UpsertCommandSnapshot {
         default
     )]
     auction_end: Option<OffsetDateTime>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
 // `time::serde::rfc3339` only works on `OffsetDateTime` directly, not `Option<OffsetDateTime>`.
@@ -180,8 +193,9 @@ where
     time::serde::rfc3339::option::deserialize(deserializer)
 }
 
-impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
-    fn from(cmd: &UpsertProductCommand) -> Self {
+impl From<&ProductPushItem> for UpsertCommandSnapshot {
+    fn from(product: &ProductPushItem) -> Self {
+        let cmd = &product.command;
         let shop_id_uuid: uuid::Uuid = cmd.shop_id.into();
         Self {
             shop_id: shop_id_uuid.to_string(),
@@ -201,6 +215,7 @@ impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
                 .collect(),
             auction_start: cmd.auction_start,
             auction_end: cmd.auction_end,
+            raw_attributes: product.raw_attributes.clone(),
         }
     }
 }
@@ -209,12 +224,12 @@ impl From<&UpsertProductCommand> for UpsertCommandSnapshot {
 impl ProductPushService for FileProductPushService {
     #[tracing::instrument(
         name = "file_product_push_batch",
-        skip(self, commands),
-        fields(total = commands.len())
+        skip(self, products),
+        fields(total = products.len())
     )]
-    async fn push(&self, commands: Vec<UpsertProductCommand>) -> Vec<UpsertProductCommand> {
-        if commands.is_empty() {
-            return commands;
+    async fn push(&self, products: Vec<ProductPushItem>) -> Vec<UpsertProductCommand> {
+        if products.is_empty() {
+            return Vec::new();
         }
 
         // Load any previously written products so we append rather than overwrite.
@@ -228,7 +243,7 @@ impl ProductPushService for FileProductPushService {
         };
 
         let new_snapshots: Vec<UpsertCommandSnapshot> =
-            commands.iter().map(UpsertCommandSnapshot::from).collect();
+            products.iter().map(UpsertCommandSnapshot::from).collect();
         let count = new_snapshots.len();
         existing.extend(new_snapshots);
 
@@ -253,7 +268,10 @@ impl ProductPushService for FileProductPushService {
             }
         }
         // File push always "succeeds" — return all commands as succeeded.
-        commands
+        products
+            .into_iter()
+            .map(|product| product.command)
+            .collect()
     }
 }
 
@@ -344,6 +362,15 @@ mod tests {
             images: vec![],
             auction_start: None,
             auction_end: None,
+            raw_attributes: Default::default(),
+        }
+    }
+
+    fn make_push_item(product: NormalizedProduct, candidate: &ScraperCandidate) -> ProductPushItem {
+        let raw_attributes = product.raw_attributes.clone();
+        ProductPushItem {
+            command: normalize_to_upsert(product, candidate).unwrap(),
+            raw_attributes,
         }
     }
 
@@ -435,9 +462,9 @@ mod tests {
 
         let candidate = make_candidate(ShopType::CommercialDealer);
         let product = make_product(&candidate);
-        let cmd = normalize_to_upsert(product, &candidate).unwrap();
+        let item = make_push_item(product, &candidate);
 
-        service.push(vec![cmd]).await;
+        service.push(vec![item]).await;
 
         assert!(path.exists(), "output file should be created");
         let content = std::fs::read_to_string(&path).unwrap();
@@ -464,6 +491,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_push_service_includes_raw_attributes() {
+        let path = temp_output_path("raw_attributes");
+        let _ = std::fs::remove_file(&path);
+
+        let service = FileProductPushService::new(path.clone());
+
+        let candidate = make_candidate(ShopType::CommercialDealer);
+        let mut product = make_product(&candidate);
+        product.raw_attributes.insert(
+            "rawShipment".to_string(),
+            vec!["Shipping takes four to six weeks".to_string()],
+        );
+        product.raw_attributes.insert(
+            "rawMaterial".to_string(),
+            vec!["Walnut and brass".to_string()],
+        );
+        product
+            .raw_attributes
+            .insert("rawYear".to_string(), vec!["Circa 1830".to_string()]);
+        let item = make_push_item(product, &candidate);
+
+        service.push(vec![item]).await;
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&content).unwrap();
+        assert_eq!(
+            parsed[0]["raw_attributes"]["rawShipment"][0],
+            "Shipping takes four to six weeks"
+        );
+        assert_eq!(
+            parsed[0]["raw_attributes"]["rawMaterial"][0],
+            "Walnut and brass"
+        );
+        assert_eq!(parsed[0]["raw_attributes"]["rawYear"][0], "Circa 1830");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
     async fn file_push_service_appends_on_subsequent_calls() {
         let path = temp_output_path("appends");
         let _ = std::fs::remove_file(&path);
@@ -472,12 +538,12 @@ mod tests {
 
         let candidate = make_candidate(ShopType::CommercialDealer);
         let product1 = make_product(&candidate);
-        let cmd1 = normalize_to_upsert(product1, &candidate).unwrap();
-        service.push(vec![cmd1]).await;
+        let item1 = make_push_item(product1, &candidate);
+        service.push(vec![item1]).await;
 
         let product2 = make_product(&candidate);
-        let cmd2 = normalize_to_upsert(product2, &candidate).unwrap();
-        service.push(vec![cmd2]).await;
+        let item2 = make_push_item(product2, &candidate);
+        service.push(vec![item2]).await;
 
         let content = std::fs::read_to_string(&path).unwrap();
         let parsed: Vec<serde_json::Value> = serde_json::from_str(&content).unwrap();
@@ -503,8 +569,8 @@ mod tests {
 
         let candidate = make_candidate(ShopType::CommercialDealer);
         let product = make_product(&candidate);
-        let cmd = normalize_to_upsert(product, &candidate).unwrap();
-        let cmd_clone = cmd.clone();
+        let item = make_push_item(product, &candidate);
+        let cmd_clone = item.command.clone();
 
         mock.expect_upsert().times(1).returning(move |cmds| {
             let failures = cmds.clone();
@@ -512,7 +578,12 @@ mod tests {
         });
 
         let service = ProductPushServiceImpl::new(Box::new(mock));
-        service.push(vec![cmd_clone]).await;
+        service
+            .push(vec![ProductPushItem {
+                command: cmd_clone,
+                raw_attributes: Default::default(),
+            }])
+            .await;
         // No panic = pass; failures are logged as warnings, not propagated.
     }
 
@@ -526,9 +597,9 @@ mod tests {
 
         let candidate = make_candidate(ShopType::CommercialDealer);
         let product = make_product(&candidate);
-        let cmd = normalize_to_upsert(product, &candidate).unwrap();
+        let item = make_push_item(product, &candidate);
 
         let service = ProductPushServiceImpl::new(Box::new(mock));
-        service.push(vec![cmd]).await;
+        service.push(vec![item]).await;
     }
 }

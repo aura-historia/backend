@@ -7,6 +7,7 @@ use llm::chat::StructuredOutputFormat;
 use schemars::JsonSchema;
 use scraper::Html;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -120,6 +121,16 @@ pub struct ProductCssSelectorSchema {
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub default_currency: Option<CurrencyDto>,
+
+    #[schemars(
+        description = "Crawler-only raw product attributes keyed by stable camelCase names from the configured raw attribute registry, such as rawShipment, rawCondition, rawMaterial, rawYear, rawPeriod, rawCategory, rawTags, rawMeasurements, rawOrigin, or rawArtistName. Use only for visible product-specific values that do not yet have normalized product fields. Extract raw values only; do not normalize or derive values."
+    )]
+    #[serde(
+        skip_serializing_if = "BTreeMap::is_empty",
+        default,
+        alias = "rawAttributes"
+    )]
+    pub raw_attributes: BTreeMap<String, ExtractionRule>,
 }
 
 /// Errors that can occur when applying a [`ProductCssSelectorSchema`] to an HTML document.
@@ -157,6 +168,13 @@ pub enum ApplySchemaError {
 
     #[error("failed to extract `auction_end`: {0}")]
     AuctionEnd(#[source] ExtractionError),
+
+    #[error("failed to extract raw attribute `{field}`: {source}")]
+    RawAttribute {
+        field: String,
+        #[source]
+        source: ExtractionError,
+    },
 }
 
 impl ProductCssSelectorSchema {
@@ -267,6 +285,26 @@ impl ProductCssSelectorSchema {
             },
         };
 
+        let mut raw_attributes = BTreeMap::new();
+        for (field, rule) in &self.raw_attributes {
+            let values: Vec<String> = match rule.apply(html) {
+                Ok(values) => values,
+                Err(ExtractionError::NoElementMatched { .. }) => continue,
+                Err(source) => {
+                    return Err(ApplySchemaError::RawAttribute {
+                        field: field.clone(),
+                        source,
+                    });
+                }
+            }
+            .into_iter()
+            .filter(|value| !value.trim().is_empty())
+            .collect();
+            if !values.is_empty() {
+                raw_attributes.insert(field.clone(), values);
+            }
+        }
+
         Ok(RawExtractedProduct {
             shops_product_id,
             title,
@@ -279,6 +317,7 @@ impl ProductCssSelectorSchema {
             images,
             auction_start,
             auction_end,
+            raw_attributes,
         })
     }
 
@@ -310,12 +349,15 @@ pub struct RawExtractedProduct {
     pub images: Vec<String>,
     pub auction_start: Option<String>,
     pub auction_end: Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use scraper::Html;
+    use std::collections::BTreeMap;
 
     use crate::scraper::css_selector::product_schema::{
         ApplySchemaError, ProductCssSelectorSchema,
@@ -384,6 +426,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         (parsed, schema)
     }
@@ -422,6 +465,7 @@ mod tests {
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
             auction_end: Some(attr_rule("time#auction-end", "datetime")),
             default_currency: None,
+            raw_attributes: Default::default(),
         }
     }
 
@@ -437,6 +481,53 @@ mod tests {
     #[test]
     fn should_create_structured_output_format() {
         drop(ProductCssSelectorSchema::structured_output_format());
+    }
+
+    #[test]
+    fn should_deserialize_schema_when_raw_attributes_are_absent() {
+        let raw = r##"{
+            "shops_product_id": null,
+            "title": {"selector": "h1", "additional_selectors": [], "type": "text", "cardinality": "first"},
+            "description": null,
+            "price": null,
+            "price_estimate_min": null,
+            "price_estimate_max": null,
+            "seller_name": null,
+            "state": {"selector": "#state", "additional_selectors": [], "type": "text", "cardinality": "first"},
+            "images": {"selector": "img", "additional_selectors": [], "type": "attribute", "name": "src", "cardinality": "all"},
+            "auction_start": null,
+            "auction_end": null,
+            "default_currency": null
+        }"##;
+
+        let schema: ProductCssSelectorSchema = serde_json::from_str(raw).unwrap();
+
+        assert!(schema.raw_attributes.is_empty());
+    }
+
+    #[test]
+    fn should_deserialize_schema_when_raw_attributes_use_camel_case_alias() {
+        let raw = r##"{
+            "shops_product_id": null,
+            "title": {"selector": "h1", "additional_selectors": [], "type": "text", "cardinality": "first"},
+            "description": null,
+            "price": null,
+            "price_estimate_min": null,
+            "price_estimate_max": null,
+            "seller_name": null,
+            "state": {"selector": "#state", "additional_selectors": [], "type": "text", "cardinality": "first"},
+            "images": {"selector": "img", "additional_selectors": [], "type": "attribute", "name": "src", "cardinality": "all"},
+            "auction_start": null,
+            "auction_end": null,
+            "default_currency": null,
+            "rawAttributes": {
+                "rawShipment": {"selector": ".shipping", "additional_selectors": [], "type": "text", "cardinality": "all"}
+            }
+        }"##;
+
+        let schema: ProductCssSelectorSchema = serde_json::from_str(raw).unwrap();
+
+        assert!(schema.raw_attributes.contains_key("rawShipment"));
     }
 
     // -------------------------------------------------------------------------
@@ -541,6 +632,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.price_estimate_min, Some("800".to_string()));
@@ -569,6 +661,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.price_estimate_max, Some("1200".to_string()));
@@ -674,6 +767,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.price, Some("€ 100".to_string()));
@@ -707,6 +801,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(
@@ -746,6 +841,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.images, vec!["main.jpg", "thumb1.jpg", "thumb2.jpg"]);
@@ -805,6 +901,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -833,6 +930,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -861,6 +959,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -894,6 +993,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -923,6 +1023,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -952,6 +1053,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -981,6 +1083,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -1010,6 +1113,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -1039,6 +1143,7 @@ mod tests {
             auction_start: Some(attr_rule("time#auction-start", "datetime")),
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -1068,6 +1173,7 @@ mod tests {
             auction_start: None,
             auction_end: Some(attr_rule("time#auction-end", "datetime")),
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -1109,6 +1215,7 @@ mod tests {
                 auction_start: None,
                 auction_end: None,
                 default_currency: None,
+                raw_attributes: Default::default(),
             },
             "title" => ProductCssSelectorSchema {
                 shops_product_id: Some(good_id),
@@ -1123,6 +1230,7 @@ mod tests {
                 auction_start: None,
                 auction_end: None,
                 default_currency: None,
+                raw_attributes: Default::default(),
             },
             "state" => ProductCssSelectorSchema {
                 shops_product_id: Some(good_id),
@@ -1137,6 +1245,7 @@ mod tests {
                 auction_start: None,
                 auction_end: None,
                 default_currency: None,
+                raw_attributes: Default::default(),
             },
             "images" => ProductCssSelectorSchema {
                 shops_product_id: Some(good_id),
@@ -1151,6 +1260,7 @@ mod tests {
                 auction_start: None,
                 auction_end: None,
                 default_currency: None,
+                raw_attributes: Default::default(),
             },
             _ => unreachable!(),
         };
@@ -1183,6 +1293,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         // We only care that the error exists and mentions the field name.
         let err = schema.apply(&html).unwrap_err();
@@ -1210,6 +1321,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(err.to_string().contains("price"), "{err}");
@@ -1242,6 +1354,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
         assert_eq!(result.images, vec!["a.jpg", "b.jpg", "c.jpg"]);
@@ -1268,6 +1381,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
         assert!(
@@ -1302,6 +1416,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
 
         let result = schema.apply(&html).unwrap();
@@ -1363,6 +1478,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
 
@@ -1377,5 +1493,219 @@ mod tests {
         assert_eq!(result.images, vec!["vase.jpg"]);
         assert_eq!(result.auction_start, None);
         assert_eq!(result.auction_end, None);
+    }
+
+    #[test]
+    fn should_extract_raw_attributes_when_rules_present() {
+        let html = Html::parse_document(
+            r#"<html><body>
+              <h1>Chair</h1>
+              <span id="state">Available</span>
+              <img src="/chair.jpg">
+              <p class="shipping">Shipping takes four to six weeks</p>
+              <p class="condition">Good condition with restored polish</p>
+              <p class="material">Walnut and brass</p>
+              <p class="year">Circa 1830</p>
+              <p class="period">Biedermeier period</p>
+              <p class="category">Furniture / Seating</p>
+              <p class="tags">antique, chair, seating</p>
+              <p class="measurements">H 90 cm x W 45 cm x D 50 cm</p>
+              <span class="height">90 cm</span>
+              <span class="width">45 cm</span>
+              <span class="depth">50 cm</span>
+              <span class="diameter">30 cm</span>
+              <span class="weight">12 kg</span>
+              <p class="origin">Southern Germany</p>
+              <span class="country">Germany</span>
+              <span class="region">Bavaria</span>
+              <span class="artist">Marta Maas-Fjetterstrom</span>
+              <span class="maker">Chuanlhong Ceramic</span>
+              <span class="designer">Eileen Gray</span>
+              <span class="brand">Knoll</span>
+              <span class="signature">Signed lower right</span>
+              <p class="creator-note">School of Antwerp attribution</p>
+              <span class="blank">   </span>
+            </body></html>"#,
+        );
+        let mut raw_attributes = BTreeMap::new();
+        raw_attributes.insert("rawShipment".to_string(), text_rule_all(".shipping"));
+        raw_attributes.insert("rawShipmentNote".to_string(), text_rule_all(".blank"));
+        raw_attributes.insert("rawCondition".to_string(), text_rule_all(".condition"));
+        raw_attributes.insert("rawMaterial".to_string(), text_rule_all(".material"));
+        raw_attributes.insert("rawYear".to_string(), text_rule_all(".year"));
+        raw_attributes.insert("rawPeriod".to_string(), text_rule_all(".period"));
+        raw_attributes.insert("rawCategoryPath".to_string(), text_rule_all(".category"));
+        raw_attributes.insert("rawTags".to_string(), text_rule_all(".tags"));
+        raw_attributes.insert(
+            "rawMeasurements".to_string(),
+            text_rule_all(".measurements"),
+        );
+        raw_attributes.insert("rawHeight".to_string(), text_rule_all(".height"));
+        raw_attributes.insert("rawWidth".to_string(), text_rule_all(".width"));
+        raw_attributes.insert("rawDepth".to_string(), text_rule_all(".depth"));
+        raw_attributes.insert("rawDiameter".to_string(), text_rule_all(".diameter"));
+        raw_attributes.insert("rawWeight".to_string(), text_rule_all(".weight"));
+        raw_attributes.insert("rawOrigin".to_string(), text_rule_all(".origin"));
+        raw_attributes.insert("rawCountry".to_string(), text_rule_all(".country"));
+        raw_attributes.insert("rawRegion".to_string(), text_rule_all(".region"));
+        raw_attributes.insert("rawArtistName".to_string(), text_rule_all(".artist"));
+        raw_attributes.insert("rawMakerName".to_string(), text_rule_all(".maker"));
+        raw_attributes.insert("rawDesignerName".to_string(), text_rule_all(".designer"));
+        raw_attributes.insert("rawBrandName".to_string(), text_rule_all(".brand"));
+        raw_attributes.insert("rawSignature".to_string(), text_rule_all(".signature"));
+        raw_attributes.insert("rawCreatorNote".to_string(), text_rule_all(".creator-note"));
+        raw_attributes.insert(
+            "rawOriginNote".to_string(),
+            text_rule_all(".missing-origin-note"),
+        );
+        let schema = ProductCssSelectorSchema {
+            raw_attributes,
+            ..minimal_schema("<ignored>").1
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert_eq!(
+            result.raw_attributes.get("rawShipment"),
+            Some(&vec!["Shipping takes four to six weeks".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawCondition"),
+            Some(&vec!["Good condition with restored polish".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawMaterial"),
+            Some(&vec!["Walnut and brass".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawYear"),
+            Some(&vec!["Circa 1830".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawPeriod"),
+            Some(&vec!["Biedermeier period".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawCategoryPath"),
+            Some(&vec!["Furniture / Seating".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawTags"),
+            Some(&vec!["antique, chair, seating".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawMeasurements"),
+            Some(&vec!["H 90 cm x W 45 cm x D 50 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawHeight"),
+            Some(&vec!["90 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawWidth"),
+            Some(&vec!["45 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawDepth"),
+            Some(&vec!["50 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawDiameter"),
+            Some(&vec!["30 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawWeight"),
+            Some(&vec!["12 kg".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawOrigin"),
+            Some(&vec!["Southern Germany".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawCountry"),
+            Some(&vec!["Germany".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawRegion"),
+            Some(&vec!["Bavaria".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawArtistName"),
+            Some(&vec!["Marta Maas-Fjetterstrom".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawMakerName"),
+            Some(&vec!["Chuanlhong Ceramic".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawDesignerName"),
+            Some(&vec!["Eileen Gray".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawBrandName"),
+            Some(&vec!["Knoll".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawSignature"),
+            Some(&vec!["Signed lower right".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawCreatorNote"),
+            Some(&vec!["School of Antwerp attribution".to_string()])
+        );
+        assert!(!result.raw_attributes.contains_key("rawShipmentNote"));
+        assert!(!result.raw_attributes.contains_key("rawOriginNote"));
+    }
+
+    #[test]
+    fn should_ignore_missing_raw_attribute_rule_when_selector_matches_nothing() {
+        let html = Html::parse_document(
+            r#"<html><body>
+              <h1>Chair</h1>
+              <span id="state">Available</span>
+              <img src="/chair.jpg">
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            raw_attributes: [
+                (
+                    "rawMaterial".to_string(),
+                    text_rule_all(".missing-material"),
+                ),
+                ("rawPeriod".to_string(), text_rule_all(".missing-period")),
+                (
+                    "rawArtistName".to_string(),
+                    text_rule_all(".missing-artist"),
+                ),
+            ]
+            .into(),
+            ..minimal_schema("<ignored>").1
+        };
+
+        let result = schema.apply(&html).unwrap();
+
+        assert!(result.raw_attributes.is_empty());
+    }
+
+    #[test]
+    fn should_return_err_raw_attribute_when_selector_is_malformed() {
+        let html = Html::parse_document(
+            r#"<html><body>
+              <h1>Chair</h1>
+              <span id="state">Available</span>
+              <img src="/chair.jpg">
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            raw_attributes: [("rawMaterial".to_string(), text_rule_all("!!! invalid !!!"))].into(),
+            ..minimal_schema("<ignored>").1
+        };
+
+        let err = schema.apply(&html).unwrap_err();
+
+        assert!(
+            matches!(err, ApplySchemaError::RawAttribute { ref field, .. } if field == "rawMaterial"),
+            "unexpected variant: {err}"
+        );
     }
 }

@@ -515,6 +515,7 @@ async fn should_append_single_schema_without_failed_schema_context() {
         auction_start: None,
         auction_end: None,
         default_currency: None,
+        raw_attributes: Default::default(),
     };
 
     let bad_existing = make_bad_schema("non-existent-title-1");

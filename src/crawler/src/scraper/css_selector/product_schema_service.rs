@@ -412,6 +412,7 @@ mod tests {
             auction_start: None,
             auction_end: None,
             default_currency: None,
+            raw_attributes: Default::default(),
         }
     }
 
@@ -433,6 +434,44 @@ mod tests {
             "risks": [],
         }))
         .expect("generated response should serialize")
+    }
+
+    fn sample_schema_with_raw_attributes() -> ProductCssSelectorSchema {
+        let raw_attributes = [
+            ("rawShipment", ".shipping"),
+            ("rawCondition", ".condition"),
+            ("rawMaterial", ".material"),
+            ("rawYear", ".year"),
+            ("rawPeriod", ".period"),
+            ("rawCategory", ".category"),
+            ("rawTags", ".tags"),
+            ("rawMeasurements", ".measurements"),
+            ("rawOrigin", ".origin"),
+            ("rawArtistName", ".artist"),
+            ("rawMakerName", ".maker"),
+            ("rawDesignerName", ".designer"),
+            ("rawBrandName", ".brand"),
+            ("rawSignature", ".signature"),
+            ("rawCreatorNote", ".creator-note"),
+        ]
+        .into_iter()
+        .map(|(key, selector)| {
+            (
+                key.to_string(),
+                ExtractionRule {
+                    selector: selector.into(),
+                    additional_selectors: vec![],
+                    extract: ExtractionKind::Text,
+                    cardinality: ExtractionCardinality::All,
+                },
+            )
+        })
+        .collect();
+
+        ProductCssSelectorSchema {
+            raw_attributes,
+            ..sample_css_schema()
+        }
     }
 
     fn removed_append_response_json() -> String {
@@ -851,6 +890,90 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_preserve_raw_attribute_schema_from_mocked_llm_response() {
+        let css_schema = sample_schema_with_raw_attributes();
+        let service = ProductSchemaServiceImpl {
+            create_llm: Box::new(MockLlmProviderReturning(css_schema)),
+            append_llm: Box::new(MockLlmProvider),
+            rate_limiter: None,
+            service_tier: None,
+            repository: Box::new(MockShopsProductSchemaRepository::new()),
+        };
+
+        let result = service
+            .create_product_schemas(&[
+                "<html><body><p class=\"shipping\">Ships in 2 weeks</p></body></html>".to_string(),
+            ])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.schemas[0]
+                .raw_attributes
+                .get("rawMaterial")
+                .map(|rule| rule.selector.to_string()),
+            Some(".material".to_string())
+        );
+        assert_eq!(
+            result.schemas[0]
+                .raw_attributes
+                .get("rawPeriod")
+                .map(|rule| rule.selector.to_string()),
+            Some(".period".to_string())
+        );
+        assert_eq!(
+            result.schemas[0]
+                .raw_attributes
+                .get("rawArtistName")
+                .map(|rule| rule.selector.to_string()),
+            Some(".artist".to_string())
+        );
+    }
+
+    fn assert_raw_attribute_instruction(instruction: &str) {
+        assert!(instruction.contains("configured raw attribute groups"));
+        assert!(instruction.contains("Do not generate arbitrary raw attribute keys"));
+        assert!(instruction.contains("Prefer the broad group key"));
+        assert!(instruction.contains("specific measurement or origin keys only"));
+        assert!(instruction.contains("rawShipment"));
+        assert!(instruction.contains("rawShipmentNote"));
+        assert!(instruction.contains("rawShipmentMin"));
+        assert!(instruction.contains("rawShipmentMax"));
+        assert!(instruction.contains("rawCondition"));
+        assert!(instruction.contains("rawConditionNote"));
+        assert!(instruction.contains("rawMaterial"));
+        assert!(instruction.contains("rawMaterialNote"));
+        assert!(instruction.contains("rawYear"));
+        assert!(instruction.contains("rawPeriod"));
+        assert!(instruction.contains("rawYearNote"));
+        assert!(instruction.contains("rawCategory"));
+        assert!(instruction.contains("rawCategoryPath"));
+        assert!(instruction.contains("rawTags"));
+        assert!(instruction.contains("rawMeasurements"));
+        assert!(instruction.contains("rawHeight"));
+        assert!(instruction.contains("rawWidth"));
+        assert!(instruction.contains("rawDepth"));
+        assert!(instruction.contains("rawDiameter"));
+        assert!(instruction.contains("rawWeight"));
+        assert!(instruction.contains("rawMeasurementNote"));
+        assert!(instruction.contains("rawOrigin"));
+        assert!(instruction.contains("rawCountry"));
+        assert!(instruction.contains("rawRegion"));
+        assert!(instruction.contains("rawOriginNote"));
+        assert!(instruction.contains("rawArtistName"));
+        assert!(instruction.contains("rawMakerName"));
+        assert!(instruction.contains("rawDesignerName"));
+        assert!(instruction.contains("rawBrandName"));
+        assert!(instruction.contains("rawSignature"));
+        assert!(instruction.contains("rawCreatorNote"));
+        assert!(instruction.contains("specific creator keys"));
+        assert!(instruction.contains("rawCreatorNote for combined"));
+        assert!(instruction.contains("Do not infer artist"));
+        assert!(instruction.contains("meta author"));
+        assert!(instruction.contains("seller"));
+    }
+
+    #[tokio::test]
     async fn should_propagate_database_error_when_find_fails_for_get() {
         let shop_id = ShopId::new();
 
@@ -891,6 +1014,7 @@ mod tests {
         assert!(instruction.contains("not one schema per page"));
         assert!(instruction.contains("The schemas field contains one ProductCssSelectorSchema"));
         assert!(instruction.contains("multiple schemas ordered as described"));
+        assert_raw_attribute_instruction(&instruction);
     }
 
     #[test]
@@ -904,6 +1028,7 @@ mod tests {
         assert!(instruction.contains("Return no schemas and include a short reason"));
         assert!(instruction.contains("removed_schema must include selector"));
         assert!(instruction.contains("exactly one of text or regex"));
+        assert_raw_attribute_instruction(&instruction);
     }
 
     #[test]
@@ -980,6 +1105,35 @@ mod tests {
             SchemaLlmEvaluationConfidence::High
         );
         assert!(parsed.evaluation.is_high_confidence_approval());
+    }
+
+    #[test]
+    fn should_parse_generated_schemas_response_with_raw_attributes() {
+        let payload = generated_response_json(vec![sample_schema_with_raw_attributes()]);
+
+        let parsed = parse_product_schemas_response(&payload).unwrap();
+
+        assert_eq!(
+            parsed.schemas[0]
+                .raw_attributes
+                .get("rawOrigin")
+                .map(|rule| rule.selector.to_string()),
+            Some(".origin".to_string())
+        );
+        assert_eq!(
+            parsed.schemas[0]
+                .raw_attributes
+                .get("rawPeriod")
+                .map(|rule| rule.selector.to_string()),
+            Some(".period".to_string())
+        );
+        assert_eq!(
+            parsed.schemas[0]
+                .raw_attributes
+                .get("rawCreatorNote")
+                .map(|rule| rule.selector.to_string()),
+            Some(".creator-note".to_string())
+        );
     }
 
     #[test]
