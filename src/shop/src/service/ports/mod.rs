@@ -1,3 +1,4 @@
+pub(crate) mod partner_shop_reader;
 pub(crate) mod shop_details_reader;
 pub(crate) mod shop_geocoder;
 pub(crate) mod shop_repository;

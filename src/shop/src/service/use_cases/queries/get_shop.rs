@@ -45,14 +45,7 @@ pub struct ShopDetailsView {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum GetShopError {
-    #[error("shop not found")]
-    NotFound,
-    #[error("temporary read failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum GetShopError {}
 
 #[async_trait::async_trait]
 pub trait GetShopUseCase: Send + Sync {

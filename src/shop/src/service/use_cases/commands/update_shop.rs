@@ -29,7 +29,6 @@ pub struct UpdateShopCommand {
     pub phone: PatchField<String>,
     pub email: PatchField<Email>,
     pub affiliate_configuration: PatchField<AffiliateConfiguration>,
-    pub idempotency_key: Option<String>,
 }
 
 impl UpdateShopCommand {
@@ -59,24 +58,7 @@ pub struct UpdateShopResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum UpdateShopError {
-    #[error("shop not found")]
-    NotFound,
-    #[error("concurrent shop update")]
-    ConcurrencyConflict,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("invalid shop update")]
-    InvalidUpdate,
-    #[error("invalid shop address")]
-    InvalidAddress,
-    #[error("invalid shop integration change")]
-    InvalidIntegrationChange,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum UpdateShopError {}
 
 #[async_trait::async_trait]
 pub trait UpdateShopUseCase: Send + Sync {

@@ -6,7 +6,6 @@ use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 pub struct ChangeShopPartnerStatusCommand {
     pub shop_id: ShopId,
     pub partner_status: ShopPartnerStatus,
-    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,18 +17,7 @@ pub struct ChangeShopPartnerStatusResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ChangeShopPartnerStatusError {
-    #[error("shop not found")]
-    NotFound,
-    #[error("concurrent shop update")]
-    ConcurrencyConflict,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum ChangeShopPartnerStatusError {}
 
 #[async_trait::async_trait]
 pub trait ChangeShopPartnerStatusUseCase: Send + Sync {

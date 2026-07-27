@@ -6,4 +6,5 @@ pub mod role;
 pub mod sort_user_field;
 pub mod tier;
 pub mod user;
+pub mod user_aggregate;
 pub mod user_search;
