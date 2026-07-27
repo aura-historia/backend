@@ -8,7 +8,6 @@ use common::{
 use geo::core::address::{GeoAddress, StructuredAddress};
 use serde_email::Email;
 use std::collections::HashSet;
-use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GetUserRequest {
@@ -32,8 +31,6 @@ pub struct UserDetailsView {
     pub structured_address: Option<StructuredAddress>,
     pub geo_address: Option<GeoAddress>,
     pub partner_shops: HashSet<ShopId>,
-    pub created: OffsetDateTime,
-    pub updated: OffsetDateTime,
 }
 
 #[derive(Debug, thiserror::Error)]

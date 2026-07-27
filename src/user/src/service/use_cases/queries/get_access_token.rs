@@ -18,8 +18,6 @@ pub struct AccessTokenView {
     pub scopes: HashSet<Scope>,
     pub origin: AccessTokenOrigin,
     pub expires: Option<OffsetDateTime>,
-    pub created: OffsetDateTime,
-    pub updated: OffsetDateTime,
 }
 
 #[derive(Debug, thiserror::Error)]

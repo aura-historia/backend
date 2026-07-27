@@ -5,7 +5,6 @@ use common::sort::Sort;
 use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
 use serde_email::Email;
 use serde_json::Value;
-use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchUsersRequest {
@@ -23,8 +22,6 @@ pub struct UserSummary {
     pub tier: UserTier,
     pub role: UserRole,
     pub stripe_customer_id: Option<StripeCustomerId>,
-    pub created: OffsetDateTime,
-    pub updated: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
