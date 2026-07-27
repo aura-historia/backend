@@ -48,7 +48,6 @@ impl TryFrom<CreateUserCommand> for User {
             profile: UserProfile::default(),
             preferences: UserPreferences::default(),
             account: UserAccount::default(),
-            partner_shops: Default::default(),
         })
     }
 }

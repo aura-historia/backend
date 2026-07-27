@@ -4,12 +4,11 @@ use crate::core::{
 use common::change_outcome::ChangeOutcome;
 use common::{
     currency::domain::Currency, language::domain::Language,
-    measurement_unit::domain::MeasurementUnit, shop_id::ShopId,
-    stripe_customer_id::StripeCustomerId, user_id::UserId,
+    measurement_unit::domain::MeasurementUnit, stripe_customer_id::StripeCustomerId,
+    user_id::UserId,
 };
 use geo::core::address::{GeoAddress, StructuredAddress};
 use serde_email::Email;
-use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct User {
@@ -18,7 +17,6 @@ pub struct User {
     profile: UserProfile,
     preferences: UserPreferences,
     account: UserAccount,
-    partner_shops: HashSet<ShopId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,7 +26,6 @@ pub struct NewUser {
     pub profile: UserProfile,
     pub preferences: UserPreferences,
     pub account: UserAccount,
-    pub partner_shops: HashSet<ShopId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,7 +35,6 @@ pub(crate) struct UserState {
     pub profile: UserProfile,
     pub preferences: UserPreferences,
     pub account: UserAccount,
-    pub partner_shops: HashSet<ShopId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -90,7 +86,6 @@ impl User {
             profile: input.profile,
             preferences: input.preferences,
             account: input.account,
-            partner_shops: input.partner_shops,
         })
     }
 
@@ -104,7 +99,6 @@ impl User {
             profile: state.profile,
             preferences: state.preferences,
             account: state.account,
-            partner_shops: state.partner_shops,
         })
     }
 
@@ -139,14 +133,6 @@ impl User {
         replace_if_changed(&mut self.account.stripe_customer_id, stripe_customer_id)
     }
 
-    pub fn grant_partner_shop(&mut self, shop_id: ShopId) -> ChangeOutcome {
-        ChangeOutcome::from(self.partner_shops.insert(shop_id))
-    }
-
-    pub fn revoke_partner_shop(&mut self, shop_id: &ShopId) -> ChangeOutcome {
-        ChangeOutcome::from(self.partner_shops.remove(shop_id))
-    }
-
     pub fn id(&self) -> UserId {
         self.id
     }
@@ -165,10 +151,6 @@ impl User {
 
     pub fn account(&self) -> &UserAccount {
         &self.account
-    }
-
-    pub fn partner_shops(&self) -> &HashSet<ShopId> {
-        &self.partner_shops
     }
 
     pub fn name(&self) -> Option<Name> {
@@ -229,7 +211,6 @@ mod tests {
             },
             preferences: UserPreferences::default(),
             account: UserAccount::default(),
-            partner_shops: HashSet::new(),
         }
     }
 
@@ -244,7 +225,6 @@ mod tests {
             },
             preferences: input.preferences,
             account: input.account,
-            partner_shops: input.partner_shops,
         }
     }
 
@@ -286,34 +266,6 @@ mod tests {
         };
 
         let outcome = user.change_tier(UserTier::Free);
-
-        assert_eq!(ChangeOutcome::Unchanged, outcome);
-    }
-
-    #[test]
-    fn should_grant_partner_shop_when_not_present() {
-        let mut user = match User::create(new_user()) {
-            Ok(user) => user,
-            Err(error) => panic!("user create failed: {error}"),
-        };
-        let shop_id = ShopId::new();
-
-        let outcome = user.grant_partner_shop(shop_id);
-
-        assert_eq!(ChangeOutcome::Changed, outcome);
-        assert!(user.partner_shops().contains(&shop_id));
-    }
-
-    #[test]
-    fn should_report_unchanged_when_partner_shop_already_granted() {
-        let mut user = match User::create(new_user()) {
-            Ok(user) => user,
-            Err(error) => panic!("user create failed: {error}"),
-        };
-        let shop_id = ShopId::new();
-        let _ = user.grant_partner_shop(shop_id);
-
-        let outcome = user.grant_partner_shop(shop_id);
 
         assert_eq!(ChangeOutcome::Unchanged, outcome);
     }
