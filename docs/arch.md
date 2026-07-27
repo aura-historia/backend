@@ -293,6 +293,16 @@ pub struct Record {
 
 Hydrated cross-aggregate information belongs to read models.
 
+#### Operational metadata
+
+Operational metadata such as `created_at`, `updated_at`, `created_by`, and `updated_by` is not aggregate state unless a domain invariant explicitly depends on it.
+
+It MUST NOT be added to an aggregate merely for audit, display, sorting, or transport compatibility.
+
+This metadata lives in the persistence layer. The repository owns writing and updating it from the use-case `OperationContext`, clocks, and persistence defaults. When reconstructing an aggregate, the repository MUST map only domain state back into the aggregate.
+
+Access to operational metadata belongs to dedicated readers and read use cases. A details, audit, or history reader MAY return metadata in an application-owned read model. The aggregate repository MUST NOT expose metadata just to satisfy presentation needs.
+
 ### 4.2 Domain types
 
 `core` owns:
@@ -474,7 +484,7 @@ RestoreRecord
 PublishRecord
 ```
 
-Avoid generic patch commands:
+Avoid generic update commands with weak intent:
 
 ```text
 UpdateRecord {
@@ -484,6 +494,12 @@ UpdateRecord {
     ...
 }
 ```
+
+When a public PATCH endpoint is intentionally broad, the service use case is still named `Update*`. Use a service-owned `Update*Command` with shared tri-state `common::patch_field::PatchField`: `Unchanged`, `Set(value)`, and `Clear`. The helper may live in `common`, but the command belongs in `service`, not in `core`.
+
+The update handler MUST translate command fields into explicit aggregate methods such as `change_title`, `replace_address`, or `replace_contact`, and track `ChangeOutcome`. Generic update MUST NOT include state-machine transitions that deserve their own use case, such as publishing, archiving, or changing aggregate status.
+
+A broad update use case is one logical write. Domain methods return `ChangeOutcome` and MUST NOT increment the aggregate version. If nothing changed, the handler MUST NOT execute a persistence update. If anything changed, the handler calls repository `update(&aggregate, loaded_version)` once. The PostgreSQL repository writes complete authoritative state, enforces optimistic concurrency, increments `version` exactly once with `version = version + 1`, and returns the new version from `UPDATE ... RETURNING version`.
 
 ### 6.2 Read use-case contract
 
@@ -1135,33 +1151,34 @@ impl SqlxRecordRepository<'_> {
         &mut self,
         record: &Record,
         expected_version: RecordVersion,
-    ) -> Result<(), RecordRepositoryError> {
-        let result = sqlx::query(
+    ) -> Result<RecordVersion, RecordRepositoryError> {
+        let row = sqlx::query_as::<_, (i64,)>(
             r#"
             UPDATE records
             SET
                 title = $1,
                 status = $2,
-                version = $3,
+                version = version + 1,
                 updated_at = now()
-            WHERE id = $4
-              AND version = $5
+            WHERE id = $3
+              AND version = $4
+            RETURNING version
             "#,
         )
         .bind(record.title().as_str())
         .bind(record.status().as_db_str())
-        .bind(record.version().into_inner())
         .bind(record.id().as_uuid())
         .bind(expected_version.into_inner())
-        .execute(&mut *self.connection)
+        .fetch_optional(&mut *self.connection)
         .await
         .map_err(RecordRepositoryError::from)?;
 
-        if result.rows_affected() != 1 {
+        let Some((version,)) = row else {
             return Err(RecordRepositoryError::VersionConflict);
-        }
+        };
 
-        Ok(())
+        RecordVersion::try_from(version)
+            .map_err(|_| RecordRepositoryError::InvalidPersistedState)
     }
 }
 ```
@@ -2154,9 +2171,10 @@ SET
     version = version + 1
 WHERE id = $2
   AND version = $3
+RETURNING version
 ```
 
-Zero affected rows MUST map to a version conflict when the row was expected to exist.
+No returned row MUST map to a version conflict when the row was expected to exist. The returned version is the authoritative new aggregate version for the use-case result.
 
 ### Idempotency
 
