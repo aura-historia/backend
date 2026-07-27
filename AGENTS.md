@@ -36,6 +36,7 @@
 - Less is more.
 - Keep docs short, clear, current.
 - In `src`, make doc by crate. No module doc unless module become crate boundary.
+- Always refer to `docs/arch.md` for architecture or any design decisions. It also includes detailed guidelines on DDD, persistence, APIs, logging, testing and co.
 - When instructed to autonomously create issues or push changes to GitHub, refer to `.agents/skills/github-workflow` for guidance. If no guidance exists, do not create issues or push changes. Never ever commit to develop branch or merge a pull request.
 
 ## Verification
