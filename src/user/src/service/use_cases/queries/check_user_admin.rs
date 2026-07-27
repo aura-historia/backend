@@ -12,16 +12,7 @@ pub struct CheckUserAdminResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum CheckUserAdminError {
-    #[error("user not found")]
-    NotFound,
-    #[error("admin role required")]
-    AdminRoleRequired,
-    #[error("temporary read failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum CheckUserAdminError {}
 
 #[async_trait::async_trait]
 pub trait CheckUserAdminUseCase: Send + Sync {

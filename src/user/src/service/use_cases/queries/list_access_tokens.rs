@@ -13,14 +13,7 @@ pub struct ListAccessTokensResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ListAccessTokensError {
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary access token store failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum ListAccessTokensError {}
 
 #[async_trait::async_trait]
 pub trait ListAccessTokensUseCase: Send + Sync {

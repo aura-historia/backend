@@ -37,12 +37,7 @@ pub struct SearchShopsResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SearchShopsError {
-    #[error("temporary search failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum SearchShopsError {}
 
 #[async_trait::async_trait]
 pub trait SearchShopsUseCase: Send + Sync {

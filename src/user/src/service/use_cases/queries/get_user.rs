@@ -2,12 +2,11 @@ use crate::core::{first_name::FirstName, last_name::LastName, role::UserRole, ti
 use common::operation_context::OperationContext;
 use common::{
     currency::domain::Currency, language::domain::Language,
-    measurement_unit::domain::MeasurementUnit, shop_id::ShopId,
-    stripe_customer_id::StripeCustomerId, user_id::UserId,
+    measurement_unit::domain::MeasurementUnit, stripe_customer_id::StripeCustomerId,
+    user_id::UserId,
 };
 use geo::core::address::{GeoAddress, StructuredAddress};
 use serde_email::Email;
-use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GetUserRequest {
@@ -30,20 +29,10 @@ pub struct UserDetailsView {
     pub stripe_customer_id: Option<StripeCustomerId>,
     pub structured_address: Option<StructuredAddress>,
     pub geo_address: Option<GeoAddress>,
-    pub partner_shops: HashSet<ShopId>,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum GetUserError {
-    #[error("user not found")]
-    NotFound,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary read failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum GetUserError {}
 
 #[async_trait::async_trait]
 pub trait GetUserUseCase: Send + Sync {

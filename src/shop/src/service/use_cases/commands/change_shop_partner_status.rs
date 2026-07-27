@@ -17,18 +17,7 @@ pub struct ChangeShopPartnerStatusResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ChangeShopPartnerStatusError {
-    #[error("shop not found")]
-    NotFound,
-    #[error("concurrent shop update")]
-    ConcurrencyConflict,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum ChangeShopPartnerStatusError {}
 
 #[async_trait::async_trait]
 pub trait ChangeShopPartnerStatusUseCase: Send + Sync {

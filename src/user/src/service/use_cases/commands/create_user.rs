@@ -16,18 +16,7 @@ pub struct CreateUserResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum CreateUserError {
-    #[error("user already exists")]
-    AlreadyExists,
-    #[error("user email already exists")]
-    EmailConflict,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum CreateUserError {}
 
 #[async_trait::async_trait]
 pub trait CreateUserUseCase: Send + Sync {

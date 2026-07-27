@@ -15,18 +15,7 @@ pub struct AuthenticateAccessTokenResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum AuthenticateAccessTokenError {
-    #[error("access token not found")]
-    NotFound,
-    #[error("access token expired")]
-    Expired,
-    #[error("access token scope missing")]
-    ScopeMissing,
-    #[error("temporary access token store failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum AuthenticateAccessTokenError {}
 
 #[async_trait::async_trait]
 pub trait AuthenticateAccessTokenUseCase: Send + Sync {

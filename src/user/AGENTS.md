@@ -9,7 +9,7 @@
 - User domain, repositories, search projection, and services.
 - Root modules: `core`, `data`, `dynamodb`, `opensearch`, `service`.
 - New migration contracts live beside old DynamoDB/OpenSearch paths: canonical aggregate in `core::user_aggregate`, use-case traits in `service::use_cases`, capability ports in `service::ports`, bundle in `service::use_case_bundle`.
-- Canonical `User` keeps business state private, leaves operational metadata to readers, targets Postgres via `UserRepository`, and keeps access tokens behind `AccessTokenStore` for DynamoDB.
+- Canonical `User` keeps business state private, leaves operational metadata and partner-shop joins to readers, targets Postgres via `UserRepository`, and keeps access tokens behind `AccessTokenStore` for DynamoDB.
 - Old `core::user::User` and `service::{command,user_service}` stay until cutover.
 
 - Main neighbors: `common`, `geo`.

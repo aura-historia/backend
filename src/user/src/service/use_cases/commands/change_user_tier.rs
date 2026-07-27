@@ -15,18 +15,7 @@ pub struct ChangeUserTierResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ChangeUserTierError {
-    #[error("user not found")]
-    NotFound,
-    #[error("concurrent user update")]
-    ConcurrencyConflict,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum ChangeUserTierError {}
 
 #[async_trait::async_trait]
 pub trait ChangeUserTierUseCase: Send + Sync {

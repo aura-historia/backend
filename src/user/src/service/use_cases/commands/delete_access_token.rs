@@ -15,16 +15,7 @@ pub struct DeleteAccessTokenResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum DeleteAccessTokenError {
-    #[error("access token not found")]
-    NotFound,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary access token store failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum DeleteAccessTokenError {}
 
 #[async_trait::async_trait]
 pub trait DeleteAccessTokenUseCase: Send + Sync {

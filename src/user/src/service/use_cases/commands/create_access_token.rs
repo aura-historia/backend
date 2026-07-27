@@ -23,18 +23,7 @@ pub struct CreateAccessTokenResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum CreateAccessTokenError {
-    #[error("user not found")]
-    UserNotFound,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("access token already exists")]
-    Conflict,
-    #[error("temporary access token store failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum CreateAccessTokenError {}
 
 #[async_trait::async_trait]
 pub trait CreateAccessTokenUseCase: Send + Sync {

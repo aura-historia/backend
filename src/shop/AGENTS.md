@@ -10,6 +10,7 @@
 - Root modules: `core`, `data`, `dynamodb`, `opensearch`, `service`, and temporary `wiring`.
 - New migration contracts live beside old DynamoDB paths: canonical aggregate in `core::shop_aggregate`, use-case traits in `service::use_cases`, capability ports in `service::ports`, bundle in `service::use_case_bundle`.
 - Canonical shop derives `view_url` from canonical URL plus affiliate config; `UpdateShop` uses shared tri-state fields, calls explicit domain methods, and keeps storage version internal to repositories.
+- Partner-shop membership commands and checks live in shop service use cases; no user aggregate ownership.
 - Old `core::shop::Shop` and `service::{command,command_service,get_service,query_service}` stay until cutover.
 - Main neighbors: `common`, `geo`.
 - Library crate. Keep domain, persistence, and service seams explicit.

@@ -21,16 +21,7 @@ pub struct AccessTokenView {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum GetAccessTokenError {
-    #[error("access token not found")]
-    NotFound,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary access token store failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum GetAccessTokenError {}
 
 #[async_trait::async_trait]
 pub trait GetAccessTokenUseCase: Send + Sync {

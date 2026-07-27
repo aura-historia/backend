@@ -15,18 +15,7 @@ pub struct ChangeUserRoleResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ChangeUserRoleError {
-    #[error("user not found")]
-    NotFound,
-    #[error("concurrent user update")]
-    ConcurrencyConflict,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum ChangeUserRoleError {}
 
 #[async_trait::async_trait]
 pub trait ChangeUserRoleUseCase: Send + Sync {

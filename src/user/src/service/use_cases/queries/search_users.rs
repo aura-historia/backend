@@ -32,14 +32,7 @@ pub struct SearchUsersResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SearchUsersError {
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("temporary search failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum SearchUsersError {}
 
 #[async_trait::async_trait]
 pub trait SearchUsersUseCase: Send + Sync {

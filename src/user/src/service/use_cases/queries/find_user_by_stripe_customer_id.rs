@@ -18,14 +18,7 @@ pub struct UserStripeLookupView {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum FindUserByStripeCustomerIdError {
-    #[error("user not found by stripe customer id")]
-    NotFound,
-    #[error("temporary read failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum FindUserByStripeCustomerIdError {}
 
 #[async_trait::async_trait]
 pub trait FindUserByStripeCustomerIdUseCase: Send + Sync {

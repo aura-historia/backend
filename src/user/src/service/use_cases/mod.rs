@@ -18,9 +18,7 @@ pub use commands::delete_access_token::{
     DeleteAccessTokenCommand, DeleteAccessTokenError, DeleteAccessTokenResult,
     DeleteAccessTokenUseCase,
 };
-pub use commands::grant_partner_shop::{
-    GrantPartnerShopCommand, GrantPartnerShopError, GrantPartnerShopResult, GrantPartnerShopUseCase,
-};
+
 pub use commands::update_access_token::{
     UpdateAccessTokenCommand, UpdateAccessTokenError, UpdateAccessTokenResult,
     UpdateAccessTokenUseCase,
@@ -45,6 +43,10 @@ pub use queries::get_access_token::{
 pub use queries::get_user::{GetUserError, GetUserRequest, GetUserUseCase, UserDetailsView};
 pub use queries::list_access_tokens::{
     ListAccessTokensError, ListAccessTokensRequest, ListAccessTokensResult, ListAccessTokensUseCase,
+};
+pub use queries::list_partner_shops::{
+    ListPartnerShopsError, ListPartnerShopsRequest, ListPartnerShopsResult,
+    ListPartnerShopsUseCase, PartnerShopSummary,
 };
 pub use queries::search_users::{
     SearchUsersError, SearchUsersRequest, SearchUsersResult, SearchUsersUseCase, UserSummary,

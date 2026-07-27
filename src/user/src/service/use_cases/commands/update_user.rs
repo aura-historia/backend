@@ -49,24 +49,10 @@ pub struct UpdateUserResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateUserError {
-    #[error("user not found")]
-    NotFound,
-    #[error("concurrent user update")]
-    ConcurrencyConflict,
     #[error("user email already exists")]
     EmailConflict,
     #[error("user stripe customer already exists")]
     StripeCustomerConflict,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("invalid user update")]
-    InvalidUpdate,
-    #[error("invalid user address")]
-    InvalidAddress,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
 }
 
 #[async_trait::async_trait]

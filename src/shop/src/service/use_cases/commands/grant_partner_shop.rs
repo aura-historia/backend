@@ -16,15 +16,11 @@ pub struct GrantPartnerShopResult {
 #[derive(Debug, thiserror::Error)]
 pub enum GrantPartnerShopError {
     #[error("user not found")]
-    NotFound,
-    #[error("concurrent user update")]
-    ConcurrencyConflict,
+    UserNotFound,
+    #[error("shop not found")]
+    ShopNotFound,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
 }
 
 #[async_trait::async_trait]

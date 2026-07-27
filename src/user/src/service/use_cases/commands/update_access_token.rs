@@ -27,18 +27,7 @@ pub struct UpdateAccessTokenResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum UpdateAccessTokenError {
-    #[error("access token not found")]
-    NotFound,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("invalid access token update")]
-    InvalidUpdate,
-    #[error("temporary access token store failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
-}
+pub enum UpdateAccessTokenError {}
 
 #[async_trait::async_trait]
 pub trait UpdateAccessTokenUseCase: Send + Sync {
