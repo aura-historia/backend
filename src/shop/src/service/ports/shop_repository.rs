@@ -1,12 +1,15 @@
 #![allow(dead_code)]
 
-use crate::core::{shop_aggregate::Shop, shop_version::ShopVersion};
+use crate::core::shop_aggregate::Shop;
+use common::versioned::Versioned;
 use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
+
+common::version_newtype!(ShopStorageVersion);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopRepositoryError {
-    #[error("shop version conflict")]
-    VersionConflict,
+    #[error("concurrent shop update")]
+    ConcurrencyConflict,
     #[error("shop slug conflict")]
     SlugConflict,
     #[error("temporary persistence failure")]
@@ -19,18 +22,21 @@ pub enum ShopRepositoryError {
 
 #[async_trait::async_trait]
 pub(crate) trait ShopRepository {
-    async fn find_by_id(&mut self, id: ShopId) -> Result<Option<Shop>, ShopRepositoryError>;
+    async fn find_by_id(
+        &mut self,
+        id: ShopId,
+    ) -> Result<Option<Versioned<Shop, ShopStorageVersion>>, ShopRepositoryError>;
 
     async fn find_by_slug(
         &mut self,
         slug_id: &ShopSlugId,
-    ) -> Result<Option<Shop>, ShopRepositoryError>;
+    ) -> Result<Option<Versioned<Shop, ShopStorageVersion>>, ShopRepositoryError>;
 
     async fn insert(&mut self, shop: &Shop) -> Result<(), ShopRepositoryError>;
 
     async fn update(
         &mut self,
         shop: &Shop,
-        expected_version: ShopVersion,
-    ) -> Result<ShopVersion, ShopRepositoryError>;
+        expected_version: ShopStorageVersion,
+    ) -> Result<(), ShopRepositoryError>;
 }

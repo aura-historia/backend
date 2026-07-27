@@ -1,7 +1,6 @@
 use crate::core::{
     address::StructuredAddress, affiliate_configuration::AffiliateConfiguration,
-    shop_type::ShopType, shop_version::ShopVersion,
-    woocommerce_webhook_secret::WoocommerceWebhookSecret,
+    shop_type::ShopType, woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
 use common::currency::domain::Currency;
 use common::domain::Domain;
@@ -30,7 +29,6 @@ pub struct UpdateShopCommand {
     pub phone: PatchField<String>,
     pub email: PatchField<Email>,
     pub affiliate_configuration: PatchField<AffiliateConfiguration>,
-    pub expected_version: Option<ShopVersion>,
     pub idempotency_key: Option<String>,
 }
 
@@ -58,15 +56,14 @@ pub struct UpdateShopResult {
     pub shop_id: ShopId,
     pub shop_slug_id: ShopSlugId,
     pub name: ShopName,
-    pub version: ShopVersion,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateShopError {
     #[error("shop not found")]
     NotFound,
-    #[error("shop version conflict")]
-    VersionConflict,
+    #[error("concurrent shop update")]
+    ConcurrencyConflict,
     #[error("operation not permitted")]
     Forbidden,
     #[error("invalid shop update")]

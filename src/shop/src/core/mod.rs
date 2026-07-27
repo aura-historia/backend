@@ -7,6 +7,5 @@ pub mod shop;
 pub mod shop_aggregate;
 pub mod shop_search;
 pub mod shop_type;
-pub mod shop_version;
 pub mod sort_shop_field;
 pub mod woocommerce_webhook_secret;

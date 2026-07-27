@@ -3,7 +3,6 @@ use crate::core::{
     affiliate_configuration::AffiliateConfiguration,
     partner_status::ShopPartnerStatus,
     shop_type::ShopType,
-    shop_version::ShopVersion,
     woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
 use common::change_outcome::ChangeOutcome;
@@ -28,7 +27,6 @@ pub struct Shop {
     contact: ShopContact,
     partner_status: ShopPartnerStatus,
     affiliate_configuration: Option<AffiliateConfiguration>,
-    version: ShopVersion,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,7 +58,6 @@ pub(crate) struct ShopState {
     pub contact: ShopContact,
     pub partner_status: ShopPartnerStatus,
     pub affiliate_configuration: Option<AffiliateConfiguration>,
-    pub version: ShopVersion,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,7 +105,6 @@ impl Shop {
     pub fn create(input: NewShop) -> Self {
         Self {
             slug_id: ShopSlugId::from(input.name.as_ref()),
-            version: ShopVersion::INITIAL,
             id: input.id,
             name: input.name,
             shop_type: input.shop_type,
@@ -146,7 +142,6 @@ impl Shop {
             contact: state.contact,
             partner_status: state.partner_status,
             affiliate_configuration: state.affiliate_configuration,
-            version: state.version,
         })
     }
 
@@ -251,10 +246,6 @@ impl Shop {
     pub fn affiliate_configuration(&self) -> Option<&AffiliateConfiguration> {
         self.affiliate_configuration.as_ref()
     }
-
-    pub fn version(&self) -> ShopVersion {
-        self.version
-    }
 }
 
 fn replace_if_changed<T: PartialEq>(target: &mut T, value: T) -> ChangeOutcome {
@@ -304,7 +295,6 @@ mod tests {
             contact: ShopContact::default(),
             partner_status: ShopPartnerStatus::Scraped,
             affiliate_configuration: None,
-            version: ShopVersion::INITIAL,
         }
     }
 
@@ -313,7 +303,6 @@ mod tests {
         let shop = Shop::create(new_shop("Antik und Stil"));
 
         assert_eq!("antik-und-stil", shop.slug_id().to_string());
-        assert_eq!(ShopVersion::INITIAL, shop.version());
         assert_eq!(ShopPartnerStatus::Scraped, shop.partner_status());
     }
 
@@ -335,14 +324,13 @@ mod tests {
     }
 
     #[test]
-    fn should_change_partner_status_without_incrementing_version() {
+    fn should_change_partner_status_when_status_differs() {
         let mut shop = Shop::create(new_shop("Antik und Stil"));
 
         let outcome = shop.change_partner_status(ShopPartnerStatus::Partnered);
 
         assert_eq!(ChangeOutcome::Changed, outcome);
         assert_eq!(ShopPartnerStatus::Partnered, shop.partner_status());
-        assert_eq!(ShopVersion::INITIAL, shop.version());
     }
 
     #[test]
@@ -352,18 +340,16 @@ mod tests {
         let outcome = shop.change_partner_status(ShopPartnerStatus::Scraped);
 
         assert_eq!(ChangeOutcome::Unchanged, outcome);
-        assert_eq!(ShopVersion::INITIAL, shop.version());
     }
 
     #[test]
-    fn should_replace_domains_without_incrementing_version() {
+    fn should_replace_domains_when_domains_differ() {
         let mut shop = Shop::create(new_shop("Antik und Stil"));
         let domains = HashSet::from([domain("https://auction.example.com")]);
 
         let outcome = shop.replace_domains(domains);
 
         assert_eq!(ChangeOutcome::Changed, outcome);
-        assert_eq!(ShopVersion::INITIAL, shop.version());
         assert!(
             shop.domains()
                 .contains(&domain("https://auction.example.com"))
@@ -377,11 +363,10 @@ mod tests {
         let outcome = shop.change_shop_type(ShopType::CommercialDealer);
 
         assert_eq!(ChangeOutcome::Unchanged, outcome);
-        assert_eq!(ShopVersion::INITIAL, shop.version());
     }
 
     #[test]
-    fn should_replace_contact_without_incrementing_version() {
+    fn should_replace_contact_when_contact_differs() {
         let mut shop = Shop::create(new_shop("Antik und Stil"));
         let contact = ShopContact {
             phone: Some("+49 123".to_string()),
@@ -392,7 +377,6 @@ mod tests {
 
         assert_eq!(ChangeOutcome::Changed, outcome);
         assert_eq!(Some("+49 123"), shop.contact().phone.as_deref());
-        assert_eq!(ShopVersion::INITIAL, shop.version());
     }
 
     #[test]

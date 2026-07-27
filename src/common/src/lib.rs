@@ -62,4 +62,5 @@ pub mod user_search_filter_name;
 pub mod utm;
 pub mod uuid_newtype;
 pub mod version;
+pub mod versioned;
 pub mod year;

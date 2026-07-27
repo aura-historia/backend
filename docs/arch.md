@@ -239,7 +239,6 @@ pub struct Record {
     workspace_id: WorkspaceId,
     title: RecordTitle,
     status: RecordStatus,
-    version: RecordVersion,
 }
 
 impl Record {
@@ -256,7 +255,6 @@ impl Record {
         }
 
         self.title = new_title;
-        self.version = self.version.next();
 
         Ok(())
     }
@@ -268,7 +266,6 @@ An event-driven aggregate MAY additionally collect domain events internally:
 ```rust
 self.pending_events.push(RecordEvent::Renamed {
     record_id: self.id,
-    version: self.version,
 });
 ```
 
@@ -433,14 +430,12 @@ Each use case SHOULD have its own file. The file owns:
 pub struct RenameRecordCommand {
     pub record_id: RecordId,
     pub new_title: String,
-    pub expected_version: Option<RecordVersion>,
     pub idempotency_key: Option<IdempotencyKey>,
 }
 
 pub struct RenameRecordResult {
     pub record_id: RecordId,
     pub title: String,
-    pub version: RecordVersion,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -448,8 +443,8 @@ pub enum RenameRecordError {
     #[error("record not found")]
     NotFound,
 
-    #[error("record version conflict")]
-    VersionConflict,
+    #[error("concurrent record update")]
+    ConcurrencyConflict,
 
     #[error("invalid title")]
     InvalidTitle,
@@ -499,7 +494,7 @@ When a public PATCH endpoint is intentionally broad, the service use case is sti
 
 The update handler MUST translate command fields into explicit aggregate methods such as `change_title`, `replace_address`, or `replace_contact`, and track `ChangeOutcome`. Generic update MUST NOT include state-machine transitions that deserve their own use case, such as publishing, archiving, or changing aggregate status.
 
-A broad update use case is one logical write. Domain methods return `ChangeOutcome` and MUST NOT increment the aggregate version. If nothing changed, the handler MUST NOT execute a persistence update. If anything changed, the handler calls repository `update(&aggregate, loaded_version)` once. The PostgreSQL repository writes complete authoritative state, enforces optimistic concurrency, increments `version` exactly once with `version = version + 1`, and returns the new version from `UPDATE ... RETURNING version`.
+A broad update use case is one logical write. Domain methods return `ChangeOutcome` and MUST NOT know about storage versions. If nothing changed, the handler MUST NOT execute a persistence update. If anything changed, the handler calls repository `update(&aggregate, loaded.version)` once. The PostgreSQL repository writes complete authoritative state, enforces optimistic concurrency with `WHERE version = $expected_version`, and increments `version` exactly once with `version = version + 1`. The new version is internal PostgreSQL/CDC state and MUST NOT be returned from ordinary use cases.
 
 ### 6.2 Read use-case contract
 
@@ -696,11 +691,13 @@ A repository reconstructs and persists an aggregate.
 
 ```rust
 #[async_trait::async_trait]
+type VersionedRecord = Versioned<Record, RecordStorageVersion>;
+
 pub(crate) trait RecordRepository {
     async fn find_by_id(
         &mut self,
         id: RecordId,
-    ) -> Result<Option<Record>, RecordRepositoryError>;
+    ) -> Result<Option<VersionedRecord>, RecordRepositoryError>;
 
     async fn insert(
         &mut self,
@@ -710,7 +707,7 @@ pub(crate) trait RecordRepository {
     async fn update(
         &mut self,
         record: &Record,
-        expected_version: RecordVersion,
+        expected_version: RecordStorageVersion,
     ) -> Result<(), RecordRepositoryError>;
 }
 ```
@@ -763,9 +760,9 @@ async fn get_by_id(
 
 `insert` means the aggregate MUST be new.
 
-`update` means the aggregate MUST exist and MUST enforce optimistic concurrency through `expected_version`.
+`update` means the aggregate MUST exist and MUST enforce optimistic concurrency through an internal loaded storage version.
 
-A generic `save` SHOULD NOT be used unless new/existing semantics and expected version are explicit.
+A generic `save` SHOULD NOT be used unless new/existing semantics and storage-version handling are explicit.
 
 A generic `delete` SHOULD NOT be used for normal domain behavior. Prefer a domain state transition:
 
@@ -972,14 +969,12 @@ REST request and response DTOs belong to the controller/API module.
 #[derive(serde::Deserialize)]
 pub(crate) struct RenameRecordRequestDto {
     pub title: String,
-    pub expected_version: Option<u64>,
 }
 
 #[derive(serde::Serialize)]
 pub(crate) struct RenameRecordResponseDto {
     pub id: Uuid,
     pub title: String,
-    pub version: u64,
 }
 ```
 
@@ -1001,10 +996,6 @@ impl TryFrom<(RecordId, RenameRecordRequestDto)>
         Ok(Self {
             record_id,
             new_title: dto.title,
-            expected_version: dto
-                .expected_version
-                .map(RecordVersion::try_from)
-                .transpose()?,
             idempotency_key: None,
         })
     }
@@ -1019,7 +1010,6 @@ impl From<RenameRecordResult> for RenameRecordResponseDto {
         Self {
             id: result.record_id.into_uuid(),
             title: result.title,
-            version: result.version.into_inner(),
         }
     }
 }
@@ -1069,18 +1059,20 @@ Mapping to the aggregate SHOULD use `TryFrom` because persisted state may be cor
 ```rust
 // postgres/mapping.rs
 
-impl TryFrom<RecordRow> for Record {
+impl TryFrom<RecordRow> for Versioned<Record, RecordStorageVersion> {
     type Error = RecordRowMappingError;
 
     fn try_from(row: RecordRow) -> Result<Self, Self::Error> {
-        Record::rehydrate(
+        let version = RecordStorageVersion::try_from(row.version)?;
+        let record = Record::rehydrate(
             RecordId::from_uuid(row.id),
             WorkspaceId::from_uuid(row.workspace_id),
             RecordTitle::try_from(row.title)?,
             RecordStatus::try_from(row.status.as_str())?,
-            RecordVersion::try_from(row.version)?,
         )
-        .map_err(RecordRowMappingError::InvalidPersistedState)
+        .map_err(RecordRowMappingError::InvalidPersistedState)?;
+
+        Ok(Versioned::new(record, version))
     }
 }
 ```
@@ -1094,7 +1086,6 @@ impl Record {
         workspace_id: WorkspaceId,
         title: RecordTitle,
         status: RecordStatus,
-        version: RecordVersion,
     ) -> Result<Self, RehydrateRecordError> {
         // Re-establish invariants without emitting new events.
         todo!()
@@ -1150,8 +1141,8 @@ impl SqlxRecordRepository<'_> {
     async fn update(
         &mut self,
         record: &Record,
-        expected_version: RecordVersion,
-    ) -> Result<RecordVersion, RecordRepositoryError> {
+        expected_version: RecordStorageVersion,
+    ) -> Result<(), RecordRepositoryError> {
         let row = sqlx::query_as::<_, (i64,)>(
             r#"
             UPDATE records
@@ -1174,11 +1165,13 @@ impl SqlxRecordRepository<'_> {
         .map_err(RecordRepositoryError::from)?;
 
         let Some((version,)) = row else {
-            return Err(RecordRepositoryError::VersionConflict);
+            return Err(RecordRepositoryError::ConcurrencyConflict);
         };
 
-        RecordVersion::try_from(version)
-            .map_err(|_| RecordRepositoryError::InvalidPersistedState)
+        RecordStorageVersion::try_from(version)
+            .map_err(|_| RecordRepositoryError::InvalidPersistedState)?;
+
+        Ok(())
     }
 }
 ```
@@ -1373,18 +1366,12 @@ impl RenameRecordUseCase for PostgresRenameRecordHandler {
             .await
             .map_err(RenameRecordError::from)?;
 
-        let mut record = SqlxRecordRepository::new(&mut *tx)
+        let loaded = SqlxRecordRepository::new(&mut *tx)
             .find_by_id(command.record_id)
             .await?
             .ok_or(RenameRecordError::NotFound)?;
-
-        let loaded_version = record.version();
-
-        if let Some(expected_version) = command.expected_version {
-            if expected_version != loaded_version {
-                return Err(RenameRecordError::VersionConflict);
-            }
-        }
+        let loaded_version = loaded.version;
+        let mut record = loaded.value;
 
         authorize_rename(actor, &record)?;
 
@@ -1406,14 +1393,12 @@ impl RenameRecordUseCase for PostgresRenameRecordHandler {
             actor_type = actor.kind(),
             actor_id = %actor.id(),
             record_id = %record.id(),
-            record_version = %record.version(),
             outcome = "success",
         );
 
         Ok(RenameRecordResult {
             record_id: record.id(),
             title: record.title().to_string(),
-            version: record.version(),
         })
     }
 }
@@ -1823,7 +1808,7 @@ Connection
 Timeout
 Decode
 Mapping
-VersionConflict
+ConcurrencyConflict
 UnexpectedRowCount
 ExternalResponse
 ```
@@ -2174,7 +2159,7 @@ WHERE id = $2
 RETURNING version
 ```
 
-No returned row MUST map to a version conflict when the row was expected to exist. The returned version is the authoritative new aggregate version for the use-case result.
+No returned row MUST map to an internal concurrency-conflict error when the row was expected to exist. Do not leak the concrete version value in errors. The returned version is authoritative only for PostgreSQL internals and CDC/outbox consumers; ordinary use cases SHOULD NOT return it.
 
 ### Idempotency
 
