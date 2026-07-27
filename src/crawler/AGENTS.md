@@ -63,6 +63,7 @@
 - URL classification should stay mostly deterministic after regex inference. Do not turn every page decision into fresh LLM call.
 - Schema repair should grow cache carefully. Bad generated schema should die fast, not poison shop cache.
 - State mapping should prefer exact or regex reuse before LLM fallback.
+- Price normalization de-dupes repeated visible/accessibility price text only when candidates agree or one clean decimal form beats malformed visual cents.
 - Filter non-actionable `html5ever::tree_builder` warnings at crawler entrypoints.
 - Avoid code duplication between `demo` and `server` when shared builder or service can hold it.
 - Testcontainers tests be preferred proof for DB behavior. Keep fixtures focused and stable.
