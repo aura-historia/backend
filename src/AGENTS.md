@@ -31,9 +31,6 @@
 - Read root, then here, then crate doc, before edit.
 - New `src` doc go at crate root. No module doc unless module become crate boundary.
 - Update nearest doc when crate purpose, route, event, env var, dependency edge, test flow, or child index change.
-- For entity/type work, use `.agents/skills/add-entity-type/SKILL.md`.
-- For REST endpoint work, use `.agents/skills/add-rest-api-endpoint/SKILL.md`.
-- For new Lambda work, use `.agents/skills/add-backend-lambda/SKILL.md`.
 - If REST endpoint, payload, auth, or error behavior change, update `docs/swagger.yaml` and `docs/CHANGELOG.md`.
 - If relevant DynamoDB structure change, update `docs/dynamodb/table_1.md`
 - If OpenSearch DTOs change, make sure the corresponding index-mappings in `opensearch/mappings` are aligned

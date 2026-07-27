@@ -5,6 +5,7 @@ pub mod distance;
 #[cfg(feature = "api")]
 pub mod api;
 pub mod batch;
+pub mod change_outcome;
 pub mod domain;
 pub mod enhanced_match_reason;
 
@@ -35,8 +36,10 @@ pub mod product_state;
 pub mod oauth_client_id;
 #[cfg(feature = "opensearch")]
 pub mod opensearch;
+pub mod operation_context;
 pub mod pagination;
 pub mod partner_shop_application_id;
+pub mod patch_field;
 pub mod personalized;
 #[cfg(feature = "postgres")]
 pub mod postgres;
@@ -58,4 +61,6 @@ pub mod user_search_filter_id;
 pub mod user_search_filter_name;
 pub mod utm;
 pub mod uuid_newtype;
+pub mod version;
+pub mod versioned;
 pub mod year;
