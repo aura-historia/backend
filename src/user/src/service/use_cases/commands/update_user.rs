@@ -23,7 +23,6 @@ pub struct UpdateUserCommand {
     pub role: PatchField<UserRole>,
     pub stripe_customer_id: PatchField<StripeCustomerId>,
     pub structured_address: PatchField<StructuredAddress>,
-    pub idempotency_key: Option<String>,
 }
 
 impl UpdateUserCommand {

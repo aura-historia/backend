@@ -6,7 +6,6 @@ use common::user_id::UserId;
 pub struct ChangeUserTierCommand {
     pub user_id: UserId,
     pub tier: UserTier,
-    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

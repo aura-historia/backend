@@ -6,7 +6,6 @@ use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 pub struct ChangeShopPartnerStatusCommand {
     pub shop_id: ShopId,
     pub partner_status: ShopPartnerStatus,
-    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -6,7 +6,6 @@ use common::user_id::UserId;
 pub struct DeleteAccessTokenCommand {
     pub user_id: UserId,
     pub access_token_id: AccessTokenId,
-    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

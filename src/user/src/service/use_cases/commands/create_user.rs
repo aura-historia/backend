@@ -7,7 +7,6 @@ use serde_email::Email;
 pub struct CreateUserCommand {
     pub user_id: UserId,
     pub email: Email,
-    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

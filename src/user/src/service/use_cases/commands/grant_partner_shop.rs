@@ -5,7 +5,6 @@ use common::{shop_id::ShopId, user_id::UserId};
 pub struct GrantPartnerShopCommand {
     pub user_id: UserId,
     pub shop_id: ShopId,
-    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

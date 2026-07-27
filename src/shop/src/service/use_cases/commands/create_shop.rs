@@ -31,7 +31,6 @@ pub struct CreateShopCommand {
     pub phone: Option<String>,
     pub email: Option<Email>,
     pub affiliate_configuration: Option<AffiliateConfiguration>,
-    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -12,7 +12,6 @@ pub struct UpdateAccessTokenCommand {
     pub name: PatchField<AccessTokenName>,
     pub scopes: PatchField<HashSet<Scope>>,
     pub expires: PatchField<OffsetDateTime>,
-    pub idempotency_key: Option<String>,
 }
 
 impl UpdateAccessTokenCommand {

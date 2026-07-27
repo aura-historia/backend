@@ -29,7 +29,6 @@ pub struct UpdateShopCommand {
     pub phone: PatchField<String>,
     pub email: PatchField<Email>,
     pub affiliate_configuration: PatchField<AffiliateConfiguration>,
-    pub idempotency_key: Option<String>,
 }
 
 impl UpdateShopCommand {

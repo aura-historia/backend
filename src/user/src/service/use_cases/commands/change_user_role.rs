@@ -6,7 +6,6 @@ use common::user_id::UserId;
 pub struct ChangeUserRoleCommand {
     pub user_id: UserId,
     pub role: UserRole,
-    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

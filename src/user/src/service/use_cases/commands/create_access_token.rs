@@ -13,7 +13,6 @@ pub struct CreateAccessTokenCommand {
     pub scopes: HashSet<Scope>,
     pub expires: Option<OffsetDateTime>,
     pub origin: AccessTokenOrigin,
-    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -430,7 +430,6 @@ Each use case SHOULD have its own file. The file owns:
 pub struct RenameRecordCommand {
     pub record_id: RecordId,
     pub new_title: String,
-    pub idempotency_key: Option<IdempotencyKey>,
 }
 
 pub struct RenameRecordResult {
@@ -996,7 +995,6 @@ impl TryFrom<(RecordId, RenameRecordRequestDto)>
         Ok(Self {
             record_id,
             new_title: dto.title,
-            idempotency_key: None,
         })
     }
 }
