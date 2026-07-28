@@ -22,6 +22,17 @@ pub struct OperationContext {
     pub correlation_id: CorrelationId,
 }
 
+impl OperationContext {
+    pub fn actor_label(&self) -> Option<String> {
+        match &self.principal {
+            Principal::Anonymous => None,
+            Principal::User(user_id) => Some(user_id.to_string()),
+            Principal::Service(service_id) => Some(service_id.clone()),
+            Principal::System => Some("SYSTEM".to_owned()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("authenticated principal required")]
 pub struct AuthenticationRequired;

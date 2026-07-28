@@ -4,8 +4,6 @@ use crate::core::product_aggregate::{ProductDomainEvent, ProductDomainEventPaylo
 use crate::service::ports::product_event_store::{ProductEventStore, ProductEventStoreError};
 use common::event_id::EventId;
 use common::product_id::ProductId;
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
 use serde_json::json;
 use sqlx::PgConnection;
 
@@ -21,31 +19,21 @@ impl<'tx> SqlxProductEventStore<'tx> {
 
 #[async_trait::async_trait]
 impl ProductEventStore for SqlxProductEventStore<'_> {
-    async fn append(
-        &mut self,
-        event: &ProductDomainEvent,
-        created_by: &str,
-    ) -> Result<(), ProductEventStoreError> {
-        let (shop_id, shops_product_id) = event_key(event);
+    async fn append(&mut self, event: &ProductDomainEvent) -> Result<(), ProductEventStoreError> {
         sqlx::query(
             r#"
             INSERT INTO product_events (
-                event_id, product_id, shop_id, shops_product_id, event_type,
-                event_group, payload, event_time, created_by
-            ) VALUES ($1, $2, $3, $4, $5, 'DOMAIN', $6, $7, $8)
+                event_id, product_id, event_type, event_group, payload, event_time
+            ) VALUES ($1, $2, $3, 'DOMAIN', $4, $5)
             "#,
         )
         .bind(uuid::Uuid::from(event.event_id))
         .bind(uuid::Uuid::from(event.aggregate_id))
-        .bind(uuid::Uuid::from(shop_id))
-        .bind(shops_product_id.as_ref())
         .bind(event.payload.event_type())
         .bind(event_payload_json(&event.payload))
         .bind(event.timestamp)
-        .bind(created_by)
         .execute(&mut *self.connection)
-        .await
-        .map_err(map_sqlx_error)?;
+        .await?;
 
         Ok(())
     }
@@ -59,42 +47,9 @@ impl ProductEventStore for SqlxProductEventStore<'_> {
         )
         .bind(uuid::Uuid::from(product_id))
         .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(map_sqlx_error)?;
+        .await?;
 
         Ok(event_id.map(EventId::from))
-    }
-}
-
-fn event_key(event: &ProductDomainEvent) -> (ShopId, ShopsProductId) {
-    match &event.payload {
-        ProductDomainEventPayload::Created(payload) => {
-            (payload.shop_id, payload.shops_product_id.clone())
-        }
-        ProductDomainEventPayload::StateChanged(payload) => {
-            (payload.shop_id, payload.shops_product_id.clone())
-        }
-        ProductDomainEventPayload::AddressChanged(payload) => {
-            (payload.shop_id, payload.shops_product_id.clone())
-        }
-        ProductDomainEventPayload::PriceChanged(payload) => {
-            (payload.shop_id, payload.shops_product_id.clone())
-        }
-        ProductDomainEventPayload::UrlChanged(payload) => {
-            (payload.shop_id, payload.shops_product_id.clone())
-        }
-        ProductDomainEventPayload::ImagesChanged(payload) => {
-            (payload.shop_id, payload.shops_product_id.clone())
-        }
-        ProductDomainEventPayload::Embedded(payload) => {
-            (payload.shop_id, payload.shops_product_id.clone())
-        }
-        ProductDomainEventPayload::AuctionChanged(payload) => {
-            (payload.shop_id, payload.shops_product_id.clone())
-        }
-        ProductDomainEventPayload::Deleted(payload) => {
-            (payload.shop_id, payload.shops_product_id.clone())
-        }
     }
 }
 
@@ -102,74 +57,44 @@ fn event_payload_json(payload: &ProductDomainEventPayload) -> serde_json::Value 
     match payload {
         ProductDomainEventPayload::Created(payload) => json!({
             "kind": "created",
-            "shopId": payload.shop_id.to_string(),
-            "sellerId": payload.seller_id.to_string(),
-            "shopsProductId": payload.shops_product_id.as_ref(),
             "state": format!("{:?}", payload.state),
+            "hasTitle": payload.title.is_some(),
+            "hasDescription": payload.description.is_some(),
         }),
         ProductDomainEventPayload::StateChanged(payload) => json!({
             "kind": "stateChanged",
-            "shopId": payload.shop_id.to_string(),
-            "shopsProductId": payload.shops_product_id.as_ref(),
             "oldState": format!("{:?}", payload.old_state),
             "newState": format!("{:?}", payload.new_state),
         }),
         ProductDomainEventPayload::AddressChanged(payload) => json!({
             "kind": "addressChanged",
-            "shopId": payload.shop_id.to_string(),
-            "shopsProductId": payload.shops_product_id.as_ref(),
             "hasStructuredAddress": payload.address.structured.is_some(),
             "hasGeoAddress": payload.address.geo.is_some(),
         }),
         ProductDomainEventPayload::PriceChanged(payload) => json!({
             "kind": "priceChanged",
-            "shopId": payload.shop_id.to_string(),
-            "shopsProductId": payload.shops_product_id.as_ref(),
             "oldFxRateId": payload.old_pricing.fx_rate_id.map(String::from),
             "newFxRateId": payload.new_pricing.fx_rate_id.map(String::from),
         }),
         ProductDomainEventPayload::UrlChanged(payload) => json!({
             "kind": "urlChanged",
-            "shopId": payload.shop_id.to_string(),
-            "shopsProductId": payload.shops_product_id.as_ref(),
             "oldUrl": payload.old_url.as_str(),
             "newUrl": payload.new_url.as_str(),
         }),
         ProductDomainEventPayload::ImagesChanged(payload) => json!({
             "kind": "imagesChanged",
-            "shopId": payload.shop_id.to_string(),
-            "shopsProductId": payload.shops_product_id.as_ref(),
             "imageCount": payload.images.len(),
-        }),
-        ProductDomainEventPayload::Embedded(payload) => json!({
-            "kind": "embedded",
-            "shopId": payload.shop_id.to_string(),
-            "shopsProductId": payload.shops_product_id.as_ref(),
-            "dimensions": payload.embedding.as_ref().map(|embedding| embedding.len()),
         }),
         ProductDomainEventPayload::AuctionChanged(payload) => json!({
             "kind": "auctionChanged",
-            "shopId": payload.shop_id.to_string(),
-            "shopsProductId": payload.shops_product_id.as_ref(),
             "auctionStart": payload.auction.start.map(|value| value.to_string()),
             "auctionEnd": payload.auction.end.map(|value| value.to_string()),
         }),
         ProductDomainEventPayload::Deleted(payload) => json!({
             "kind": "deleted",
-            "shopId": payload.shop_id.to_string(),
-            "shopsProductId": payload.shops_product_id.as_ref(),
             "oldLifecycle": format!("{:?}", payload.old_lifecycle),
             "newLifecycle": format!("{:?}", payload.new_lifecycle),
         }),
-    }
-}
-
-fn map_sqlx_error(error: sqlx::Error) -> ProductEventStoreError {
-    match &error {
-        sqlx::Error::Database(db_error) if db_error.is_unique_violation() => {
-            ProductEventStoreError::EventConflict
-        }
-        _ => ProductEventStoreError::Internal,
     }
 }
 
@@ -188,8 +113,6 @@ mod tests {
             event_id: EventId::new(),
             timestamp: OffsetDateTime::now_utc(),
             payload: ProductDomainEventPayload::StateChanged(ProductStateChanged {
-                shop_id: ShopId::new(),
-                shops_product_id: ShopsProductId::new(),
                 old_state: ProductState::Listed,
                 new_state: ProductState::Available,
             }),
@@ -210,8 +133,6 @@ mod tests {
 
         let payload = event_payload_json(&ProductDomainEventPayload::PriceChanged(
             crate::core::product_aggregate::ProductPriceChanged {
-                shop_id: ShopId::new(),
-                shops_product_id: ShopsProductId::new(),
                 old_pricing,
                 new_pricing,
             },

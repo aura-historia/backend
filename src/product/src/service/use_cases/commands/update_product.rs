@@ -1,5 +1,7 @@
 use crate::core::product_aggregate::{ProductAddress, ProductAuction, ProductPricing};
 use crate::core::product_image::ProductImage;
+use crate::service::ports::product_event_store::ProductEventStoreError;
+use crate::service::ports::product_repository::ProductRepositoryError;
 use common::event_id::EventId;
 use common::operation_context::OperationContext;
 use common::patch_field::PatchField;
@@ -16,7 +18,6 @@ pub struct UpdateProductCommand {
     pub state: PatchField<ProductState>,
     pub url: PatchField<Url>,
     pub images: PatchField<IndexSet<ProductImage>>,
-    pub embedding: PatchField<Vec<f32>>,
     pub auction: PatchField<ProductAuction>,
 }
 
@@ -27,7 +28,6 @@ impl UpdateProductCommand {
             && !self.state.is_changed()
             && !self.url.is_changed()
             && !self.images.is_changed()
-            && !self.embedding.is_changed()
             && !self.auction.is_changed()
     }
 }
@@ -40,18 +40,32 @@ pub struct UpdateProductResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateProductError {
+    #[error("authenticated actor required to update product")]
+    AuthenticatedActorRequired,
     #[error("product not found")]
-    NotFound,
-    #[error("concurrent product update")]
+    ProductNotFound,
+    #[error("product update conflicted with a concurrent event")]
     ConcurrencyConflict,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("invalid product update")]
-    InvalidProduct,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
+    #[error("product update cleared required state")]
+    StateRequired,
+    #[error("product update cleared required url")]
+    UrlRequired,
+    #[error("product state is invalid")]
+    InvalidProductState,
+    #[error("product repository unavailable")]
+    ProductRepositoryUnavailable,
+    #[error("product event store unavailable")]
+    ProductEventStoreUnavailable,
+    #[error("product event already exists")]
+    EventConflict,
+    #[error("failed to begin update product transaction")]
+    BeginTransactionFailed,
+    #[error("failed to commit update product transaction")]
+    CommitTransactionFailed,
+    #[error("internal product repository failure")]
+    ProductRepositoryInternal,
+    #[error("internal product event store failure")]
+    ProductEventStoreInternal,
 }
 
 #[async_trait::async_trait]
@@ -61,6 +75,30 @@ pub trait UpdateProductUseCase: Send + Sync {
         context: &OperationContext,
         command: UpdateProductCommand,
     ) -> Result<UpdateProductResult, UpdateProductError>;
+}
+
+impl From<ProductRepositoryError> for UpdateProductError {
+    fn from(error: ProductRepositoryError) -> Self {
+        match error {
+            ProductRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
+            ProductRepositoryError::TemporarilyUnavailable => Self::ProductRepositoryUnavailable,
+            ProductRepositoryError::InvalidPersistedState => Self::InvalidProductState,
+            ProductRepositoryError::ProductKeyConflict
+            | ProductRepositoryError::SlugConflict
+            | ProductRepositoryError::Internal => Self::ProductRepositoryInternal,
+        }
+    }
+}
+
+impl From<ProductEventStoreError> for UpdateProductError {
+    fn from(error: ProductEventStoreError) -> Self {
+        match error {
+            ProductEventStoreError::TemporarilyUnavailable => Self::ProductEventStoreUnavailable,
+            ProductEventStoreError::InvalidEvent => Self::InvalidProductState,
+            ProductEventStoreError::EventConflict => Self::EventConflict,
+            ProductEventStoreError::Internal => Self::ProductEventStoreInternal,
+        }
+    }
 }
 
 #[cfg(test)]

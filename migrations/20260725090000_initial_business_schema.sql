@@ -157,9 +157,7 @@ CREATE TABLE IF NOT EXISTS fx_rates (
     fx_rate_id uuid PRIMARY KEY,
     captured_at timestamptz NOT NULL,
     source text NOT NULL,
-    rates jsonb NOT NULL,
-    created timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT fx_rates_rates_object CHECK (jsonb_typeof(rates) = 'object')
+    created timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS fx_rate_conversions (
@@ -187,10 +185,10 @@ CREATE TABLE IF NOT EXISTS products (
     structured_address_country text,
     geo_address_lat double precision,
     geo_address_lon double precision,
-    title_native_text text NOT NULL,
-    title_native_language text NOT NULL,
-    description_native_text text,
-    description_native_language text,
+    title_text text,
+    title_language text,
+    description_text text,
+    description_language text,
     price_native_amount bigint,
     price_native_currency text,
     price_estimate_min_native_amount bigint,
@@ -202,14 +200,12 @@ CREATE TABLE IF NOT EXISTS products (
     lifecycle text NOT NULL,
     url text NOT NULL,
     product_images jsonb NOT NULL DEFAULT '[]',
-    embedding real[],
     auction_start timestamptz,
     auction_end timestamptz,
-    created_by text NOT NULL,
-    updated_by text NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT products_shop_product_unique UNIQUE (shop_id, shops_product_id),
+    CONSTRAINT products_slug_unique UNIQUE (product_slug_id),
     CONSTRAINT products_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
     CONSTRAINT products_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
     CONSTRAINT products_images_array CHECK (jsonb_typeof(product_images) = 'array')
@@ -220,8 +216,6 @@ CREATE TABLE IF NOT EXISTS product_translations (
     language text NOT NULL,
     title text,
     description text,
-    created_by text NOT NULL,
-    updated_by text NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (product_id, language),
@@ -231,8 +225,6 @@ CREATE TABLE IF NOT EXISTS product_translations (
 CREATE TABLE IF NOT EXISTS product_events (
     event_id uuid PRIMARY KEY,
     product_id uuid NOT NULL REFERENCES products(product_id) DEFERRABLE INITIALLY DEFERRED,
-    shop_id uuid NOT NULL,
-    shops_product_id text NOT NULL,
     event_type text NOT NULL,
     event_group text NOT NULL,
     event_type_schema_version int NOT NULL DEFAULT 1,
@@ -240,9 +232,6 @@ CREATE TABLE IF NOT EXISTS product_events (
     event_time timestamptz NOT NULL,
     created_by text NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT product_events_shop_product_fkey
-        FOREIGN KEY (shop_id, shops_product_id) REFERENCES products(shop_id, shops_product_id)
-        DEFERRABLE INITIALLY DEFERRED,
     CONSTRAINT product_events_group_check CHECK (
         event_group IN ('DOMAIN', 'ENRICHMENT', 'POLICY', 'LIFECYCLE')
     ),
@@ -266,8 +255,6 @@ CREATE INDEX IF NOT EXISTS products_lifecycle_updated_idx ON products (lifecycle
 CREATE INDEX IF NOT EXISTS products_fx_rate_id_idx ON products (fx_rate_id);
 CREATE INDEX IF NOT EXISTS product_translations_language_idx ON product_translations (language);
 CREATE INDEX IF NOT EXISTS product_events_product_time_idx ON product_events (product_id, event_time ASC);
-CREATE INDEX IF NOT EXISTS product_events_shop_product_time_idx
-    ON product_events (shop_id, shops_product_id, event_time ASC);
 CREATE INDEX IF NOT EXISTS product_events_type_time_idx ON product_events (event_type, event_time ASC);
 
 

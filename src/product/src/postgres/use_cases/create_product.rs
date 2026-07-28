@@ -3,8 +3,8 @@
 use crate::core::product_aggregate::Product;
 use crate::postgres::event_store::SqlxProductEventStore;
 use crate::postgres::repository::SqlxProductRepository;
-use crate::service::ports::product_event_store::{ProductEventStore, ProductEventStoreError};
-use crate::service::ports::product_repository::{ProductRepository, ProductRepositoryError};
+use crate::service::ports::product_event_store::ProductEventStore;
+use crate::service::ports::product_repository::ProductRepository;
 use crate::service::use_cases::commands::create_product::{
     CreateProductCommand, CreateProductError, CreateProductResult, CreateProductUseCase,
 };
@@ -40,29 +40,32 @@ impl CreateProductUseCase for PostgresCreateProductHandler {
         context: &OperationContext,
         command: CreateProductCommand,
     ) -> Result<CreateProductResult, CreateProductError> {
-        let actor = super::actor_label(context).ok_or(CreateProductError::Forbidden)?;
+        let actor = context
+            .actor_label()
+            .ok_or(CreateProductError::AuthenticatedActorRequired)?;
         tracing::Span::current().record("actor_id", tracing::field::display(&actor));
 
-        let product = Product::create(command.into_new_product(ProductId::new()))
-            .map_err(|_| CreateProductError::InvalidProduct)?;
+        let product = Product::create(command.into_new_product(ProductId::new()))?;
         let event_id = product
             .pending_events()
             .last()
             .map(|event| event.event_id)
-            .ok_or(CreateProductError::Internal)?;
+            .ok_or(CreateProductError::CreatedEventMissing)?;
 
-        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
-        SqlxProductRepository::new(&mut tx)
-            .insert(&product, event_id, &actor)
+        let mut tx = self
+            .pool
+            .begin()
             .await
-            .map_err(map_repository_error)?;
+            .map_err(|_| CreateProductError::BeginTransactionFailed)?;
+        SqlxProductRepository::new(&mut tx)
+            .insert(&product, event_id)
+            .await?;
         for event in product.pending_events() {
-            SqlxProductEventStore::new(&mut tx)
-                .append(event, &actor)
-                .await
-                .map_err(map_event_store_error)?;
+            SqlxProductEventStore::new(&mut tx).append(event).await?;
         }
-        tx.commit().await.map_err(map_sqlx_error)?;
+        tx.commit()
+            .await
+            .map_err(|_| CreateProductError::CommitTransactionFailed)?;
 
         tracing::info!(
             event = "product.created",
@@ -75,33 +78,4 @@ impl CreateProductUseCase for PostgresCreateProductHandler {
 
         CreateProductResult::try_from(&product)
     }
-}
-
-fn map_repository_error(error: ProductRepositoryError) -> CreateProductError {
-    match error {
-        ProductRepositoryError::ProductKeyConflict => CreateProductError::ProductConflict,
-        ProductRepositoryError::SlugConflict => CreateProductError::SlugConflict,
-        ProductRepositoryError::TemporarilyUnavailable => {
-            CreateProductError::TemporarilyUnavailable
-        }
-        ProductRepositoryError::InvalidPersistedState => CreateProductError::InvalidProduct,
-        ProductRepositoryError::ConcurrencyConflict | ProductRepositoryError::Internal => {
-            CreateProductError::Internal
-        }
-    }
-}
-
-fn map_event_store_error(error: ProductEventStoreError) -> CreateProductError {
-    match error {
-        ProductEventStoreError::TemporarilyUnavailable => {
-            CreateProductError::TemporarilyUnavailable
-        }
-        ProductEventStoreError::EventConflict => CreateProductError::ProductConflict,
-        ProductEventStoreError::InvalidEvent => CreateProductError::InvalidProduct,
-        ProductEventStoreError::Internal => CreateProductError::Internal,
-    }
-}
-
-fn map_sqlx_error(_error: sqlx::Error) -> CreateProductError {
-    CreateProductError::Internal
 }

@@ -16,13 +16,21 @@ pub enum ProductEventStoreError {
     Internal,
 }
 
+#[cfg(feature = "postgres")]
+impl From<sqlx::Error> for ProductEventStoreError {
+    fn from(error: sqlx::Error) -> Self {
+        match &error {
+            sqlx::Error::Database(db_error) if db_error.is_unique_violation() => {
+                Self::EventConflict
+            }
+            _ => Self::Internal,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 pub(crate) trait ProductEventStore {
-    async fn append(
-        &mut self,
-        event: &ProductDomainEvent,
-        created_by: &str,
-    ) -> Result<(), ProductEventStoreError>;
+    async fn append(&mut self, event: &ProductDomainEvent) -> Result<(), ProductEventStoreError>;
 
     async fn find_current_event_id(
         &mut self,

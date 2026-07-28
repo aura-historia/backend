@@ -2,8 +2,8 @@
 
 use crate::postgres::event_store::SqlxProductEventStore;
 use crate::postgres::repository::SqlxProductRepository;
-use crate::service::ports::product_event_store::{ProductEventStore, ProductEventStoreError};
-use crate::service::ports::product_repository::{ProductRepository, ProductRepositoryError};
+use crate::service::ports::product_event_store::ProductEventStore;
+use crate::service::ports::product_repository::ProductRepository;
 use crate::service::use_cases::commands::update_product::{
     UpdateProductCommand, UpdateProductError, UpdateProductResult, UpdateProductUseCase,
 };
@@ -38,15 +38,20 @@ impl UpdateProductUseCase for PostgresUpdateProductHandler {
         context: &OperationContext,
         command: UpdateProductCommand,
     ) -> Result<UpdateProductResult, UpdateProductError> {
-        let actor = super::actor_label(context).ok_or(UpdateProductError::Forbidden)?;
+        let actor = context
+            .actor_label()
+            .ok_or(UpdateProductError::AuthenticatedActorRequired)?;
         tracing::Span::current().record("actor_id", tracing::field::display(&actor));
 
-        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| UpdateProductError::BeginTransactionFailed)?;
         let loaded = SqlxProductRepository::new(&mut tx)
             .find_by_id(command.product_id)
-            .await
-            .map_err(map_repository_error)?
-            .ok_or(UpdateProductError::NotFound)?;
+            .await?
+            .ok_or(UpdateProductError::ProductNotFound)?;
         let expected_event_id = loaded.current_event_id;
         let mut product = loaded.product;
 
@@ -56,18 +61,16 @@ impl UpdateProductUseCase for PostgresUpdateProductHandler {
 
         if let Some(new_event_id) = event_id {
             SqlxProductRepository::new(&mut tx)
-                .update(&product, expected_event_id, new_event_id, &actor)
-                .await
-                .map_err(map_repository_error)?;
+                .update(&product, expected_event_id, new_event_id)
+                .await?;
             for event in &events {
-                SqlxProductEventStore::new(&mut tx)
-                    .append(event, &actor)
-                    .await
-                    .map_err(map_event_store_error)?;
+                SqlxProductEventStore::new(&mut tx).append(event).await?;
             }
         }
 
-        tx.commit().await.map_err(map_sqlx_error)?;
+        tx.commit()
+            .await
+            .map_err(|_| UpdateProductError::CommitTransactionFailed)?;
 
         if let Some(event_id) = event_id {
             tracing::info!(
@@ -114,14 +117,14 @@ fn apply_command(
         PatchField::Set(state) => {
             product.change_state(state);
         }
-        PatchField::Clear => return Err(UpdateProductError::InvalidProduct),
+        PatchField::Clear => return Err(UpdateProductError::StateRequired),
     }
     match command.url {
         PatchField::Unchanged => {}
         PatchField::Set(url) => {
             product.change_url(url);
         }
-        PatchField::Clear => return Err(UpdateProductError::InvalidProduct),
+        PatchField::Clear => return Err(UpdateProductError::UrlRequired),
     }
     match command.images {
         PatchField::Unchanged => {}
@@ -130,15 +133,6 @@ fn apply_command(
         }
         PatchField::Clear => {
             product.replace_images(Default::default());
-        }
-    }
-    match command.embedding {
-        PatchField::Unchanged => {}
-        PatchField::Set(embedding) => {
-            product.replace_embedding(Some(embedding));
-        }
-        PatchField::Clear => {
-            product.replace_embedding(None);
         }
     }
     match command.auction {
@@ -152,33 +146,4 @@ fn apply_command(
     }
 
     Ok(())
-}
-
-fn map_repository_error(error: ProductRepositoryError) -> UpdateProductError {
-    match error {
-        ProductRepositoryError::ConcurrencyConflict => UpdateProductError::ConcurrencyConflict,
-        ProductRepositoryError::TemporarilyUnavailable => {
-            UpdateProductError::TemporarilyUnavailable
-        }
-        ProductRepositoryError::InvalidPersistedState => UpdateProductError::InvalidProduct,
-        ProductRepositoryError::ProductKeyConflict
-        | ProductRepositoryError::SlugConflict
-        | ProductRepositoryError::Internal => UpdateProductError::Internal,
-    }
-}
-
-fn map_event_store_error(error: ProductEventStoreError) -> UpdateProductError {
-    match error {
-        ProductEventStoreError::TemporarilyUnavailable => {
-            UpdateProductError::TemporarilyUnavailable
-        }
-        ProductEventStoreError::InvalidEvent => UpdateProductError::InvalidProduct,
-        ProductEventStoreError::EventConflict | ProductEventStoreError::Internal => {
-            UpdateProductError::Internal
-        }
-    }
-}
-
-fn map_sqlx_error(_error: sqlx::Error) -> UpdateProductError {
-    UpdateProductError::Internal
 }

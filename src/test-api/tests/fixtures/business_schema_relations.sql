@@ -65,14 +65,12 @@ INSERT INTO products (
     shop_id,
     seller_id,
     shops_product_id,
-    title_native_text,
-    title_native_language,
+    title_text,
+    title_language,
     state,
     lifecycle,
     url,
-    product_images,
-    created_by,
-    updated_by
+    product_images
 )
 VALUES (
     '30000000-0000-0000-0000-000000000001',
@@ -86,16 +84,12 @@ VALUES (
     'LISTED',
     'ACTIVE',
     'https://shop.example.com/products/external-1',
-    '[{"url": "https://cdn.example.com/image.jpg", "prohibited_content": "NONE"}]',
-    'system',
-    'system'
+    '[{"url": "https://cdn.example.com/image.jpg", "prohibited_content": "NONE"}]'
 );
 
 INSERT INTO product_events (
     event_id,
     product_id,
-    shop_id,
-    shops_product_id,
     event_type,
     event_group,
     payload,
@@ -105,8 +99,6 @@ INSERT INTO product_events (
 VALUES (
     '40000000-0000-0000-0000-000000000001',
     '30000000-0000-0000-0000-000000000001',
-    '20000000-0000-0000-0000-000000000001',
-    'external-1',
     'PRODUCT_CREATED',
     'DOMAIN',
     '{"kind": "created"}',

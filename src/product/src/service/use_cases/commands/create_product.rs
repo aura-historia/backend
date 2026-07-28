@@ -1,9 +1,11 @@
 use crate::core::description::Description;
 use crate::core::product_aggregate::{
-    NewProduct, Product, ProductAddress, ProductAuction, ProductPricing,
+    NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, RehydrateProductError,
 };
 use crate::core::product_image::ProductImage;
 use crate::core::title::Title;
+use crate::service::ports::product_event_store::ProductEventStoreError;
+use crate::service::ports::product_repository::ProductRepositoryError;
 use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
@@ -22,13 +24,12 @@ pub struct CreateProductCommand {
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub address: ProductAddress,
-    pub native_title: Localized<Language, Title>,
-    pub native_description: Option<Localized<Language, Description>>,
+    pub title: Option<Localized<Language, Title>>,
+    pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductPricing,
     pub state: ProductState,
     pub url: Url,
     pub images: IndexSet<ProductImage>,
-    pub embedding: Option<Vec<f32>>,
     pub auction: ProductAuction,
 }
 
@@ -41,18 +42,30 @@ pub struct CreateProductResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateProductError {
-    #[error("product already exists")]
-    ProductConflict,
+    #[error("authenticated actor required to create product")]
+    AuthenticatedActorRequired,
+    #[error("product already exists for shop product key")]
+    ProductKeyConflict,
     #[error("product slug already exists")]
-    SlugConflict,
-    #[error("operation not permitted")]
-    Forbidden,
-    #[error("invalid product state")]
-    InvalidProduct,
-    #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
-    #[error("internal failure")]
-    Internal,
+    ProductSlugConflict,
+    #[error("product state is invalid")]
+    InvalidProductState,
+    #[error("created product did not record a domain event")]
+    CreatedEventMissing,
+    #[error("product event already exists")]
+    EventConflict,
+    #[error("product repository unavailable")]
+    ProductRepositoryUnavailable,
+    #[error("product event store unavailable")]
+    ProductEventStoreUnavailable,
+    #[error("failed to begin create product transaction")]
+    BeginTransactionFailed,
+    #[error("failed to commit create product transaction")]
+    CommitTransactionFailed,
+    #[error("internal product repository failure")]
+    ProductRepositoryInternal,
+    #[error("internal product event store failure")]
+    ProductEventStoreInternal,
 }
 
 #[async_trait::async_trait]
@@ -72,13 +85,12 @@ impl CreateProductCommand {
             seller_id: self.seller_id,
             shops_product_id: self.shops_product_id,
             address: self.address,
-            native_title: self.native_title,
-            native_description: self.native_description,
+            title: self.title,
+            description: self.description,
             pricing: self.pricing,
             state: self.state,
             url: self.url,
             images: self.images,
-            embedding: self.embedding,
             auction: self.auction,
         }
     }
@@ -92,11 +104,42 @@ impl TryFrom<&Product> for CreateProductResult {
             .pending_events()
             .last()
             .map(|event| event.event_id)
-            .ok_or(CreateProductError::Internal)?;
+            .ok_or(CreateProductError::CreatedEventMissing)?;
         Ok(Self {
             product_id: product.id(),
             product_slug_id: product.slug_id().clone(),
             event_id,
         })
+    }
+}
+
+impl From<RehydrateProductError> for CreateProductError {
+    fn from(_error: RehydrateProductError) -> Self {
+        Self::InvalidProductState
+    }
+}
+
+impl From<ProductRepositoryError> for CreateProductError {
+    fn from(error: ProductRepositoryError) -> Self {
+        match error {
+            ProductRepositoryError::ProductKeyConflict => Self::ProductKeyConflict,
+            ProductRepositoryError::SlugConflict => Self::ProductSlugConflict,
+            ProductRepositoryError::TemporarilyUnavailable => Self::ProductRepositoryUnavailable,
+            ProductRepositoryError::InvalidPersistedState => Self::InvalidProductState,
+            ProductRepositoryError::ConcurrencyConflict | ProductRepositoryError::Internal => {
+                Self::ProductRepositoryInternal
+            }
+        }
+    }
+}
+
+impl From<ProductEventStoreError> for CreateProductError {
+    fn from(error: ProductEventStoreError) -> Self {
+        match error {
+            ProductEventStoreError::EventConflict => Self::EventConflict,
+            ProductEventStoreError::TemporarilyUnavailable => Self::ProductEventStoreUnavailable,
+            ProductEventStoreError::InvalidEvent => Self::InvalidProductState,
+            ProductEventStoreError::Internal => Self::ProductEventStoreInternal,
+        }
     }
 }

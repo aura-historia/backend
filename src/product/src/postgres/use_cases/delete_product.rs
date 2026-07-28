@@ -2,8 +2,8 @@
 
 use crate::postgres::event_store::SqlxProductEventStore;
 use crate::postgres::repository::SqlxProductRepository;
-use crate::service::ports::product_event_store::{ProductEventStore, ProductEventStoreError};
-use crate::service::ports::product_repository::{ProductRepository, ProductRepositoryError};
+use crate::service::ports::product_event_store::ProductEventStore;
+use crate::service::ports::product_repository::ProductRepository;
 use crate::service::use_cases::commands::delete_product::{
     DeleteProductCommand, DeleteProductError, DeleteProductResult, DeleteProductUseCase,
 };
@@ -37,15 +37,20 @@ impl DeleteProductUseCase for PostgresDeleteProductHandler {
         context: &OperationContext,
         command: DeleteProductCommand,
     ) -> Result<DeleteProductResult, DeleteProductError> {
-        let actor = super::actor_label(context).ok_or(DeleteProductError::Forbidden)?;
+        let actor = context
+            .actor_label()
+            .ok_or(DeleteProductError::AuthenticatedActorRequired)?;
         tracing::Span::current().record("actor_id", tracing::field::display(&actor));
 
-        let mut tx = self.pool.begin().await.map_err(map_sqlx_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| DeleteProductError::BeginTransactionFailed)?;
         let loaded = SqlxProductRepository::new(&mut tx)
             .find_by_id(command.product_id)
-            .await
-            .map_err(map_repository_error)?
-            .ok_or(DeleteProductError::NotFound)?;
+            .await?
+            .ok_or(DeleteProductError::ProductNotFound)?;
         let expected_event_id = loaded.current_event_id;
         let mut product = loaded.product;
         product.delete();
@@ -57,18 +62,16 @@ impl DeleteProductUseCase for PostgresDeleteProductHandler {
 
         if !events.is_empty() {
             SqlxProductRepository::new(&mut tx)
-                .update(&product, expected_event_id, event_id, &actor)
-                .await
-                .map_err(map_repository_error)?;
+                .update(&product, expected_event_id, event_id)
+                .await?;
             for event in &events {
-                SqlxProductEventStore::new(&mut tx)
-                    .append(event, &actor)
-                    .await
-                    .map_err(map_event_store_error)?;
+                SqlxProductEventStore::new(&mut tx).append(event).await?;
             }
         }
 
-        tx.commit().await.map_err(map_sqlx_error)?;
+        tx.commit()
+            .await
+            .map_err(|_| DeleteProductError::CommitTransactionFailed)?;
 
         tracing::info!(
             event = "product.deleted",
@@ -84,32 +87,4 @@ impl DeleteProductUseCase for PostgresDeleteProductHandler {
             event_id,
         })
     }
-}
-
-fn map_repository_error(error: ProductRepositoryError) -> DeleteProductError {
-    match error {
-        ProductRepositoryError::ConcurrencyConflict => DeleteProductError::ConcurrencyConflict,
-        ProductRepositoryError::TemporarilyUnavailable => {
-            DeleteProductError::TemporarilyUnavailable
-        }
-        ProductRepositoryError::ProductKeyConflict
-        | ProductRepositoryError::SlugConflict
-        | ProductRepositoryError::InvalidPersistedState
-        | ProductRepositoryError::Internal => DeleteProductError::Internal,
-    }
-}
-
-fn map_event_store_error(error: ProductEventStoreError) -> DeleteProductError {
-    match error {
-        ProductEventStoreError::TemporarilyUnavailable => {
-            DeleteProductError::TemporarilyUnavailable
-        }
-        ProductEventStoreError::EventConflict
-        | ProductEventStoreError::InvalidEvent
-        | ProductEventStoreError::Internal => DeleteProductError::Internal,
-    }
-}
-
-fn map_sqlx_error(_error: sqlx::Error) -> DeleteProductError {
-    DeleteProductError::Internal
 }

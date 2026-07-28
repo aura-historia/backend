@@ -26,6 +26,13 @@ pub enum ProductRepositoryError {
     Internal,
 }
 
+#[cfg(feature = "postgres")]
+impl From<sqlx::Error> for ProductRepositoryError {
+    fn from(_error: sqlx::Error) -> Self {
+        Self::Internal
+    }
+}
+
 #[async_trait::async_trait]
 pub(crate) trait ProductRepository {
     async fn find_by_id(
@@ -42,7 +49,6 @@ pub(crate) trait ProductRepository {
         &mut self,
         product: &Product,
         current_event_id: EventId,
-        created_by: &str,
     ) -> Result<(), ProductRepositoryError>;
 
     async fn update(
@@ -50,6 +56,5 @@ pub(crate) trait ProductRepository {
         product: &Product,
         expected_event_id: EventId,
         new_event_id: EventId,
-        updated_by: &str,
     ) -> Result<(), ProductRepositoryError>;
 }

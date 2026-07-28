@@ -27,14 +27,13 @@ pub struct Product {
     seller_id: ShopId,
     shops_product_id: ShopsProductId,
     address: ProductAddress,
-    native_title: Localized<Language, Title>,
-    native_description: Option<Localized<Language, Description>>,
+    title: Option<Localized<Language, Title>>,
+    description: Option<Localized<Language, Description>>,
     pricing: ProductPricing,
     state: ProductState,
     lifecycle: ProductLifecycle,
     url: Url,
     images: IndexSet<ProductImage>,
-    embedding: Option<Vec<f32>>,
     auction: ProductAuction,
     pending_events: Vec<ProductDomainEvent>,
 }
@@ -46,13 +45,12 @@ pub struct NewProduct {
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub address: ProductAddress,
-    pub native_title: Localized<Language, Title>,
-    pub native_description: Option<Localized<Language, Description>>,
+    pub title: Option<Localized<Language, Title>>,
+    pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductPricing,
     pub state: ProductState,
     pub url: Url,
     pub images: IndexSet<ProductImage>,
-    pub embedding: Option<Vec<f32>>,
     pub auction: ProductAuction,
 }
 
@@ -64,14 +62,13 @@ pub(crate) struct ProductStateSnapshot {
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
     pub address: ProductAddress,
-    pub native_title: Localized<Language, Title>,
-    pub native_description: Option<Localized<Language, Description>>,
+    pub title: Option<Localized<Language, Title>>,
+    pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductPricing,
     pub state: ProductState,
     pub lifecycle: ProductLifecycle,
     pub url: Url,
     pub images: IndexSet<ProductImage>,
-    pub embedding: Option<Vec<f32>>,
     pub auction: ProductAuction,
 }
 
@@ -105,7 +102,6 @@ pub enum ProductDomainEventPayload {
     PriceChanged(ProductPriceChanged),
     UrlChanged(ProductUrlChanged),
     ImagesChanged(Box<ProductImagesChanged>),
-    Embedded(ProductEmbedded),
     AuctionChanged(ProductAuctionChanged),
     Deleted(ProductDeleted),
 }
@@ -119,7 +115,6 @@ impl ProductDomainEventPayload {
             ProductDomainEventPayload::PriceChanged(_) => "PRODUCT_PRICE_CHANGED",
             ProductDomainEventPayload::UrlChanged(_) => "PRODUCT_URL_CHANGED",
             ProductDomainEventPayload::ImagesChanged(_) => "PRODUCT_IMAGES_CHANGED",
-            ProductDomainEventPayload::Embedded(_) => "PRODUCT_EMBEDDED",
             ProductDomainEventPayload::AuctionChanged(_) => "PRODUCT_AUCTION_CHANGED",
             ProductDomainEventPayload::Deleted(_) => "PRODUCT_DELETED",
         }
@@ -128,76 +123,51 @@ impl ProductDomainEventPayload {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductCreated {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shops_product_id: ShopsProductId,
+    pub title: Option<Localized<Language, Title>>,
+    pub description: Option<Localized<Language, Description>>,
     pub address: ProductAddress,
-    pub native_title: Localized<Language, Title>,
-    pub native_description: Option<Localized<Language, Description>>,
     pub pricing: ProductPricing,
     pub state: ProductState,
     pub url: Url,
     pub images: IndexSet<ProductImage>,
-    pub embedding: Option<Vec<f32>>,
     pub auction: ProductAuction,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductStateChanged {
-    pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
     pub old_state: ProductState,
     pub new_state: ProductState,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductAddressChanged {
-    pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
     pub address: ProductAddress,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductPriceChanged {
-    pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
     pub old_pricing: ProductPricing,
     pub new_pricing: ProductPricing,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductUrlChanged {
-    pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
     pub old_url: Url,
     pub new_url: Url,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductImagesChanged {
-    pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
     pub images: IndexSet<ProductImage>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProductEmbedded {
-    pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
-    pub embedding: Option<Vec<f32>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct ProductAuctionChanged {
-    pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
     pub auction: ProductAuction,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductDeleted {
-    pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
     pub old_lifecycle: ProductLifecycle,
     pub new_lifecycle: ProductLifecycle,
 }
@@ -212,37 +182,33 @@ pub enum RehydrateProductError {
 
 impl Product {
     pub fn create(input: NewProduct) -> Result<Self, RehydrateProductError> {
+        let slug_id = product_slug_id(input.id, input.title.as_ref());
         let mut product = Self::rehydrate(ProductStateSnapshot {
             id: input.id,
-            slug_id: ProductSlugId::from(input.native_title.payload.as_ref()),
+            slug_id,
             shop_id: input.shop_id,
             seller_id: input.seller_id,
-            shops_product_id: input.shops_product_id.clone(),
+            shops_product_id: input.shops_product_id,
             address: input.address.clone(),
-            native_title: input.native_title.clone(),
-            native_description: input.native_description.clone(),
+            title: input.title.clone(),
+            description: input.description.clone(),
             pricing: input.pricing,
             state: input.state,
             lifecycle: ProductLifecycle::Active,
             url: input.url.clone(),
             images: input.images.clone(),
-            embedding: input.embedding.clone(),
             auction: input.auction,
         })?;
 
         product.push_event(ProductDomainEventPayload::Created(Box::new(
             ProductCreated {
-                shop_id: input.shop_id,
-                seller_id: input.seller_id,
-                shops_product_id: input.shops_product_id,
+                title: input.title,
+                description: input.description,
                 address: input.address,
-                native_title: input.native_title,
-                native_description: input.native_description,
                 pricing: input.pricing,
                 state: input.state,
                 url: input.url,
                 images: input.images,
-                embedding: input.embedding,
                 auction: input.auction,
             },
         )));
@@ -261,14 +227,13 @@ impl Product {
             seller_id: state.seller_id,
             shops_product_id: state.shops_product_id,
             address: state.address,
-            native_title: state.native_title,
-            native_description: state.native_description,
+            title: state.title,
+            description: state.description,
             pricing: state.pricing,
             state: state.state,
             lifecycle: state.lifecycle,
             url: state.url,
             images: state.images,
-            embedding: state.embedding,
             auction: state.auction,
             pending_events: Vec::new(),
         })
@@ -280,11 +245,7 @@ impl Product {
         }
 
         self.push_event(ProductDomainEventPayload::AddressChanged(
-            ProductAddressChanged {
-                shop_id: self.shop_id,
-                shops_product_id: self.shops_product_id.clone(),
-                address,
-            },
+            ProductAddressChanged { address },
         ));
         ChangeOutcome::Changed
     }
@@ -298,8 +259,6 @@ impl Product {
         self.state = new_state;
         self.push_event(ProductDomainEventPayload::StateChanged(
             ProductStateChanged {
-                shop_id: self.shop_id,
-                shops_product_id: self.shops_product_id.clone(),
                 old_state,
                 new_state,
             },
@@ -316,8 +275,6 @@ impl Product {
         self.pricing = pricing;
         self.push_event(ProductDomainEventPayload::PriceChanged(
             ProductPriceChanged {
-                shop_id: self.shop_id,
-                shops_product_id: self.shops_product_id.clone(),
                 old_pricing,
                 new_pricing: pricing,
             },
@@ -333,8 +290,6 @@ impl Product {
         let old_url = self.url.clone();
         self.url = url.clone();
         self.push_event(ProductDomainEventPayload::UrlChanged(ProductUrlChanged {
-            shop_id: self.shop_id,
-            shops_product_id: self.shops_product_id.clone(),
             old_url,
             new_url: url,
         }));
@@ -348,26 +303,8 @@ impl Product {
 
         self.images = images.clone();
         self.push_event(ProductDomainEventPayload::ImagesChanged(Box::new(
-            ProductImagesChanged {
-                shop_id: self.shop_id,
-                shops_product_id: self.shops_product_id.clone(),
-                images,
-            },
+            ProductImagesChanged { images },
         )));
-        ChangeOutcome::Changed
-    }
-
-    pub fn replace_embedding(&mut self, embedding: Option<Vec<f32>>) -> ChangeOutcome {
-        if self.embedding == embedding {
-            return ChangeOutcome::Unchanged;
-        }
-
-        self.embedding = embedding.clone();
-        self.push_event(ProductDomainEventPayload::Embedded(ProductEmbedded {
-            shop_id: self.shop_id,
-            shops_product_id: self.shops_product_id.clone(),
-            embedding,
-        }));
         ChangeOutcome::Changed
     }
 
@@ -378,11 +315,7 @@ impl Product {
 
         self.auction = auction;
         self.push_event(ProductDomainEventPayload::AuctionChanged(
-            ProductAuctionChanged {
-                shop_id: self.shop_id,
-                shops_product_id: self.shops_product_id.clone(),
-                auction,
-            },
+            ProductAuctionChanged { auction },
         ));
         ChangeOutcome::Changed
     }
@@ -395,8 +328,6 @@ impl Product {
         let old_lifecycle = self.lifecycle;
         self.lifecycle = ProductLifecycle::Deleted;
         self.push_event(ProductDomainEventPayload::Deleted(ProductDeleted {
-            shop_id: self.shop_id,
-            shops_product_id: self.shops_product_id.clone(),
             old_lifecycle,
             new_lifecycle: ProductLifecycle::Deleted,
         }));
@@ -435,12 +366,12 @@ impl Product {
         self.address.clone()
     }
 
-    pub fn native_title(&self) -> &Localized<Language, Title> {
-        &self.native_title
+    pub fn title(&self) -> Option<&Localized<Language, Title>> {
+        self.title.as_ref()
     }
 
-    pub fn native_description(&self) -> Option<&Localized<Language, Description>> {
-        self.native_description.as_ref()
+    pub fn description(&self) -> Option<&Localized<Language, Description>> {
+        self.description.as_ref()
     }
 
     pub fn pricing(&self) -> ProductPricing {
@@ -467,10 +398,6 @@ impl Product {
         &self.images
     }
 
-    pub fn embedding(&self) -> Option<&Vec<f32>> {
-        self.embedding.as_ref()
-    }
-
     pub fn auction(&self) -> ProductAuction {
         self.auction
     }
@@ -483,6 +410,15 @@ impl Product {
             payload,
         });
     }
+}
+
+fn product_slug_id(
+    product_id: ProductId,
+    title: Option<&Localized<Language, Title>>,
+) -> ProductSlugId {
+    title
+        .map(|title| ProductSlugId::from(title.payload.as_ref()))
+        .unwrap_or_else(|| ProductSlugId::from(product_id.to_string()))
 }
 
 fn validate_geo_address(geo_address: Option<GeoAddress>) -> Result<(), RehydrateProductError> {
@@ -511,9 +447,7 @@ fn replace_if_changed<T: PartialEq>(target: &mut T, value: T) -> ChangeOutcome {
 mod tests {
     use super::*;
     use common::currency::domain::Currency;
-    use common::localized::Localized;
     use common::price::domain::MonetaryAmount;
-    use url::Url;
 
     fn test_url() -> Url {
         match Url::parse("https://shop.example/products/1") {
@@ -529,8 +463,8 @@ mod tests {
             seller_id: ShopId::new(),
             shops_product_id: ShopsProductId::new(),
             address: ProductAddress::default(),
-            native_title: Localized::new(Language::En, Title::from("Bronze vase")),
-            native_description: None,
+            title: Some(Localized::new(Language::En, Title::from("Bronze vase"))),
+            description: None,
             pricing: ProductPricing {
                 native_price: Some(Price::new(MonetaryAmount::from(1_500_u64), Currency::Eur)),
                 native_price_estimate_min: None,
@@ -540,7 +474,6 @@ mod tests {
             state: ProductState::Listed,
             url: test_url(),
             images: IndexSet::new(),
-            embedding: None,
             auction: ProductAuction::default(),
         }
     }
@@ -566,23 +499,32 @@ mod tests {
     }
 
     #[test]
+    fn should_allow_product_without_title() {
+        let mut input = new_product();
+        input.title = None;
+
+        let product = Product::create(input);
+
+        assert!(matches!(product, Ok(ref product) if product.title().is_none()));
+    }
+
+    #[test]
     fn should_rehydrate_without_pending_events() {
         let input = new_product();
         let product = Product::rehydrate(ProductStateSnapshot {
             id: input.id,
-            slug_id: ProductSlugId::from(input.native_title.payload.as_ref()),
+            slug_id: product_slug_id(input.id, input.title.as_ref()),
             shop_id: input.shop_id,
             seller_id: input.seller_id,
             shops_product_id: input.shops_product_id,
             address: input.address,
-            native_title: input.native_title,
-            native_description: input.native_description,
+            title: input.title,
+            description: input.description,
             pricing: input.pricing,
             state: input.state,
             lifecycle: ProductLifecycle::Active,
             url: input.url,
             images: input.images,
-            embedding: input.embedding,
             auction: input.auction,
         });
 
@@ -614,7 +556,6 @@ mod tests {
                 payload: ProductDomainEventPayload::StateChanged(ProductStateChanged {
                     old_state: ProductState::Listed,
                     new_state: ProductState::Available,
-                    ..
                 }),
                 ..
             }]
@@ -633,33 +574,11 @@ mod tests {
     }
 
     #[test]
-    fn should_emit_event_when_embedding_clears() {
-        let mut product = created_product();
-        product.take_pending_events();
-        product.replace_embedding(Some(vec![0.1]));
-        product.take_pending_events();
-
-        let outcome = product.replace_embedding(None);
-
-        assert_eq!(ChangeOutcome::Changed, outcome);
-        assert!(matches!(
-            product.pending_events(),
-            [ProductDomainEvent {
-                payload: ProductDomainEventPayload::Embedded(ProductEmbedded {
-                    embedding: None,
-                    ..
-                }),
-                ..
-            }]
-        ));
-    }
-
-    #[test]
     fn should_reject_invalid_geo_when_rehydrating() {
         let input = new_product();
         let result = Product::rehydrate(ProductStateSnapshot {
             id: input.id,
-            slug_id: ProductSlugId::from(input.native_title.payload.as_ref()),
+            slug_id: product_slug_id(input.id, input.title.as_ref()),
             shop_id: input.shop_id,
             seller_id: input.seller_id,
             shops_product_id: input.shops_product_id,
@@ -670,14 +589,13 @@ mod tests {
                     lon: 0.0,
                 }),
             },
-            native_title: input.native_title,
-            native_description: input.native_description,
+            title: input.title,
+            description: input.description,
             pricing: input.pricing,
             state: input.state,
             lifecycle: ProductLifecycle::Active,
             url: input.url,
             images: input.images,
-            embedding: input.embedding,
             auction: input.auction,
         });
 
