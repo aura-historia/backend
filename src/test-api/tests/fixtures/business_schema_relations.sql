@@ -93,8 +93,7 @@ INSERT INTO product_events (
     event_type,
     event_group,
     payload,
-    event_time,
-    created_by
+    event_time
 )
 VALUES (
     '40000000-0000-0000-0000-000000000001',
@@ -102,8 +101,7 @@ VALUES (
     'PRODUCT_CREATED',
     'DOMAIN',
     '{"kind": "created"}',
-    now(),
-    'system'
+    now()
 );
 
 COMMIT;

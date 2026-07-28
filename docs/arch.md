@@ -364,8 +364,8 @@ Use the narrowest visibility that works.
 - Use `pub` only for deliberate crate API.
 - Outbound ports SHOULD be `pub(crate)` while all adapters are modules in the same crate.
 - If adapters become separate crates, the required ports MUST be promoted to `pub`.
-- Concrete adapters SHOULD remain `pub(crate)`.
-- Integration tests in `tests/` MUST NOT make adapters public just for tests; expose a narrow `#[cfg(feature = "test-data")]` test helper/facade when private adapter visibility blocks repository tests.
+- Concrete adapters SHOULD remain `pub(crate)` unless integration tests need direct adapter access.
+- Integration tests live in crate `tests/` directories. Do not add production modules solely as test facades; when direct adapter tests need access, make the adapter/port part deliberately `pub` instead.
 - Prefer a public builder returning public use-case trait objects over exposing concrete implementations.
 
 Example:
@@ -1782,34 +1782,34 @@ They MUST NOT contain SQLx, HTTP, or external-client errors.
 
 ### Service errors
 
-Use-case errors describe outcomes relevant to callers. Variants MUST name the concrete failure a caller can act on; avoid catch-all policy variants when the real cause is known, such as `AuthenticatedActorRequired`, `PlanDoesNotAllowAction`, or `ProductNotOwnedByActor`.
+Use-case errors describe outcomes relevant to callers. Variants MUST name the concrete failure a caller can act on. Avoid catch-all policy or failure variants when the real cause is known.
 
 ```text
 NotFound
 AuthenticatedActorRequired
-Conflict
-InvalidInput
-TemporarilyUnavailable
-Internal
+PlanDoesNotAllowAction
+ProductCurrentEventIdConflict
+ProductKeyAlreadyExists
+ProductDetailsQueryFailed
+PersistedProductStateInvalid
 ```
 
-They MAY wrap internal errors privately but MUST expose stable variants.
+They MAY wrap internal errors privately but MUST expose stable semantic variants. Do not use vague variants such as `Forbidden`, `Conflict`, `InvalidPersistedState`, or `Internal` when a narrower cause is known.
 
 ### Adapter errors
 
-Adapter errors describe technical failures:
+Adapter errors describe semantic persistence or integration failures without leaking infrastructure types:
 
 ```text
-Connection
-Timeout
-Decode
-Mapping
-ConcurrencyConflict
-UnexpectedRowCount
-ExternalResponse
+ProductLookupByIdFailed
+ProductInsertFailed
+ProductCurrentEventIdConflict
+ProductSlugAlreadyExists
+InvalidProductUrlPersisted
+ExternalResponseMissingPrice
 ```
 
-They MUST NOT escape to controllers directly.
+They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context.
 
 ### HTTP mapping
 

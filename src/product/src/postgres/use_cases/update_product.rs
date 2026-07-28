@@ -52,8 +52,8 @@ impl UpdateProductUseCase for PostgresUpdateProductHandler {
             .find_by_id(command.product_id)
             .await?
             .ok_or(UpdateProductError::ProductNotFound)?;
-        let expected_event_id = loaded.current_event_id;
-        let mut product = loaded.product;
+        let expected_event_id = loaded.version;
+        let mut product = loaded.value;
 
         apply_command(&mut product, command)?;
         let events = product.take_pending_events();

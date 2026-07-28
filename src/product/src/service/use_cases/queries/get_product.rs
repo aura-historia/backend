@@ -45,7 +45,7 @@ pub struct ProductDetailsView {
     pub address: ProductAddress,
     pub product_title: Option<Localized<Language, Title>>,
     pub product_description: Option<Localized<Language, Description>>,
-    pub title: Localized<Language, Title>,
+    pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductPricing,
     pub price: Option<Price>,
@@ -66,12 +66,14 @@ pub struct ProductDetailsView {
 pub enum GetProductError {
     #[error("product not found")]
     NotFound,
-    #[error("temporary product read failure")]
-    TemporarilyUnavailable,
-    #[error("invalid product read model")]
-    InvalidReadModel,
-    #[error("internal product read failure")]
-    Internal,
+    #[error("product details query failed")]
+    ProductDetailsQueryFailed,
+    #[error("product details read model is invalid")]
+    ProductDetailsReadModelInvalid,
+    #[error("product translation lookup failed")]
+    ProductTranslationLookupFailed,
+    #[error("product translation read model is invalid")]
+    ProductTranslationReadModelInvalid,
 }
 
 #[async_trait::async_trait]

@@ -8,9 +8,7 @@ use crate::core::product_aggregate::{
 use crate::core::product_image::ProductImage;
 use crate::core::prohibited_content::ProhibitedContent;
 use crate::core::title::Title;
-use crate::service::ports::product_repository::{
-    LoadedProduct, ProductRepository, ProductRepositoryError,
-};
+use crate::service::ports::product_repository::{ProductRepository, ProductRepositoryError};
 use common::currency::domain::Currency;
 use common::event_id::EventId;
 use common::language::domain::Language;
@@ -22,6 +20,7 @@ use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::versioned::Versioned;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
@@ -29,7 +28,7 @@ use sqlx::PgConnection;
 use time::OffsetDateTime;
 use url::Url;
 
-pub(crate) struct SqlxProductRepository<'tx> {
+pub struct SqlxProductRepository<'tx> {
     connection: &'tx mut PgConnection,
 }
 
@@ -64,6 +63,7 @@ struct ProductRow {
     lifecycle: String,
     url: String,
     product_images: serde_json::Value,
+    embedding: Option<Vec<f32>>,
     auction_start: Option<OffsetDateTime>,
     auction_end: Option<OffsetDateTime>,
     created: OffsetDateTime,
@@ -77,7 +77,7 @@ struct ProductImageJson {
 }
 
 impl<'tx> SqlxProductRepository<'tx> {
-    pub(crate) fn new(connection: &'tx mut PgConnection) -> Self {
+    pub fn new(connection: &'tx mut PgConnection) -> Self {
         Self { connection }
     }
 }
@@ -87,7 +87,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
     async fn find_by_id(
         &mut self,
         id: ProductId,
-    ) -> Result<Option<LoadedProduct>, ProductRepositoryError> {
+    ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
         let row = sqlx::query_as::<_, ProductRow>(
             r#"
             SELECT
@@ -99,14 +99,15 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 price_native_amount, price_native_currency, price_estimate_min_native_amount,
                 price_estimate_min_native_currency, price_estimate_max_native_amount,
                 price_estimate_max_native_currency, fx_rate_id, state, lifecycle, url, product_images,
-                auction_start, auction_end, created, updated
+                embedding, auction_start, auction_end, created, updated
             FROM products
             WHERE product_id = $1
             "#,
         )
         .bind(uuid::Uuid::from(id))
         .fetch_optional(&mut *self.connection)
-        .await?;
+        .await
+        .map_err(ProductLookupByIdSqlxError)?;
 
         row.map(TryInto::try_into).transpose()
     }
@@ -114,7 +115,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
     async fn find_by_key(
         &mut self,
         key: &ProductKey,
-    ) -> Result<Option<LoadedProduct>, ProductRepositoryError> {
+    ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
         let row = sqlx::query_as::<_, ProductRow>(
             r#"
             SELECT
@@ -126,7 +127,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 price_native_amount, price_native_currency, price_estimate_min_native_amount,
                 price_estimate_min_native_currency, price_estimate_max_native_amount,
                 price_estimate_max_native_currency, fx_rate_id, state, lifecycle, url, product_images,
-                auction_start, auction_end, created, updated
+                embedding, auction_start, auction_end, created, updated
             FROM products
             WHERE shop_id = $1 AND shops_product_id = $2
             "#,
@@ -134,7 +135,8 @@ impl ProductRepository for SqlxProductRepository<'_> {
         .bind(uuid::Uuid::from(key.shop_id))
         .bind(key.shops_product_id.as_ref())
         .fetch_optional(&mut *self.connection)
-        .await?;
+        .await
+        .map_err(ProductLookupByKeySqlxError)?;
 
         row.map(TryInto::try_into).transpose()
     }
@@ -200,7 +202,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
         .bind(auction.end)
         .execute(&mut *self.connection)
         .await
-        .map_err(map_insert_error)?;
+        .map_err(ProductInsertSqlxError)?;
 
         Ok(())
     }
@@ -341,17 +343,18 @@ impl ProductRepository for SqlxProductRepository<'_> {
         .bind(uuid::Uuid::from(product.id()))
         .bind(uuid::Uuid::from(expected_event_id))
         .execute(&mut *self.connection)
-        .await?;
+        .await
+        .map_err(ProductUpdateSqlxError)?;
 
         if result.rows_affected() == 0 {
-            return Err(ProductRepositoryError::ConcurrencyConflict);
+            return Err(ProductRepositoryError::ProductCurrentEventIdConflict);
         }
 
         Ok(())
     }
 }
 
-impl TryFrom<ProductRow> for LoadedProduct {
+impl TryFrom<ProductRow> for Versioned<Product, EventId> {
     type Error = ProductRepositoryError;
 
     fn try_from(row: ProductRow) -> Result<Self, Self::Error> {
@@ -366,7 +369,7 @@ impl TryFrom<ProductRow> for LoadedProduct {
         let product = Product::rehydrate(ProductStateSnapshot {
             id: ProductId::from(row.product_id),
             slug_id: ProductSlugId::raw(&row.product_slug_id)
-                .map_err(|_| ProductRepositoryError::InvalidPersistedState)?,
+                .map_err(|_| ProductRepositoryError::InvalidProductSlugPersisted)?,
             shop_id: ShopId::from(row.shop_id),
             seller_id: ShopId::from(row.seller_id),
             shops_product_id: ShopsProductId::from(row.shops_product_id),
@@ -387,18 +390,19 @@ impl TryFrom<ProductRow> for LoadedProduct {
             },
             state: parse_product_state(&row.state)?,
             lifecycle: parse_product_lifecycle(&row.lifecycle)?,
-            url: Url::parse(&row.url).map_err(|_| ProductRepositoryError::InvalidPersistedState)?,
+            url: Url::parse(&row.url)
+                .map_err(|_| ProductRepositoryError::InvalidProductUrlPersisted)?,
             images: images_from_json(row.product_images)?,
             auction: ProductAuction {
                 start: row.auction_start,
                 end: row.auction_end,
             },
         })
-        .map_err(|_| ProductRepositoryError::InvalidPersistedState)?;
+        .map_err(|_| ProductRepositoryError::InvalidAggregateStatePersisted)?;
 
-        Ok(LoadedProduct {
-            product,
-            current_event_id: EventId::from(row.event_id),
+        Ok(Versioned {
+            value: product,
+            version: EventId::from(row.event_id),
         })
     }
 }
@@ -413,15 +417,15 @@ fn price_from_parts(
 ) -> Result<Option<Price>, ProductRepositoryError> {
     match (amount, currency) {
         (Some(amount), Some(currency)) => {
-            let amount =
-                u64::try_from(amount).map_err(|_| ProductRepositoryError::InvalidPersistedState)?;
+            let amount = u64::try_from(amount)
+                .map_err(|_| ProductRepositoryError::NegativePriceAmountPersisted)?;
             Ok(Some(Price::new(
                 MonetaryAmount::from(amount),
                 parse_currency(&currency)?,
             )))
         }
         (None, None) => Ok(None),
-        _ => Err(ProductRepositoryError::InvalidPersistedState),
+        _ => Err(ProductRepositoryError::IncompletePricePersisted),
     }
 }
 
@@ -457,11 +461,11 @@ fn localized_title_from_row(
 ) -> Result<Option<Localized<Language, Title>>, ProductRepositoryError> {
     match (&row.title_text, &row.title_language) {
         (Some(text), Some(language)) => Ok(Some(Localized::new(
-            parse_language(language)?,
+            parse_title_language(language)?,
             Title::from(text),
         ))),
         (None, None) => Ok(None),
-        _ => Err(ProductRepositoryError::InvalidPersistedState),
+        _ => Err(ProductRepositoryError::IncompleteTitlePersisted),
     }
 }
 
@@ -470,11 +474,11 @@ fn localized_description_from_row(
 ) -> Result<Option<Localized<Language, Description>>, ProductRepositoryError> {
     match (&row.description_text, &row.description_language) {
         (Some(text), Some(language)) => Ok(Some(Localized::new(
-            parse_language(language)?,
+            parse_description_language(language)?,
             Description::from(text),
         ))),
         (None, None) => Ok(None),
-        _ => Err(ProductRepositoryError::InvalidPersistedState),
+        _ => Err(ProductRepositoryError::IncompleteDescriptionPersisted),
     }
 }
 
@@ -492,21 +496,35 @@ fn images_to_json(images: &IndexSet<ProductImage>) -> serde_json::Value {
 fn images_from_json(
     value: serde_json::Value,
 ) -> Result<IndexSet<ProductImage>, ProductRepositoryError> {
-    let images: Vec<ProductImageJson> =
-        serde_json::from_value(value).map_err(|_| ProductRepositoryError::InvalidPersistedState)?;
+    let images: Vec<ProductImageJson> = serde_json::from_value(value)
+        .map_err(|_| ProductRepositoryError::InvalidProductImagesPersisted)?;
     images
         .into_iter()
         .map(|image| {
             Ok(ProductImage {
                 url: Url::parse(&image.url)
-                    .map_err(|_| ProductRepositoryError::InvalidPersistedState)?,
+                    .map_err(|_| ProductRepositoryError::InvalidProductImageUrlPersisted)?,
                 prohibited_content: parse_prohibited_content(&image.prohibited_content)?,
             })
         })
         .collect()
 }
 
-fn parse_language(value: &str) -> Result<Language, ProductRepositoryError> {
+fn parse_title_language(value: &str) -> Result<Language, ProductRepositoryError> {
+    parse_language(value, ProductRepositoryError::InvalidTitleLanguagePersisted)
+}
+
+fn parse_description_language(value: &str) -> Result<Language, ProductRepositoryError> {
+    parse_language(
+        value,
+        ProductRepositoryError::InvalidDescriptionLanguagePersisted,
+    )
+}
+
+fn parse_language(
+    value: &str,
+    error: ProductRepositoryError,
+) -> Result<Language, ProductRepositoryError> {
     match value.to_ascii_lowercase().as_str() {
         "de" => Ok(Language::De),
         "en" => Ok(Language::En),
@@ -522,7 +540,7 @@ fn parse_language(value: &str) -> Result<Language, ProductRepositoryError> {
         "ja" => Ok(Language::Ja),
         "ru" => Ok(Language::Ru),
         "ar" => Ok(Language::Ar),
-        _ => Err(ProductRepositoryError::InvalidPersistedState),
+        _ => Err(error),
     }
 }
 
@@ -546,7 +564,7 @@ fn parse_currency(value: &str) -> Result<Currency, ProductRepositoryError> {
         "HKD" => Ok(Currency::Hkd),
         "SGD" => Ok(Currency::Sgd),
         "CHF" => Ok(Currency::Chf),
-        _ => Err(ProductRepositoryError::InvalidPersistedState),
+        _ => Err(ProductRepositoryError::InvalidPriceCurrencyPersisted),
     }
 }
 
@@ -558,7 +576,7 @@ fn parse_product_state(value: &str) -> Result<ProductState, ProductRepositoryErr
         "SOLD" => Ok(ProductState::Sold),
         "REMOVED" => Ok(ProductState::Removed),
         "UNKNOWN" => Ok(ProductState::Unknown),
-        _ => Err(ProductRepositoryError::InvalidPersistedState),
+        _ => Err(ProductRepositoryError::InvalidProductStatePersisted),
     }
 }
 
@@ -577,7 +595,7 @@ fn parse_product_lifecycle(value: &str) -> Result<ProductLifecycle, ProductRepos
     match value {
         "ACTIVE" => Ok(ProductLifecycle::Active),
         "DELETED" => Ok(ProductLifecycle::Deleted),
-        _ => Err(ProductRepositoryError::InvalidPersistedState),
+        _ => Err(ProductRepositoryError::InvalidProductLifecyclePersisted),
     }
 }
 
@@ -593,22 +611,63 @@ fn parse_prohibited_content(value: &str) -> Result<ProhibitedContent, ProductRep
         "UNKNOWN" => Ok(ProhibitedContent::Unknown),
         "NONE" => Ok(ProhibitedContent::None),
         "NAZI_GERMANY" => Ok(ProhibitedContent::NaziGermany),
-        _ => Err(ProductRepositoryError::InvalidPersistedState),
+        _ => Err(ProductRepositoryError::InvalidProductImageProhibitedContentPersisted),
     }
 }
 
-fn map_insert_error(error: sqlx::Error) -> ProductRepositoryError {
-    match &error {
-        sqlx::Error::Database(db_error)
-            if db_error.constraint() == Some("products_shop_product_unique") =>
-        {
-            ProductRepositoryError::ProductKeyConflict
+struct ProductLookupByIdSqlxError(sqlx::Error);
+struct ProductLookupByKeySqlxError(sqlx::Error);
+struct ProductInsertSqlxError(sqlx::Error);
+struct ProductUpdateSqlxError(sqlx::Error);
+
+impl From<ProductLookupByIdSqlxError> for ProductRepositoryError {
+    fn from(value: ProductLookupByIdSqlxError) -> Self {
+        let ProductLookupByIdSqlxError(_error) = value;
+        Self::ProductLookupByIdFailed
+    }
+}
+
+impl From<ProductLookupByKeySqlxError> for ProductRepositoryError {
+    fn from(value: ProductLookupByKeySqlxError) -> Self {
+        let ProductLookupByKeySqlxError(_error) = value;
+        Self::ProductLookupByKeyFailed
+    }
+}
+
+impl From<ProductInsertSqlxError> for ProductRepositoryError {
+    fn from(value: ProductInsertSqlxError) -> Self {
+        let ProductInsertSqlxError(error) = value;
+        match &error {
+            sqlx::Error::Database(db_error)
+                if db_error.constraint() == Some("products_shop_product_unique") =>
+            {
+                Self::ProductKeyAlreadyExists
+            }
+            sqlx::Error::Database(db_error)
+                if db_error.constraint() == Some("products_slug_unique") =>
+            {
+                Self::ProductSlugAlreadyExists
+            }
+            _ => Self::ProductInsertFailed,
         }
-        sqlx::Error::Database(db_error)
-            if db_error.constraint() == Some("products_slug_unique") =>
-        {
-            ProductRepositoryError::SlugConflict
+    }
+}
+
+impl From<ProductUpdateSqlxError> for ProductRepositoryError {
+    fn from(value: ProductUpdateSqlxError) -> Self {
+        let ProductUpdateSqlxError(error) = value;
+        match &error {
+            sqlx::Error::Database(db_error)
+                if db_error.constraint() == Some("products_shop_product_unique") =>
+            {
+                Self::ProductKeyAlreadyExists
+            }
+            sqlx::Error::Database(db_error)
+                if db_error.constraint() == Some("products_slug_unique") =>
+            {
+                Self::ProductSlugAlreadyExists
+            }
+            _ => Self::ProductUpdateFailed,
         }
-        _ => ProductRepositoryError::from(error),
     }
 }

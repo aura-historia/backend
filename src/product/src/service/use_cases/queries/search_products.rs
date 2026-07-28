@@ -39,7 +39,7 @@ pub struct ProductSummary {
     pub shops_product_id: ShopsProductId,
     pub shop_name: ShopName,
     pub shop_slug_id: ShopSlugId,
-    pub title: Localized<Language, Title>,
+    pub title: Option<Localized<Language, Title>>,
     pub price: Option<Price>,
     pub state: ProductState,
     pub lifecycle: ProductLifecycle,
@@ -53,12 +53,10 @@ pub type SearchProductsResult = CursoredResult<ProductSummary, Value>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SearchProductsError {
-    #[error("temporary product search failure")]
-    TemporarilyUnavailable,
-    #[error("invalid product search read model")]
-    InvalidReadModel,
-    #[error("internal product search failure")]
-    Internal,
+    #[error("product search query failed")]
+    ProductSearchQueryFailed,
+    #[error("product search read model is invalid")]
+    ProductSearchReadModelInvalid,
 }
 
 #[async_trait::async_trait]

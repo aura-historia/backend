@@ -45,27 +45,63 @@ pub enum CreateProductError {
     #[error("authenticated actor required to create product")]
     AuthenticatedActorRequired,
     #[error("product already exists for shop product key")]
-    ProductKeyConflict,
+    ProductKeyAlreadyExists,
     #[error("product slug already exists")]
-    ProductSlugConflict,
+    ProductSlugAlreadyExists,
     #[error("product state is invalid")]
     InvalidProductState,
     #[error("created product did not record a domain event")]
     CreatedEventMissing,
+    #[error("product current event id did not match expected event id")]
+    ProductCurrentEventIdConflict,
+    #[error("product lookup by id failed")]
+    ProductLookupByIdFailed,
+    #[error("product lookup by natural key failed")]
+    ProductLookupByKeyFailed,
+    #[error("product insert failed")]
+    ProductInsertFailed,
+    #[error("product update failed")]
+    ProductUpdateFailed,
+    #[error("persisted product slug is invalid")]
+    InvalidProductSlugPersisted,
+    #[error("persisted title is incomplete")]
+    IncompleteTitlePersisted,
+    #[error("persisted title language is invalid")]
+    InvalidTitleLanguagePersisted,
+    #[error("persisted description is incomplete")]
+    IncompleteDescriptionPersisted,
+    #[error("persisted description language is invalid")]
+    InvalidDescriptionLanguagePersisted,
+    #[error("persisted price is incomplete")]
+    IncompletePricePersisted,
+    #[error("persisted price amount is negative")]
+    NegativePriceAmountPersisted,
+    #[error("persisted price currency is invalid")]
+    InvalidPriceCurrencyPersisted,
+    #[error("persisted product state is invalid")]
+    InvalidProductStatePersisted,
+    #[error("persisted product lifecycle is invalid")]
+    InvalidProductLifecyclePersisted,
+    #[error("persisted product URL is invalid")]
+    InvalidProductUrlPersisted,
+    #[error("persisted product images value is invalid")]
+    InvalidProductImagesPersisted,
+    #[error("persisted product image URL is invalid")]
+    InvalidProductImageUrlPersisted,
+    #[error("persisted product image prohibited-content value is invalid")]
+    InvalidProductImageProhibitedContentPersisted,
+    #[error("persisted aggregate state is invalid")]
+    InvalidAggregateStatePersisted,
     #[error("product event already exists")]
-    EventConflict,
-    #[error("product repository unavailable")]
-    ProductRepositoryUnavailable,
-    #[error("product event store unavailable")]
-    ProductEventStoreUnavailable,
+    ProductEventAlreadyExists,
+    #[error("product event append failed")]
+    ProductEventAppendFailed,
+    #[error("current product event lookup failed")]
+    CurrentProductEventLookupFailed,
     #[error("failed to begin create product transaction")]
     BeginTransactionFailed,
     #[error("failed to commit create product transaction")]
     CommitTransactionFailed,
-    #[error("internal product repository failure")]
-    ProductRepositoryInternal,
-    #[error("internal product event store failure")]
-    ProductEventStoreInternal,
 }
 
 #[async_trait::async_trait]
@@ -122,12 +158,53 @@ impl From<RehydrateProductError> for CreateProductError {
 impl From<ProductRepositoryError> for CreateProductError {
     fn from(error: ProductRepositoryError) -> Self {
         match error {
-            ProductRepositoryError::ProductKeyConflict => Self::ProductKeyConflict,
-            ProductRepositoryError::SlugConflict => Self::ProductSlugConflict,
-            ProductRepositoryError::TemporarilyUnavailable => Self::ProductRepositoryUnavailable,
-            ProductRepositoryError::InvalidPersistedState => Self::InvalidProductState,
-            ProductRepositoryError::ConcurrencyConflict | ProductRepositoryError::Internal => {
-                Self::ProductRepositoryInternal
+            ProductRepositoryError::ProductCurrentEventIdConflict => {
+                Self::ProductCurrentEventIdConflict
+            }
+            ProductRepositoryError::ProductKeyAlreadyExists => Self::ProductKeyAlreadyExists,
+            ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
+            ProductRepositoryError::ProductLookupByIdFailed => Self::ProductLookupByIdFailed,
+            ProductRepositoryError::ProductLookupByKeyFailed => Self::ProductLookupByKeyFailed,
+            ProductRepositoryError::ProductInsertFailed => Self::ProductInsertFailed,
+            ProductRepositoryError::ProductUpdateFailed => Self::ProductUpdateFailed,
+            ProductRepositoryError::InvalidProductSlugPersisted => {
+                Self::InvalidProductSlugPersisted
+            }
+            ProductRepositoryError::IncompleteTitlePersisted => Self::IncompleteTitlePersisted,
+            ProductRepositoryError::InvalidTitleLanguagePersisted => {
+                Self::InvalidTitleLanguagePersisted
+            }
+            ProductRepositoryError::IncompleteDescriptionPersisted => {
+                Self::IncompleteDescriptionPersisted
+            }
+            ProductRepositoryError::InvalidDescriptionLanguagePersisted => {
+                Self::InvalidDescriptionLanguagePersisted
+            }
+            ProductRepositoryError::IncompletePricePersisted => Self::IncompletePricePersisted,
+            ProductRepositoryError::NegativePriceAmountPersisted => {
+                Self::NegativePriceAmountPersisted
+            }
+            ProductRepositoryError::InvalidPriceCurrencyPersisted => {
+                Self::InvalidPriceCurrencyPersisted
+            }
+            ProductRepositoryError::InvalidProductStatePersisted => {
+                Self::InvalidProductStatePersisted
+            }
+            ProductRepositoryError::InvalidProductLifecyclePersisted => {
+                Self::InvalidProductLifecyclePersisted
+            }
+            ProductRepositoryError::InvalidProductUrlPersisted => Self::InvalidProductUrlPersisted,
+            ProductRepositoryError::InvalidProductImagesPersisted => {
+                Self::InvalidProductImagesPersisted
+            }
+            ProductRepositoryError::InvalidProductImageUrlPersisted => {
+                Self::InvalidProductImageUrlPersisted
+            }
+            ProductRepositoryError::InvalidProductImageProhibitedContentPersisted => {
+                Self::InvalidProductImageProhibitedContentPersisted
+            }
+            ProductRepositoryError::InvalidAggregateStatePersisted => {
+                Self::InvalidAggregateStatePersisted
             }
         }
     }
@@ -136,10 +213,11 @@ impl From<ProductRepositoryError> for CreateProductError {
 impl From<ProductEventStoreError> for CreateProductError {
     fn from(error: ProductEventStoreError) -> Self {
         match error {
-            ProductEventStoreError::EventConflict => Self::EventConflict,
-            ProductEventStoreError::TemporarilyUnavailable => Self::ProductEventStoreUnavailable,
-            ProductEventStoreError::InvalidEvent => Self::InvalidProductState,
-            ProductEventStoreError::Internal => Self::ProductEventStoreInternal,
+            ProductEventStoreError::ProductEventAlreadyExists => Self::ProductEventAlreadyExists,
+            ProductEventStoreError::ProductEventAppendFailed => Self::ProductEventAppendFailed,
+            ProductEventStoreError::CurrentProductEventLookupFailed => {
+                Self::CurrentProductEventLookupFailed
+            }
         }
     }
 }

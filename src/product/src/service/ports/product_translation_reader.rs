@@ -16,16 +16,14 @@ pub struct ProductTranslationsView {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductTranslationReadError {
-    #[error("temporary product translation read failure")]
-    TemporarilyUnavailable,
-    #[error("invalid product translation read model")]
-    InvalidReadModel,
-    #[error("internal product translation read failure")]
-    Internal,
+    #[error("product translation lookup failed")]
+    ProductTranslationLookupFailed,
+    #[error("product translation read model is invalid")]
+    ProductTranslationReadModelInvalid,
 }
 
 #[async_trait::async_trait]
-pub(crate) trait ProductTranslationReader: Send + Sync {
+pub trait ProductTranslationReader: Send + Sync {
     async fn find_for_product(
         &self,
         product_id: ProductId,
@@ -35,25 +33,26 @@ pub(crate) trait ProductTranslationReader: Send + Sync {
 impl ProductTranslationsView {
     pub fn resolve_title(
         &self,
-        native: Localized<Language, Title>,
+        title: Option<Localized<Language, Title>>,
         preferred_languages: &[Language],
-    ) -> Localized<Language, Title> {
+    ) -> Option<Localized<Language, Title>> {
         let mut titles = self.titles.clone();
-        titles.entry(native.localization).or_insert(native.payload);
+        if let Some(title) = title {
+            titles.entry(title.localization).or_insert(title.payload);
+        }
         Language::resolve(preferred_languages, titles)
-            .unwrap_or_else(|| Localized::new(Language::En, Title::from("Unknown title")))
     }
 
     pub fn resolve_description(
         &self,
-        native: Option<Localized<Language, Description>>,
+        description: Option<Localized<Language, Description>>,
         preferred_languages: &[Language],
     ) -> Option<Localized<Language, Description>> {
         let mut descriptions = self.descriptions.clone();
-        if let Some(native) = native {
+        if let Some(description) = description {
             descriptions
-                .entry(native.localization)
-                .or_insert(native.payload);
+                .entry(description.localization)
+                .or_insert(description.payload);
         }
         Language::resolve(preferred_languages, descriptions)
     }

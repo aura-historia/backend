@@ -51,8 +51,8 @@ impl DeleteProductUseCase for PostgresDeleteProductHandler {
             .find_by_id(command.product_id)
             .await?
             .ok_or(DeleteProductError::ProductNotFound)?;
-        let expected_event_id = loaded.current_event_id;
-        let mut product = loaded.product;
+        let expected_event_id = loaded.version;
+        let mut product = loaded.value;
         product.delete();
         let events = product.take_pending_events();
         let event_id = events

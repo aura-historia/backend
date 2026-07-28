@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS products (
     lifecycle text NOT NULL,
     url text NOT NULL,
     product_images jsonb NOT NULL DEFAULT '[]',
+    embedding real[],
     auction_start timestamptz,
     auction_end timestamptz,
     created timestamptz NOT NULL DEFAULT now(),
@@ -230,7 +231,6 @@ CREATE TABLE IF NOT EXISTS product_events (
     event_type_schema_version int NOT NULL DEFAULT 1,
     payload jsonb NOT NULL,
     event_time timestamptz NOT NULL,
-    created_by text NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT product_events_group_check CHECK (
         event_group IN ('DOMAIN', 'ENRICHMENT', 'POLICY', 'LIFECYCLE')

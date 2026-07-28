@@ -7,6 +7,7 @@ use common::product_id::ProductKey;
 use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use common::versioned::Versioned;
 use indexmap::IndexSet;
 use product::core::description::Description;
 use product::core::fx_rate_id::FxRateId;
@@ -16,7 +17,10 @@ use product::core::product_aggregate::{
 use product::core::product_image::ProductImage;
 use product::core::prohibited_content::ProhibitedContent;
 use product::core::title::Title;
-use product::postgres::testing::{ProductPostgresTestError, ProductPostgresTestKit};
+use product::postgres::event_store::SqlxProductEventStore;
+use product::postgres::repository::SqlxProductRepository;
+use product::service::ports::product_event_store::{ProductEventStore, ProductEventStoreError};
+use product::service::ports::product_repository::{ProductRepository, ProductRepositoryError};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::OffsetDateTime;
 use url::Url;
@@ -39,7 +43,7 @@ async fn should_insert_product_and_event_in_same_transaction() {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     };
-    match ProductPostgresTestKit::new(&mut tx)
+    match SqlxProductRepository::new(&mut tx)
         .insert(&product, event_id)
         .await
     {
@@ -47,10 +51,7 @@ async fn should_insert_product_and_event_in_same_transaction() {
         Err(error) => panic!("failed to insert product: {error:?}"),
     }
     for event in product.pending_events() {
-        match ProductPostgresTestKit::new(&mut tx)
-            .append_event(event)
-            .await
-        {
+        match SqlxProductEventStore::new(&mut tx).append(event).await {
             Ok(()) => {}
             Err(error) => panic!("failed to append product event: {error:?}"),
         }
@@ -61,9 +62,9 @@ async fn should_insert_product_and_event_in_same_transaction() {
     }
 
     let loaded = load_product(&pool, product.id()).await;
-    assert_eq!(product.id(), loaded.product.id());
-    assert_eq!(event_id, loaded.current_event_id);
-    assert_eq!(Some(fx_rate_id), loaded.product.pricing().fx_rate_id);
+    assert_eq!(product.id(), loaded.value.id());
+    assert_eq!(event_id, loaded.version);
+    assert_eq!(Some(fx_rate_id), loaded.value.pricing().fx_rate_id);
     assert_eq!(1, event_count(&pool, product.id()).await);
     assert_eq!(Some(event_id), current_event_id(&pool, product.id()).await);
     assert_eq!(
@@ -87,7 +88,7 @@ async fn should_update_product_event_id_and_append_update_event() {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     };
-    let loaded = match ProductPostgresTestKit::new(&mut tx)
+    let loaded = match SqlxProductRepository::new(&mut tx)
         .find_by_key(&ProductKey::new(
             shop_id,
             product.shops_product_id().clone(),
@@ -98,8 +99,8 @@ async fn should_update_product_event_id_and_append_update_event() {
         Ok(None) => panic!("product not found by key"),
         Err(error) => panic!("failed to load product by key: {error:?}"),
     };
-    let expected_event_id = loaded.current_event_id;
-    let mut updated = loaded.product;
+    let expected_event_id = loaded.version;
+    let mut updated = loaded.value;
     updated.change_state(ProductState::Available);
     let events = updated.take_pending_events();
     let updated_event_id = match events.last() {
@@ -107,7 +108,7 @@ async fn should_update_product_event_id_and_append_update_event() {
         None => panic!("missing update event"),
     };
 
-    match ProductPostgresTestKit::new(&mut tx)
+    match SqlxProductRepository::new(&mut tx)
         .update(&updated, expected_event_id, updated_event_id)
         .await
     {
@@ -115,10 +116,7 @@ async fn should_update_product_event_id_and_append_update_event() {
         Err(error) => panic!("failed to update product: {error:?}"),
     }
     for event in &events {
-        match ProductPostgresTestKit::new(&mut tx)
-            .append_event(event)
-            .await
-        {
+        match SqlxProductEventStore::new(&mut tx).append(event).await {
             Ok(()) => {}
             Err(error) => panic!("failed to append update event: {error:?}"),
         }
@@ -129,8 +127,8 @@ async fn should_update_product_event_id_and_append_update_event() {
     }
 
     let loaded = load_product(&pool, product.id()).await;
-    assert_eq!(ProductState::Available, loaded.product.state());
-    assert_eq!(updated_event_id, loaded.current_event_id);
+    assert_eq!(ProductState::Available, loaded.value.state());
+    assert_eq!(updated_event_id, loaded.version);
     assert_ne!(created_event_id, updated_event_id);
     assert_eq!(2, event_count(&pool, product.id()).await);
     assert_eq!(
@@ -160,7 +158,7 @@ async fn should_reject_stale_current_event_id() {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     };
-    let result = ProductPostgresTestKit::new(&mut tx)
+    let result = SqlxProductRepository::new(&mut tx)
         .update(&product, stale, replacement)
         .await;
     match tx.rollback().await {
@@ -170,7 +168,7 @@ async fn should_reject_stale_current_event_id() {
 
     assert!(matches!(
         result,
-        Err(ProductPostgresTestError::ConcurrencyConflict)
+        Err(ProductRepositoryError::ProductCurrentEventIdConflict)
     ));
     assert_eq!(Some(current), current_event_id(&pool, product.id()).await);
     assert_eq!(1, event_count(&pool, product.id()).await);
@@ -194,28 +192,23 @@ async fn should_rollback_product_when_event_append_fails() {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     };
-    match ProductPostgresTestKit::new(&mut tx)
+    match SqlxProductRepository::new(&mut tx)
         .insert(&product, event_id)
         .await
     {
         Ok(()) => {}
         Err(error) => panic!("failed to insert product before rollback: {error:?}"),
     }
-    match ProductPostgresTestKit::new(&mut tx)
-        .append_event(event)
-        .await
-    {
+    match SqlxProductEventStore::new(&mut tx).append(event).await {
         Ok(()) => {}
         Err(error) => panic!("failed to append first event before rollback: {error:?}"),
     }
-    let duplicate_result = ProductPostgresTestKit::new(&mut tx)
-        .append_event(event)
-        .await;
+    let duplicate_result = SqlxProductEventStore::new(&mut tx).append(event).await;
     let _ = tx.rollback().await;
 
     assert!(matches!(
         duplicate_result,
-        Err(ProductPostgresTestError::EventConflict)
+        Err(ProductEventStoreError::ProductEventAlreadyExists)
     ));
     assert_eq!(None, current_event_id(&pool, product.id()).await);
     assert_eq!(0, event_count(&pool, product.id()).await);
@@ -347,7 +340,7 @@ async fn persist_created_product(pool: &sqlx::PgPool, product: &Product) {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin create transaction: {error}"),
     };
-    match ProductPostgresTestKit::new(&mut tx)
+    match SqlxProductRepository::new(&mut tx)
         .insert(product, event_id)
         .await
     {
@@ -355,10 +348,7 @@ async fn persist_created_product(pool: &sqlx::PgPool, product: &Product) {
         Err(error) => panic!("failed to insert created product: {error:?}"),
     }
     for event in product.pending_events() {
-        match ProductPostgresTestKit::new(&mut tx)
-            .append_event(event)
-            .await
-        {
+        match SqlxProductEventStore::new(&mut tx).append(event).await {
             Ok(()) => {}
             Err(error) => panic!("failed to append created event: {error:?}"),
         }
@@ -371,12 +361,12 @@ async fn persist_created_product(pool: &sqlx::PgPool, product: &Product) {
 async fn load_product(
     pool: &sqlx::PgPool,
     product_id: common::product_id::ProductId,
-) -> product::postgres::testing::LoadedProductForTest {
+) -> Versioned<Product, EventId> {
     let mut connection = match pool.acquire().await {
         Ok(connection) => connection,
         Err(error) => panic!("failed to acquire connection: {error}"),
     };
-    match ProductPostgresTestKit::new(&mut connection)
+    match SqlxProductRepository::new(&mut connection)
         .find_by_id(product_id)
         .await
     {
@@ -394,7 +384,7 @@ async fn current_event_id(
         Ok(connection) => connection,
         Err(error) => panic!("failed to acquire connection: {error}"),
     };
-    match ProductPostgresTestKit::new(&mut connection)
+    match SqlxProductEventStore::new(&mut connection)
         .find_current_event_id(product_id)
         .await
     {

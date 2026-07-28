@@ -7,12 +7,12 @@ use common::product_id::ProductId;
 use serde_json::json;
 use sqlx::PgConnection;
 
-pub(crate) struct SqlxProductEventStore<'tx> {
+pub struct SqlxProductEventStore<'tx> {
     connection: &'tx mut PgConnection,
 }
 
 impl<'tx> SqlxProductEventStore<'tx> {
-    pub(crate) fn new(connection: &'tx mut PgConnection) -> Self {
+    pub fn new(connection: &'tx mut PgConnection) -> Self {
         Self { connection }
     }
 }
@@ -33,7 +33,8 @@ impl ProductEventStore for SqlxProductEventStore<'_> {
         .bind(event_payload_json(&event.payload))
         .bind(event.timestamp)
         .execute(&mut *self.connection)
-        .await?;
+        .await
+        .map_err(ProductEventAppendSqlxError)?;
 
         Ok(())
     }
@@ -47,9 +48,32 @@ impl ProductEventStore for SqlxProductEventStore<'_> {
         )
         .bind(uuid::Uuid::from(product_id))
         .fetch_optional(&mut *self.connection)
-        .await?;
+        .await
+        .map_err(ProductCurrentEventLookupSqlxError)?;
 
         Ok(event_id.map(EventId::from))
+    }
+}
+
+struct ProductEventAppendSqlxError(sqlx::Error);
+struct ProductCurrentEventLookupSqlxError(sqlx::Error);
+
+impl From<ProductEventAppendSqlxError> for ProductEventStoreError {
+    fn from(value: ProductEventAppendSqlxError) -> Self {
+        let ProductEventAppendSqlxError(error) = value;
+        match &error {
+            sqlx::Error::Database(db_error) if db_error.is_unique_violation() => {
+                Self::ProductEventAlreadyExists
+            }
+            _ => Self::ProductEventAppendFailed,
+        }
+    }
+}
+
+impl From<ProductCurrentEventLookupSqlxError> for ProductEventStoreError {
+    fn from(value: ProductCurrentEventLookupSqlxError) -> Self {
+        let ProductCurrentEventLookupSqlxError(_error) = value;
+        Self::CurrentProductEventLookupFailed
     }
 }
 
