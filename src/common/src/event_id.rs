@@ -1,5 +1,11 @@
 crate::uuid_v7_newtype!(EventId);
 
+impl From<EventId> for uuid::Uuid {
+    fn from(id: EventId) -> Self {
+        id.0
+    }
+}
+
 #[cfg(feature = "api")]
 pub mod api {
     use crate::{

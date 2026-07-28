@@ -61,69 +61,47 @@ BEGIN;
 INSERT INTO products (
     product_id,
     product_slug_id,
-    shop_slug_id,
-    seller_slug_id,
     event_id,
     shop_id,
     seller_id,
     shops_product_id,
-    shop_name,
-    seller_name,
-    shop_type,
-    title_native_text,
-    title_native_language,
+    title_text,
+    title_language,
     state,
     lifecycle,
     url,
-    view_url,
-    product_images,
-    created_by,
-    updated_by
+    product_images
 )
 VALUES (
     '30000000-0000-0000-0000-000000000001',
     'product-one',
-    'shop-one',
-    'shop-one',
     '40000000-0000-0000-0000-000000000001',
     '20000000-0000-0000-0000-000000000001',
     '20000000-0000-0000-0000-000000000001',
     'external-1',
-    'Shop One',
-    'Shop One',
-    'AUCTION_HOUSE',
     'A vase',
     'en',
-    'ACTIVE',
     'LISTED',
+    'ACTIVE',
     'https://shop.example.com/products/external-1',
-    'https://aura.example.com/shops/shop-one/products/product-one',
-    '[{"position": 0, "url": "https://cdn.example.com/image.jpg"}]',
-    'system',
-    'system'
+    '[{"url": "https://cdn.example.com/image.jpg", "prohibited_content": "NONE"}]'
 );
 
 INSERT INTO product_events (
     event_id,
     product_id,
-    shop_id,
-    shops_product_id,
     event_type,
     event_group,
     payload,
-    event_time,
-    created_by
+    event_time
 )
 VALUES (
     '40000000-0000-0000-0000-000000000001',
     '30000000-0000-0000-0000-000000000001',
-    '20000000-0000-0000-0000-000000000001',
-    'external-1',
     'PRODUCT_CREATED',
     'DOMAIN',
     '{"kind": "created"}',
-    now(),
-    'system'
+    now()
 );
 
 COMMIT;

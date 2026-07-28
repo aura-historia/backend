@@ -99,7 +99,6 @@ crates/record/
     │
     ├── service/
     │   ├── mod.rs
-    │   ├── operation_context.rs
     │   ├── use_cases/
     │   │   ├── mod.rs
     │   │   ├── commands/
@@ -157,8 +156,6 @@ crates/record/
     │   ├── mod.rs
     │   ├── record.rs
     │   └── record_metadata_reader.rs
-    │
-    └── wiring.rs
 ```
 
 The example names `search`, `key_value`, and `additional_source` describe adapter roles. Actual modules MAY use technology names when that improves discoverability.
@@ -367,7 +364,8 @@ Use the narrowest visibility that works.
 - Use `pub` only for deliberate crate API.
 - Outbound ports SHOULD be `pub(crate)` while all adapters are modules in the same crate.
 - If adapters become separate crates, the required ports MUST be promoted to `pub`.
-- Concrete adapters SHOULD remain `pub(crate)`.
+- Concrete adapters SHOULD remain `pub(crate)` unless integration tests need direct adapter access.
+- Integration tests live in crate `tests/` directories. Do not add production modules solely as test facades; when direct adapter tests need access, make the adapter/port part deliberately `pub` instead.
 - Prefer a public builder returning public use-case trait objects over exposing concrete implementations.
 
 Example:
@@ -448,8 +446,8 @@ pub enum RenameRecordError {
     #[error("invalid title")]
     InvalidTitle,
 
-    #[error("operation not permitted")]
-    Forbidden,
+    #[error("authenticated actor required")]
+    AuthenticatedActorRequired,
 
     #[error("temporary persistence failure")]
     TemporarilyUnavailable,
@@ -1350,13 +1348,12 @@ impl RenameRecordUseCase for PostgresRenameRecordHandler {
         command: RenameRecordCommand,
     ) -> Result<RenameRecordResult, RenameRecordError> {
         let actor = context
-            .principal
-            .require_authenticated_actor()
-            .map_err(|_| RenameRecordError::Forbidden)?;
+            .actor_label()
+            .ok_or(RenameRecordError::AuthenticatedActorRequired)?;
 
-        tracing::Span::current().record("actor_type", actor.kind());
+        tracing::Span::current().record("actor_type", context.principal.kind());
         tracing::Span::current()
-            .record("actor_id", tracing::field::display(actor.id()));
+            .record("actor_id", tracing::field::display(&actor));
 
         let mut tx = self
             .pool
@@ -1500,6 +1497,8 @@ PostgreSQL owns business truth for:
 * partner-shop applications;
 * products;
 * product events;
+* product FX snapshots plus EUR-based conversion rows;
+* product translations;
 * product watchlists;
 * search filters;
 * search-filter matches.
@@ -1510,8 +1509,7 @@ DynamoDB remains the operational owner for:
 * access tokens;
 * OAuth clients;
 * OAuth authorization codes;
-* OAuth third-party exchange codes;
-* FX rates.
+* OAuth third-party exchange codes.
 
 OpenSearch contains rebuildable search projections only.
 
@@ -1784,34 +1782,34 @@ They MUST NOT contain SQLx, HTTP, or external-client errors.
 
 ### Service errors
 
-Use-case errors describe outcomes relevant to callers:
+Use-case errors describe outcomes relevant to callers. Variants MUST name the concrete failure a caller can act on. Avoid catch-all policy or failure variants when the real cause is known.
 
 ```text
 NotFound
-Forbidden
-Conflict
-InvalidInput
-TemporarilyUnavailable
-Internal
+AuthenticatedActorRequired
+PlanDoesNotAllowAction
+ProductCurrentEventIdConflict
+ProductKeyAlreadyExists
+ProductDetailsQueryFailed
+PersistedProductStateInvalid
 ```
 
-They MAY wrap internal errors privately but MUST expose stable variants.
+They MAY wrap internal errors privately but MUST expose stable semantic variants. Do not use vague variants such as `Forbidden`, `Conflict`, `InvalidPersistedState`, or `Internal` when a narrower cause is known.
 
 ### Adapter errors
 
-Adapter errors describe technical failures:
+Adapter errors describe semantic persistence or integration failures without leaking infrastructure types:
 
 ```text
-Connection
-Timeout
-Decode
-Mapping
-ConcurrencyConflict
-UnexpectedRowCount
-ExternalResponse
+ProductLookupByIdFailed
+ProductInsertFailed
+ProductCurrentEventIdConflict
+ProductSlugAlreadyExists
+InvalidProductUrlPersisted
+ExternalResponseMissingPrice
 ```
 
-They MUST NOT escape to controllers directly.
+They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context.
 
 ### HTTP mapping
 
@@ -2040,9 +2038,8 @@ Instead, require the principal at the use-case boundary:
 
 ```rust
 let actor = context
-    .principal
-    .require_authenticated_actor()
-    .map_err(|_| RenameRecordError::Forbidden)?;
+    .actor_label()
+    .ok_or(RenameRecordError::AuthenticatedActorRequired)?;
 ```
 
 A controller route being protected is not sufficient authorization. The use case MUST enforce authorization or invoke a service/domain policy.
