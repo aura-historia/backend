@@ -160,17 +160,15 @@ where
             .await
             .map_err(|_| UpdateShopError::BeginTransactionFailed)?;
 
-        let loaded = self
+        let common::versioned::Versioned {
+            value: mut shop,
+            version,
+        } = self
             .shops
             .in_transaction(&mut tx)
             .find_by_id(command.shop_id)
             .await?
             .ok_or(UpdateShopError::ShopNotFound)?;
-
-        let common::versioned::Versioned {
-            value: mut shop,
-            version,
-        } = loaded;
 
         let outcome = apply_update(&mut shop, command)?;
 

@@ -120,6 +120,7 @@
 - `src/shop/AGENTS.md` — legacy `shop` crate.
 - `src/shop-core/AGENTS.md` — canonical Shop domain crate.
 - `src/shop-service/AGENTS.md` — canonical Shop service crate.
+- `src/shop-postgres/AGENTS.md` — canonical Shop Postgres adapter crate.
 - `src/shop-api/AGENTS.md` — `shop-api` crate.
 - `src/shop-lambda/AGENTS.md` — `shop-lambda` crate.
 - `src/shopify-lambda/AGENTS.md` — `shopify-lambda` crate.

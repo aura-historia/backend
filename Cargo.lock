@@ -270,6 +270,7 @@ dependencies = [
  "shop-api",
  "shop-core",
  "shop-lambda",
+ "shop-postgres",
  "shop-service",
  "shopify-lambda",
  "stripe-api",
@@ -7359,6 +7360,30 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "shop-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "geo",
+ "isocountry",
+ "rstest",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-service",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
  "url",
  "uuid",
 ]

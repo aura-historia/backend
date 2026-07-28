@@ -1,4 +1,12 @@
+use uuid::Uuid;
+
 crate::uuid_v4_newtype!(UserId);
+
+impl From<UserId> for Uuid {
+    fn from(id: UserId) -> Self {
+        id.0
+    }
+}
 
 #[cfg(feature = "api")]
 pub mod api {

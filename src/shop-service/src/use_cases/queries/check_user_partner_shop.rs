@@ -1,5 +1,6 @@
-use crate::ports::{PartnerShopReadError, PartnerShopReader};
+use crate::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
 use common::operation_context::{OperationContext, Principal};
+use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, user_id::UserId};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +26,10 @@ pub enum CheckUserPartnerShopError {
     InvalidReadModel,
     #[error("internal partner shop read failure")]
     Internal,
+    #[error("failed to begin check user partner shop transaction")]
+    BeginTransactionFailed,
+    #[error("failed to commit check user partner shop transaction")]
+    CommitTransactionFailed,
 }
 
 #[async_trait::async_trait]
@@ -36,20 +41,25 @@ pub trait CheckUserPartnerShopUseCase: Send + Sync {
     ) -> Result<CheckUserPartnerShopResult, CheckUserPartnerShopError>;
 }
 
-pub struct CheckUserPartnerShopHandler<R> {
+pub struct CheckUserPartnerShopHandler<U, R> {
+    unit_of_work: U,
     reader: R,
 }
 
-impl<R> CheckUserPartnerShopHandler<R> {
-    pub fn new(reader: R) -> Self {
-        Self { reader }
+impl<U, R> CheckUserPartnerShopHandler<U, R> {
+    pub fn new(unit_of_work: U, reader: R) -> Self {
+        Self {
+            unit_of_work,
+            reader,
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl<R> CheckUserPartnerShopUseCase for CheckUserPartnerShopHandler<R>
+impl<U, R> CheckUserPartnerShopUseCase for CheckUserPartnerShopHandler<U, R>
 where
-    R: PartnerShopReader,
+    U: UnitOfWork,
+    R: PartnerShopReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "check_user_partner_shop",
@@ -68,7 +78,21 @@ where
         request: CheckUserPartnerShopRequest,
     ) -> Result<CheckUserPartnerShopResult, CheckUserPartnerShopError> {
         authorize_check(context, request.user_id)?;
-        let is_partner = self.reader.is_user_partner_of_shop(&request).await?;
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| CheckUserPartnerShopError::BeginTransactionFailed)?;
+
+        let is_partner = self
+            .reader
+            .in_transaction(&mut tx)
+            .is_user_partner_of_shop(&request)
+            .await?;
+
+        tx.commit()
+            .await
+            .map_err(|_| CheckUserPartnerShopError::CommitTransactionFailed)?;
 
         Ok(CheckUserPartnerShopResult {
             user_id: request.user_id,
@@ -103,6 +127,102 @@ fn authorize_check(
 mod tests {
     use super::*;
     use common::operation_context::{CorrelationId, RequestId};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct TestPartnerShopReaderFactory {
+        called: Arc<Mutex<bool>>,
+        is_partner: bool,
+    }
+
+    struct TestPartnerShopReader {
+        called: Arc<Mutex<bool>>,
+        is_partner: bool,
+    }
+
+    struct TestUnitOfWork {
+        committed: Arc<Mutex<bool>>,
+    }
+
+    struct TestTransaction {
+        committed: Arc<Mutex<bool>>,
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for TestUnitOfWork {
+        type Tx = TestTransaction;
+
+        async fn begin(&self) -> Result<Self::Tx, common::transaction::TransactionError> {
+            Ok(TestTransaction {
+                committed: Arc::clone(&self.committed),
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for TestTransaction {
+        async fn commit(self) -> Result<(), common::transaction::TransactionError> {
+            with_mutex(&self.committed, |committed| *committed = true);
+            Ok(())
+        }
+    }
+
+    impl PartnerShopReaderFactory<TestTransaction> for TestPartnerShopReaderFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TestTransaction,
+        ) -> impl PartnerShopReader + 'tx {
+            TestPartnerShopReader {
+                called: Arc::clone(&self.called),
+                is_partner: self.is_partner,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerShopReader for TestPartnerShopReader {
+        async fn is_user_partner_of_shop(
+            &mut self,
+            _request: &CheckUserPartnerShopRequest,
+        ) -> Result<bool, PartnerShopReadError> {
+            with_mutex(&self.called, |called| *called = true);
+            Ok(self.is_partner)
+        }
+    }
+
+    #[tokio::test]
+    async fn should_check_partner_shop_in_owned_transaction() {
+        let user_id = UserId::new();
+        let shop_id = ShopId::new();
+        let committed = Arc::new(Mutex::new(false));
+        let called = Arc::new(Mutex::new(false));
+        let handler = CheckUserPartnerShopHandler::new(
+            TestUnitOfWork {
+                committed: Arc::clone(&committed),
+            },
+            TestPartnerShopReaderFactory {
+                called: Arc::clone(&called),
+                is_partner: true,
+            },
+        );
+
+        let result = handler
+            .execute(
+                &user_context(user_id),
+                CheckUserPartnerShopRequest { user_id, shop_id },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(CheckUserPartnerShopResult {
+                is_partner: true,
+                ..
+            })
+        ));
+        assert!(with_mutex(&called, |called| *called));
+        assert!(with_mutex(&committed, |committed| *committed));
+    }
 
     #[test]
     fn should_allow_user_to_check_own_partner_shop() {
@@ -129,5 +249,23 @@ mod tests {
         let result = authorize_check(&context, UserId::new());
 
         assert!(matches!(result, Err(CheckUserPartnerShopError::Forbidden)));
+    }
+
+    fn user_context(user_id: UserId) -> OperationContext {
+        OperationContext {
+            principal: Principal::User(user_id),
+            request_id: RequestId::from("request"),
+            correlation_id: CorrelationId::from("correlation"),
+        }
+    }
+
+    fn with_mutex<T, R>(mutex: &Mutex<T>, f: impl FnOnce(&mut T) -> R) -> R {
+        match mutex.lock() {
+            Ok(mut guard) => f(&mut guard),
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                f(&mut guard)
+            }
+        }
     }
 }

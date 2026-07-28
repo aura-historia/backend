@@ -400,4 +400,220 @@ mod tests {
             shop.view_url().as_ref().map(Url::as_str)
         );
     }
+
+    #[test]
+    fn should_change_shop_type_when_type_differs() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+
+        let outcome = shop.change_shop_type(ShopType::Marketplace);
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(ShopType::Marketplace, shop.shop_type());
+    }
+
+    #[test]
+    fn should_report_unchanged_when_domains_same() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+        let domains = shop.domains().clone();
+
+        let outcome = shop.replace_domains(domains);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_replace_shopify_integration_when_changed() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+        let shopify = ShopifyIntegration {
+            domain: domain("shopify.example.com"),
+            currency: Some(Currency::Eur),
+            language: Some(Language::De),
+        };
+
+        let outcome = shop.replace_shopify_integration(Some(shopify));
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(
+            Some(Currency::Eur),
+            shop.shopify().and_then(|value| value.currency)
+        );
+    }
+
+    #[test]
+    fn should_clear_shopify_integration_when_changed() {
+        let mut input = new_shop("Antik und Stil");
+        input.shopify = Some(ShopifyIntegration {
+            domain: domain("shopify.example.com"),
+            currency: None,
+            language: None,
+        });
+        let mut shop = Shop::create(input);
+
+        let outcome = shop.replace_shopify_integration(None);
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(None, shop.shopify());
+    }
+
+    #[test]
+    fn should_report_unchanged_when_shopify_integration_same() {
+        let shopify = ShopifyIntegration {
+            domain: domain("shopify.example.com"),
+            currency: Some(Currency::Eur),
+            language: Some(Language::En),
+        };
+        let mut input = new_shop("Antik und Stil");
+        input.shopify = Some(shopify.clone());
+        let mut shop = Shop::create(input);
+
+        let outcome = shop.replace_shopify_integration(Some(shopify));
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_replace_woocommerce_integration_when_changed() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+        let woocommerce = WoocommerceIntegration {
+            webhook_secret: Some(WoocommerceWebhookSecret::from("secret")),
+            currency: Some(Currency::Usd),
+            language: Some(Language::En),
+        };
+
+        let outcome = shop.replace_woocommerce_integration(Some(woocommerce));
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert!(shop.woocommerce().is_some());
+    }
+
+    #[test]
+    fn should_report_unchanged_when_woocommerce_integration_same() {
+        let woocommerce = WoocommerceIntegration {
+            webhook_secret: Some(WoocommerceWebhookSecret::from("secret")),
+            currency: Some(Currency::Usd),
+            language: Some(Language::En),
+        };
+        let mut input = new_shop("Antik und Stil");
+        input.woocommerce = Some(woocommerce.clone());
+        let mut shop = Shop::create(input);
+
+        let outcome = shop.replace_woocommerce_integration(Some(woocommerce));
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_replace_presentation_when_changed() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+        let presentation = ShopPresentation {
+            url: Some(Url::parse("https://example.com").unwrap()),
+            image: Some(Url::parse("https://example.com/image.jpg").unwrap()),
+        };
+
+        let outcome = shop.replace_presentation(presentation);
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(
+            Some("https://example.com/"),
+            shop.presentation().url.as_ref().map(Url::as_str)
+        );
+    }
+
+    #[test]
+    fn should_report_unchanged_when_presentation_same() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+        let presentation = shop.presentation().clone();
+
+        let outcome = shop.replace_presentation(presentation);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_replace_and_clear_address_when_changed() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+        let address = ShopAddress {
+            structured: StructuredAddress {
+                addressline: Some("Main 1".to_string()),
+                addressline_extra: None,
+                locality: Some("Berlin".to_string()),
+                region: None,
+                postal_code: Some("10115".to_string()),
+                country: Some(isocountry::CountryCode::DEU),
+                continent: Some(crate::continent::Continent::Europe),
+            },
+            geo: Some(GeoAddress {
+                lat: 52.5,
+                lon: 13.4,
+            }),
+        };
+
+        let set = shop.replace_address(Some(address));
+        let clear = shop.replace_address(None);
+
+        assert_eq!(ChangeOutcome::Changed, set);
+        assert_eq!(ChangeOutcome::Changed, clear);
+        assert_eq!(None, shop.address());
+    }
+
+    #[test]
+    fn should_report_unchanged_when_contact_same() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+        let contact = shop.contact().clone();
+
+        let outcome = shop.replace_contact(contact);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_replace_and_clear_affiliate_configuration_when_changed() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+        let affiliate = AffiliateConfiguration::Partnerize {
+            camref: "1110lF73C".to_string(),
+        };
+
+        let set = shop.replace_affiliate_configuration(Some(affiliate));
+        let clear = shop.replace_affiliate_configuration(None);
+
+        assert_eq!(ChangeOutcome::Changed, set);
+        assert_eq!(ChangeOutcome::Changed, clear);
+        assert_eq!(None, shop.affiliate_configuration());
+    }
+
+    #[test]
+    fn should_report_unchanged_when_affiliate_configuration_same() {
+        let affiliate = AffiliateConfiguration::Partnerize {
+            camref: "1110lF73C".to_string(),
+        };
+        let mut input = new_shop("Antik und Stil");
+        input.affiliate_configuration = Some(affiliate.clone());
+        let mut shop = Shop::create(input);
+
+        let outcome = shop.replace_affiliate_configuration(Some(affiliate));
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_build_utm_view_url_when_no_affiliate_config() {
+        let mut input = new_shop("Antik und Stil");
+        input.presentation = ShopPresentation {
+            url: Some(Url::parse("https://example.com/l/123").unwrap()),
+            image: None,
+        };
+        let shop = Shop::create(input);
+
+        assert_eq!(
+            Some("https://example.com/l/123?utm_source=aura_historia&utm_medium=referral"),
+            shop.view_url().as_ref().map(Url::as_str)
+        );
+    }
+
+    #[test]
+    fn should_not_build_view_url_when_canonical_url_missing() {
+        let shop = Shop::create(new_shop("Antik und Stil"));
+
+        assert_eq!(None, shop.view_url());
+    }
 }

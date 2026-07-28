@@ -13,9 +13,13 @@ pub enum ShopSearchReadError {
 }
 
 #[async_trait::async_trait]
-pub trait ShopSearchReader: Send + Sync {
+pub trait ShopSearchReader: Send {
     async fn search(
-        &self,
+        &mut self,
         request: &SearchShopsRequest,
     ) -> Result<SearchShopsResult, ShopSearchReadError>;
+}
+
+pub trait ShopSearchReaderFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl ShopSearchReader + 'tx;
 }

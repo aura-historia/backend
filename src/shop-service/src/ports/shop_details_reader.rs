@@ -13,9 +13,13 @@ pub enum ShopDetailsReadError {
 }
 
 #[async_trait::async_trait]
-pub trait ShopDetailsReader: Send + Sync {
+pub trait ShopDetailsReader: Send {
     async fn find_details(
-        &self,
+        &mut self,
         request: &GetShopRequest,
     ) -> Result<Option<ShopDetailsView>, ShopDetailsReadError>;
+}
+
+pub trait ShopDetailsReaderFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl ShopDetailsReader + 'tx;
 }

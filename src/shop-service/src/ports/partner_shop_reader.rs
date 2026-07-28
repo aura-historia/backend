@@ -13,9 +13,13 @@ pub enum PartnerShopReadError {
 }
 
 #[async_trait::async_trait]
-pub trait PartnerShopReader: Send + Sync {
+pub trait PartnerShopReader: Send {
     async fn is_user_partner_of_shop(
-        &self,
+        &mut self,
         request: &CheckUserPartnerShopRequest,
     ) -> Result<bool, PartnerShopReadError>;
+}
+
+pub trait PartnerShopReaderFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl PartnerShopReader + 'tx;
 }

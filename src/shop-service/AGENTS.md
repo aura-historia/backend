@@ -9,7 +9,7 @@
 
 - Depends on `shop-core` and shared `common` app contracts.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
-- Write handlers use `common::transaction::UnitOfWork` and transaction-scoped repository factories.
+- Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
 - Ports are public because adapter crates implement them.
 - No SQLx, DynamoDB, OpenSearch, transport, or legacy `shop` dependency.
 

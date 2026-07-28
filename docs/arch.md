@@ -1446,7 +1446,10 @@ The concrete scoped repository remains private because callers interact only thr
 Handlers SHOULD bind and call one transaction-scoped repository in a single chain:
 
 ```rust
-let loaded = self
+let Versioned {
+    value: record,
+    version,
+} = self
     .records
     .in_transaction(&mut tx)
     .find_by_id(command.record_id)
@@ -1462,7 +1465,7 @@ Another repository can then use the same transaction:
 let workspace = self
     .workspaces
     .in_transaction(&mut tx)
-    .find_by_id(loaded.value.workspace_id())
+    .find_by_id(record.workspace_id())
     .await?
     .ok_or(RenameRecordError::WorkspaceNotFound)?;
 ```
@@ -1474,7 +1477,7 @@ self.records
     .in_transaction(&mut tx)
     .update(
         &record,
-        loaded.version,
+        version,
         &write_metadata,
     )
     .await?;
@@ -1525,17 +1528,15 @@ where
 
         let mut tx = self.unit_of_work.begin().await?;
 
-        let loaded = self
+        let Versioned {
+            value: mut record,
+            version: loaded_version,
+        } = self
             .records
             .in_transaction(&mut tx)
             .find_by_id(command.record_id)
             .await?
             .ok_or(RenameRecordError::NotFound)?;
-
-        let Versioned {
-            value: mut record,
-            version: loaded_version,
-        } = loaded;
 
         authorize_rename(actor, &record)?;
 
@@ -1615,7 +1616,7 @@ A shared `platform-postgres` crate MAY expose the public concrete `SqlxTransacti
 
 ### 11.7 Transactional readers
 
-A read that influences an invariant-critical write MUST use the same transaction and therefore SHOULD have a transaction-bound reader factory:
+A read that influences an invariant-critical write MUST use the same transaction and therefore MUST have a transaction-bound reader factory:
 
 ```rust
 pub trait WorkspacePolicyReaderFactory<Tx>: Send + Sync {
@@ -1626,11 +1627,18 @@ pub trait WorkspacePolicyReaderFactory<Tx>: Send + Sync {
 }
 ```
 
-Do not call a pool-backed reader on another connection when its result must be consistent with the active write transaction.
+When a use case works on operational data through ports and must own the transaction, all operational ports participating in that use case MUST model the same unit of work:
+
+- the handler depends on `UnitOfWork`;
+- repository ports expose transaction-scoped factories;
+- PostgreSQL reader ports expose transaction-scoped factories;
+- the handler begins the transaction, obtains each port with `.in_transaction(&mut tx)`, and explicitly commits on success.
+
+Do not call a pool-backed reader on another connection when its result must be consistent with the active transaction.
 
 ### 11.8 Ordinary readers
 
-Ordinary presentation readers are not transaction-bound. Their adapter implementations MAY own a pool/client internally:
+Ordinary presentation readers are not transaction-bound only when the use case does not need an application-owned transaction or consistent operational snapshot. Their adapter implementations MAY own a pool/client internally:
 
 ```rust
 pub struct PostgresRecordDetailsReader {
@@ -2721,7 +2729,7 @@ Agents MUST read this document before implementing architecture-affecting work.
 - [ ] Batch hydration queries.
 - [ ] Preserve source ordering after hydration.
 - [ ] Keep handlers free of SQLx and concrete adapter imports.
-- [ ] Use an abstract `UnitOfWork` and transaction-scoped repository factories.
+- [ ] Use an abstract `UnitOfWork` and transaction-scoped repository/operational reader factories.
 - [ ] Use chained temporary repositories for one-off transactional calls.
 - [ ] Explicitly commit successful SQLx transactions.
 - [ ] Add a use-case tracing span with safe structured fields.

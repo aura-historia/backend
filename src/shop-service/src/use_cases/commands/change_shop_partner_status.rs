@@ -95,17 +95,15 @@ where
             .await
             .map_err(|_| ChangeShopPartnerStatusError::BeginTransactionFailed)?;
 
-        let loaded = self
+        let common::versioned::Versioned {
+            value: mut shop,
+            version,
+        } = self
             .shops
             .in_transaction(&mut tx)
             .find_by_id(command.shop_id)
             .await?
             .ok_or(ChangeShopPartnerStatusError::ShopNotFound)?;
-
-        let common::versioned::Versioned {
-            value: mut shop,
-            version,
-        } = loaded;
 
         let outcome = shop.change_partner_status(command.partner_status);
         if outcome.changed() {
