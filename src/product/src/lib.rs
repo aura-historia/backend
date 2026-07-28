@@ -9,5 +9,8 @@ pub mod dynamodb;
 #[cfg(feature = "opensearch")]
 pub mod opensearch;
 
+#[cfg(feature = "postgres")]
+pub mod postgres;
+
 #[cfg(feature = "service")]
 pub mod service;

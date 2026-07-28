@@ -7,7 +7,10 @@
 ## Core Design
 
 - Product domain, repositories, and core product services.
-- Root modules: `core`, `data`, `dynamodb`, `opensearch`, `service`.
+- Canonical Product aggregate keeps native title/description/prices only and carries pending domain events internally.
+- Postgres product writes persist product row plus `product_events` in one transaction; DynamoDB paths remain legacy until caller cutover.
+- Product translations and FX conversions are reader/enrichment tables, not aggregate state.
+- Root modules: `core`, `data`, `dynamodb`, `opensearch`, `postgres`, `service`.
 
 - Main neighbors: `common`, `fxrate`, `geo`, `shop`.
 - Library crate. Keep domain, persistence, and service seams explicit.

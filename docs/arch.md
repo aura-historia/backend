@@ -1500,6 +1500,8 @@ PostgreSQL owns business truth for:
 * partner-shop applications;
 * products;
 * product events;
+* product FX snapshots and conversions;
+* product translations;
 * product watchlists;
 * search filters;
 * search-filter matches.
@@ -1510,8 +1512,7 @@ DynamoDB remains the operational owner for:
 * access tokens;
 * OAuth clients;
 * OAuth authorization codes;
-* OAuth third-party exchange codes;
-* FX rates.
+* OAuth third-party exchange codes.
 
 OpenSearch contains rebuildable search projections only.
 

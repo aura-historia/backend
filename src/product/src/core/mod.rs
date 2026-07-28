@@ -1,6 +1,8 @@
 pub mod description;
+pub mod fx_rate_id;
 pub mod heuristics;
 pub mod product;
+pub mod product_aggregate;
 pub mod product_event;
 pub mod product_image;
 pub mod product_search;

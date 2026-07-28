@@ -4,6 +4,12 @@ use std::fmt::{Display, Formatter};
 
 crate::uuid_v4_newtype!(ProductId);
 
+impl From<ProductId> for uuid::Uuid {
+    fn from(id: ProductId) -> Self {
+        id.0
+    }
+}
+
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct ProductKey {
