@@ -10,6 +10,7 @@ const DSL_NODE_LIMIT: usize = 2_000;
 const REMOVED_DSL_TAGS: &[&str] = &[
     "script", "style", "noscript", "svg", "canvas", "header", "footer", "nav", "aside",
 ];
+const REMOVED_DSL_TAG_PREFIXES: &[&str] = &["header-", "footer-", "nav-"];
 
 #[derive(Debug, Default, Serialize)]
 struct PageDslRoot {
@@ -70,7 +71,7 @@ fn project_node(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode
     };
 
     let tag = element.name.local.to_string();
-    if REMOVED_DSL_TAGS.contains(&tag.as_str()) {
+    if is_removed_dsl_tag(&tag) {
         return Vec::new();
     }
 
@@ -78,7 +79,7 @@ fn project_node(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode
         let attrs = element.attributes.borrow();
         projected_attrs(node, &tag, &attrs)
     };
-    let text = direct_text(node).map(|text| truncate_chars(&text, DSL_TEXT_LIMIT));
+    let text = projected_text(node, &attrs).map(|text| truncate_chars(&text, DSL_TEXT_LIMIT));
     let children = project_children(node, projected_count);
 
     if attrs.is_empty() && text.is_none() && children.is_empty() {
@@ -100,6 +101,13 @@ fn project_node(node: &NodeRef, projected_count: &mut usize) -> Vec<HtmlYamlNode
         text,
         children,
     }]
+}
+
+fn is_removed_dsl_tag(tag: &str) -> bool {
+    REMOVED_DSL_TAGS.contains(&tag)
+        || REMOVED_DSL_TAG_PREFIXES
+            .iter()
+            .any(|prefix| tag.starts_with(prefix))
 }
 
 fn is_collapsible_wrapper(tag: &str) -> bool {
@@ -336,6 +344,25 @@ fn direct_text(node: &NodeRef) -> Option<String> {
         }
     }
     normalize_text(&text)
+}
+
+fn descendant_text(node: &NodeRef) -> Option<String> {
+    let mut text = String::new();
+    for descendant in node.descendants() {
+        if let Some(contents) = descendant.as_text() {
+            text.push_str(&contents.borrow());
+            text.push(' ');
+        }
+    }
+    normalize_text(&text)
+}
+
+fn projected_text(node: &NodeRef, attrs: &BTreeMap<String, String>) -> Option<String> {
+    if has_product_specific_context(attrs) {
+        descendant_text(node)
+    } else {
+        direct_text(node)
+    }
 }
 
 fn truncate_chars(value: &str, limit: usize) -> String {
