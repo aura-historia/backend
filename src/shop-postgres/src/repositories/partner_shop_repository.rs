@@ -50,24 +50,29 @@ impl PartnerShopRepository for SqlxPartnerShopRepository<'_> {
         .bind(uuid::Uuid::from(shop_id))
         .execute(&mut *self.connection)
         .await
-        .map_err(map_grant_error)?;
+        .map_err(PartnerShopGrantSqlxError)?;
 
         Ok(())
     }
 }
 
-fn map_grant_error(error: sqlx::Error) -> PartnerShopRepositoryError {
-    match &error {
-        sqlx::Error::Database(database_error)
-            if database_error.constraint() == Some("user_partner_shops_user_id_fkey") =>
-        {
-            PartnerShopRepositoryError::UserNotFound
+struct PartnerShopGrantSqlxError(sqlx::Error);
+
+impl From<PartnerShopGrantSqlxError> for PartnerShopRepositoryError {
+    fn from(error: PartnerShopGrantSqlxError) -> Self {
+        let PartnerShopGrantSqlxError(source) = error;
+        match &source {
+            sqlx::Error::Database(database_error)
+                if database_error.constraint() == Some("user_partner_shops_user_id_fkey") =>
+            {
+                Self::UserNotFound
+            }
+            sqlx::Error::Database(database_error)
+                if database_error.constraint() == Some("user_partner_shops_shop_id_fkey") =>
+            {
+                Self::ShopNotFound
+            }
+            _ => Self::Internal,
         }
-        sqlx::Error::Database(database_error)
-            if database_error.constraint() == Some("user_partner_shops_shop_id_fkey") =>
-        {
-            PartnerShopRepositoryError::ShopNotFound
-        }
-        _ => PartnerShopRepositoryError::Internal,
     }
 }

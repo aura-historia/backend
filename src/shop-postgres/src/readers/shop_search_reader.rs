@@ -1,16 +1,13 @@
-use crate::mapping::{
-    ShopSummaryRow, countries_for_continents, shop_summary_columns, sort_value_for_summary_row,
-};
+use crate::mapping::{ShopSummaryRow, countries_for_continents, shop_summary_columns};
 use common::pagination::cursor::Cursor;
 use common::postgres::SqlxTransaction;
+use common::shop_id::ShopId;
 use common::sort::{Sort, SortOrder};
-use serde_json::Value;
 use shop_core::shop_search::ShopSearch;
 use shop_core::sort_shop_field::SortShopField;
 use shop_service::ports::{ShopSearchReadError, ShopSearchReader, ShopSearchReaderFactory};
 use shop_service::use_cases::queries::search_shops::{SearchShopsRequest, SearchShopsResult};
 use sqlx::{PgConnection, Postgres, QueryBuilder};
-use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxShopSearchReaderFactory;
@@ -39,36 +36,46 @@ impl ShopSearchReader for SqlxShopSearchReader<'_> {
         &mut self,
         request: &SearchShopsRequest,
     ) -> Result<SearchShopsResult, ShopSearchReadError> {
-        let cursor = request.cursor.clone().unwrap_or_default();
+        let cursor = request.cursor.unwrap_or_default();
         let size = cursor.size.clamp(1, 100);
         let size_usize = usize::try_from(size).map_err(|_| ShopSearchReadError::Internal)?;
         let limit = i64::try_from(size + 1).map_err(|_| ShopSearchReadError::Internal)?;
-        let sort = normalize_sort(request.sort);
+        let sort = request.sort.unwrap_or(Sort {
+            sort: SortShopField::Name,
+            order: SortOrder::Asc,
+        });
 
-        let base = format!("SELECT {} FROM shops WHERE TRUE", shop_summary_columns());
-        let mut builder = QueryBuilder::<Postgres>::new(base);
+        let mut builder = QueryBuilder::<Postgres>::new("WITH filtered AS (SELECT ");
+        builder
+            .push(shop_summary_columns())
+            .push(" FROM shops WHERE TRUE");
         push_filters(&mut builder, &request.search);
-        push_cursor(&mut builder, sort, cursor.search_after.as_ref())?;
-        push_order(&mut builder, sort);
-        builder.push(" LIMIT ").push_bind(limit);
+        builder.push("), ranked AS (SELECT filtered.*, row_number() OVER (ORDER BY ");
+        builder.push(field_sql(sort.sort));
+        push_order_direction(&mut builder, sort.order);
+        builder.push(", shop_id ASC) AS rn FROM filtered) SELECT ");
+        builder
+            .push(shop_summary_columns())
+            .push(" FROM ranked WHERE TRUE");
+        if let Some(search_after) = cursor.search_after {
+            builder.push(" AND rn > (SELECT rn FROM ranked WHERE shop_id = ");
+            builder.push_bind(uuid::Uuid::from(search_after));
+            builder.push(")");
+        }
+        builder.push(" ORDER BY rn LIMIT ").push_bind(limit);
 
         let mut rows = builder
             .build_query_as::<ShopSummaryRow>()
             .fetch_all(&mut *self.connection)
             .await
-            .map_err(|_| ShopSearchReadError::TemporarilyUnavailable)?;
+            .map_err(SqlxShopSearchError)?;
 
         let has_more = rows.len() > size_usize;
         if has_more {
             rows.truncate(size_usize);
         }
         let search_after = if has_more {
-            rows.last().map(|row| {
-                serde_json::json!([
-                    sort_value_for_summary_row(sort.sort, row),
-                    row.shop_id.to_string()
-                ])
-            })
+            rows.last().map(|row| ShopId::from(row.shop_id))
         } else {
             None
         };
@@ -87,17 +94,12 @@ impl ShopSearchReader for SqlxShopSearchReader<'_> {
     }
 }
 
-fn normalize_sort(sort: Option<Sort<SortShopField>>) -> Sort<SortShopField> {
-    match sort {
-        Some(Sort {
-            sort: SortShopField::Score,
-            ..
-        })
-        | None => Sort {
-            sort: SortShopField::Name,
-            order: SortOrder::Asc,
-        },
-        Some(sort) => sort,
+struct SqlxShopSearchError(sqlx::Error);
+
+impl From<SqlxShopSearchError> for ShopSearchReadError {
+    fn from(error: SqlxShopSearchError) -> Self {
+        let SqlxShopSearchError(_source) = error;
+        Self::TemporarilyUnavailable
     }
 }
 
@@ -171,162 +173,32 @@ fn push_filters(builder: &mut QueryBuilder<'_, Postgres>, search: &ShopSearch) {
     }
 }
 
-fn push_cursor(
-    builder: &mut QueryBuilder<'_, Postgres>,
-    sort: Sort<SortShopField>,
-    search_after: Option<&Value>,
-) -> Result<(), ShopSearchReadError> {
-    let Some(search_after) = search_after else {
-        return Ok(());
-    };
-    let cursor = SearchCursor::parse(search_after, sort.sort)?;
-    let primary_comparison = match sort.order {
-        SortOrder::Asc => " > ",
-        SortOrder::Desc => " < ",
-    };
-
-    builder.push(" AND (").push(field_sql(sort.sort));
-    match cursor.primary {
-        CursorPrimary::Text(value) => {
-            builder
-                .push(primary_comparison)
-                .push_bind(value.clone())
-                .push(" OR (")
-                .push(field_sql(sort.sort))
-                .push(" = ")
-                .push_bind(value)
-                .push(" AND shop_id > ")
-                .push_bind(cursor.shop_id)
-                .push("))");
-        }
-        CursorPrimary::Time(value) => {
-            builder
-                .push(primary_comparison)
-                .push_bind(value)
-                .push(" OR (")
-                .push(field_sql(sort.sort))
-                .push(" = ")
-                .push_bind(value)
-                .push(" AND shop_id > ")
-                .push_bind(cursor.shop_id)
-                .push("))");
-        }
-    }
-
-    Ok(())
-}
-
-fn push_order(builder: &mut QueryBuilder<'_, Postgres>, sort: Sort<SortShopField>) {
-    builder.push(" ORDER BY ").push(field_sql(sort.sort));
-    match sort.order {
+fn push_order_direction(builder: &mut QueryBuilder<'_, Postgres>, order: SortOrder) {
+    match order {
         SortOrder::Asc => builder.push(" ASC"),
         SortOrder::Desc => builder.push(" DESC"),
     };
-    builder.push(", shop_id ASC");
 }
 
 fn field_sql(field: SortShopField) -> &'static str {
     match field {
-        SortShopField::Score | SortShopField::Name => "name",
+        SortShopField::Name => "name",
         SortShopField::Updated => "updated",
         SortShopField::Created => "created",
-    }
-}
-
-struct SearchCursor {
-    primary: CursorPrimary,
-    shop_id: uuid::Uuid,
-}
-
-enum CursorPrimary {
-    Text(String),
-    Time(OffsetDateTime),
-}
-
-impl SearchCursor {
-    fn parse(value: &Value, field: SortShopField) -> Result<Self, ShopSearchReadError> {
-        let values = value
-            .as_array()
-            .ok_or(ShopSearchReadError::InvalidReadModel)?;
-        if values.len() != 2 {
-            return Err(ShopSearchReadError::InvalidReadModel);
-        }
-        let primary_value = values
-            .first()
-            .and_then(Value::as_str)
-            .ok_or(ShopSearchReadError::InvalidReadModel)?;
-        let shop_id = values
-            .get(1)
-            .and_then(Value::as_str)
-            .ok_or(ShopSearchReadError::InvalidReadModel)
-            .and_then(|value| {
-                uuid::Uuid::parse_str(value).map_err(|_| ShopSearchReadError::InvalidReadModel)
-            })?;
-        let primary = match field {
-            SortShopField::Score | SortShopField::Name => {
-                CursorPrimary::Text(primary_value.to_owned())
-            }
-            SortShopField::Updated | SortShopField::Created => CursorPrimary::Time(
-                OffsetDateTime::parse(
-                    primary_value,
-                    &time::format_description::well_known::Rfc3339,
-                )
-                .map_err(|_| ShopSearchReadError::InvalidReadModel)?,
-            ),
-        };
-
-        Ok(Self { primary, shop_id })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::sort::SortOrder;
-    use serde_json::json;
-    use time::macros::datetime;
 
     #[test]
-    fn should_default_score_sort_to_name_ascending() {
-        let sort = normalize_sort(Some(Sort {
-            sort: SortShopField::Score,
-            order: SortOrder::Desc,
-        }));
+    fn should_keep_shop_id_cursor_type() {
+        let cursor = Cursor {
+            size: 10,
+            search_after: Some(ShopId::new()),
+        };
 
-        assert_eq!(SortShopField::Name, sort.sort);
-        assert_eq!(SortOrder::Asc, sort.order);
-    }
-
-    #[test]
-    fn should_parse_name_cursor() {
-        let shop_id = uuid::Uuid::new_v4();
-        let cursor = json!(["Antik", shop_id.to_string()]);
-
-        let result = SearchCursor::parse(&cursor, SortShopField::Name);
-
-        assert!(
-            matches!(result, Ok(SearchCursor { primary: CursorPrimary::Text(ref value), shop_id: parsed })
-            if value == "Antik" && parsed == shop_id)
-        );
-    }
-
-    #[test]
-    fn should_parse_time_cursor() {
-        let shop_id = uuid::Uuid::new_v4();
-        let cursor = json!(["2026-01-01T00:00:00Z", shop_id.to_string()]);
-
-        let result = SearchCursor::parse(&cursor, SortShopField::Updated);
-
-        assert!(
-            matches!(result, Ok(SearchCursor { primary: CursorPrimary::Time(value), shop_id: parsed })
-            if value == datetime!(2026-01-01 0:00 UTC) && parsed == shop_id)
-        );
-    }
-
-    #[test]
-    fn should_reject_invalid_cursor_shape() {
-        let result = SearchCursor::parse(&json!(["Antik"]), SortShopField::Name);
-
-        assert!(matches!(result, Err(ShopSearchReadError::InvalidReadModel)));
+        assert!(cursor.search_after.is_some());
     }
 }

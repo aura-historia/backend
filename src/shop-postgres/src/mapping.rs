@@ -195,6 +195,7 @@ impl TryFrom<ShopSummaryRow> for ShopSummary {
             partner_status: parse_partner_status(&row.partner_status)?,
             domains,
             image: parse_optional_url(row.image.as_deref(), ShopRowMappingError::InvalidImageUrl)?,
+            created: row.created,
             updated: row.updated,
         })
     }
@@ -293,29 +294,6 @@ pub(crate) fn countries_for_continents(continents: &HashSet<Continent>) -> Vec<S
         .collect::<Vec<_>>();
     countries.sort();
     countries
-}
-
-pub(crate) fn sort_value_for_summary_row(
-    field: shop_core::sort_shop_field::SortShopField,
-    row: &ShopSummaryRow,
-) -> serde_json::Value {
-    match field {
-        shop_core::sort_shop_field::SortShopField::Score
-        | shop_core::sort_shop_field::SortShopField::Name => serde_json::json!(row.name),
-        shop_core::sort_shop_field::SortShopField::Updated => {
-            serde_json::json!(format_rfc3339(row.updated))
-        }
-        shop_core::sort_shop_field::SortShopField::Created => {
-            serde_json::json!(format_rfc3339(row.created))
-        }
-    }
-}
-
-fn format_rfc3339(value: OffsetDateTime) -> String {
-    match value.format(&time::format_description::well_known::Rfc3339) {
-        Ok(formatted) => formatted,
-        Err(_) => value.unix_timestamp().to_string(),
-    }
 }
 
 fn parse_domains(values: &[String]) -> Result<HashSet<Domain>, ShopRowMappingError> {

@@ -63,10 +63,19 @@ impl ShopDetailsReader for SqlxShopDetailsReader<'_> {
                     .await
             }
         }
-        .map_err(|_| ShopDetailsReadError::TemporarilyUnavailable)?;
+        .map_err(ShopDetailsSqlxError)?;
 
         row.map(ShopDetailsView::try_from)
             .transpose()
             .map_err(|_| ShopDetailsReadError::InvalidReadModel)
+    }
+}
+
+struct ShopDetailsSqlxError(sqlx::Error);
+
+impl From<ShopDetailsSqlxError> for ShopDetailsReadError {
+    fn from(error: ShopDetailsSqlxError) -> Self {
+        let ShopDetailsSqlxError(_source) = error;
+        Self::TemporarilyUnavailable
     }
 }

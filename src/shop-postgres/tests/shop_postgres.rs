@@ -3,16 +3,17 @@ use common::operation_context::Principal;
 use common::pagination::cursor::Cursor;
 use common::postgres::SqlxUnitOfWork;
 use common::query::text_query::TextQuery;
+use common::sort::{Sort, SortOrder};
 use common::transaction::{Transaction, UnitOfWork};
 use common::versioned::Versioned;
 use common::write_metadata::WriteMetadata;
 use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
-use serde_json::Value;
 use shop_core::affiliate_configuration::AffiliateConfiguration;
 use shop_core::partner_status::ShopPartnerStatus;
-use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
+use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration};
 use shop_core::shop_search::ShopSearch;
 use shop_core::shop_type::ShopType;
+use shop_core::sort_shop_field::SortShopField;
 use shop_postgres::{
     SqlxPartnerShopReaderFactory, SqlxPartnerShopRepositoryFactory, SqlxShopDetailsReaderFactory,
     SqlxShopRepositoryFactory, SqlxShopSearchReaderFactory,
@@ -78,6 +79,98 @@ async fn should_persist_shop_without_persisting_view_url_and_derive_details_view
         ),
         view.view_url.as_ref().map(Url::as_str)
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_find_shop_by_slug() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let shops = SqlxShopRepositoryFactory::new();
+    let metadata = system_metadata();
+    let shop = sample_shop("postgres-find-by-slug");
+
+    let mut tx = begin(&unit_of_work).await;
+    match shops.in_transaction(&mut tx).insert(&shop, &metadata).await {
+        Ok(()) => {}
+        Err(error) => panic!("failed to insert shop: {error:?}"),
+    }
+    let loaded = match shops
+        .in_transaction(&mut tx)
+        .find_by_slug(shop.slug_id())
+        .await
+    {
+        Ok(Some(loaded)) => loaded,
+        Ok(None) => panic!("missing shop by slug"),
+        Err(error) => panic!("failed to find shop by slug: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(shop.id(), loaded.value.id());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_report_slug_conflict_when_inserting_duplicate_slug() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let shops = SqlxShopRepositoryFactory::new();
+    let metadata = system_metadata();
+    let first = sample_shop("postgres-duplicate-slug");
+    let second = sample_shop("postgres-duplicate-slug");
+
+    let mut tx = begin(&unit_of_work).await;
+    match shops
+        .in_transaction(&mut tx)
+        .insert(&first, &metadata)
+        .await
+    {
+        Ok(()) => {}
+        Err(error) => panic!("failed to insert first shop: {error:?}"),
+    }
+    let result = shops
+        .in_transaction(&mut tx)
+        .insert(&second, &metadata)
+        .await;
+
+    assert!(matches!(result, Err(ShopRepositoryError::SlugConflict)));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_read_shop_details_by_slug_and_shopify_domain() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let shops = SqlxShopRepositoryFactory::new();
+    let details = SqlxShopDetailsReaderFactory::new();
+    let metadata = system_metadata();
+    let shopify_domain = domain("shopify-details.example");
+    let shop = sample_shop_with_shopify("postgres-details-lookup", shopify_domain.clone());
+
+    let mut tx = begin(&unit_of_work).await;
+    match shops.in_transaction(&mut tx).insert(&shop, &metadata).await {
+        Ok(()) => {}
+        Err(error) => panic!("failed to insert shop: {error:?}"),
+    }
+    let by_slug = match details
+        .in_transaction(&mut tx)
+        .find_details(&GetShopRequest::BySlug(shop.slug_id().clone()))
+        .await
+    {
+        Ok(Some(view)) => view,
+        Ok(None) => panic!("missing shop details by slug"),
+        Err(error) => panic!("failed to read shop details by slug: {error:?}"),
+    };
+    let by_shopify_domain = match details
+        .in_transaction(&mut tx)
+        .find_details(&GetShopRequest::ByShopifyDomain(shopify_domain))
+        .await
+    {
+        Ok(Some(view)) => view,
+        Ok(None) => panic!("missing shop details by shopify domain"),
+        Err(error) => panic!("failed to read shop details by shopify domain: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(shop.id(), by_slug.shop_id);
+    assert_eq!(shop.id(), by_shopify_domain.shop_id);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -194,6 +287,27 @@ async fn should_report_missing_user_when_granting_partner_shop() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_report_missing_shop_when_granting_partner_shop() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let partner_shops = SqlxPartnerShopRepositoryFactory::new();
+    let metadata = system_metadata();
+    let user_id = UserId::new();
+    seed_user(&pool, user_id).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let result = partner_shops
+        .in_transaction(&mut tx)
+        .grant(user_id, ShopId::new(), &metadata)
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(PartnerShopRepositoryError::ShopNotFound)
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_search_shops_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -218,7 +332,7 @@ async fn should_search_shops_in_postgres() {
                 ..Default::default()
             },
             sort: None,
-            cursor: Some(Cursor::<Value> {
+            cursor: Some(Cursor::<ShopId> {
                 size: 10,
                 search_after: None,
             }),
@@ -234,13 +348,91 @@ async fn should_search_shops_in_postgres() {
     assert_eq!(matching.id(), result.items[0].shop_id);
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_page_shop_search_with_shop_id_cursor() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let shops = SqlxShopRepositoryFactory::new();
+    let search = SqlxShopSearchReaderFactory::new();
+    let metadata = system_metadata();
+    let first = sample_shop("postgres-cursor-a");
+    let second = sample_shop("postgres-cursor-b");
+
+    let mut tx = begin(&unit_of_work).await;
+    for shop in [&first, &second] {
+        match shops.in_transaction(&mut tx).insert(shop, &metadata).await {
+            Ok(()) => {}
+            Err(error) => panic!("failed to insert shop: {error:?}"),
+        }
+    }
+    let first_page = match search
+        .in_transaction(&mut tx)
+        .search(&SearchShopsRequest {
+            search: ShopSearch {
+                shop_name_query: Some(text_query("postgres-cursor")),
+                ..Default::default()
+            },
+            sort: Some(Sort {
+                sort: SortShopField::Name,
+                order: SortOrder::Asc,
+            }),
+            cursor: Some(Cursor::<ShopId> {
+                size: 1,
+                search_after: None,
+            }),
+        })
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => panic!("failed to search first page: {error:?}"),
+    };
+    let second_page = match search
+        .in_transaction(&mut tx)
+        .search(&SearchShopsRequest {
+            search: ShopSearch {
+                shop_name_query: Some(text_query("postgres-cursor")),
+                ..Default::default()
+            },
+            sort: Some(Sort {
+                sort: SortShopField::Name,
+                order: SortOrder::Asc,
+            }),
+            cursor: Some(Cursor::<ShopId> {
+                size: 1,
+                search_after: first_page.cursor.search_after,
+            }),
+        })
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => panic!("failed to search second page: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(Some(first.id()), first_page.cursor.search_after);
+    assert_eq!(first.id(), first_page.items[0].shop_id);
+    assert_eq!(second.id(), second_page.items[0].shop_id);
+}
+
 fn sample_shop(slug: &str) -> Shop {
-    Shop::create(NewShop {
+    Shop::create(new_shop(slug, None))
+}
+
+fn sample_shop_with_shopify(slug: &str, shopify_domain: Domain) -> Shop {
+    Shop::create(new_shop(slug, Some(shopify_domain)))
+}
+
+fn new_shop(slug: &str, shopify_domain: Option<Domain>) -> NewShop {
+    NewShop {
         id: ShopId::new(),
         name: ShopName::from(slug),
         shop_type: ShopType::CommercialDealer,
         domains: HashSet::from([domain(&format!("{slug}.example"))]),
-        shopify: None,
+        shopify: shopify_domain.map(|domain| ShopifyIntegration {
+            domain,
+            currency: None,
+            language: None,
+        }),
         woocommerce: None,
         presentation: ShopPresentation {
             url: Some(url(&format!("https://example.com/{slug}"))),
@@ -252,7 +444,7 @@ fn sample_shop(slug: &str) -> Shop {
         affiliate_configuration: Some(AffiliateConfiguration::Partnerize {
             camref: "1110lF73C".to_owned(),
         }),
-    })
+    }
 }
 
 fn domain(value: &str) -> Domain {

@@ -43,7 +43,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
             .bind(uuid::Uuid::from(id))
             .fetch_optional(&mut *self.connection)
             .await
-            .map_err(map_lookup_error)?;
+            .map_err(ShopLookupSqlxError)?;
 
         row.map(VersionedShop::try_from)
             .transpose()
@@ -62,7 +62,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
             .bind(slug_id.as_ref())
             .fetch_optional(&mut *self.connection)
             .await
-            .map_err(map_lookup_error)?;
+            .map_err(ShopLookupSqlxError)?;
 
         row.map(VersionedShop::try_from)
             .transpose()
@@ -116,8 +116,8 @@ impl ShopRepository for SqlxShopRepository<'_> {
         .bind(woocommerce.and_then(|value| value.webhook_secret.as_ref().map(AsRef::as_ref)))
         .bind(bind_currency(woocommerce.and_then(|value| value.currency)))
         .bind(bind_language(woocommerce.and_then(|value| value.language)))
-        .bind(presentation.url.as_ref().map(UrlToString::url_to_string))
-        .bind(presentation.image.as_ref().map(UrlToString::url_to_string))
+        .bind(presentation.url.as_ref().map(ToString::to_string))
+        .bind(presentation.image.as_ref().map(ToString::to_string))
         .bind(structured_address.and_then(|value| value.addressline.as_deref()))
         .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
         .bind(structured_address.and_then(|value| value.locality.as_deref()))
@@ -127,13 +127,13 @@ impl ShopRepository for SqlxShopRepository<'_> {
         .bind(address.and_then(|value| value.geo.map(|geo| geo.lat)))
         .bind(address.and_then(|value| value.geo.map(|geo| geo.lon)))
         .bind(contact.phone.as_deref())
-        .bind(contact.email.as_ref().map(EmailToString::email_to_string))
+        .bind(contact.email.as_ref().map(ToString::to_string))
         .bind(bind_affiliate_configuration(shop.affiliate_configuration()))
         .bind(metadata.actor())
         .bind(metadata.actor())
         .execute(&mut *self.connection)
         .await
-        .map_err(map_write_error)?;
+        .map_err(ShopWriteSqlxError)?;
 
         Ok(())
     }
@@ -196,8 +196,8 @@ impl ShopRepository for SqlxShopRepository<'_> {
         .bind(woocommerce.and_then(|value| value.webhook_secret.as_ref().map(AsRef::as_ref)))
         .bind(bind_currency(woocommerce.and_then(|value| value.currency)))
         .bind(bind_language(woocommerce.and_then(|value| value.language)))
-        .bind(presentation.url.as_ref().map(UrlToString::url_to_string))
-        .bind(presentation.image.as_ref().map(UrlToString::url_to_string))
+        .bind(presentation.url.as_ref().map(ToString::to_string))
+        .bind(presentation.image.as_ref().map(ToString::to_string))
         .bind(structured_address.and_then(|value| value.addressline.as_deref()))
         .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
         .bind(structured_address.and_then(|value| value.locality.as_deref()))
@@ -207,14 +207,14 @@ impl ShopRepository for SqlxShopRepository<'_> {
         .bind(address.and_then(|value| value.geo.map(|geo| geo.lat)))
         .bind(address.and_then(|value| value.geo.map(|geo| geo.lon)))
         .bind(contact.phone.as_deref())
-        .bind(contact.email.as_ref().map(EmailToString::email_to_string))
+        .bind(contact.email.as_ref().map(ToString::to_string))
         .bind(bind_affiliate_configuration(shop.affiliate_configuration()))
         .bind(metadata.actor())
         .bind(uuid::Uuid::from(shop.id()))
         .bind(version_to_i64(expected_version))
         .execute(&mut *self.connection)
         .await
-        .map_err(map_write_error)?;
+        .map_err(ShopWriteSqlxError)?;
 
         if result.rows_affected() == 0 {
             return Err(ShopRepositoryError::ConcurrencyConflict);
@@ -224,37 +224,26 @@ impl ShopRepository for SqlxShopRepository<'_> {
     }
 }
 
-fn map_lookup_error(_error: sqlx::Error) -> ShopRepositoryError {
-    ShopRepositoryError::TemporarilyUnavailable
+struct ShopLookupSqlxError(sqlx::Error);
+struct ShopWriteSqlxError(sqlx::Error);
+
+impl From<ShopLookupSqlxError> for ShopRepositoryError {
+    fn from(error: ShopLookupSqlxError) -> Self {
+        let ShopLookupSqlxError(_source) = error;
+        Self::TemporarilyUnavailable
+    }
 }
 
-fn map_write_error(error: sqlx::Error) -> ShopRepositoryError {
-    match &error {
-        sqlx::Error::Database(database_error)
-            if database_error.constraint() == Some("shops_shop_slug_id_key") =>
-        {
-            ShopRepositoryError::SlugConflict
+impl From<ShopWriteSqlxError> for ShopRepositoryError {
+    fn from(error: ShopWriteSqlxError) -> Self {
+        let ShopWriteSqlxError(source) = error;
+        match &source {
+            sqlx::Error::Database(database_error)
+                if database_error.constraint() == Some("shops_shop_slug_id_key") =>
+            {
+                Self::SlugConflict
+            }
+            _ => Self::Internal,
         }
-        _ => ShopRepositoryError::Internal,
-    }
-}
-
-trait UrlToString {
-    fn url_to_string(&self) -> String;
-}
-
-impl UrlToString for url::Url {
-    fn url_to_string(&self) -> String {
-        self.to_string()
-    }
-}
-
-trait EmailToString {
-    fn email_to_string(&self) -> String;
-}
-
-impl EmailToString for serde_email::Email {
-    fn email_to_string(&self) -> String {
-        self.as_str().to_owned()
     }
 }

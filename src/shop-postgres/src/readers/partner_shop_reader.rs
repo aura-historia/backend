@@ -46,6 +46,16 @@ impl PartnerShopReader for SqlxPartnerShopReader<'_> {
         .bind(uuid::Uuid::from(request.shop_id))
         .fetch_one(&mut *self.connection)
         .await
-        .map_err(|_| PartnerShopReadError::TemporarilyUnavailable)
+        .map_err(PartnerShopReadSqlxError)
+        .map_err(Into::into)
+    }
+}
+
+struct PartnerShopReadSqlxError(sqlx::Error);
+
+impl From<PartnerShopReadSqlxError> for PartnerShopReadError {
+    fn from(error: PartnerShopReadSqlxError) -> Self {
+        let PartnerShopReadSqlxError(_source) = error;
+        Self::TemporarilyUnavailable
     }
 }

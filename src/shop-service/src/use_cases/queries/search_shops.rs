@@ -5,7 +5,6 @@ use common::pagination::cursor::Cursor;
 use common::sort::Sort;
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
-use serde_json::Value;
 use shop_core::{partner_status::ShopPartnerStatus, shop_search::ShopSearch, shop_type::ShopType};
 use time::OffsetDateTime;
 use url::Url;
@@ -14,7 +13,7 @@ use url::Url;
 pub struct SearchShopsRequest {
     pub search: ShopSearch,
     pub sort: Option<Sort<shop_core::sort_shop_field::SortShopField>>,
-    pub cursor: Option<Cursor<Value>>,
+    pub cursor: Option<Cursor<ShopId>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,13 +25,14 @@ pub struct ShopSummary {
     pub partner_status: ShopPartnerStatus,
     pub domains: Vec<Domain>,
     pub image: Option<Url>,
+    pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchShopsResult {
     pub items: Vec<ShopSummary>,
-    pub cursor: Cursor<Value>,
+    pub cursor: Cursor<ShopId>,
     pub total: Option<u64>,
 }
 
@@ -226,6 +226,7 @@ mod tests {
                 partner_status: ShopPartnerStatus::Scraped,
                 domains: Vec::new(),
                 image: None,
+                created: OffsetDateTime::UNIX_EPOCH,
                 updated: OffsetDateTime::UNIX_EPOCH,
             }],
             cursor: Cursor {

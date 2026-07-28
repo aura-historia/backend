@@ -2000,7 +2000,7 @@ InvalidProductUrlPersisted
 ExternalResponseMissingPrice
 ```
 
-They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context.
+They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context. Do not hide adapter error mapping in ad-hoc `map_*_error` helper functions; make the source operation explicit in the wrapper type.
 
 ### HTTP mapping
 
