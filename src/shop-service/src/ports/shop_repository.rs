@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use common::error::boxed::BoxError;
 use common::versioned::Versioned;
 use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
 use shop_core::shop::Shop;
@@ -13,13 +14,25 @@ pub enum ShopRepositoryError {
     #[error("concurrent shop update")]
     ConcurrencyConflict,
     #[error("shop slug conflict")]
-    SlugConflict,
+    SlugConflict {
+        #[source]
+        source: BoxError,
+    },
     #[error("temporary persistence failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid persisted shop state")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal persistence failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

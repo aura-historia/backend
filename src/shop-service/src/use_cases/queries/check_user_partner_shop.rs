@@ -1,4 +1,5 @@
 use crate::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
+use common::error::boxed::BoxError;
 use common::operation_context::{OperationContext, Principal};
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, user_id::UserId};
@@ -21,11 +22,20 @@ pub enum CheckUserPartnerShopError {
     #[error("operation not permitted")]
     Forbidden,
     #[error("temporary partner shop read failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid partner shop read model")]
-    InvalidReadModel,
+    InvalidReadModel {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal partner shop read failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin check user partner shop transaction")]
     BeginTransactionFailed,
     #[error("failed to commit check user partner shop transaction")]
@@ -105,9 +115,11 @@ where
 impl From<PartnerShopReadError> for CheckUserPartnerShopError {
     fn from(error: PartnerShopReadError) -> Self {
         match error {
-            PartnerShopReadError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            PartnerShopReadError::InvalidReadModel => Self::InvalidReadModel,
-            PartnerShopReadError::Internal => Self::Internal,
+            PartnerShopReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            PartnerShopReadError::InvalidReadModel { source } => Self::InvalidReadModel { source },
+            PartnerShopReadError::Internal { source } => Self::Internal { source },
         }
     }
 }

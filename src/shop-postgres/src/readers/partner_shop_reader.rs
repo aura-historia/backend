@@ -1,3 +1,4 @@
+use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
 use shop_service::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
 use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
@@ -55,7 +56,9 @@ struct PartnerShopReadSqlxError(sqlx::Error);
 
 impl From<PartnerShopReadSqlxError> for PartnerShopReadError {
     fn from(error: PartnerShopReadSqlxError) -> Self {
-        let PartnerShopReadSqlxError(_source) = error;
-        Self::TemporarilyUnavailable
+        let PartnerShopReadSqlxError(source) = error;
+        Self::TemporarilyUnavailable {
+            source: box_error(source),
+        }
     }
 }

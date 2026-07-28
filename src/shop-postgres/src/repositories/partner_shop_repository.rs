@@ -1,3 +1,4 @@
+use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
 use common::{shop_id::ShopId, user_id::UserId};
 use shop_service::ports::{
@@ -62,14 +63,20 @@ impl From<PartnerShopGrantSqlxError> for PartnerShopRepositoryError {
             sqlx::Error::Database(database_error)
                 if database_error.constraint() == Some("user_partner_shops_user_id_fkey") =>
             {
-                Self::UserNotFound
+                Self::UserNotFound {
+                    source: box_error(source),
+                }
             }
             sqlx::Error::Database(database_error)
                 if database_error.constraint() == Some("user_partner_shops_shop_id_fkey") =>
             {
-                Self::ShopNotFound
+                Self::ShopNotFound {
+                    source: box_error(source),
+                }
             }
-            _ => Self::Internal,
+            _ => Self::Internal {
+                source: box_error(source),
+            },
         }
     }
 }

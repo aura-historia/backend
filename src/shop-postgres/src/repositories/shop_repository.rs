@@ -2,6 +2,7 @@ use crate::mapping::{
     ShopRow, bind_affiliate_configuration, bind_country, bind_currency, bind_domains,
     bind_language, bind_partner_status, bind_shop_type, shop_columns, version_to_i64,
 };
+use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
 use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
 use shop_core::shop::Shop;
@@ -46,7 +47,9 @@ impl ShopRepository for SqlxShopRepository<'_> {
 
         row.map(VersionedShop::try_from)
             .transpose()
-            .map_err(|_| ShopRepositoryError::InvalidPersistedState)
+            .map_err(|source| ShopRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            })
     }
 
     async fn find_by_slug(
@@ -65,7 +68,9 @@ impl ShopRepository for SqlxShopRepository<'_> {
 
         row.map(VersionedShop::try_from)
             .transpose()
-            .map_err(|_| ShopRepositoryError::InvalidPersistedState)
+            .map_err(|source| ShopRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            })
     }
 
     async fn insert(&mut self, shop: &Shop) -> Result<(), ShopRepositoryError> {
@@ -217,8 +222,10 @@ struct ShopWriteSqlxError(sqlx::Error);
 
 impl From<ShopLookupSqlxError> for ShopRepositoryError {
     fn from(error: ShopLookupSqlxError) -> Self {
-        let ShopLookupSqlxError(_source) = error;
-        Self::TemporarilyUnavailable
+        let ShopLookupSqlxError(source) = error;
+        Self::TemporarilyUnavailable {
+            source: box_error(source),
+        }
     }
 }
 
@@ -229,9 +236,13 @@ impl From<ShopWriteSqlxError> for ShopRepositoryError {
             sqlx::Error::Database(database_error)
                 if database_error.constraint() == Some("shops_shop_slug_id_key") =>
             {
-                Self::SlugConflict
+                Self::SlugConflict {
+                    source: box_error(source),
+                }
             }
-            _ => Self::Internal,
+            _ => Self::Internal {
+                source: box_error(source),
+            },
         }
     }
 }

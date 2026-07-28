@@ -1,17 +1,30 @@
 #![allow(dead_code)]
 
+use common::error::boxed::BoxError;
 use common::{shop_id::ShopId, user_id::UserId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PartnerShopRepositoryError {
     #[error("user not found")]
-    UserNotFound,
+    UserNotFound {
+        #[source]
+        source: BoxError,
+    },
     #[error("shop not found")]
-    ShopNotFound,
+    ShopNotFound {
+        #[source]
+        source: BoxError,
+    },
     #[error("temporary partner shop persistence failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal partner shop persistence failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

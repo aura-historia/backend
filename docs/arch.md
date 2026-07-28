@@ -1981,6 +1981,8 @@ PersistedProductStateInvalid
 
 They MAY wrap internal errors privately but MUST expose stable semantic variants. Do not use vague variants such as `Forbidden`, `Conflict`, `InvalidPersistedState`, or `Internal` when a narrower cause is known.
 
+When a service or port error represents an adapter/read-model failure, keep the original cause as `#[source]` with `common::error::boxed::BoxError`. Do not convert technical causes to bare unit variants.
+
 ### Adapter errors
 
 Adapter errors describe semantic persistence or integration failures without leaking infrastructure types:
@@ -1994,7 +1996,7 @@ InvalidProductUrlPersisted
 ExternalResponseMissingPrice
 ```
 
-They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context. Do not hide adapter error mapping in ad-hoc `map_*_error` helper functions; make the source operation explicit in the wrapper type.
+They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context. Preserve the infrastructure error as the semantic error's `#[source]`, usually boxed through `common::error::boxed::box_error`. Do not hide adapter error mapping in ad-hoc `map_*_error` helper functions; make the source operation explicit in the wrapper type.
 
 ### HTTP mapping
 

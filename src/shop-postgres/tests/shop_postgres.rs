@@ -119,7 +119,10 @@ async fn should_report_slug_conflict_when_inserting_duplicate_slug() {
     }
     let result = shops.in_transaction(&mut tx).insert(&second).await;
 
-    assert!(matches!(result, Err(ShopRepositoryError::SlugConflict)));
+    assert!(matches!(
+        result,
+        Err(ShopRepositoryError::SlugConflict { source }) if !source.to_string().is_empty()
+    ));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -259,7 +262,7 @@ async fn should_report_missing_user_when_granting_partner_shop() {
 
     assert!(matches!(
         result,
-        Err(PartnerShopRepositoryError::UserNotFound)
+        Err(PartnerShopRepositoryError::UserNotFound { source }) if !source.to_string().is_empty()
     ));
 }
 
@@ -279,7 +282,7 @@ async fn should_report_missing_shop_when_granting_partner_shop() {
 
     assert!(matches!(
         result,
-        Err(PartnerShopRepositoryError::ShopNotFound)
+        Err(PartnerShopRepositoryError::ShopNotFound { source }) if !source.to_string().is_empty()
     ));
 }
 

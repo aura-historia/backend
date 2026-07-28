@@ -5,6 +5,7 @@ use crate::use_cases::commands::create_shop::woocommerce_integration;
 use common::change_outcome::ChangeOutcome;
 use common::currency::domain::Currency;
 use common::domain::Domain;
+use common::error::boxed::{BoxError, static_error};
 use common::language::domain::Language;
 use common::operation_context::OperationContext;
 use common::patch_field::PatchField;
@@ -78,7 +79,10 @@ pub enum UpdateShopError {
     #[error("concurrent shop update")]
     ConcurrencyConflict,
     #[error("shop slug already exists")]
-    SlugConflict,
+    SlugConflict {
+        #[source]
+        source: BoxError,
+    },
     #[error("shop type is required")]
     ShopTypeRequired,
     #[error("shop domains are required")]
@@ -88,11 +92,20 @@ pub enum UpdateShopError {
     #[error("invalid shop address")]
     InvalidAddress,
     #[error("temporary shop persistence failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid persisted shop state")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal shop persistence failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin update shop transaction")]
     BeginTransactionFailed,
     #[error("failed to commit update shop transaction")]
@@ -211,10 +224,14 @@ impl From<ShopRepositoryError> for UpdateShopError {
     fn from(error: ShopRepositoryError) -> Self {
         match error {
             ShopRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
-            ShopRepositoryError::SlugConflict => Self::SlugConflict,
-            ShopRepositoryError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            ShopRepositoryError::InvalidPersistedState => Self::InvalidPersistedState,
-            ShopRepositoryError::Internal => Self::Internal,
+            ShopRepositoryError::SlugConflict { source } => Self::SlugConflict { source },
+            ShopRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            ShopRepositoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            ShopRepositoryError::Internal { source } => Self::Internal { source },
         }
     }
 }
@@ -223,8 +240,12 @@ impl From<ShopGeocoderError> for UpdateShopError {
     fn from(error: ShopGeocoderError) -> Self {
         match error {
             ShopGeocoderError::NotFound => Self::InvalidAddress,
-            ShopGeocoderError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            ShopGeocoderError::Internal => Self::Internal,
+            ShopGeocoderError::TemporarilyUnavailable => Self::TemporarilyUnavailable {
+                source: static_error("temporary geocoding failure"),
+            },
+            ShopGeocoderError::Internal => Self::Internal {
+                source: static_error("internal geocoding failure"),
+            },
         }
     }
 }

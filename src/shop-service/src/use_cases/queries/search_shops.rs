@@ -1,5 +1,6 @@
 use crate::ports::{ShopSearchReadError, ShopSearchReader, ShopSearchReaderFactory};
 use common::domain::Domain;
+use common::error::boxed::BoxError;
 use common::operation_context::OperationContext;
 use common::pagination::cursor::Cursor;
 use common::sort::Sort;
@@ -39,11 +40,20 @@ pub struct SearchShopsResult {
 #[derive(Debug, thiserror::Error)]
 pub enum SearchShopsError {
     #[error("temporary shop search failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid shop search read model")]
-    InvalidReadModel,
+    InvalidReadModel {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal shop search failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin search shops transaction")]
     BeginTransactionFailed,
     #[error("failed to commit search shops transaction")]
@@ -112,9 +122,11 @@ where
 impl From<ShopSearchReadError> for SearchShopsError {
     fn from(error: ShopSearchReadError) -> Self {
         match error {
-            ShopSearchReadError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            ShopSearchReadError::InvalidReadModel => Self::InvalidReadModel,
-            ShopSearchReadError::Internal => Self::Internal,
+            ShopSearchReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            ShopSearchReadError::InvalidReadModel { source } => Self::InvalidReadModel { source },
+            ShopSearchReadError::Internal { source } => Self::Internal { source },
         }
     }
 }

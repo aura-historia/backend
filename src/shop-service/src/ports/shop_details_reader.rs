@@ -1,15 +1,25 @@
 #![allow(dead_code)]
 
 use crate::use_cases::queries::get_shop::{GetShopRequest, ShopDetailsView};
+use common::error::boxed::BoxError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopDetailsReadError {
     #[error("temporary shop details read failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid shop details read model")]
-    InvalidReadModel,
+    InvalidReadModel {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal shop details read failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

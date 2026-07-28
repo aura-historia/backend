@@ -2,6 +2,7 @@ use crate::ports::{
     PartnerShopRepository, PartnerShopRepositoryError, PartnerShopRepositoryFactory,
     ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
 };
+use common::error::boxed::{BoxError, static_error};
 use common::operation_context::OperationContext;
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, user_id::UserId};
@@ -23,17 +24,32 @@ pub enum GrantPartnerShopError {
     #[error("authenticated actor required to grant partner shop")]
     AuthenticatedActorRequired,
     #[error("user not found")]
-    UserNotFound,
+    UserNotFound {
+        #[source]
+        source: Option<BoxError>,
+    },
     #[error("shop not found")]
-    ShopNotFound,
+    ShopNotFound {
+        #[source]
+        source: Option<BoxError>,
+    },
     #[error("operation not permitted")]
     Forbidden,
     #[error("temporary partner shop persistence failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid persisted shop state")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal partner shop persistence failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin grant partner shop transaction")]
     BeginTransactionFailed,
     #[error("failed to commit grant partner shop transaction")]
@@ -104,7 +120,7 @@ where
             .in_transaction(&mut tx)
             .find_by_id(command.shop_id)
             .await?
-            .ok_or(GrantPartnerShopError::ShopNotFound)?;
+            .ok_or(GrantPartnerShopError::ShopNotFound { source: None })?;
 
         self.partner_shops
             .in_transaction(&mut tx)
@@ -134,11 +150,17 @@ where
 impl From<ShopRepositoryError> for GrantPartnerShopError {
     fn from(error: ShopRepositoryError) -> Self {
         match error {
-            ShopRepositoryError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            ShopRepositoryError::InvalidPersistedState => Self::InvalidPersistedState,
-            ShopRepositoryError::ConcurrencyConflict
-            | ShopRepositoryError::SlugConflict
-            | ShopRepositoryError::Internal => Self::Internal,
+            ShopRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            ShopRepositoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            ShopRepositoryError::ConcurrencyConflict => Self::Internal {
+                source: static_error("unexpected grant partner shop concurrency conflict"),
+            },
+            ShopRepositoryError::SlugConflict { source }
+            | ShopRepositoryError::Internal { source } => Self::Internal { source },
         }
     }
 }
@@ -146,10 +168,16 @@ impl From<ShopRepositoryError> for GrantPartnerShopError {
 impl From<PartnerShopRepositoryError> for GrantPartnerShopError {
     fn from(error: PartnerShopRepositoryError) -> Self {
         match error {
-            PartnerShopRepositoryError::UserNotFound => Self::UserNotFound,
-            PartnerShopRepositoryError::ShopNotFound => Self::ShopNotFound,
-            PartnerShopRepositoryError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            PartnerShopRepositoryError::Internal => Self::Internal,
+            PartnerShopRepositoryError::UserNotFound { source } => Self::UserNotFound {
+                source: Some(source),
+            },
+            PartnerShopRepositoryError::ShopNotFound { source } => Self::ShopNotFound {
+                source: Some(source),
+            },
+            PartnerShopRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            PartnerShopRepositoryError::Internal { source } => Self::Internal { source },
         }
     }
 }

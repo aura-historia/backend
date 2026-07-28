@@ -1,15 +1,25 @@
 #![allow(dead_code)]
 
 use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
+use common::error::boxed::BoxError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PartnerShopReadError {
     #[error("temporary partner shop read failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid partner shop read model")]
-    InvalidReadModel,
+    InvalidReadModel {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal partner shop read failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

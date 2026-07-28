@@ -1,4 +1,5 @@
 use crate::mapping::{ShopRow, shop_columns};
+use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
 use shop_service::ports::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory};
 use shop_service::use_cases::queries::get_shop::{GetShopRequest, ShopDetailsView};
@@ -67,7 +68,9 @@ impl ShopDetailsReader for SqlxShopDetailsReader<'_> {
 
         row.map(ShopDetailsView::try_from)
             .transpose()
-            .map_err(|_| ShopDetailsReadError::InvalidReadModel)
+            .map_err(|source| ShopDetailsReadError::InvalidReadModel {
+                source: box_error(source),
+            })
     }
 }
 
@@ -75,7 +78,9 @@ struct ShopDetailsSqlxError(sqlx::Error);
 
 impl From<ShopDetailsSqlxError> for ShopDetailsReadError {
     fn from(error: ShopDetailsSqlxError) -> Self {
-        let ShopDetailsSqlxError(_source) = error;
-        Self::TemporarilyUnavailable
+        let ShopDetailsSqlxError(source) = error;
+        Self::TemporarilyUnavailable {
+            source: box_error(source),
+        }
     }
 }

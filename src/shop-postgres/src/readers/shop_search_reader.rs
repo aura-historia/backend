@@ -1,4 +1,5 @@
 use crate::mapping::{ShopSummaryRow, countries_for_continents, shop_summary_columns};
+use common::error::boxed::box_error;
 use common::pagination::cursor::Cursor;
 use common::postgres::SqlxTransaction;
 use common::shop_id::ShopId;
@@ -38,8 +39,12 @@ impl ShopSearchReader for SqlxShopSearchReader<'_> {
     ) -> Result<SearchShopsResult, ShopSearchReadError> {
         let cursor = request.cursor.unwrap_or_default();
         let size = cursor.size.clamp(1, 100);
-        let size_usize = usize::try_from(size).map_err(|_| ShopSearchReadError::Internal)?;
-        let limit = i64::try_from(size + 1).map_err(|_| ShopSearchReadError::Internal)?;
+        let size_usize = usize::try_from(size).map_err(|source| ShopSearchReadError::Internal {
+            source: box_error(source),
+        })?;
+        let limit = i64::try_from(size + 1).map_err(|source| ShopSearchReadError::Internal {
+            source: box_error(source),
+        })?;
         let sort = request.sort.unwrap_or(Sort {
             sort: SortShopField::Name,
             order: SortOrder::Asc,
@@ -84,7 +89,9 @@ impl ShopSearchReader for SqlxShopSearchReader<'_> {
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| ShopSearchReadError::InvalidReadModel)?;
+            .map_err(|source| ShopSearchReadError::InvalidReadModel {
+                source: box_error(source),
+            })?;
 
         Ok(SearchShopsResult {
             items,
@@ -98,8 +105,10 @@ struct SqlxShopSearchError(sqlx::Error);
 
 impl From<SqlxShopSearchError> for ShopSearchReadError {
     fn from(error: SqlxShopSearchError) -> Self {
-        let SqlxShopSearchError(_source) = error;
-        Self::TemporarilyUnavailable
+        let SqlxShopSearchError(source) = error;
+        Self::TemporarilyUnavailable {
+            source: box_error(source),
+        }
     }
 }
 

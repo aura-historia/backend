@@ -1,15 +1,25 @@
 #![allow(dead_code)]
 
 use crate::use_cases::queries::search_shops::{SearchShopsRequest, SearchShopsResult};
+use common::error::boxed::BoxError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopSearchReadError {
     #[error("temporary shop search failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid shop search read model")]
-    InvalidReadModel,
+    InvalidReadModel {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal shop search failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

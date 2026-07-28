@@ -29,6 +29,7 @@
 - Think caveman. Talk caveman. Few word.
 - Keep adapter types private.
 - Map rows with `TryFrom`; never leak SQLx row types.
+- Preserve SQLx and row-mapping failures as error sources in service port errors.
 
 ## Verification
 

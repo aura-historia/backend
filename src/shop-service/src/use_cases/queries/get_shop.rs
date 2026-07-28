@@ -1,6 +1,7 @@
 use crate::ports::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory};
 use common::currency::domain::Currency;
 use common::domain::Domain;
+use common::error::boxed::BoxError;
 use common::language::domain::Language;
 use common::operation_context::OperationContext;
 use common::transaction::{Transaction, UnitOfWork};
@@ -51,11 +52,20 @@ pub enum GetShopError {
     #[error("shop not found")]
     NotFound,
     #[error("temporary shop details read failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid shop details read model")]
-    InvalidReadModel,
+    InvalidReadModel {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal shop details read failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin get shop transaction")]
     BeginTransactionFailed,
     #[error("failed to commit get shop transaction")]
@@ -129,9 +139,11 @@ where
 impl From<ShopDetailsReadError> for GetShopError {
     fn from(error: ShopDetailsReadError) -> Self {
         match error {
-            ShopDetailsReadError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            ShopDetailsReadError::InvalidReadModel => Self::InvalidReadModel,
-            ShopDetailsReadError::Internal => Self::Internal,
+            ShopDetailsReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            ShopDetailsReadError::InvalidReadModel { source } => Self::InvalidReadModel { source },
+            ShopDetailsReadError::Internal { source } => Self::Internal { source },
         }
     }
 }

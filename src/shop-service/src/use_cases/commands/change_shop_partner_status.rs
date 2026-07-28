@@ -1,4 +1,5 @@
 use crate::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
+use common::error::boxed::BoxError;
 use common::operation_context::OperationContext;
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -27,11 +28,20 @@ pub enum ChangeShopPartnerStatusError {
     #[error("concurrent shop update")]
     ConcurrencyConflict,
     #[error("temporary shop persistence failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid persisted shop state")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal shop persistence failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin change shop partner status transaction")]
     BeginTransactionFailed,
     #[error("failed to commit change shop partner status transaction")]
@@ -146,9 +156,14 @@ impl From<ShopRepositoryError> for ChangeShopPartnerStatusError {
     fn from(error: ShopRepositoryError) -> Self {
         match error {
             ShopRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
-            ShopRepositoryError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            ShopRepositoryError::InvalidPersistedState => Self::InvalidPersistedState,
-            ShopRepositoryError::SlugConflict | ShopRepositoryError::Internal => Self::Internal,
+            ShopRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            ShopRepositoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            ShopRepositoryError::SlugConflict { source }
+            | ShopRepositoryError::Internal { source } => Self::Internal { source },
         }
     }
 }

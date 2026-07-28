@@ -3,6 +3,7 @@ use crate::ports::{
 };
 use common::currency::domain::Currency;
 use common::domain::Domain;
+use common::error::boxed::{BoxError, static_error};
 use common::language::domain::Language;
 use common::operation_context::OperationContext;
 use common::transaction::{Transaction, UnitOfWork};
@@ -53,17 +54,29 @@ pub enum CreateShopError {
     #[error("authenticated actor required to create shop")]
     AuthenticatedActorRequired,
     #[error("shop slug already exists")]
-    SlugConflict,
+    SlugConflict {
+        #[source]
+        source: BoxError,
+    },
     #[error("operation not permitted")]
     Forbidden,
     #[error("invalid shop address")]
     InvalidAddress,
     #[error("temporary shop persistence failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid persisted shop state")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
     #[error("internal shop persistence failure")]
-    Internal,
+    Internal {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin create shop transaction")]
     BeginTransactionFailed,
     #[error("failed to commit create shop transaction")]
@@ -140,7 +153,9 @@ where
             .await?
             .is_some()
         {
-            return Err(CreateShopError::SlugConflict);
+            return Err(CreateShopError::SlugConflict {
+                source: static_error("shop slug already exists"),
+            });
         }
 
         self.shops.in_transaction(&mut tx).insert(&shop).await?;
@@ -207,12 +222,17 @@ impl From<&Shop> for CreateShopResult {
 impl From<ShopRepositoryError> for CreateShopError {
     fn from(error: ShopRepositoryError) -> Self {
         match error {
-            ShopRepositoryError::SlugConflict => Self::SlugConflict,
-            ShopRepositoryError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            ShopRepositoryError::InvalidPersistedState => Self::InvalidPersistedState,
-            ShopRepositoryError::ConcurrencyConflict | ShopRepositoryError::Internal => {
-                Self::Internal
+            ShopRepositoryError::SlugConflict { source } => Self::SlugConflict { source },
+            ShopRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
             }
+            ShopRepositoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            ShopRepositoryError::ConcurrencyConflict => Self::Internal {
+                source: static_error("unexpected create shop concurrency conflict"),
+            },
+            ShopRepositoryError::Internal { source } => Self::Internal { source },
         }
     }
 }
@@ -221,8 +241,12 @@ impl From<ShopGeocoderError> for CreateShopError {
     fn from(error: ShopGeocoderError) -> Self {
         match error {
             ShopGeocoderError::NotFound => Self::InvalidAddress,
-            ShopGeocoderError::TemporarilyUnavailable => Self::TemporarilyUnavailable,
-            ShopGeocoderError::Internal => Self::Internal,
+            ShopGeocoderError::TemporarilyUnavailable => Self::TemporarilyUnavailable {
+                source: static_error("temporary geocoding failure"),
+            },
+            ShopGeocoderError::Internal => Self::Internal {
+                source: static_error("internal geocoding failure"),
+            },
         }
     }
 }
@@ -419,7 +443,7 @@ mod tests {
 
         let result = handler.execute(&context(), command("Antik Markt")).await;
 
-        assert!(matches!(result, Err(CreateShopError::SlugConflict)));
+        assert!(matches!(result, Err(CreateShopError::SlugConflict { .. })));
         assert!(!with_mutex(&committed, |value| *value));
     }
 
