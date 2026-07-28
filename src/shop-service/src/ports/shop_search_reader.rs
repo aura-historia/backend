@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::service::use_cases::queries::search_shops::{SearchShopsRequest, SearchShopsResult};
+use crate::use_cases::queries::search_shops::{SearchShopsRequest, SearchShopsResult};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopSearchReadError {
@@ -13,7 +13,7 @@ pub enum ShopSearchReadError {
 }
 
 #[async_trait::async_trait]
-pub(crate) trait ShopSearchReader: Send + Sync {
+pub trait ShopSearchReader: Send + Sync {
     async fn search(
         &self,
         request: &SearchShopsRequest,

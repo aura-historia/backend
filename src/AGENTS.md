@@ -117,7 +117,9 @@
 - `src/search-filter-api/AGENTS.md` — `search-filter-api` crate.
 - `src/search-filter-lambda/AGENTS.md` — `search-filter-lambda` crate.
 - `src/search-filter-periodic-match/AGENTS.md` — `search-filter-periodic-match` crate.
-- `src/shop/AGENTS.md` — `shop` crate.
+- `src/shop/AGENTS.md` — legacy `shop` crate.
+- `src/shop-core/AGENTS.md` — canonical Shop domain crate.
+- `src/shop-service/AGENTS.md` — canonical Shop service crate.
 - `src/shop-api/AGENTS.md` — `shop-api` crate.
 - `src/shop-lambda/AGENTS.md` — `shop-lambda` crate.
 - `src/shopify-lambda/AGENTS.md` — `shopify-lambda` crate.

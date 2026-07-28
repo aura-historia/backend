@@ -1,4 +1,4 @@
-use crate::core::{
+use crate::{
     address::{GeoAddress, StructuredAddress},
     affiliate_configuration::AffiliateConfiguration,
     partner_status::ShopPartnerStatus,
@@ -44,8 +44,9 @@ pub struct NewShop {
     pub affiliate_configuration: Option<AffiliateConfiguration>,
 }
 
+#[doc(hidden)]
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ShopState {
+pub struct RehydratedShopState {
     pub id: ShopId,
     pub slug_id: ShopSlugId,
     pub name: ShopName,
@@ -119,8 +120,9 @@ impl Shop {
         }
     }
 
+    #[doc(hidden)]
     #[allow(dead_code)]
-    pub(crate) fn rehydrate(state: ShopState) -> Result<Self, RehydrateShopError> {
+    pub fn rehydrate(state: RehydratedShopState) -> Result<Self, RehydrateShopError> {
         let expected_slug_id = ShopSlugId::from(state.name.as_ref());
         if expected_slug_id != state.slug_id {
             return Err(RehydrateShopError::SlugMismatch {
@@ -281,8 +283,8 @@ mod tests {
         }
     }
 
-    fn shop_state(name: &str, slug_id: &str) -> ShopState {
-        ShopState {
+    fn shop_state(name: &str, slug_id: &str) -> RehydratedShopState {
+        RehydratedShopState {
             id: ShopId::new(),
             slug_id: ShopSlugId::from(slug_id),
             name: ShopName::from(name),

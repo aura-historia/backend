@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::core::address::{GeoAddress, StructuredAddress};
+use shop_core::address::{GeoAddress, StructuredAddress};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopGeocoderError {
@@ -13,6 +13,6 @@ pub enum ShopGeocoderError {
 }
 
 #[async_trait::async_trait]
-pub(crate) trait ShopGeocoder: Send + Sync {
+pub trait ShopGeocoder: Send + Sync {
     async fn geocode(&self, address: &StructuredAddress) -> Result<GeoAddress, ShopGeocoderError>;
 }

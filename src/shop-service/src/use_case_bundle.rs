@@ -1,4 +1,4 @@
-use crate::service::use_cases::{
+use crate::use_cases::{
     ChangeShopPartnerStatusUseCase, CheckUserPartnerShopUseCase, CreateShopUseCase, GetShopUseCase,
     GrantPartnerShopUseCase, SearchShopsUseCase, UpdateShopUseCase,
 };
