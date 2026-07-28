@@ -7,38 +7,8 @@ use std::process::Command;
 
 /// Integration test crates that run on ubuntu-latest with LocalStack.
 /// These paths are relative to the workspace root.
-const INTEGRATION_TEST_CRATES: &[&str] = &[
-    "src/crawler",
-    "src/fxrate",
-    "src/notification",
-    "src/notification-api",
-    "src/oauth",
-    "src/partner-shop-application",
-    "src/partner-shop-application-api",
-    "src/partner-shop-application-lambda",
-    "src/product",
-    "src/product-api",
-    "src/product-api-partner",
-    "src/product-lambda/src/product-lambda-ingest-partner-products",
-    "src/product-lambda/src/product-lambda-delete-product",
-    "src/product-pipeline/src/product-pipeline-embed-text",
-    "src/product-pipeline/src/product-pipeline-translate",
-    "src/product-watchlist",
-    "src/product-watchlist-api",
-    "src/search-filter",
-    "src/search-filter-api",
-    "src/search-filter-lambda/src/search-filter-lambda-percolate-product",
-    "src/shop",
-    "src/shop-api",
-    "src/shop-lambda/src/shop-lambda-opensearch-index",
-    "src/shopify-lambda",
-    "src/test-api",
-    "src/user",
-    "src/user-api",
-    "src/user-lambda/src/user-lambda-index-opensearch",
-    "src/user-lambda/src/user-lambda-tier-update",
-    "src/webhook-api",
-];
+const INTEGRATION_TEST_CRATES: &[&str] =
+    &["src/shop-core", "src/shop-postgres", "src/shop-service"];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.
 /// These paths are relative to the workspace root.

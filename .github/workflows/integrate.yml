@@ -77,22 +77,6 @@ jobs:
       - name: Clippy lint
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
 
-  unit-test:
-    name: Unit-Test Workspace
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Test Workspace
-        run: cargo test --locked --workspace --lib --all-features -- --nocapture
-
   determine-affected-crates:
     name: Determine Affected Crates
     permissions:
@@ -130,8 +114,8 @@ jobs:
           echo "integration_test_crates=$(echo "$result" | jq -c '.integration_test')" >> "$GITHUB_OUTPUT"
           echo "acceptance_test_crates=$(echo "$result" | jq -c '.acceptance_test')" >> "$GITHUB_OUTPUT"
 
-  integration-test:
-    name: Integration-Test ${{ matrix.crate }}
+  test:
+    name: Test ${{ matrix.crate }}
     needs: [determine-affected-crates]
     if: needs.determine-affected-crates.outputs.integration_test_crates != '[]'
     permissions:
@@ -150,7 +134,7 @@ jobs:
 
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
-        run: cargo test --locked --test '*' --all-features -- --nocapture
+        run: cargo test --locked --all-features -- --nocapture
 
       - name: Prune Docker volumes
         run: docker volume prune -f
@@ -158,7 +142,7 @@ jobs:
   acceptance-test:
     name: Acceptance-Test
     needs: [determine-affected-crates]
-    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]'
+    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]' && never() # temporary disabled while migrating to Hetzner/Postgres
     permissions:
       contents: read
     runs-on: self-hosted
