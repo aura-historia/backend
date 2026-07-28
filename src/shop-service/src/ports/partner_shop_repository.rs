@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use common::{shop_id::ShopId, user_id::UserId, write_metadata::WriteMetadata};
+use common::{shop_id::ShopId, user_id::UserId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PartnerShopRepositoryError {
@@ -20,7 +20,6 @@ pub trait PartnerShopRepository: Send {
         &mut self,
         user_id: UserId,
         shop_id: ShopId,
-        metadata: &WriteMetadata,
     ) -> Result<(), PartnerShopRepositoryError>;
 }
 

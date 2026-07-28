@@ -37,10 +37,10 @@ impl DeleteProductUseCase for PostgresDeleteProductHandler {
         context: &OperationContext,
         command: DeleteProductCommand,
     ) -> Result<DeleteProductResult, DeleteProductError> {
-        let actor = context
-            .actor_label()
-            .ok_or(DeleteProductError::AuthenticatedActorRequired)?;
-        tracing::Span::current().record("actor_id", tracing::field::display(&actor));
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(&context.principal.label()),
+        );
 
         let mut tx = self
             .pool
@@ -76,7 +76,7 @@ impl DeleteProductUseCase for PostgresDeleteProductHandler {
         tracing::info!(
             event = "product.deleted",
             actor_type = context.principal.kind(),
-            actor_id = %actor,
+            actor_id = %context.principal.label(),
             product_id = %product.id(),
             event_id = %event_id,
             outcome = "success",

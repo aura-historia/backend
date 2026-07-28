@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use common::versioned::Versioned;
-use common::{shop_id::ShopId, shop_slug_id::ShopSlugId, write_metadata::WriteMetadata};
+use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
 use shop_core::shop::Shop;
 
 common::version_newtype!(ShopStorageVersion);
@@ -34,17 +34,12 @@ pub trait ShopRepository: Send {
         slug_id: &ShopSlugId,
     ) -> Result<Option<VersionedShop>, ShopRepositoryError>;
 
-    async fn insert(
-        &mut self,
-        shop: &Shop,
-        metadata: &WriteMetadata,
-    ) -> Result<(), ShopRepositoryError>;
+    async fn insert(&mut self, shop: &Shop) -> Result<(), ShopRepositoryError>;
 
     async fn update(
         &mut self,
         shop: &Shop,
         expected_version: ShopStorageVersion,
-        metadata: &WriteMetadata,
     ) -> Result<(), ShopRepositoryError>;
 }
 

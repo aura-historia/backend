@@ -3,7 +3,6 @@ use crate::mapping::{
     bind_language, bind_partner_status, bind_shop_type, shop_columns, version_to_i64,
 };
 use common::postgres::SqlxTransaction;
-use common::write_metadata::WriteMetadata;
 use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
 use shop_core::shop::Shop;
 use shop_service::ports::{
@@ -69,11 +68,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
             .map_err(|_| ShopRepositoryError::InvalidPersistedState)
     }
 
-    async fn insert(
-        &mut self,
-        shop: &Shop,
-        metadata: &WriteMetadata,
-    ) -> Result<(), ShopRepositoryError> {
+    async fn insert(&mut self, shop: &Shop) -> Result<(), ShopRepositoryError> {
         let address = shop.address();
         let structured_address = address.map(|value| &value.structured);
         let contact = shop.contact();
@@ -91,16 +86,14 @@ impl ShopRepository for SqlxShopRepository<'_> {
                 structured_address_addressline, structured_address_addressline_extra,
                 structured_address_locality, structured_address_region,
                 structured_address_postal_code, structured_address_country,
-                geo_address_lat, geo_address_lon, phone, email, affiliate_configuration,
-                created_by, updated_by
+                geo_address_lat, geo_address_lon, phone, email, affiliate_configuration
             ) VALUES (
                 $1, $2, $3, $4, $5, $6,
                 $7, $8, $9,
                 $10, $11, $12,
                 $13, $14,
                 $15, $16, $17, $18, $19, $20,
-                $21, $22, $23, $24, $25,
-                $26, $27
+                $21, $22, $23, $24, $25
             )
             "#,
         )
@@ -129,8 +122,6 @@ impl ShopRepository for SqlxShopRepository<'_> {
         .bind(contact.phone.as_deref())
         .bind(contact.email.as_ref().map(ToString::to_string))
         .bind(bind_affiliate_configuration(shop.affiliate_configuration()))
-        .bind(metadata.actor())
-        .bind(metadata.actor())
         .execute(&mut *self.connection)
         .await
         .map_err(ShopWriteSqlxError)?;
@@ -142,7 +133,6 @@ impl ShopRepository for SqlxShopRepository<'_> {
         &mut self,
         shop: &Shop,
         expected_version: ShopStorageVersion,
-        metadata: &WriteMetadata,
     ) -> Result<(), ShopRepositoryError> {
         let address = shop.address();
         let structured_address = address.map(|value| &value.structured);
@@ -180,9 +170,8 @@ impl ShopRepository for SqlxShopRepository<'_> {
                 email = $23,
                 affiliate_configuration = $24,
                 version = version + 1,
-                updated_by = $25,
                 updated = now()
-            WHERE shop_id = $26 AND version = $27
+            WHERE shop_id = $25 AND version = $26
             "#,
         )
         .bind(shop.slug_id().as_ref())
@@ -209,7 +198,6 @@ impl ShopRepository for SqlxShopRepository<'_> {
         .bind(contact.phone.as_deref())
         .bind(contact.email.as_ref().map(ToString::to_string))
         .bind(bind_affiliate_configuration(shop.affiliate_configuration()))
-        .bind(metadata.actor())
         .bind(uuid::Uuid::from(shop.id()))
         .bind(version_to_i64(expected_version))
         .execute(&mut *self.connection)

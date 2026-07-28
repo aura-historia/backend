@@ -64,5 +64,4 @@ pub mod utm;
 pub mod uuid_newtype;
 pub mod version;
 pub mod versioned;
-pub mod write_metadata;
 pub mod year;

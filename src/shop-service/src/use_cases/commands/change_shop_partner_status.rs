@@ -1,7 +1,6 @@
 use crate::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use common::operation_context::OperationContext;
 use common::transaction::{Transaction, UnitOfWork};
-use common::write_metadata::WriteMetadata;
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use shop_core::{partner_status::ShopPartnerStatus, shop::Shop};
 
@@ -85,9 +84,10 @@ where
         context: &OperationContext,
         command: ChangeShopPartnerStatusCommand,
     ) -> Result<ChangeShopPartnerStatusResult, ChangeShopPartnerStatusError> {
-        let metadata = WriteMetadata::try_from(context)
-            .map_err(|_| ChangeShopPartnerStatusError::AuthenticatedActorRequired)?;
-        tracing::Span::current().record("actor_id", tracing::field::display(metadata.actor()));
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
 
         let mut tx = self
             .unit_of_work
@@ -109,7 +109,7 @@ where
         if outcome.changed() {
             self.shops
                 .in_transaction(&mut tx)
-                .update(&shop, version, &metadata)
+                .update(&shop, version)
                 .await?;
         }
 
@@ -120,7 +120,7 @@ where
         tracing::info!(
             event = "shop.partner_status_changed",
             actor_type = context.principal.kind(),
-            actor_id = %metadata.actor(),
+            actor_id = %context.principal.label(),
             shop_id = %shop.id(),
             partner_status = ?shop.partner_status(),
             changed = outcome.changed(),

@@ -1,12 +1,10 @@
 use common::domain::Domain;
-use common::operation_context::Principal;
 use common::pagination::cursor::Cursor;
 use common::postgres::SqlxUnitOfWork;
 use common::query::text_query::TextQuery;
 use common::sort::{Sort, SortOrder};
 use common::transaction::{Transaction, UnitOfWork};
 use common::versioned::Versioned;
-use common::write_metadata::WriteMetadata;
 use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use shop_core::affiliate_configuration::AffiliateConfiguration;
 use shop_core::partner_status::ShopPartnerStatus;
@@ -38,11 +36,10 @@ async fn should_persist_shop_without_persisting_view_url_and_derive_details_view
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let shops = SqlxShopRepositoryFactory::new();
     let details = SqlxShopDetailsReaderFactory::new();
-    let metadata = system_metadata();
     let shop = sample_shop("postgres-no-view-url");
 
     let mut tx = begin(&unit_of_work).await;
-    match shops.in_transaction(&mut tx).insert(&shop, &metadata).await {
+    match shops.in_transaction(&mut tx).insert(&shop).await {
         Ok(()) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
@@ -86,11 +83,10 @@ async fn should_find_shop_by_slug() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let shops = SqlxShopRepositoryFactory::new();
-    let metadata = system_metadata();
     let shop = sample_shop("postgres-find-by-slug");
 
     let mut tx = begin(&unit_of_work).await;
-    match shops.in_transaction(&mut tx).insert(&shop, &metadata).await {
+    match shops.in_transaction(&mut tx).insert(&shop).await {
         Ok(()) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
@@ -113,23 +109,15 @@ async fn should_report_slug_conflict_when_inserting_duplicate_slug() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let shops = SqlxShopRepositoryFactory::new();
-    let metadata = system_metadata();
     let first = sample_shop("postgres-duplicate-slug");
     let second = sample_shop("postgres-duplicate-slug");
 
     let mut tx = begin(&unit_of_work).await;
-    match shops
-        .in_transaction(&mut tx)
-        .insert(&first, &metadata)
-        .await
-    {
+    match shops.in_transaction(&mut tx).insert(&first).await {
         Ok(()) => {}
         Err(error) => panic!("failed to insert first shop: {error:?}"),
     }
-    let result = shops
-        .in_transaction(&mut tx)
-        .insert(&second, &metadata)
-        .await;
+    let result = shops.in_transaction(&mut tx).insert(&second).await;
 
     assert!(matches!(result, Err(ShopRepositoryError::SlugConflict)));
 }
@@ -140,12 +128,11 @@ async fn should_read_shop_details_by_slug_and_shopify_domain() {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let shops = SqlxShopRepositoryFactory::new();
     let details = SqlxShopDetailsReaderFactory::new();
-    let metadata = system_metadata();
     let shopify_domain = domain("shopify-details.example");
     let shop = sample_shop_with_shopify("postgres-details-lookup", shopify_domain.clone());
 
     let mut tx = begin(&unit_of_work).await;
-    match shops.in_transaction(&mut tx).insert(&shop, &metadata).await {
+    match shops.in_transaction(&mut tx).insert(&shop).await {
         Ok(()) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
@@ -178,11 +165,10 @@ async fn should_update_shop_with_optimistic_concurrency() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let shops = SqlxShopRepositoryFactory::new();
-    let metadata = system_metadata();
     let shop = sample_shop("postgres-concurrency");
 
     let mut tx = begin(&unit_of_work).await;
-    match shops.in_transaction(&mut tx).insert(&shop, &metadata).await {
+    match shops.in_transaction(&mut tx).insert(&shop).await {
         Ok(()) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
@@ -198,21 +184,14 @@ async fn should_update_shop_with_optimistic_concurrency() {
         Err(error) => panic!("failed to load shop: {error:?}"),
     };
     loaded.change_partner_status(ShopPartnerStatus::Partnered);
-    match shops
-        .in_transaction(&mut tx)
-        .update(&loaded, version, &metadata)
-        .await
-    {
+    match shops.in_transaction(&mut tx).update(&loaded, version).await {
         Ok(()) => {}
         Err(error) => panic!("failed to update shop: {error:?}"),
     }
     commit(tx).await;
 
     let mut tx = begin(&unit_of_work).await;
-    let stale_result = shops
-        .in_transaction(&mut tx)
-        .update(&loaded, version, &metadata)
-        .await;
+    let stale_result = shops.in_transaction(&mut tx).update(&loaded, version).await;
 
     assert!(matches!(
         stale_result,
@@ -227,19 +206,18 @@ async fn should_grant_and_read_partner_shop() {
     let shops = SqlxShopRepositoryFactory::new();
     let partner_shops = SqlxPartnerShopRepositoryFactory::new();
     let partner_reader = SqlxPartnerShopReaderFactory::new();
-    let metadata = system_metadata();
     let user_id = UserId::new();
     let shop = sample_shop("postgres-partner");
     seed_user(&pool, user_id).await;
 
     let mut tx = begin(&unit_of_work).await;
-    match shops.in_transaction(&mut tx).insert(&shop, &metadata).await {
+    match shops.in_transaction(&mut tx).insert(&shop).await {
         Ok(()) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     match partner_shops
         .in_transaction(&mut tx)
-        .grant(user_id, shop.id(), &metadata)
+        .grant(user_id, shop.id())
         .await
     {
         Ok(()) => {}
@@ -267,17 +245,16 @@ async fn should_report_missing_user_when_granting_partner_shop() {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let shops = SqlxShopRepositoryFactory::new();
     let partner_shops = SqlxPartnerShopRepositoryFactory::new();
-    let metadata = system_metadata();
     let shop = sample_shop("postgres-missing-user");
 
     let mut tx = begin(&unit_of_work).await;
-    match shops.in_transaction(&mut tx).insert(&shop, &metadata).await {
+    match shops.in_transaction(&mut tx).insert(&shop).await {
         Ok(()) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     let result = partner_shops
         .in_transaction(&mut tx)
-        .grant(UserId::new(), shop.id(), &metadata)
+        .grant(UserId::new(), shop.id())
         .await;
 
     assert!(matches!(
@@ -291,14 +268,13 @@ async fn should_report_missing_shop_when_granting_partner_shop() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let partner_shops = SqlxPartnerShopRepositoryFactory::new();
-    let metadata = system_metadata();
     let user_id = UserId::new();
     seed_user(&pool, user_id).await;
 
     let mut tx = begin(&unit_of_work).await;
     let result = partner_shops
         .in_transaction(&mut tx)
-        .grant(user_id, ShopId::new(), &metadata)
+        .grant(user_id, ShopId::new())
         .await;
 
     assert!(matches!(
@@ -313,13 +289,12 @@ async fn should_search_shops_in_postgres() {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let shops = SqlxShopRepositoryFactory::new();
     let search = SqlxShopSearchReaderFactory::new();
-    let metadata = system_metadata();
     let matching = sample_shop("postgres-search-match");
     let other = sample_shop("postgres-other");
 
     let mut tx = begin(&unit_of_work).await;
     for shop in [&matching, &other] {
-        match shops.in_transaction(&mut tx).insert(shop, &metadata).await {
+        match shops.in_transaction(&mut tx).insert(shop).await {
             Ok(()) => {}
             Err(error) => panic!("failed to insert shop: {error:?}"),
         }
@@ -354,13 +329,12 @@ async fn should_page_shop_search_with_shop_id_cursor() {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let shops = SqlxShopRepositoryFactory::new();
     let search = SqlxShopSearchReaderFactory::new();
-    let metadata = system_metadata();
     let first = sample_shop("postgres-cursor-a");
     let second = sample_shop("postgres-cursor-b");
 
     let mut tx = begin(&unit_of_work).await;
     for shop in [&first, &second] {
-        match shops.in_transaction(&mut tx).insert(shop, &metadata).await {
+        match shops.in_transaction(&mut tx).insert(shop).await {
             Ok(()) => {}
             Err(error) => panic!("failed to insert shop: {error:?}"),
         }
@@ -468,13 +442,6 @@ fn text_query(value: &str) -> TextQuery<0> {
     }
 }
 
-fn system_metadata() -> WriteMetadata {
-    match WriteMetadata::try_from(&Principal::System) {
-        Ok(metadata) => metadata,
-        Err(error) => panic!("failed to build system metadata: {error}"),
-    }
-}
-
 async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
@@ -492,8 +459,8 @@ async fn seed_user(pool: &sqlx::PgPool, user_id: UserId) {
     let result = sqlx::query(
         r#"
         INSERT INTO users (
-            user_id, email, tier, role, created_by, updated_by
-        ) VALUES ($1, $2, 'FREE', 'USER', 'shop-postgres-test', 'shop-postgres-test')
+            user_id, email, tier, role
+        ) VALUES ($1, $2, 'FREE', 'USER')
         "#,
     )
     .bind(uuid::Uuid::from(user_id))

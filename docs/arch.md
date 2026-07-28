@@ -346,7 +346,7 @@ Hydrated cross-aggregate information belongs to read models.
 
 #### Operational metadata
 
-Operational metadata such as `created_at`, `updated_at`, `created_by`, and `updated_by` is not aggregate state unless a domain invariant explicitly depends on it.
+Operational metadata such as `created_at`, `updated_at` is not aggregate state unless a domain invariant explicitly depends on it.
 
 It MUST NOT be added to an aggregate merely for audit, display, sorting, or transport compatibility.
 
@@ -786,14 +786,12 @@ pub trait RecordRepository: Send {
     async fn insert(
         &mut self,
         record: &Record,
-        metadata: &WriteMetadata,
     ) -> Result<(), RecordRepositoryError>;
 
     async fn update(
         &mut self,
         record: &Record,
         expected_version: RecordStorageVersion,
-        metadata: &WriteMetadata,
     ) -> Result<(), RecordRepositoryError>;
 }
 ```
@@ -1478,7 +1476,6 @@ self.records
     .update(
         &record,
         version,
-        &write_metadata,
     )
     .await?;
 ```
@@ -1546,14 +1543,11 @@ where
         let outcome = record.rename(new_title)?;
 
         if outcome.changed() {
-            let write_metadata = WriteMetadata::try_from(&context.principal)?;
-
             self.records
                 .in_transaction(&mut tx)
                 .update(
                     &record,
                     loaded_version,
-                    &write_metadata,
                 )
                 .await?;
         }

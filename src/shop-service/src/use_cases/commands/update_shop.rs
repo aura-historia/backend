@@ -9,7 +9,6 @@ use common::language::domain::Language;
 use common::operation_context::OperationContext;
 use common::patch_field::PatchField;
 use common::transaction::{Transaction, UnitOfWork};
-use common::write_metadata::WriteMetadata;
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use serde_email::Email;
 use shop_core::{
@@ -148,9 +147,10 @@ where
         context: &OperationContext,
         command: UpdateShopCommand,
     ) -> Result<UpdateShopResult, UpdateShopError> {
-        let metadata = WriteMetadata::try_from(context)
-            .map_err(|_| UpdateShopError::AuthenticatedActorRequired)?;
-        tracing::Span::current().record("actor_id", tracing::field::display(metadata.actor()));
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
 
         let command = prepare_update(command, &self.geocoder).await?;
 
@@ -175,7 +175,7 @@ where
         if outcome.changed() {
             self.shops
                 .in_transaction(&mut tx)
-                .update(&shop, version, &metadata)
+                .update(&shop, version)
                 .await?;
         }
 
@@ -186,7 +186,7 @@ where
         tracing::info!(
             event = "shop.updated",
             actor_type = context.principal.kind(),
-            actor_id = %metadata.actor(),
+            actor_id = %context.principal.label(),
             shop_id = %shop.id(),
             shop_slug_id = %shop.slug_id(),
             changed = outcome.changed(),

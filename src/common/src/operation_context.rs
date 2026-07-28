@@ -15,22 +15,22 @@ pub enum Principal {
     System,
 }
 
+impl Principal {
+    pub fn label(&self) -> String {
+        match self {
+            Principal::Anonymous => "ANONYMOUS".to_owned(),
+            Principal::User(user_id) => user_id.to_string(),
+            Principal::Service(service_id) => service_id.clone(),
+            Principal::System => "SYSTEM".to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OperationContext {
     pub principal: Principal,
     pub request_id: RequestId,
     pub correlation_id: CorrelationId,
-}
-
-impl OperationContext {
-    pub fn actor_label(&self) -> Option<String> {
-        match &self.principal {
-            Principal::Anonymous => None,
-            Principal::User(user_id) => Some(user_id.to_string()),
-            Principal::Service(service_id) => Some(service_id.clone()),
-            Principal::System => Some("SYSTEM".to_owned()),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

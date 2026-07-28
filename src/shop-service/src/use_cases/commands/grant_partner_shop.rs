@@ -4,7 +4,6 @@ use crate::ports::{
 };
 use common::operation_context::OperationContext;
 use common::transaction::{Transaction, UnitOfWork};
-use common::write_metadata::WriteMetadata;
 use common::{shop_id::ShopId, user_id::UserId};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,9 +89,10 @@ where
         context: &OperationContext,
         command: GrantPartnerShopCommand,
     ) -> Result<GrantPartnerShopResult, GrantPartnerShopError> {
-        let metadata = WriteMetadata::try_from(context)
-            .map_err(|_| GrantPartnerShopError::AuthenticatedActorRequired)?;
-        tracing::Span::current().record("actor_id", tracing::field::display(metadata.actor()));
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
 
         let mut tx = self
             .unit_of_work
@@ -108,7 +108,7 @@ where
 
         self.partner_shops
             .in_transaction(&mut tx)
-            .grant(command.user_id, command.shop_id, &metadata)
+            .grant(command.user_id, command.shop_id)
             .await?;
 
         tx.commit()
@@ -118,7 +118,7 @@ where
         tracing::info!(
             event = "shop.partner_granted",
             actor_type = context.principal.kind(),
-            actor_id = %metadata.actor(),
+            actor_id = %context.principal.label(),
             user_id = %command.user_id,
             shop_id = %command.shop_id,
             outcome = "success",

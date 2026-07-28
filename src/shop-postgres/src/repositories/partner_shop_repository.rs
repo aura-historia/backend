@@ -1,5 +1,4 @@
 use common::postgres::SqlxTransaction;
-use common::write_metadata::WriteMetadata;
 use common::{shop_id::ShopId, user_id::UserId};
 use shop_service::ports::{
     PartnerShopRepository, PartnerShopRepositoryError, PartnerShopRepositoryFactory,
@@ -36,9 +35,7 @@ impl PartnerShopRepository for SqlxPartnerShopRepository<'_> {
         &mut self,
         user_id: UserId,
         shop_id: ShopId,
-        metadata: &WriteMetadata,
     ) -> Result<(), PartnerShopRepositoryError> {
-        let _actor = metadata.actor();
         sqlx::query(
             r#"
             INSERT INTO user_partner_shops (user_id, shop_id)

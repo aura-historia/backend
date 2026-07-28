@@ -6,7 +6,6 @@ use common::domain::Domain;
 use common::language::domain::Language;
 use common::operation_context::OperationContext;
 use common::transaction::{Transaction, UnitOfWork};
-use common::write_metadata::WriteMetadata;
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use serde_email::Email;
 use shop_core::{
@@ -119,9 +118,10 @@ where
         context: &OperationContext,
         command: CreateShopCommand,
     ) -> Result<CreateShopResult, CreateShopError> {
-        let metadata = WriteMetadata::try_from(context)
-            .map_err(|_| CreateShopError::AuthenticatedActorRequired)?;
-        tracing::Span::current().record("actor_id", tracing::field::display(metadata.actor()));
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
 
         let slug_id = ShopSlugId::from(command.name.as_ref());
         let address = geocode_address(command.structured_address.clone(), &self.geocoder).await?;
@@ -143,10 +143,7 @@ where
             return Err(CreateShopError::SlugConflict);
         }
 
-        self.shops
-            .in_transaction(&mut tx)
-            .insert(&shop, &metadata)
-            .await?;
+        self.shops.in_transaction(&mut tx).insert(&shop).await?;
 
         tx.commit()
             .await
@@ -155,7 +152,7 @@ where
         tracing::info!(
             event = "shop.created",
             actor_type = context.principal.kind(),
-            actor_id = %metadata.actor(),
+            actor_id = %context.principal.label(),
             shop_id = %shop.id(),
             shop_slug_id = %shop.slug_id(),
             outcome = "success",
@@ -282,7 +279,7 @@ mod tests {
     #[derive(Default)]
     struct RepositoryState {
         existing_by_slug: Option<Versioned<Shop, ShopStorageVersion>>,
-        inserted: Option<(Shop, WriteMetadata)>,
+        inserted: Option<Shop>,
     }
 
     #[derive(Clone)]
@@ -352,13 +349,9 @@ mod tests {
             }))
         }
 
-        async fn insert(
-            &mut self,
-            shop: &Shop,
-            metadata: &WriteMetadata,
-        ) -> Result<(), ShopRepositoryError> {
+        async fn insert(&mut self, shop: &Shop) -> Result<(), ShopRepositoryError> {
             with_mutex(&self.state, |state| {
-                state.inserted = Some((shop.clone(), metadata.clone()));
+                state.inserted = Some(shop.clone());
             });
             Ok(())
         }
@@ -367,7 +360,6 @@ mod tests {
             &mut self,
             _shop: &Shop,
             _expected_version: ShopStorageVersion,
-            _metadata: &WriteMetadata,
         ) -> Result<(), ShopRepositoryError> {
             Ok(())
         }
@@ -402,7 +394,9 @@ mod tests {
         assert!(matches!(result, Ok(ref value) if value.name == ShopName::from("Antik Markt")));
         assert!(with_mutex(&committed, |value| *value));
         let inserted = with_mutex(&state, |state| state.inserted.clone());
-        assert!(matches!(inserted, Some((_, ref metadata)) if metadata.actor() == "SYSTEM"));
+        assert!(
+            matches!(inserted, Some(ref shop) if shop.name() == &ShopName::from("Antik Markt"))
+        );
     }
 
     #[tokio::test]
