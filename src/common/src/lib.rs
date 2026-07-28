@@ -56,6 +56,7 @@ pub mod slug_id;
 pub mod sort;
 pub mod string_newtype;
 pub mod stripe_customer_id;
+pub mod transaction;
 pub mod user_id;
 pub mod user_search_filter_id;
 pub mod user_search_filter_name;

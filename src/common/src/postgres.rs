@@ -1,5 +1,6 @@
-use sqlx::PgPool;
+use crate::transaction::{Transaction, TransactionError, UnitOfWork};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::{PgPool, Postgres};
 use std::fmt;
 use std::num::ParseIntError;
 use std::time::Duration;
@@ -141,6 +142,50 @@ pub enum PostgresConnectError {
     Config(#[from] PostgresConfigError),
     #[error("failed to connect to Postgres")]
     Connect(#[source] sqlx::Error),
+}
+
+#[derive(Debug, Clone)]
+pub struct SqlxUnitOfWork {
+    pool: PgPool,
+}
+
+pub struct SqlxTransaction {
+    transaction: sqlx::Transaction<'static, Postgres>,
+}
+
+impl SqlxUnitOfWork {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+impl SqlxTransaction {
+    pub fn connection(&mut self) -> &mut sqlx::PgConnection {
+        &mut self.transaction
+    }
+}
+
+#[async_trait::async_trait]
+impl UnitOfWork for SqlxUnitOfWork {
+    type Tx = SqlxTransaction;
+
+    async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+        self.pool
+            .begin()
+            .await
+            .map(|transaction| SqlxTransaction { transaction })
+            .map_err(|_| TransactionError::BeginFailed)
+    }
+}
+
+#[async_trait::async_trait]
+impl Transaction for SqlxTransaction {
+    async fn commit(self) -> Result<(), TransactionError> {
+        self.transaction
+            .commit()
+            .await
+            .map_err(|_| TransactionError::CommitFailed)
+    }
 }
 
 fn required_env<F>(get: &mut F, name: &'static str) -> Result<String, PostgresConfigError>

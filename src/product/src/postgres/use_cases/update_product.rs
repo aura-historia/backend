@@ -38,10 +38,10 @@ impl UpdateProductUseCase for PostgresUpdateProductHandler {
         context: &OperationContext,
         command: UpdateProductCommand,
     ) -> Result<UpdateProductResult, UpdateProductError> {
-        let actor = context
-            .actor_label()
-            .ok_or(UpdateProductError::AuthenticatedActorRequired)?;
-        tracing::Span::current().record("actor_id", tracing::field::display(&actor));
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(&context.principal.label()),
+        );
 
         let mut tx = self
             .pool
@@ -76,7 +76,7 @@ impl UpdateProductUseCase for PostgresUpdateProductHandler {
             tracing::info!(
                 event = "product.updated",
                 actor_type = context.principal.kind(),
-                actor_id = %actor,
+                actor_id = %context.principal.label(),
                 product_id = %product.id(),
                 event_id = %event_id,
                 outcome = "success",

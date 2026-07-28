@@ -29,8 +29,8 @@ REST controllers, workers, CLI
         ▼
 Application / service
 use-case requests, commands, results, views, errors
-read handlers and orchestration
-outbound capability ports
+use-case handler implementations
+outbound capability and transaction ports
         │
         │ calls outbound ports
         ▼
@@ -60,110 +60,155 @@ They MUST NOT silently become authoritative for domain invariants.
 ### Core rules
 
 1. Controllers call use cases.
-2. Use-case contracts and their input/output types belong to `service`.
-3. Domain behavior belongs to `core`.
+2. Use-case contracts, input/output types, and handler implementations belong to the corresponding `<entity>-service` crate.
+3. Domain behavior belongs to the corresponding `<entity>-core` crate.
 4. Ports describe application capabilities, not databases.
-5. Adapters implement ports.
-6. Storage representations remain private to their adapters.
-7. Repositories reconstruct and persist aggregates.
-8. Readers build read models.
-9. Read models are not aggregates.
-10. Write handlers define transaction scope.
-11. PostgreSQL-aware write handlers explicitly begin and commit SQLx transactions.
-12. Cross-datasource writes do not share a transaction.
-13. Projection and CDC behavior follows the dedicated CDC architecture documentation.
-14. REST DTOs belong to the REST layer and are mapped by controllers.
-15. Trusted caller identity is mapped into a service-owned `OperationContext`.
-16. Domain and service code MUST NOT depend on infrastructure types.
+5. Adapter crates implement service-owned ports.
+6. Handlers depend only on core types and service-owned ports; they MUST NOT import SQLx, database clients, SDK clients, rows, documents, or adapter implementations.
+7. Storage representations remain private to their adapter crate.
+8. Repositories reconstruct and persist aggregates.
+9. Readers build read models.
+10. Read models are not aggregates.
+11. Write handlers define transaction scope through an abstract `UnitOfWork` and transaction-bound repository factories.
+12. Several PostgreSQL repositories MAY participate in the same abstract transaction.
+13. Cross-datasource writes do not share a transaction.
+14. Projection and CDC behavior follows the dedicated CDC architecture documentation.
+15. REST DTOs belong to the REST layer and are mapped by controllers.
+16. Trusted caller identity is mapped into a service-owned `OperationContext`.
+17. Domain and service crates MUST NOT depend on infrastructure crates.
 
----
+## 3. Canonical workspace layout
 
-## 3. Canonical module layout
-
-A domain/feature crate SHOULD use this structure:
+Each entity is split into separate root-level workspace crates. Only adapters that the entity actually uses need to exist.
 
 ```text
-crates/record/
-└── src/
-    ├── lib.rs
-    │
-    ├── core/
-    │   ├── mod.rs
-    │   ├── record.rs
-    │   ├── record_id.rs
-    │   ├── workspace_id.rs
-    │   ├── value_objects.rs
-    │   ├── events.rs              # optional
-    │   ├── policies.rs
-    │   └── errors.rs
-    │
-    ├── service/
-    │   ├── mod.rs
-    │   ├── use_cases/
-    │   │   ├── mod.rs
-    │   │   ├── commands/
-    │   │   │   ├── mod.rs
-    │   │   │   ├── create_record.rs
-    │   │   │   ├── rename_record.rs
-    │   │   │   └── archive_record.rs
-    │   │   └── queries/
-    │   │       ├── mod.rs
-    │   │       ├── search_records.rs
-    │   │       └── get_record_details.rs
-    │   │
-    │   ├── ports/
-    │   │   ├── mod.rs
-    │   │   ├── record_repository.rs
-    │   │   ├── record_search_reader.rs
-    │   │   ├── record_details_reader.rs
-    │   │   ├── record_user_state_reader.rs
-    │   │   └── record_metadata_reader.rs
-    │   │
-    │   └── use_case_bundle.rs
-    │
-    ├── postgres/
-    │   ├── mod.rs
-    │   ├── use_cases/
-    │   │   ├── mod.rs
-    │   │   ├── create_record.rs
-    │   │   └── rename_record.rs
-    │   ├── repositories/
-    │   │   ├── mod.rs
-    │   │   └── record_repository.rs
-    │   ├── readers/
-    │   │   ├── mod.rs
-    │   │   ├── record_details_reader.rs
-    │   │   └── record_user_state_reader.rs
-    │   ├── rows/
-    │   │   ├── mod.rs
-    │   │   ├── record_row.rs
-    │   │   └── record_details_row.rs
-    │   └── mapping.rs
-    │
-    ├── search/
-    │   ├── mod.rs
-    │   ├── record_document.rs
-    │   ├── record_search_reader.rs
-    │   └── projector.rs
-    │
-    ├── key_value/
-    │   ├── mod.rs
-    │   ├── record_item.rs
-    │   ├── record_reader.rs
-    │   └── projector.rs
-    │
-    ├── additional_source/
-    │   ├── mod.rs
-    │   ├── record.rs
-    │   └── record_metadata_reader.rs
+Cargo.toml
+
+record-core/
+record-service/
+record-postgres/
+record-opensearch/
+record-dynamodb/
+
+workspace-core/
+workspace-service/
+workspace-postgres/
+
+platform-postgres/      # shared concrete SQLx transaction primitives when required
+api/
+runtime/                # composition root and process startup
 ```
 
-The example names `search`, `key_value`, and `additional_source` describe adapter roles. Actual modules MAY use technology names when that improves discoverability.
-
-REST code lives outside the domain/feature crate:
+The neutral `record` example corresponds to concrete crate families such as:
 
 ```text
-crates/api/
+product-core
+product-service
+product-postgres
+product-opensearch
+product-dynamodb
+```
+
+### 3.1 Core crate
+
+```text
+record-core/
+└── src/
+    ├── lib.rs
+    ├── record.rs
+    ├── record_id.rs
+    ├── workspace_id.rs
+    ├── value_objects.rs
+    ├── events.rs              # optional
+    ├── policies.rs
+    └── errors.rs
+```
+
+`record-core` owns domain state and behavior. It MUST NOT depend on `record-service` or any adapter crate.
+
+### 3.2 Service crate
+
+```text
+record-service/
+└── src/
+    ├── lib.rs
+    ├── operation_context.rs
+    ├── transaction.rs
+    ├── use_cases/
+    │   ├── mod.rs
+    │   ├── commands/
+    │   │   ├── create_record.rs
+    │   │   ├── rename_record.rs
+    │   │   └── archive_record.rs
+    │   └── queries/
+    │       ├── search_records.rs
+    │       └── get_record_details.rs
+    └── ports/
+        ├── record_repository.rs
+        ├── record_search_reader.rs
+        ├── record_details_reader.rs
+        ├── record_user_state_reader.rs
+        └── record_metadata_reader.rs
+```
+
+Each use-case file SHOULD contain:
+
+- the command or request;
+- the result or final view;
+- the use-case error;
+- the inbound use-case trait;
+- the concrete handler implementation.
+
+`record-service` depends on `record-core` and public contracts from other core/service crates when a use case genuinely spans entities.
+
+### 3.3 PostgreSQL adapter crate
+
+```text
+record-postgres/
+└── src/
+    ├── lib.rs
+    ├── repository_factory.rs
+    ├── repositories/
+    │   └── record_repository.rs
+    ├── readers/
+    │   ├── record_details_reader.rs
+    │   └── record_user_state_reader.rs
+    ├── rows/
+    │   ├── record_row.rs
+    │   └── record_details_row.rs
+    └── mapping.rs
+```
+
+`record-postgres` owns SQLx rows, SQL, mappings, transaction-bound repository implementations, reader implementations, and the concrete factories required by the composition root.
+
+It MUST NOT own use-case handlers.
+
+### 3.4 Other adapter crates
+
+```text
+record-opensearch/
+└── src/
+    ├── lib.rs
+    ├── record_document.rs
+    ├── record_search_reader.rs
+    └── projector.rs
+
+record-dynamodb/
+└── src/
+    ├── lib.rs
+    ├── record_item.rs
+    ├── record_reader.rs
+    └── projector.rs
+```
+
+Technology-specific names are appropriate for adapter crates because they describe the implementation boundary.
+
+### 3.5 Transport and composition root
+
+REST code lives in the API crate:
+
+```text
+api/
 └── src/
     ├── record/
     │   ├── controller.rs
@@ -173,46 +218,58 @@ crates/api/
     └── router.rs
 ```
 
-### Dependency direction
+The runtime/composition-root crate constructs concrete adapters and injects them into service-owned handlers:
 
 ```text
-core
-  ▲
-  │
-service
-  ▲
-  │
-postgres / search / key_value / additional_source
-  ▲
-  │
-composition root and transport
+runtime/
+└── src/
+    ├── main.rs
+    └── wiring/
+        └── record.rs
+```
+
+The composition root MAY depend on every crate required to assemble the process. It MUST NOT contain business behavior.
+
+### 3.6 Dependency direction
+
+```text
+record-core
+    ▲
+    │
+record-service
+    ▲
+    │
+record-postgres / record-opensearch / record-dynamodb
+    ▲
+    │
+api and runtime
 ```
 
 Allowed dependencies:
 
 ```text
-service             -> core
-postgres            -> service + core
-search              -> service + core identifiers as needed
-key_value           -> service + core identifiers as needed
-additional_source   -> service + core identifiers as needed
-api                 -> service + public core identifiers/value objects as needed
+record-service       -> record-core
+record-postgres      -> record-service + record-core + platform-postgres as needed
+record-opensearch    -> record-service + record-core identifiers as needed
+record-dynamodb      -> record-service + record-core identifiers as needed
+api                  -> record-service + public core identifiers/value objects as needed
+runtime              -> service crates + adapter crates + platform crates
 ```
 
 Forbidden dependencies:
 
 ```text
-core                -X-> service
-core                -X-> adapters
-service             -X-> adapters
-service             -X-> REST DTOs
-adapter A           -X-> private types from adapter B
-controller          -X-> concrete database client
-controller          -X-> repository
-controller          -X-> storage row/document/item
+record-core          -X-> record-service
+record-core          -X-> adapters
+record-service       -X-> adapters
+record-service       -X-> REST DTOs
+adapter A            -X-> private types from adapter B
+controller           -X-> concrete database client
+controller           -X-> repository
+controller           -X-> storage row/document/item
 ```
 
----
+Cross-entity use cases MUST have one clear owning service crate. If no existing entity service is a natural owner, create a dedicated application/service crate rather than introducing cyclic dependencies.
 
 ## 4. Domain-Driven Design boundaries
 
@@ -289,11 +346,11 @@ Hydrated cross-aggregate information belongs to read models.
 
 #### Operational metadata
 
-Operational metadata such as `created_at`, `updated_at`, `created_by`, and `updated_by` is not aggregate state unless a domain invariant explicitly depends on it.
+Operational metadata such as `created_at`, `updated_at` is not aggregate state unless a domain invariant explicitly depends on it.
 
 It MUST NOT be added to an aggregate merely for audit, display, sorting, or transport compatibility.
 
-This metadata lives in the persistence layer. The repository owns writing and updating it from the use-case `OperationContext`, clocks, and persistence defaults. When reconstructing an aggregate, the repository MUST map only domain state back into the aggregate.
+This metadata lives in the persistence layer. The repository owns writing and updating it from service-provided write metadata, clocks, and persistence defaults. When reconstructing an aggregate, the repository MUST map only domain state back into the aggregate.
 
 Access to operational metadata belongs to dedicated readers and read use cases. A details, audit, or history reader MAY return metadata in an application-owned read model. The aggregate repository MUST NOT expose metadata just to satisfy presentation needs.
 
@@ -330,100 +387,115 @@ Domain code SHOULD be deterministic and testable without mocks, databases, clock
 
 | Type category | Example | Owner | Default visibility |
 |---|---|---|---|
-| Aggregate | `Record` | `core` | `pub`, fields private |
-| Value object | `RecordTitle` | `core` | `pub`, fields private |
-| Typed ID | `RecordId` | `core` or shared identifiers crate | `pub` |
-| Domain event, when used | `RecordEvent` | `core` | `pub(crate)` or `pub` when required |
-| Principal/context | `Principal`, `OperationContext` | `service` | `pub` |
-| Use-case command | `RenameRecordCommand` | `service/use_cases` | `pub` |
-| Query request | `SearchRecordsRequest` | `service/use_cases` | `pub` |
-| Use-case result | `RenameRecordResult` | `service/use_cases` | `pub` |
-| Read model/view | `RecordSummary` | `service/use_cases` | `pub` |
-| Inbound use-case trait | `RenameRecordUseCase` | `service/use_cases` | `pub` |
-| Outbound port | `RecordSearchReader` | `service/ports` | `pub(crate)` by default |
-| Read handler | `SearchRecordsHandler` | `service/use_cases` | `pub(crate)` |
-| PostgreSQL write handler | `PostgresRenameRecordHandler` | `postgres/use_cases` | `pub(crate)` |
-| PostgreSQL row | `RecordRow` | `postgres/rows` | private or `pub(super)` |
-| Search document | `RecordDocument` | search adapter | private or `pub(super)` |
-| Key-value item | `RecordItem` | key-value adapter | private or `pub(super)` |
-| External-source record | `ExternalRecord` | source adapter | private or `pub(super)` |
-| REST request DTO | `RenameRecordRequestDto` | API controller module | `pub(crate)` |
-| REST response DTO | `RecordDetailsResponseDto` | API controller module | `pub(crate)` |
-| Use-case bundle | `RecordUseCases` | `service` | `pub` |
-| Public builder | `build_record_use_cases` | `wiring` | `pub` |
+| Aggregate | `Record` | `record-core` | `pub`, fields private |
+| Value object | `RecordTitle` | `record-core` | `pub`, fields private |
+| Typed ID | `RecordId` | `record-core` or shared identifiers crate | `pub` |
+| Domain event, when used | `RecordEvent` | `record-core` | private, `pub(crate)`, or `pub` only when consumed across crates |
+| Principal/context | `Principal`, `OperationContext` | `record-service` or shared application crate | `pub` |
+| Use-case command | `RenameRecordCommand` | `record-service::use_cases` | `pub` |
+| Query request | `SearchRecordsRequest` | `record-service::use_cases` | `pub` |
+| Use-case result | `RenameRecordResult` | `record-service::use_cases` | `pub` |
+| Read model/view | `RecordSummary` | `record-service::use_cases` or `ports` | `pub` when an adapter/controller consumes it |
+| Inbound use-case trait | `RenameRecordUseCase` | `record-service::use_cases` | `pub` |
+| Use-case handler | `RenameRecordHandler` | `record-service::use_cases` | `pub` when wired externally; fields private |
+| Outbound port | `RecordRepository`, `RecordDetailsReader` | `record-service::ports` | `pub` because adapter crates implement it |
+| Transaction abstraction | `UnitOfWork`, `Transaction` | service/shared application crate | `pub` |
+| PostgreSQL factory | `SqlxRecordRepositoryFactory` | `record-postgres` | `pub` when required by runtime wiring |
+| PostgreSQL scoped repository | `SqlxRecordRepository` | `record-postgres` | private whenever the factory return type can remain opaque |
+| PostgreSQL row | `RecordRow` | `record-postgres` | private or `pub(crate)` |
+| Search document | `RecordDocument` | `record-opensearch` | private or `pub(crate)` |
+| Key-value item | `RecordItem` | `record-dynamodb` | private or `pub(crate)` |
+| REST request DTO | `RenameRecordRequestDto` | `api` | private or `pub(crate)` |
+| REST response DTO | `RecordDetailsResponseDto` | `api` | private or `pub(crate)` |
 
 ### 5.2 Visibility rules
 
-Use the narrowest visibility that works.
+Use the narrowest visibility that satisfies a real production crate boundary.
 
+- Items are private by default.
 - Aggregate fields MUST be private.
-- Storage fields SHOULD be private to the adapter.
-- Storage types SHOULD be private when used in one file.
-- Use `pub(super)` when a parent adapter module needs the type.
-- Use `pub(crate)` for cross-module implementation details inside one crate.
-- Use `pub` only for deliberate crate API.
-- Outbound ports SHOULD be `pub(crate)` while all adapters are modules in the same crate.
-- If adapters become separate crates, the required ports MUST be promoted to `pub`.
-- Concrete adapters SHOULD remain `pub(crate)` unless integration tests need direct adapter access.
-- Integration tests live in crate `tests/` directories. Do not add production modules solely as test facades; when direct adapter tests need access, make the adapter/port part deliberately `pub` instead.
-- Prefer a public builder returning public use-case trait objects over exposing concrete implementations.
+- Use `pub(super)` only for a parent module inside the same crate.
+- Use `pub(crate)` only for cross-module access inside the same crate.
+- Use `pub` only when another production crate must use or implement the item.
+- Service-owned ports MUST be `pub` because adapter crates implement them.
+- Use-case handlers and constructors MUST be `pub` only when the composition root constructs them directly.
+- Concrete adapter factories/readers MUST be `pub` only when the composition root or a black-box consumer needs them.
+- Adapter rows, mapping helpers, SQL parameter structs, concrete transaction-scoped repositories, and client response types MUST remain private or `pub(crate)`.
+- Fields of public adapter types MUST remain private.
+- Do not expose a public constructor for a type that consumers should obtain only through a factory.
+- Do not widen visibility solely for tests.
 
-Example:
+A public item is part of the workspace architecture contract even when the workspace is not published to crates.io.
+
+### 5.3 Opaque transaction-scoped implementations
+
+Repository factories SHOULD use return-position `impl Trait` so the concrete transaction-scoped repository can remain private:
 
 ```rust
-// Public contract used by the API crate.
-#[async_trait::async_trait]
-pub trait RenameRecordUseCase: Send + Sync {
-    async fn execute(
-        &self,
-        context: &OperationContext,
-        command: RenameRecordCommand,
-    ) -> Result<RenameRecordResult, RenameRecordError>;
-}
-
-// Internal implementation.
-pub(crate) struct PostgresRenameRecordHandler {
-    pool: sqlx::PgPool,
+pub trait RecordRepositoryFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut Tx,
+    ) -> impl RecordRepository + 'tx;
 }
 ```
 
-Public wiring:
+The adapter may then keep the implementation private:
 
 ```rust
-pub struct RecordUseCases {
-    pub rename: Arc<dyn RenameRecordUseCase>,
-    pub search: Arc<dyn SearchRecordsUseCase>,
-    pub details: Arc<dyn GetRecordDetailsUseCase>,
-}
+pub struct SqlxRecordRepositoryFactory;
 
-pub fn build_record_use_cases(
-    dependencies: RecordDependencies,
-) -> RecordUseCases {
-    // Construct concrete handlers internally.
-    todo!()
+struct SqlxRecordRepository<'tx> {
+    tx: &'tx mut SqlxTransaction,
 }
 ```
 
-`RecordUseCases` is a dependency container, not a service façade. It MUST NOT contain forwarding business logic.
+If the workspace MSRV prevents opaque return types and a public associated type is unavoidable, expose only the minimum required type, annotate it `#[doc(hidden)]`, keep all fields private, and provide no public constructor.
 
----
+### 5.4 Rehydration boundary
+
+Because the PostgreSQL adapter is a separate crate, aggregate rehydration APIs used by adapters must be deliberately `pub`.
+
+```rust
+impl Record {
+    #[doc(hidden)]
+    pub fn rehydrate(state: RehydratedRecordState) -> Result<Self, RehydrateRecordError> {
+        // Validate persisted state without emitting new events.
+        todo!()
+    }
+}
+```
+
+This is an adapter-facing construction boundary, not a general mutation API. Its input fields SHOULD use domain types where practical, and all aggregate fields remain private.
+
+### 5.5 Test visibility
+
+Tests inside a source file under `#[cfg(test)] mod tests` can access that file's private items and MAY run against real infrastructure.
+
+Tests in a crate-level `tests/` directory compile as separate crates and MUST use only the deliberate public API.
+
+Therefore:
+
+- private implementation and real-infrastructure adapter tests belong beside the implementation;
+- black-box contract tests belong in `/tests`;
+- implementation details MUST NOT be made `pub` merely so a `/tests` test can access them.
 
 ## 6. Use cases
 
 Reads and writes are both use cases.
 
-Each use case SHOULD have its own file. The file owns:
+Each use case SHOULD have its own file in the corresponding service crate. The file owns:
 
 - command or request;
 - result or final view;
 - use-case error;
 - inbound use-case trait;
-- datastore-independent handler when applicable.
+- the concrete handler implementation.
 
 ### 6.1 Write use-case contract
 
 ```rust
-// service/use_cases/commands/rename_record.rs
+// record-service/src/use_cases/commands/rename_record.rs
 
 pub struct RenameRecordCommand {
     pub record_id: RecordId,
@@ -496,7 +568,7 @@ A broad update use case is one logical write. Domain methods return `ChangeOutco
 ### 6.2 Read use-case contract
 
 ```rust
-// service/use_cases/queries/search_records.rs
+// record-service/src/use_cases/queries/search_records.rs
 
 pub struct SearchRecordsRequest {
     pub text: String,
@@ -531,13 +603,13 @@ The final read model is owned by the use case, not by any data source.
 
 ### 6.3 One implementation per use case
 
-A use case SHOULD have one focused implementation.
+A use case SHOULD have one focused handler implementation in the service crate.
 
 Preferred:
 
 ```text
 RenameRecordUseCase
-    implemented by PostgresRenameRecordHandler
+    implemented by RenameRecordHandler
 
 SearchRecordsUseCase
     implemented by SearchRecordsHandler
@@ -564,30 +636,39 @@ pub struct RecordService<
 
 Each handler MUST depend only on the capabilities it uses.
 
-### 6.4 Handler location
+### 6.4 Handler location and dependencies
 
-A handler that depends only on abstract ports belongs in `service/use_cases`.
-
-Example:
+All use-case handler implementations live in the corresponding `<entity>-service` crate.
 
 ```text
-service/use_cases/queries/search_records.rs
-    SearchRecordsHandler
-        -> RecordSearchReader
-        -> RecordUserStateReader
+record-service/src/use_cases/commands/rename_record.rs
+    RenameRecordCommand
+    RenameRecordResult
+    RenameRecordError
+    RenameRecordUseCase
+    RenameRecordHandler
 ```
 
-A handler that directly creates an SQLx transaction or concrete PostgreSQL repositories belongs in:
+Handlers MUST work exclusively against:
+
+- core types;
+- service-owned repository/reader/writer ports;
+- service-owned transaction abstractions;
+- public contracts from another service/core crate when the use case genuinely spans entities.
+
+Handlers MUST NOT import:
 
 ```text
-postgres/use_cases/
+sqlx
+PgPool
+PgConnection
+OpenSearch clients
+DynamoDB clients
+adapter rows/documents/items
+concrete adapter factories
 ```
 
-It still implements the service-owned use-case trait.
-
-This is the project convention for write handlers because it keeps SQLx out of `service` while retaining simple transaction code.
-
----
+This gives one unambiguous rule: service crates implement application behavior; adapter crates implement infrastructure ports.
 
 ## 7. Inbound use-case traits and outbound ports
 
@@ -600,13 +681,17 @@ REST/controller
     ▼
 RenameRecordUseCase
     │
-    │ implemented by handler
+    │ implemented in record-service
     ▼
-PostgresRenameRecordHandler
+RenameRecordHandler
     │
-    │ calls outbound port / adapter
+    │ calls outbound ports
     ▼
-RecordRepository
+UnitOfWork + RecordRepositoryFactory + authorization readers
+    │
+    │ implemented by adapter crates
+    ▼
+PostgreSQL and other infrastructure
 ```
 
 ### Inbound use-case traits
@@ -622,9 +707,9 @@ SearchRecordsUseCase
 GetRecordDetailsUseCase
 ```
 
-They belong to `service/use_cases`.
+They belong to the corresponding service crate.
 
-Controllers MUST depend on inbound use-case traits, never concrete adapters.
+Controllers MUST depend on inbound use-case traits, never concrete handlers or adapters.
 
 ### Outbound ports
 
@@ -634,16 +719,18 @@ Examples:
 
 ```text
 RecordRepository
+RecordRepositoryFactory
 RecordSearchReader
 RecordDetailsReader
 RecordUserStateReader
 RecordMetadataReader
+UnitOfWork
 Clock
 AuthorizationPolicy
 IdempotencyStore
 ```
 
-They belong to `service/ports`.
+They belong to service crates or a small shared application crate for genuinely cross-cutting abstractions.
 
 Ports MUST be named by capability, not by technology.
 
@@ -669,16 +756,16 @@ One adapter may implement multiple ports. One port may have multiple implementat
 ```text
 RecordDetailsReader
     <- PostgresRecordDetailsReader
-    <- KeyValueRecordDetailsReader
+    <- DynamoRecordDetailsReader
 
 RecordSearchReader
-    <- SearchEngineRecordSearchReader
+    <- OpenSearchRecordSearchReader
     <- PostgresRecordSearchReader
 ```
 
 There is not one port per data source.
 
----
+Readers and repositories SHOULD receive only the narrow application data they require. They MUST NOT receive `OperationContext` or transport DTOs.
 
 ## 8. Repositories
 
@@ -687,10 +774,10 @@ There is not one port per data source.
 A repository reconstructs and persists an aggregate.
 
 ```rust
-#[async_trait::async_trait]
-type VersionedRecord = Versioned<Record, RecordStorageVersion>;
+pub type VersionedRecord = Versioned<Record, RecordStorageVersion>;
 
-pub(crate) trait RecordRepository {
+#[async_trait::async_trait]
+pub trait RecordRepository: Send {
     async fn find_by_id(
         &mut self,
         id: RecordId,
@@ -709,6 +796,8 @@ pub(crate) trait RecordRepository {
 }
 ```
 
+The repository port is public because a separate adapter crate implements it.
+
 A repository MAY contain additional aggregate-relevant lookup methods when they are needed to reconstruct or enforce the aggregate boundary.
 
 A repository MUST NOT become a general read API.
@@ -726,6 +815,19 @@ trait RecordRepository {
 ```
 
 Those capabilities belong to readers.
+
+A transaction-bound repository is obtained through a service-owned factory:
+
+```rust
+pub trait RecordRepositoryFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut Tx,
+    ) -> impl RecordRepository + 'tx;
+}
+```
+
+The factory allows a handler to use clean repository methods while binding several repositories to the same transaction.
 
 ### 8.2 Method naming
 
@@ -792,7 +894,7 @@ Readers provide purpose-specific read capabilities.
 
 ```rust
 #[async_trait::async_trait]
-pub(crate) trait RecordDetailsReader: Send + Sync {
+pub trait RecordDetailsReader: Send + Sync {
     async fn find_details(
         &self,
         record_id: RecordId,
@@ -868,7 +970,7 @@ Ports:
 
 ```rust
 #[async_trait::async_trait]
-pub(crate) trait RecordSearchReader: Send + Sync {
+pub trait RecordSearchReader: Send + Sync {
     async fn search(
         &self,
         request: &SearchRecordsRequest,
@@ -876,7 +978,7 @@ pub(crate) trait RecordSearchReader: Send + Sync {
 }
 
 #[async_trait::async_trait]
-pub(crate) trait RecordUserStateReader: Send + Sync {
+pub trait RecordUserStateReader: Send + Sync {
     async fn find_for_records(
         &self,
         actor_id: ActorId,
@@ -1026,10 +1128,10 @@ The service MUST NOT know REST DTOs or HTTP status codes.
 PostgreSQL rows SHOULD use `sqlx::FromRow` for deserialization.
 
 ```rust
-// postgres/rows/record_row.rs
+// record-postgres/src/rows/record_row.rs
 
 #[derive(Debug, sqlx::FromRow)]
-pub(super) struct RecordRow {
+pub(crate) struct RecordRow {
     pub id: Uuid,
     pub workspace_id: Uuid,
     pub title: String,
@@ -1053,7 +1155,7 @@ Record
 Mapping to the aggregate SHOULD use `TryFrom` because persisted state may be corrupt or incompatible:
 
 ```rust
-// postgres/mapping.rs
+// record-postgres/src/mapping.rs
 
 impl TryFrom<RecordRow> for Versioned<Record, RecordStorageVersion> {
     type Error = RecordRowMappingError;
@@ -1077,7 +1179,8 @@ The domain MAY expose a crate-visible rehydration function:
 
 ```rust
 impl Record {
-    pub(crate) fn rehydrate(
+    #[doc(hidden)]
+    pub fn rehydrate(
         id: RecordId,
         workspace_id: WorkspaceId,
         title: RecordTitle,
@@ -1254,54 +1357,99 @@ External-client types MUST NOT appear in service contracts.
 
 ### 11.1 Ownership
 
-The use-case handler defines the transaction scope.
+The service-owned use-case handler defines transaction scope without importing SQLx.
 
-Because this project intentionally uses SQLx directly for PostgreSQL write orchestration, the concrete PostgreSQL write handler:
+The handler:
 
-1. begins the transaction;
-2. constructs transaction-scoped repositories/readers;
+1. begins an abstract transaction through `UnitOfWork`;
+2. binds transaction-scoped repositories/readers through factories;
 3. executes domain behavior;
 4. writes all authoritative state required by the use case;
-5. explicitly commits.
+5. explicitly commits the abstract transaction.
 
-The service module owns the use-case contract. The PostgreSQL module owns the SQLx-aware implementation.
+The concrete adapter implements that abstraction using SQLx.
 
 ```text
-service/use_cases/commands/rename_record.rs
-    RenameRecordCommand
-    RenameRecordResult
-    RenameRecordError
-    RenameRecordUseCase trait
+record-service
+    RenameRecordHandler
+        -> UnitOfWork
+        -> RecordRepositoryFactory
 
-postgres/use_cases/rename_record.rs
-    PostgresRenameRecordHandler
-    SQLx transaction scope
+record-postgres
+    SqlxUnitOfWork
+    SqlxRecordRepositoryFactory
+    private SqlxRecordRepository
 ```
 
-### 11.2 Transaction-scoped repository
+### 11.2 Transaction and unit-of-work ports
+
+The transaction lifecycle is a service-owned contract:
 
 ```rust
-pub(crate) struct SqlxRecordRepository<'tx> {
-    connection: &'tx mut sqlx::PgConnection,
+#[async_trait::async_trait]
+pub trait Transaction: Send {
+    async fn commit(self) -> Result<(), TransactionError>;
 }
 
-impl<'tx> SqlxRecordRepository<'tx> {
-    pub(crate) fn new(
-        connection: &'tx mut sqlx::PgConnection,
-    ) -> Self {
-        Self { connection }
+#[async_trait::async_trait]
+pub trait UnitOfWork: Send + Sync {
+    type Tx: Transaction;
+
+    async fn begin(&self) -> Result<Self::Tx, TransactionError>;
+}
+```
+
+These abstractions expose transaction lifecycle only. They MUST NOT accumulate entity-specific repository methods.
+
+A shared application crate MAY own these traits when several entity-service crates use the same abstraction.
+
+### 11.3 Transaction-scoped repository factories
+
+Repositories expose clean methods without a transaction argument. A factory binds a repository implementation to the active transaction:
+
+```rust
+pub trait RecordRepositoryFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut Tx,
+    ) -> impl RecordRepository + 'tx;
+}
+```
+
+PostgreSQL implementation:
+
+```rust
+pub struct SqlxRecordRepositoryFactory;
+
+struct SqlxRecordRepository<'tx> {
+    tx: &'tx mut SqlxTransaction,
+}
+
+impl RecordRepositoryFactory<SqlxTransaction>
+    for SqlxRecordRepositoryFactory
+{
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut SqlxTransaction,
+    ) -> impl RecordRepository + 'tx {
+        SqlxRecordRepository { tx }
     }
 }
 ```
 
-The repository implements the service-owned repository port.
+The concrete scoped repository remains private because callers interact only through the opaque return type.
 
-### 11.3 Chained temporary repositories
+### 11.4 Chained temporary repositories
 
-For one operation, construct and call the repository in one chain:
+Handlers SHOULD bind and call one transaction-scoped repository in a single chain:
 
 ```rust
-let mut record = SqlxRecordRepository::new(&mut *tx)
+let Versioned {
+    value: record,
+    version,
+} = self
+    .records
+    .in_transaction(&mut tx)
     .find_by_id(command.record_id)
     .await?
     .ok_or(RenameRecordError::NotFound)?;
@@ -1309,10 +1457,12 @@ let mut record = SqlxRecordRepository::new(&mut *tx)
 
 The temporary repository is dropped at the semicolon, releasing its mutable borrow of the transaction.
 
-Subsequent repositories can borrow the same transaction:
+Another repository can then use the same transaction:
 
 ```rust
-let workspace = SqlxWorkspaceRepository::new(&mut *tx)
+let workspace = self
+    .workspaces
+    .in_transaction(&mut tx)
     .find_by_id(record.workspace_id())
     .await?
     .ok_or(RenameRecordError::WorkspaceNotFound)?;
@@ -1321,22 +1471,44 @@ let workspace = SqlxWorkspaceRepository::new(&mut *tx)
 Writes follow the same pattern:
 
 ```rust
-SqlxRecordRepository::new(&mut *tx)
-    .update(&record, loaded_version)
+self.records
+    .in_transaction(&mut tx)
+    .update(
+        &record,
+        version,
+    )
     .await?;
 ```
 
-### 11.4 Canonical PostgreSQL write handler
+### 11.5 Canonical service-owned write handler
 
 ```rust
+pub struct RenameRecordHandler<U, R> {
+    unit_of_work: U,
+    records: R,
+}
+
+impl<U, R> RenameRecordHandler<U, R> {
+    pub fn new(unit_of_work: U, records: R) -> Self {
+        Self {
+            unit_of_work,
+            records,
+        }
+    }
+}
+
 #[async_trait::async_trait]
-impl RenameRecordUseCase for PostgresRenameRecordHandler {
+impl<U, R> RenameRecordUseCase for RenameRecordHandler<U, R>
+where
+    U: UnitOfWork,
+    R: RecordRepositoryFactory<U::Tx>,
+{
     #[tracing::instrument(
         name = "rename_record",
         skip_all,
         fields(
             record_id = %command.record_id,
-            actor_type = tracing::field::Empty,
+            principal_type = context.principal.kind(),
             actor_id = tracing::field::Empty,
             request_id = %context.request_id,
             correlation_id = %context.correlation_id,
@@ -1351,45 +1523,36 @@ impl RenameRecordUseCase for PostgresRenameRecordHandler {
             .actor_label()
             .ok_or(RenameRecordError::AuthenticatedActorRequired)?;
 
-        tracing::Span::current().record("actor_type", context.principal.kind());
-        tracing::Span::current()
-            .record("actor_id", tracing::field::display(&actor));
+        let mut tx = self.unit_of_work.begin().await?;
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(RenameRecordError::from)?;
-
-        let loaded = SqlxRecordRepository::new(&mut *tx)
+        let Versioned {
+            value: mut record,
+            version: loaded_version,
+        } = self
+            .records
+            .in_transaction(&mut tx)
             .find_by_id(command.record_id)
             .await?
             .ok_or(RenameRecordError::NotFound)?;
-        let loaded_version = loaded.version;
-        let mut record = loaded.value;
 
         authorize_rename(actor, &record)?;
 
         let new_title = RecordTitle::try_from(command.new_title)
             .map_err(|_| RenameRecordError::InvalidTitle)?;
 
-        record.rename(new_title)?;
+        let outcome = record.rename(new_title)?;
 
-        SqlxRecordRepository::new(&mut *tx)
-            .update(&record, loaded_version)
-            .await?;
+        if outcome.changed() {
+            self.records
+                .in_transaction(&mut tx)
+                .update(
+                    &record,
+                    loaded_version,
+                )
+                .await?;
+        }
 
-        tx.commit()
-            .await
-            .map_err(RenameRecordError::from)?;
-
-        tracing::info!(
-            event = "record.renamed",
-            actor_type = actor.kind(),
-            actor_id = %actor.id(),
-            record_id = %record.id(),
-            outcome = "success",
-        );
+        tx.commit().await?;
 
         Ok(RenameRecordResult {
             record_id: record.id(),
@@ -1399,67 +1562,89 @@ impl RenameRecordUseCase for PostgresRenameRecordHandler {
 }
 ```
 
+The handler is datastore-independent and lives in `record-service`.
+
 A successful transaction MUST end in explicit `commit().await`.
 
-An uncommitted transaction that leaves scope is expected to roll back. Code MUST NOT treat dropping or “closing” the transaction as commit.
+An uncommitted concrete transaction that leaves scope is expected to roll back. Dropping or “closing” a transaction MUST NOT be treated as commit.
 
-Operational success events for state changes SHOULD be emitted only after the authoritative transaction commits. Failed attempts MAY be logged at the terminal boundary with a safe outcome and error category.
+### 11.6 Multiple repositories in one transaction
 
-### 11.5 Cross-entity transactions
-
-When two aggregates/tables are in the same PostgreSQL database and the use case requires atomicity, the handler MAY use multiple repositories against the same transaction.
+A handler may use any number of repository factories whose implementations accept the same transaction type:
 
 ```rust
-let mut tx = self.pool.begin().await?;
+pub struct GrantWorkspaceAccessHandler<U, R, W, A> {
+    unit_of_work: U,
+    records: R,
+    workspaces: W,
+    access: A,
+}
+```
 
-let mut record = SqlxRecordRepository::new(&mut *tx)
+```rust
+let mut tx = self.unit_of_work.begin().await?;
+
+let record = self.records
+    .in_transaction(&mut tx)
     .find_by_id(command.record_id)
     .await?
     .ok_or(Error::RecordNotFound)?;
 
-let workspace = SqlxWorkspaceRepository::new(&mut *tx)
-    .find_by_id(record.workspace_id())
+let workspace = self.workspaces
+    .in_transaction(&mut tx)
+    .find_by_id(record.value.workspace_id())
     .await?
     .ok_or(Error::WorkspaceNotFound)?;
 
-record.activate(workspace.activation_policy())?;
-
-SqlxRecordRepository::new(&mut *tx)
-    .update(&record, loaded_version)
+self.access
+    .in_transaction(&mut tx)
+    .grant(command.user_id, workspace.value.id(), &metadata)
     .await?;
 
 tx.commit().await?;
 ```
 
-Cross-entity atomicity MUST NOT be confused with cross-datasource atomicity.
+All operations above participate in the same concrete PostgreSQL transaction when the runtime supplies compatible SQLx implementations.
 
-### 11.6 Readers inside a write transaction
+A shared `platform-postgres` crate MAY expose the public concrete `SqlxTransaction` used by several entity-specific PostgreSQL adapter crates. Its fields and SQLx internals MUST remain private.
 
-A read that influences an invariant-critical write MUST use the same transaction.
+### 11.7 Transactional readers
+
+A read that influences an invariant-critical write MUST use the same transaction and therefore MUST have a transaction-bound reader factory:
 
 ```rust
-let policy = SqlxWorkspacePolicyReader::new(&mut *tx)
-    .find_policy(record.workspace_id())
-    .await?;
+pub trait WorkspacePolicyReaderFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut Tx,
+    ) -> impl WorkspacePolicyReader + 'tx;
+}
 ```
 
-Do not call a pool-backed reader on another connection when the result must be consistent with the active write transaction.
+When a use case works on operational data through ports and must own the transaction, all operational ports participating in that use case MUST model the same unit of work:
 
-### 11.7 Ordinary readers
+- the handler depends on `UnitOfWork`;
+- repository ports expose transaction-scoped factories;
+- PostgreSQL reader ports expose transaction-scoped factories;
+- the handler begins the transaction, obtains each port with `.in_transaction(&mut tx)`, and explicitly commits on success.
 
-Ordinary presentation reads SHOULD own a pool/client and SHOULD NOT receive an explicit transaction.
+Do not call a pool-backed reader on another connection when its result must be consistent with the active transaction.
+
+### 11.8 Ordinary readers
+
+Ordinary presentation readers are not transaction-bound only when the use case does not need an application-owned transaction or consistent operational snapshot. Their adapter implementations MAY own a pool/client internally:
 
 ```rust
-pub(crate) struct PostgresRecordDetailsReader {
+pub struct PostgresRecordDetailsReader {
     pool: sqlx::PgPool,
 }
 ```
 
-A single SQL statement does not need an application-managed transaction.
+The service handler depends only on the public `RecordDetailsReader` trait.
 
-Use an explicit read transaction only when several SQL statements must observe one consistent snapshot. This is exceptional and SHOULD be documented in the use case.
+A single SQL statement does not need an application-managed transaction. Use an explicit read transaction only when several SQL statements must observe one consistent snapshot; this is exceptional and MUST be documented.
 
-### 11.8 Cross-datasource boundaries
+### 11.9 Cross-datasource boundaries
 
 A PostgreSQL transaction cannot atomically include:
 
@@ -1469,9 +1654,9 @@ A PostgreSQL transaction cannot atomically include:
 - an external API;
 - a message broker without a specific transaction protocol.
 
-Authoritative PostgreSQL writes MUST commit according to the transaction rules above. Replication and projection propagation follow the dedicated CDC architecture documentation.
+A multi-source handler still lives in the service crate and composes abstract ports. It SHOULD avoid holding a PostgreSQL transaction open while waiting on a slow external source. Read external data first when safe, then open a short PostgreSQL transaction and revalidate authoritative state before writing.
 
----
+Authoritative PostgreSQL writes MUST commit according to the transaction rules above. Replication and projection propagation follow the CDC architecture documentation.
 
 ## 12. CDC and projection architecture
 
@@ -1796,6 +1981,8 @@ PersistedProductStateInvalid
 
 They MAY wrap internal errors privately but MUST expose stable semantic variants. Do not use vague variants such as `Forbidden`, `Conflict`, `InvalidPersistedState`, or `Internal` when a narrower cause is known.
 
+When a service or port error represents an adapter/read-model failure, keep the original cause as `#[source]` with `common::error::boxed::BoxError`. Do not convert technical causes to bare unit variants.
+
 ### Adapter errors
 
 Adapter errors describe semantic persistence or integration failures without leaking infrastructure types:
@@ -1809,7 +1996,7 @@ InvalidProductUrlPersisted
 ExternalResponseMissingPrice
 ```
 
-They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context.
+They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context. Preserve the infrastructure error as the semantic error's `#[source]`, usually boxed through `common::error::boxed::box_error`. Do not hide adapter error mapping in ad-hoc `map_*_error` helper functions; make the source operation explicit in the wrapper type.
 
 ### HTTP mapping
 
@@ -2154,7 +2341,7 @@ WHERE id = $2
 RETURNING version
 ```
 
-No returned row MUST map to an internal concurrency-conflict error when the row was expected to exist. Do not leak the concrete version value in errors. The returned version is authoritative only for PostgreSQL internals and CDC/outbox consumers; ordinary use cases SHOULD NOT return it.
+No returned row MUST map to an internal concurrency-conflict error when the row was expected to exist. Do not leak the concrete version value in errors. The returned version is authoritative only for PostgreSQL internals and CDC consumers; ordinary use cases SHOULD NOT return it.
 
 ### Idempotency
 
@@ -2234,7 +2421,59 @@ Outbound ports MAY use static dispatch when practical. Consistency is preferred 
 
 ## 20. Testing strategy
 
-### Core tests
+Test placement follows visibility and architectural intent.
+
+### 20.1 Tests beside implementation
+
+Tests that need private or `pub(crate)` implementation details MUST live beside the implementation under `#[cfg(test)] mod tests`.
+
+This includes tests for:
+
+- domain internals;
+- service handler orchestration with private fakes;
+- PostgreSQL rows and mappings;
+- private transaction-scoped repositories;
+- SQL serialization details;
+- adapter-specific request/response mapping;
+- real-infrastructure repository and reader behavior.
+
+A test inside a source file MAY use test-only/dev dependencies and MAY start real infrastructure such as PostgreSQL, OpenSearch, or LocalStack.
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_api::*;
+
+    const POSTGRES: Postgres = Postgres::new("migrations");
+
+    #[aura_integration_test(services = [POSTGRES])]
+    async fn should_persist_record() {
+        let pool = get_postgres_client().await;
+        // Test private adapter implementation directly.
+    }
+}
+```
+
+Running against real infrastructure does not require the test to live in `/tests`.
+
+### 20.2 Black-box tests in `/tests`
+
+A crate-level `tests/` directory is reserved for black-box tests of the crate's deliberate public API.
+
+These tests compile as separate crates and MUST NOT access private or `pub(crate)` items.
+
+They MAY use `dev-dependencies` to wire public service handlers and public adapter factories/readers against real infrastructure:
+
+```text
+record-postgres/tests/repository_contract.rs
+runtime/tests/record_workflow.rs
+api/tests/record_http.rs
+```
+
+Do not make an implementation detail public merely to satisfy a `/tests` test. Move that test beside the implementation instead.
+
+### 20.3 Core tests
 
 Core tests MUST verify domain behavior without infrastructure.
 
@@ -2243,27 +2482,33 @@ Test:
 - valid transitions;
 - rejected transitions;
 - invariants;
-- event emission, when the aggregate uses domain events;
-- version changes;
+- event emission when the aggregate uses domain events;
 - idempotent no-op behavior.
 
-### Service tests
+Core tests SHOULD normally live in the same file as the tested aggregate or value object.
 
-Datastore-independent handlers MUST be tested with fakes or mocks for their ports.
+### 20.4 Service tests
+
+Service handlers MUST be tested with fakes or mocks for their ports.
 
 Test:
 
 - orchestration;
+- transaction begin/commit behavior;
+- use of the same transaction across several factories;
 - batching;
 - fallback behavior;
 - optional enrichment;
 - preservation of search order;
 - error translation;
-- authorization decisions.
+- authorization decisions;
+- skipping persistence when no domain state changed.
 
-### PostgreSQL adapter tests
+These tests SHOULD normally live in the same use-case file under `#[cfg(test)]` so handler internals and private fakes do not need public visibility.
 
-PostgreSQL repositories and readers SHOULD have integration tests against a real PostgreSQL instance.
+### 20.5 PostgreSQL adapter tests
+
+PostgreSQL repositories and readers SHOULD have real PostgreSQL tests beside their implementation.
 
 Test:
 
@@ -2276,16 +2521,21 @@ Test:
 - joined readers;
 - migration compatibility.
 
-### Other adapter tests
+Rows, mapping helpers, and scoped repository types MUST remain non-public.
+
+### 20.6 Other adapter tests
 
 Each adapter SHOULD test:
 
 - request serialization;
 - response deserialization;
 - mapping to application types;
-- timeout/error mapping.
+- timeout/error mapping;
+- stale-version handling where applicable.
 
-### Controller tests
+Private adapter tests belong beside the implementation. Public contract tests MAY live in `/tests`.
+
+### 20.7 Controller tests
 
 Controller tests SHOULD verify:
 
@@ -2300,12 +2550,14 @@ Controller tests SHOULD verify:
 
 They SHOULD mock only the inbound use-case trait, not repositories.
 
-### Acceptance tests
+### 20.8 Acceptance tests
 
 Acceptance tests SHOULD:
 
-- verify cross-layer correctness of the most important paths from the outside, working ONLY against the REST API
-- be written as theses on the systems behavior
+- verify the most important behavior from outside the system;
+- work only against the exposed REST API;
+- be written as theses about system behavior;
+- live in the API/runtime black-box `tests/` suite.
 
 ## 21. Naming conventions
 
@@ -2329,6 +2581,11 @@ Use these suffixes consistently:
 | `...Record` | External/graph/source response representation |
 | `...Dto` | Transport representation |
 | `...Event` | Domain event |
+| `-core` | Entity domain crate |
+| `-service` | Entity application/use-case crate |
+| `-postgres` | Entity PostgreSQL adapter crate |
+| `-opensearch` | Entity OpenSearch adapter crate |
+| `-dynamodb` | Entity DynamoDB adapter crate |
 
 Avoid vague names:
 
@@ -2445,7 +2702,9 @@ Agents MUST read this document before implementing architecture-affecting work.
 
 - [ ] Identify the bounded context and aggregate.
 - [ ] Identify whether the change is a command, query, projection, or infrastructure concern.
-- [ ] Place use-case input/output types in one `service/use_cases/...` file.
+- [ ] Place the aggregate/value objects in the correct `<entity>-core` crate.
+- [ ] Place use-case contracts and handler implementation in one `<entity>-service/src/use_cases/...` file.
+- [ ] Place each infrastructure implementation in its `<entity>-<adapter>` crate.
 - [ ] Define or reuse the smallest capability-oriented outbound ports.
 - [ ] Confirm that no port is named after a database.
 - [ ] Decide whether the final read model belongs to the use case.
@@ -2465,6 +2724,8 @@ Agents MUST read this document before implementing architecture-affecting work.
 - [ ] Avoid public domain-to-row conversions for writes.
 - [ ] Batch hydration queries.
 - [ ] Preserve source ordering after hydration.
+- [ ] Keep handlers free of SQLx and concrete adapter imports.
+- [ ] Use an abstract `UnitOfWork` and transaction-scoped repository/operational reader factories.
 - [ ] Use chained temporary repositories for one-off transactional calls.
 - [ ] Explicitly commit successful SQLx transactions.
 - [ ] Add a use-case tracing span with safe structured fields.
@@ -2476,6 +2737,9 @@ Agents MUST read this document before implementing architecture-affecting work.
 
 ### Before completion
 
+- [ ] Add private/internal tests beside the implementation under `#[cfg(test)]`.
+- [ ] Keep `/tests` for black-box public-API tests only.
+- [ ] Do not widen visibility solely for tests.
 - [ ] Add domain unit tests.
 - [ ] Add use-case orchestration tests.
 - [ ] Add adapter mapping/integration tests.
@@ -2483,6 +2747,7 @@ Agents MUST read this document before implementing architecture-affecting work.
 - [ ] Add controller DTO/error mapping tests.
 - [ ] Add acceptance tests
 - [ ] Verify no N+1 access pattern was introduced.
+- [ ] Verify Cargo dependencies enforce core <- service <- adapters <- runtime/transport.
 - [ ] Verify no service/core import points toward an adapter.
 - [ ] Verify no controller accesses a repository or database client.
 - [ ] Verify logs contain no secrets or sensitive payloads.
@@ -2505,7 +2770,9 @@ Reviewers SHOULD reject changes that cannot answer these questions clearly:
 9. Is trusted caller identity carried through `OperationContext` rather than request input?
 10. Do relevant mutations record actor, target, and committed outcome safely?
 11. Are errors and logs safe and appropriately translated?
-12. Are the important rules covered by tests?
+12. Are public items required by a real production crate boundary rather than only by tests?
+13. Are private/real-infrastructure implementation tests beside the code and `/tests` limited to black-box behavior?
+14. Are the important rules covered by tests?
 
 ---
 

@@ -18,8 +18,11 @@ search-filter-api = { workspace = true }
 search-filter-lambda = { workspace = true }
 search-filter-periodic-match = { workspace = true }
 shop = { workspace = true }
-    shop-api = { workspace = true }
-    webhook-api = { workspace = true }
+shop-core = { workspace = true }
+shop-service = { workspace = true }
+shop-postgres = { workspace = true }
+shop-api = { workspace = true }
+webhook-api = { workspace = true }
 shop-lambda = { workspace = true }
 shopify-lambda = { workspace = true }
 stripe-lambda = { workspace = true }
@@ -73,6 +76,9 @@ members = [
     "src/product-lambda",
     "src/test-api",
     "src/shop",
+    "src/shop-core",
+    "src/shop-service",
+    "src/shop-postgres",
     "src/shop-api",
     "src/webhook-api",
     "src/shop-lambda",
@@ -134,6 +140,9 @@ search-filter-lambda-opensearch-sync = { path = "src/search-filter-lambda/src/se
 search-filter-lambda-percolate-product = { path = "src/search-filter-lambda/src/search-filter-lambda-percolate-product" }
 search-filter-periodic-match = { path = "src/search-filter-periodic-match" }
 shop = { path = "src/shop" }
+shop-core = { path = "src/shop-core" }
+shop-service = { path = "src/shop-service" }
+shop-postgres = { path = "src/shop-postgres" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
 shop-api = { path = "src/shop-api" }

@@ -268,7 +268,10 @@ dependencies = [
  "search-filter-periodic-match",
  "shop",
  "shop-api",
+ "shop-core",
  "shop-lambda",
+ "shop-postgres",
+ "shop-service",
  "shopify-lambda",
  "stripe-api",
  "stripe-lambda",
@@ -1602,6 +1605,7 @@ dependencies = [
 name = "common"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
  "aws-sdk-sqs",
@@ -1622,6 +1626,7 @@ dependencies = [
  "strum_macros 0.28.0",
  "thiserror 2.0.19",
  "time",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -7315,6 +7320,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "shop-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "geo",
+ "isocountry",
+ "percent-encoding",
+ "serde",
+ "serde-email",
+ "thiserror 2.0.19",
+ "time",
+ "url",
+]
+
+[[package]]
 name = "shop-lambda"
 version = "0.1.0"
 dependencies = [
@@ -7341,6 +7362,49 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "shop-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "geo",
+ "isocountry",
+ "rstest",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "shop-service",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "shop-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "geo",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "shop-core",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

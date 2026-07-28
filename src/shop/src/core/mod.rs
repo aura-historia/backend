@@ -4,7 +4,6 @@ pub mod continent;
 pub mod partner_shop;
 pub mod partner_status;
 pub mod shop;
-pub mod shop_aggregate;
 pub mod shop_search;
 pub mod shop_type;
 pub mod sort_shop_field;

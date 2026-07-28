@@ -40,10 +40,10 @@ impl CreateProductUseCase for PostgresCreateProductHandler {
         context: &OperationContext,
         command: CreateProductCommand,
     ) -> Result<CreateProductResult, CreateProductError> {
-        let actor = context
-            .actor_label()
-            .ok_or(CreateProductError::AuthenticatedActorRequired)?;
-        tracing::Span::current().record("actor_id", tracing::field::display(&actor));
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(&context.principal.label()),
+        );
 
         let product = Product::create(command.into_new_product(ProductId::new()))?;
         let event_id = product
@@ -70,7 +70,7 @@ impl CreateProductUseCase for PostgresCreateProductHandler {
         tracing::info!(
             event = "product.created",
             actor_type = context.principal.kind(),
-            actor_id = %actor,
+            actor_id = %context.principal.label(),
             product_id = %product.id(),
             event_id = %event_id,
             outcome = "success",
