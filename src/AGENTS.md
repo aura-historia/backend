@@ -115,9 +115,16 @@
 - `src/product-lambda/AGENTS.md` — `product-lambda` crate.
 - `src/product-personalization/AGENTS.md` — `product-personalization` crate.
 - `src/product-pipeline/AGENTS.md` — `product-pipeline` crate.
-- `src/product-watchlist/AGENTS.md` — `product-watchlist` crate.
+- `src/product-watchlist/AGENTS.md` — legacy `product-watchlist` crate.
+- `src/watchlist-core/AGENTS.md` — canonical Watchlist domain crate.
+- `src/watchlist-service/AGENTS.md` — canonical Watchlist service crate.
+- `src/watchlist-postgres/AGENTS.md` — canonical Watchlist Postgres adapter crate.
 - `src/product-watchlist-api/AGENTS.md` — `product-watchlist-api` crate.
-- `src/search-filter/AGENTS.md` — `search-filter` crate.
+- `src/search-filter/AGENTS.md` — legacy `search-filter` crate.
+- `src/search-filter-core/AGENTS.md` — canonical Search Filter domain crate.
+- `src/search-filter-service/AGENTS.md` — canonical Search Filter service crate.
+- `src/search-filter-postgres/AGENTS.md` — canonical Search Filter Postgres adapter crate.
+- `src/search-filter-opensearch/AGENTS.md` — canonical Search Filter OpenSearch adapter crate.
 - `src/search-filter-api/AGENTS.md` — `search-filter-api` crate.
 - `src/search-filter-lambda/AGENTS.md` — `search-filter-lambda` crate.
 - `src/search-filter-periodic-match/AGENTS.md` — `search-filter-periodic-match` crate.

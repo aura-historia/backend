@@ -14,6 +14,10 @@ cloudwatch-log-retention-lambda = { workspace = true }
 common = { workspace = true }
 geo = { workspace = true }
 search-filter = { workspace = true }
+search-filter-core = { workspace = true }
+search-filter-service = { workspace = true }
+search-filter-postgres = { workspace = true }
+search-filter-opensearch = { workspace = true }
 search-filter-api = { workspace = true }
 search-filter-lambda = { workspace = true }
 search-filter-periodic-match = { workspace = true }
@@ -36,6 +40,9 @@ product-api = { workspace = true }
 product-api-partner = { workspace = true }
 product-personalization = { workspace = true }
 product-watchlist = { workspace = true }
+watchlist-core = { workspace = true }
+watchlist-service = { workspace = true }
+watchlist-postgres = { workspace = true }
 product-watchlist-api = { workspace = true }
 product-lambda = { workspace = true }
 product-lambda-delete-product = { workspace = true }
@@ -71,6 +78,10 @@ members = [
     "src/common",
     "src/geo",
     "src/search-filter",
+    "src/search-filter-core",
+    "src/search-filter-service",
+    "src/search-filter-postgres",
+    "src/search-filter-opensearch",
     "src/search-filter-api",
     "src/search-filter-lambda",
     "src/search-filter-periodic-match",
@@ -83,6 +94,9 @@ members = [
     "src/product-api-partner",
     "src/product-personalization",
     "src/product-watchlist",
+    "src/watchlist-core",
+    "src/watchlist-service",
+    "src/watchlist-postgres",
     "src/product-watchlist-api",
     "src/product-lambda",
     "src/test-api",
@@ -148,6 +162,10 @@ fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 acceptance-tests = { path = "src/acceptance-tests" }
 search-filter = { path = "src/search-filter" }
+search-filter-core = { path = "src/search-filter-core" }
+search-filter-service = { path = "src/search-filter-service" }
+search-filter-postgres = { path = "src/search-filter-postgres" }
+search-filter-opensearch = { path = "src/search-filter-opensearch" }
 search-filter-api = { path = "src/search-filter-api" }
 search-filter-lambda = { path = "src/search-filter-lambda" }
 search-filter-lambda-opensearch-sync = { path = "src/search-filter-lambda/src/search-filter-lambda-opensearch-sync" }
@@ -181,6 +199,9 @@ product-api = { path = "src/product-api" }
 product-api-partner = { path = "src/product-api-partner" }
 product-personalization = { path = "src/product-personalization" }
 product-watchlist = { path = "src/product-watchlist" }
+watchlist-core = { path = "src/watchlist-core" }
+watchlist-service = { path = "src/watchlist-service" }
+watchlist-postgres = { path = "src/watchlist-postgres" }
 product-watchlist-api = { path = "src/product-watchlist-api" }
 product-lambda = { path = "src/product-lambda" }
 product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipeline-embed-text" }

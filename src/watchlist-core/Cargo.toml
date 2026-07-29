@@ -1,0 +1,13 @@
+[package]
+name = "watchlist-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+fake = { workspace = true, optional = true }
+time = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data"]

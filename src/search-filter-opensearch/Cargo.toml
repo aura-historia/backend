@@ -1,0 +1,20 @@
+[package]
+name = "search-filter-opensearch"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+common = { workspace = true, features = ["opensearch"] }
+opensearch = { workspace = true }
+product-core = { workspace = true }
+search-filter-core = { workspace = true }
+search-filter-service = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+time = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["opensearch"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

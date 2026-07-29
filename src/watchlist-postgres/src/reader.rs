@@ -1,0 +1,54 @@
+use crate::mapping::WatchlistRow;
+use common::postgres::SqlxTransaction;
+use common::product_id::ProductId;
+use common::user_id::UserId;
+use watchlist_service::ports::{
+    WatchlistProductView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
+};
+
+#[derive(Debug, Clone, Default)]
+pub struct SqlxWatchlistReaderFactory;
+
+struct SqlxWatchlistReader<'tx> {
+    tx: &'tx mut SqlxTransaction,
+}
+
+impl WatchlistReaderFactory<SqlxTransaction> for SqlxWatchlistReaderFactory {
+    fn in_transaction<'tx>(&'tx self, tx: &'tx mut SqlxTransaction) -> impl WatchlistReader + 'tx {
+        SqlxWatchlistReader { tx }
+    }
+}
+
+#[async_trait::async_trait]
+impl WatchlistReader for SqlxWatchlistReader<'_> {
+    async fn find_for_user(
+        &mut self,
+        user_id: UserId,
+    ) -> Result<Vec<WatchlistProductView>, WatchlistReadError> {
+        sqlx::query_as::<_, WatchlistRow>(
+            "SELECT user_id, product_id, notifications, state, created, updated \
+             FROM product_watchlist WHERE user_id = $1 ORDER BY created DESC",
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .fetch_all(self.tx.connection())
+        .await
+        .map_err(|_| WatchlistReadError::ReadFailed)?
+        .into_iter()
+        .map(WatchlistRow::into_view)
+        .collect()
+    }
+
+    async fn find_user_ids_for_product(
+        &mut self,
+        product_id: ProductId,
+    ) -> Result<Vec<UserId>, WatchlistReadError> {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT user_id FROM product_watchlist WHERE product_id = $1 ORDER BY user_id ASC",
+        )
+        .bind(uuid::Uuid::from(product_id))
+        .fetch_all(self.tx.connection())
+        .await
+        .map_err(|_| WatchlistReadError::ReadFailed)
+        .map(|ids| ids.into_iter().map(UserId::from).collect())
+    }
+}
