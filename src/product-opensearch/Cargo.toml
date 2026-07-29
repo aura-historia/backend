@@ -25,6 +25,8 @@ url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 rstest = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["opensearch"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [features]
