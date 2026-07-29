@@ -259,6 +259,7 @@ dependencies = [
  "product-core",
  "product-lambda",
  "product-lambda-delete-product",
+ "product-opensearch",
  "product-personalization",
  "product-pipeline",
  "product-postgres",
@@ -5725,6 +5726,34 @@ dependencies = [
  "tracing-subscriber",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "product-opensearch"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "geo",
+ "indexmap 2.14.0",
+ "isocountry",
+ "opensearch",
+ "product-core",
+ "product-service",
+ "rstest",
+ "serde",
+ "serde_fields",
+ "serde_json",
+ "serial_test",
+ "shop-core",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

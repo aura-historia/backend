@@ -116,6 +116,7 @@ fn test_domain_access_policy() -> String {
     .to_string()
 }
 
+#[cfg(feature = "cloudformation")]
 pub(crate) async fn set_up_after_cloudformation() {
     set_up_open_search(true).await;
 }

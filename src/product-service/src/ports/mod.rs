@@ -11,9 +11,7 @@ pub use product_event_store::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory,
 };
 pub use product_repository::{ProductRepository, ProductRepositoryError, ProductRepositoryFactory};
-pub use product_search_reader::{
-    ProductSearchReadError, ProductSearchReader, ProductSearchReaderFactory,
-};
+pub use product_search_reader::{ProductSearchReadError, ProductSearchReader};
 pub use product_translation_reader::{
     ProductTranslationReadError, ProductTranslationReader, ProductTranslationReaderFactory,
     ProductTranslationsView,
