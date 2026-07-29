@@ -256,10 +256,13 @@ dependencies = [
  "product",
  "product-api",
  "product-api-partner",
+ "product-core",
  "product-lambda",
  "product-lambda-delete-product",
  "product-personalization",
  "product-pipeline",
+ "product-postgres",
+ "product-service",
  "product-watchlist",
  "product-watchlist-api",
  "search-filter",
@@ -5579,6 +5582,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "geo",
+ "html-escape",
+ "indexmap 2.14.0",
+ "isocountry",
+ "regex",
+ "rstest",
+ "serde",
+ "serde_fields",
+ "serde_json",
+ "shop-core",
+ "thiserror 2.0.19",
+ "time",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
@@ -5795,6 +5821,48 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "product-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "geo",
+ "indexmap 2.14.0",
+ "isocountry",
+ "product-core",
+ "product-service",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "product-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "geo",
+ "indexmap 2.14.0",
+ "product-core",
+ "serde_json",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "url",
 ]
 
 [[package]]

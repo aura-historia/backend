@@ -105,7 +105,10 @@
 - `src/partner-shop-application/AGENTS.md` — `partner-shop-application` crate.
 - `src/partner-shop-application-api/AGENTS.md` — `partner-shop-application-api` crate.
 - `src/partner-shop-application-lambda/AGENTS.md` — `partner-shop-application-lambda` crate.
-- `src/product/AGENTS.md` — `product` crate.
+- `src/product/AGENTS.md` — legacy `product` crate.
+- `src/product-core/AGENTS.md` — canonical Product domain crate.
+- `src/product-service/AGENTS.md` — canonical Product service crate.
+- `src/product-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
 - `src/product-api/AGENTS.md` — `product-api` crate.
 - `src/product-api-partner/AGENTS.md` — `product-api-partner` crate.
 - `src/product-lambda/AGENTS.md` — `product-lambda` crate.

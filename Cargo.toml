@@ -28,6 +28,9 @@ shopify-lambda = { workspace = true }
 stripe-lambda = { workspace = true }
 stripe-api = { workspace = true }
 product = { workspace = true }
+product-core = { workspace = true }
+product-service = { workspace = true }
+product-postgres = { workspace = true }
 product-api = { workspace = true }
 product-api-partner = { workspace = true }
 product-personalization = { workspace = true }
@@ -71,6 +74,9 @@ members = [
     "src/search-filter-lambda",
     "src/search-filter-periodic-match",
     "src/product",
+    "src/product-core",
+    "src/product-service",
+    "src/product-postgres",
     "src/product-api",
     "src/product-api-partner",
     "src/product-personalization",
@@ -165,6 +171,9 @@ hex = "0.4.3"
 http = "1.4.2"
 httpdate = "1.0.3"
 product = { path = "src/product" }
+product-core = { path = "src/product-core" }
+product-service = { path = "src/product-service" }
+product-postgres = { path = "src/product-postgres" }
 product-api = { path = "src/product-api" }
 product-api-partner = { path = "src/product-api-partner" }
 product-personalization = { path = "src/product-personalization" }
