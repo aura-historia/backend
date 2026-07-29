@@ -255,14 +255,11 @@ CREATE INDEX IF NOT EXISTS product_events_type_time_idx ON product_events (event
 CREATE TABLE IF NOT EXISTS product_watchlist (
     user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
-    shop_id uuid NOT NULL,
-    shops_product_id text NOT NULL,
     notifications boolean NOT NULL DEFAULT true,
     state text NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, product_id),
-    CONSTRAINT product_watchlist_user_shop_product_unique UNIQUE (user_id, shop_id, shops_product_id)
+    PRIMARY KEY (user_id, product_id)
 );
 
 CREATE INDEX IF NOT EXISTS product_watchlist_user_created_idx ON product_watchlist (user_id, created DESC);
@@ -294,17 +291,13 @@ CREATE TABLE IF NOT EXISTS search_filter_matches (
     user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     user_search_filter_id uuid NOT NULL REFERENCES search_filters(user_search_filter_id) ON DELETE CASCADE,
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
-    shop_id uuid NOT NULL,
-    shops_product_id text NOT NULL,
     origin_event_id uuid NOT NULL REFERENCES product_events(event_id),
     user_search_filter_name text,
     enhanced_match_reason text,
     feedback boolean,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_search_filter_id, product_id),
-    CONSTRAINT search_filter_matches_user_filter_shop_product_unique
-        UNIQUE (user_id, user_search_filter_id, shop_id, shops_product_id)
+    PRIMARY KEY (user_search_filter_id, product_id)
 );
 
 CREATE INDEX IF NOT EXISTS search_filter_matches_user_created_idx

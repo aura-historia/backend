@@ -1,0 +1,15 @@
+[package]
+name = "search-filter-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+product-core = { workspace = true }
+time = { workspace = true }
+fake = { workspace = true, optional = true }
+serde_fields = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data", "product-core/test-data"]

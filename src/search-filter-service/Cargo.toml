@@ -1,0 +1,14 @@
+[package]
+name = "search-filter-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+common = { workspace = true }
+product-core = { workspace = true }
+search-filter-core = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }

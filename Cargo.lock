@@ -268,8 +268,12 @@ dependencies = [
  "product-watchlist-api",
  "search-filter",
  "search-filter-api",
+ "search-filter-core",
  "search-filter-lambda",
+ "search-filter-opensearch",
  "search-filter-periodic-match",
+ "search-filter-postgres",
+ "search-filter-service",
  "shop",
  "shop-api",
  "shop-core",
@@ -286,6 +290,9 @@ dependencies = [
  "user-lambda",
  "user-postgres",
  "user-service",
+ "watchlist-core",
+ "watchlist-postgres",
+ "watchlist-service",
  "webhook-api",
 ]
 
@@ -6818,6 +6825,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-filter-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "product-core",
+ "serde_fields",
+ "time",
+]
+
+[[package]]
 name = "search-filter-lambda"
 version = "0.1.0"
 dependencies = [
@@ -6884,6 +6902,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-filter-opensearch"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "opensearch",
+ "product-core",
+ "search-filter-core",
+ "search-filter-service",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "test-api",
+ "time",
+ "tokio",
+]
+
+[[package]]
 name = "search-filter-periodic-match"
 version = "0.1.0"
 dependencies = [
@@ -6907,6 +6943,38 @@ dependencies = [
  "tokio",
  "tracing",
  "user",
+]
+
+[[package]]
+name = "search-filter-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "product-core",
+ "search-filter-core",
+ "search-filter-service",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "search-filter-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "product-core",
+ "search-filter-core",
+ "serde_json",
+ "thiserror 2.0.19",
+ "time",
+ "tracing",
 ]
 
 [[package]]
@@ -9381,6 +9449,46 @@ dependencies = [
  "hashbrown 0.15.4",
  "indexmap 2.14.0",
  "semver",
+]
+
+[[package]]
+name = "watchlist-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "time",
+]
+
+[[package]]
+name = "watchlist-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+ "watchlist-core",
+ "watchlist-service",
+]
+
+[[package]]
+name = "watchlist-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "product-core",
+ "thiserror 2.0.19",
+ "time",
+ "tracing",
+ "watchlist-core",
 ]
 
 [[package]]

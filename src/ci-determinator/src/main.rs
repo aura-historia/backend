@@ -8,6 +8,7 @@ use std::process::Command;
 /// Integration test crates that run on ubuntu-latest with LocalStack.
 /// These paths are relative to the workspace root.
 const INTEGRATION_TEST_CRATES: &[&str] = &[
+    "src/common",
     "src/product-core",
     "src/product-opensearch",
     "src/product-postgres",
@@ -18,6 +19,13 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/user-core",
     "src/user-postgres",
     "src/user-service",
+    "srcsearch-filter-core",
+    "srcsearch-filter-opensearch",
+    "srcsearch-filter-postgres",
+    "srcsearch-filter-service",
+    "src/watchlist-core",
+    "src/watchlist-postgres",
+    "src/watchlist-service",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.
