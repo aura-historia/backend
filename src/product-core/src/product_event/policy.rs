@@ -50,3 +50,24 @@ impl HasKey for ProhibitedContentProductPolicyEventPayload {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_return_policy_event_type_and_key() {
+        let payload = ProhibitedContentProductPolicyEventPayload {
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::from("sku-1"),
+            decision: ProhibitedContent::NaziGermany,
+            reason: ProhibitedContentReason::ProductText,
+        };
+        let expected_key = payload.key();
+        let event = ProductPolicyEventPayload::ProhibitedContentDecision(payload);
+
+        assert_eq!("POLICY_PROHIBITED_CONTENT_DECISION", event.event_type());
+        assert_eq!(expected_key, event.key());
+    }
+}

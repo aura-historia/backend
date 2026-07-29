@@ -65,3 +65,27 @@ pub struct ProductDeletedLifecycleEventPayload {
     pub old_lifecycle: ProductLifecycle,
     pub new_lifecycle: ProductLifecycle,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_return_deleted_event_type_common_fields_and_key() {
+        let payload = ProductDeletedLifecycleEventPayload {
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::from("sku-1"),
+            old_lifecycle: ProductLifecycle::Active,
+            new_lifecycle: ProductLifecycle::Deleted,
+        };
+        let expected_key = ProductKey::new(payload.shop_id, payload.shops_product_id.clone());
+        let event = ProductLifecycleEventPayload::Deleted(payload.clone());
+
+        assert_eq!("LIFECYCLE_DELETED", event.event_type());
+        assert_eq!(expected_key, event.key());
+        assert_eq!(&payload.shop_id, event.shop_id());
+        assert_eq!(&payload.seller_id, event.seller_id());
+        assert_eq!(&payload.shops_product_id, event.shops_product_id());
+    }
+}

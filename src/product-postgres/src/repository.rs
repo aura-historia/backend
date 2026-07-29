@@ -693,3 +693,231 @@ impl From<ProductUpdateSqlxError> for ProductRepositoryError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::event_id::EventId;
+    use serde_json::json;
+
+    #[test]
+    fn should_map_complete_and_empty_prices_from_parts() {
+        let price = match price_from_parts(Some(123), Some("eur".to_owned())) {
+            Ok(Some(price)) => price,
+            Ok(None) => panic!("missing mapped price"),
+            Err(error) => panic!("failed to map price: {error:?}"),
+        };
+        let empty = match price_from_parts(None, None) {
+            Ok(value) => value,
+            Err(error) => panic!("failed to map empty price: {error:?}"),
+        };
+
+        assert_eq!(MonetaryAmount::from(123_u64), price.monetary_amount);
+        assert_eq!(Currency::Eur, price.currency);
+        assert_eq!(None, empty);
+    }
+
+    #[test]
+    fn should_reject_incomplete_negative_and_invalid_price_parts() {
+        assert!(matches!(
+            price_from_parts(Some(123), None),
+            Err(ProductRepositoryError::IncompletePricePersisted)
+        ));
+        assert!(matches!(
+            price_from_parts(Some(-1), Some("EUR".to_owned())),
+            Err(ProductRepositoryError::NegativePriceAmountPersisted)
+        ));
+        assert!(matches!(
+            price_from_parts(Some(123), Some("NOPE".to_owned())),
+            Err(ProductRepositoryError::InvalidPriceCurrencyPersisted)
+        ));
+    }
+
+    #[test]
+    fn should_map_optional_address_language_and_image_branches() {
+        let row = product_row();
+        let structured = match structured_address_from_row(&row) {
+            Some(value) => value,
+            None => panic!("missing structured address"),
+        };
+        let geo = match geo_address_from_row(&row) {
+            Some(value) => value,
+            None => panic!("missing geo address"),
+        };
+        let title = match localized_title_from_row(&row) {
+            Ok(Some(value)) => value,
+            Ok(None) => panic!("missing title"),
+            Err(error) => panic!("failed to map title: {error:?}"),
+        };
+        let description = match localized_description_from_row(&row) {
+            Ok(Some(value)) => value,
+            Ok(None) => panic!("missing description"),
+            Err(error) => panic!("failed to map description: {error:?}"),
+        };
+        let images = match images_from_json(row.product_images.clone()) {
+            Ok(value) => value,
+            Err(error) => panic!("failed to map images: {error:?}"),
+        };
+
+        assert_eq!(Some("line"), structured.addressline.as_deref());
+        assert_eq!(47.0, geo.lat);
+        assert_eq!(Language::En, title.localization);
+        assert_eq!(Language::De, description.localization);
+        assert_eq!(1, images.len());
+    }
+
+    #[test]
+    fn should_reject_incomplete_language_and_invalid_image_branches() {
+        let mut row = product_row();
+        row.title_language = None;
+        assert!(matches!(
+            localized_title_from_row(&row),
+            Err(ProductRepositoryError::IncompleteTitlePersisted)
+        ));
+
+        row.title_language = Some("xx".to_owned());
+        assert!(matches!(
+            localized_title_from_row(&row),
+            Err(ProductRepositoryError::InvalidTitleLanguagePersisted)
+        ));
+
+        let mut row = product_row();
+        row.description_text = None;
+        assert!(matches!(
+            localized_description_from_row(&row),
+            Err(ProductRepositoryError::IncompleteDescriptionPersisted)
+        ));
+
+        row.description_text = Some("description".to_owned());
+        row.description_language = Some("xx".to_owned());
+        assert!(matches!(
+            localized_description_from_row(&row),
+            Err(ProductRepositoryError::InvalidDescriptionLanguagePersisted)
+        ));
+
+        assert!(matches!(
+            images_from_json(json!({"not": "array"})),
+            Err(ProductRepositoryError::InvalidProductImagesPersisted)
+        ));
+        assert!(matches!(
+            images_from_json(json!([{ "url": "not a url", "prohibited_content": "NONE" }])),
+            Err(ProductRepositoryError::InvalidProductImageUrlPersisted)
+        ));
+        assert!(matches!(
+            images_from_json(
+                json!([{ "url": "https://example.com/a.jpg", "prohibited_content": "BAD" }])
+            ),
+            Err(ProductRepositoryError::InvalidProductImageProhibitedContentPersisted)
+        ));
+    }
+
+    #[test]
+    fn should_map_all_product_state_lifecycle_and_prohibited_content_values() {
+        assert_eq!(ProductState::Listed, parse_state("LISTED"));
+        assert_eq!(ProductState::Available, parse_state("AVAILABLE"));
+        assert_eq!(ProductState::Reserved, parse_state("RESERVED"));
+        assert_eq!(ProductState::Sold, parse_state("SOLD"));
+        assert_eq!(ProductState::Removed, parse_state("REMOVED"));
+        assert_eq!(ProductState::Unknown, parse_state("UNKNOWN"));
+        assert_eq!("LISTED", product_state_as_str(ProductState::Listed));
+        assert_eq!("AVAILABLE", product_state_as_str(ProductState::Available));
+        assert_eq!("RESERVED", product_state_as_str(ProductState::Reserved));
+        assert_eq!("SOLD", product_state_as_str(ProductState::Sold));
+        assert_eq!("REMOVED", product_state_as_str(ProductState::Removed));
+        assert_eq!("UNKNOWN", product_state_as_str(ProductState::Unknown));
+        assert_eq!(ProductLifecycle::Active, parse_lifecycle("ACTIVE"));
+        assert_eq!(ProductLifecycle::Deleted, parse_lifecycle("DELETED"));
+        assert_eq!("ACTIVE", product_lifecycle_as_str(ProductLifecycle::Active));
+        assert_eq!(
+            "DELETED",
+            product_lifecycle_as_str(ProductLifecycle::Deleted)
+        );
+        assert_eq!(ProhibitedContent::Unknown, parse_prohibited("UNKNOWN"));
+        assert_eq!(ProhibitedContent::None, parse_prohibited("NONE"));
+        assert_eq!(
+            ProhibitedContent::NaziGermany,
+            parse_prohibited("NAZI_GERMANY")
+        );
+    }
+
+    #[test]
+    fn should_reject_invalid_state_lifecycle_and_product_row_values() {
+        assert!(matches!(
+            parse_product_state("BAD"),
+            Err(ProductRepositoryError::InvalidProductStatePersisted)
+        ));
+        assert!(matches!(
+            parse_product_lifecycle("BAD"),
+            Err(ProductRepositoryError::InvalidProductLifecyclePersisted)
+        ));
+
+        let mut row = product_row();
+        row.url = "http://[::1".to_owned();
+        assert!(matches!(
+            Versioned::<Product, EventId>::try_from(row),
+            Err(ProductRepositoryError::InvalidProductUrlPersisted)
+        ));
+    }
+
+    fn parse_state(value: &str) -> ProductState {
+        match parse_product_state(value) {
+            Ok(state) => state,
+            Err(error) => panic!("failed to parse product state: {error:?}"),
+        }
+    }
+
+    fn parse_lifecycle(value: &str) -> ProductLifecycle {
+        match parse_product_lifecycle(value) {
+            Ok(lifecycle) => lifecycle,
+            Err(error) => panic!("failed to parse lifecycle: {error:?}"),
+        }
+    }
+
+    fn parse_prohibited(value: &str) -> ProhibitedContent {
+        match parse_prohibited_content(value) {
+            Ok(content) => content,
+            Err(error) => panic!("failed to parse prohibited content: {error:?}"),
+        }
+    }
+
+    fn product_row() -> ProductRow {
+        let now = OffsetDateTime::now_utc();
+        let slug = ProductSlugId::from("unit product").as_ref().to_owned();
+        ProductRow {
+            product_id: uuid::Uuid::new_v4(),
+            product_slug_id: slug,
+            event_id: uuid::Uuid::new_v4(),
+            shop_id: uuid::Uuid::new_v4(),
+            seller_id: uuid::Uuid::new_v4(),
+            shops_product_id: "unit-product".to_owned(),
+            structured_address_addressline: Some("line".to_owned()),
+            structured_address_addressline_extra: Some("extra".to_owned()),
+            structured_address_locality: Some("locality".to_owned()),
+            structured_address_region: Some("region".to_owned()),
+            structured_address_postal_code: Some("12345".to_owned()),
+            structured_address_country: Some("DEU".to_owned()),
+            geo_address_lat: Some(47.0),
+            geo_address_lon: Some(8.0),
+            title_text: Some("title".to_owned()),
+            title_language: Some("en".to_owned()),
+            description_text: Some("description".to_owned()),
+            description_language: Some("de".to_owned()),
+            price_native_amount: Some(1_200),
+            price_native_currency: Some("EUR".to_owned()),
+            price_estimate_min_native_amount: None,
+            price_estimate_min_native_currency: None,
+            price_estimate_max_native_amount: None,
+            price_estimate_max_native_currency: None,
+            fx_rate_id: None,
+            state: "LISTED".to_owned(),
+            lifecycle: "ACTIVE".to_owned(),
+            url: "https://example.com/unit-product".to_owned(),
+            product_images: json!([{ "url": "https://example.com/unit-product.jpg", "prohibited_content": "NONE" }]),
+            embedding: None,
+            auction_start: None,
+            auction_end: None,
+            created: now,
+            updated: now,
+        }
+    }
+}

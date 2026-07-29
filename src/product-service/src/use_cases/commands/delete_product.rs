@@ -249,3 +249,460 @@ impl From<ProductEventStoreError> for DeleteProductError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::currency::domain::Currency;
+    use common::language::domain::Language;
+    use common::localized::Localized;
+    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::price::domain::{MonetaryAmount, Price};
+    use common::product_id::ProductKey;
+    use common::product_lifecycle::domain::ProductLifecycle;
+    use common::product_slug_id::ProductSlugId;
+    use common::product_state::domain::ProductState;
+    use common::shop_id::ShopId;
+    use common::shops_product_id::ShopsProductId;
+    use common::transaction::TransactionError;
+    use common::versioned::Versioned;
+    use indexmap::IndexSet;
+    use product_core::description::Description;
+    use product_core::product::{
+        NewProduct, Product, ProductAddress, ProductAuction, ProductDomainEvent, ProductPricing,
+        RehydratedProductState,
+    };
+    use product_core::title::Title;
+    use std::sync::{Arc, Mutex, MutexGuard};
+    use url::Url;
+
+    #[derive(Debug, Default)]
+    struct FakeState {
+        begin_error: bool,
+        commit_error: bool,
+        find_by_id_result:
+            Option<Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>>,
+        update_result: Option<Result<(), ProductRepositoryError>>,
+        append_result: Option<Result<(), ProductEventStoreError>>,
+        update_count: usize,
+        append_count: usize,
+        commit_count: usize,
+    }
+
+    type SharedState = Arc<Mutex<FakeState>>;
+
+    #[derive(Clone)]
+    struct FakeUnitOfWork {
+        state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct FakeRepositoryFactory {
+        state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct FakeEventStoreFactory {
+        state: SharedState,
+    }
+
+    struct FakeTx {
+        state: SharedState,
+    }
+
+    struct FakeRepository {
+        state: SharedState,
+    }
+
+    struct FakeEventStore {
+        state: SharedState,
+    }
+
+    fn state() -> SharedState {
+        Arc::new(Mutex::new(FakeState::default()))
+    }
+
+    fn lock_state(state: &SharedState) -> MutexGuard<'_, FakeState> {
+        match state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn uow(state: &SharedState) -> FakeUnitOfWork {
+        FakeUnitOfWork {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn repository_factory(state: &SharedState) -> FakeRepositoryFactory {
+        FakeRepositoryFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn event_store_factory(state: &SharedState) -> FakeEventStoreFactory {
+        FakeEventStoreFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let state = lock_state(&self.state);
+            if state.begin_error {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let mut state = lock_state(&self.state);
+            state.commit_count += 1;
+            if state.commit_error {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl ProductRepositoryFactory<FakeTx> for FakeRepositoryFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ProductRepository + 'tx {
+            FakeRepository {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductRepository for FakeRepository {
+        async fn find_by_id(
+            &mut self,
+            _id: ProductId,
+        ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
+            let mut state = lock_state(&self.state);
+            match state.find_by_id_result.take() {
+                Some(result) => result,
+                None => Ok(None),
+            }
+        }
+
+        async fn find_by_key(
+            &mut self,
+            _key: &ProductKey,
+        ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
+            Ok(None)
+        }
+
+        async fn insert(
+            &mut self,
+            _product: &Product,
+            _current_event_id: EventId,
+        ) -> Result<(), ProductRepositoryError> {
+            Ok(())
+        }
+
+        async fn update(
+            &mut self,
+            _product: &Product,
+            _expected_event_id: EventId,
+            _new_event_id: EventId,
+        ) -> Result<(), ProductRepositoryError> {
+            let mut state = lock_state(&self.state);
+            state.update_count += 1;
+            match state.update_result.take() {
+                Some(result) => result,
+                None => Ok(()),
+            }
+        }
+    }
+
+    impl ProductEventStoreFactory<FakeTx> for FakeEventStoreFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ProductEventStore + 'tx {
+            FakeEventStore {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductEventStore for FakeEventStore {
+        async fn append(
+            &mut self,
+            _event: &ProductDomainEvent,
+        ) -> Result<(), ProductEventStoreError> {
+            let mut state = lock_state(&self.state);
+            state.append_count += 1;
+            match state.append_result.take() {
+                Some(result) => result,
+                None => Ok(()),
+            }
+        }
+
+        async fn find_current_event_id(
+            &mut self,
+            _product_id: ProductId,
+        ) -> Result<Option<EventId>, ProductEventStoreError> {
+            Ok(None)
+        }
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> DeleteProductHandler<FakeUnitOfWork, FakeRepositoryFactory, FakeEventStoreFactory> {
+        DeleteProductHandler::new(
+            uow(state),
+            repository_factory(state),
+            event_store_factory(state),
+        )
+    }
+
+    fn context() -> OperationContext {
+        OperationContext {
+            principal: Principal::System,
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn url(value: &str) -> Result<Url, url::ParseError> {
+        Url::parse(value)
+    }
+
+    fn product() -> Result<Product, url::ParseError> {
+        let mut product = Product::create(new_product(ProductId::new())?)
+            .map_err(|_| url::ParseError::EmptyHost)?;
+        let _events = product.take_pending_events();
+        Ok(product)
+    }
+
+    fn deleted_product() -> Result<Product, url::ParseError> {
+        Product::rehydrate(RehydratedProductState {
+            lifecycle: ProductLifecycle::Deleted,
+            ..rehydrated_state(ProductId::new())?
+        })
+        .map_err(|_| url::ParseError::EmptyHost)
+    }
+
+    fn new_product(product_id: ProductId) -> Result<NewProduct, url::ParseError> {
+        Ok(NewProduct {
+            id: product_id,
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::new(),
+            address: ProductAddress::default(),
+            title: Some(Localized {
+                localization: Language::En,
+                payload: Title::from("Cabinet"),
+            }),
+            description: Some(Localized {
+                localization: Language::En,
+                payload: Description::from("Old cabinet"),
+            }),
+            pricing: ProductPricing {
+                native_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                ..Default::default()
+            },
+            state: ProductState::Listed,
+            url: url("https://shop.example/products/1")?,
+            images: IndexSet::new(),
+            auction: ProductAuction::default(),
+        })
+    }
+
+    fn rehydrated_state(product_id: ProductId) -> Result<RehydratedProductState, url::ParseError> {
+        let input = new_product(product_id)?;
+        Ok(RehydratedProductState {
+            id: input.id,
+            slug_id: ProductSlugId::from("cabinet-abcdef"),
+            shop_id: input.shop_id,
+            seller_id: input.seller_id,
+            shops_product_id: input.shops_product_id,
+            address: input.address,
+            title: input.title,
+            description: input.description,
+            pricing: input.pricing,
+            state: input.state,
+            lifecycle: ProductLifecycle::Active,
+            url: input.url,
+            images: input.images,
+            auction: input.auction,
+        })
+    }
+
+    fn versioned_product(product: Product) -> Versioned<Product, EventId> {
+        Versioned::new(product, EventId::new())
+    }
+
+    #[tokio::test]
+    async fn should_delete_product_when_active() -> Result<(), url::ParseError> {
+        let state = state();
+        let product = product()?;
+        let product_id = product.id();
+        lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
+
+        let result = handler(&state)
+            .execute(&context(), DeleteProductCommand { product_id })
+            .await;
+
+        assert!(result.is_ok());
+        let state = lock_state(&state);
+        assert_eq!(1, state.update_count);
+        assert_eq!(1, state.append_count);
+        assert_eq!(1, state.commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_commit_idempotent_delete_when_already_deleted() -> Result<(), url::ParseError> {
+        let state = state();
+        let product = deleted_product()?;
+        let product_id = product.id();
+        lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
+
+        let result = handler(&state)
+            .execute(&context(), DeleteProductCommand { product_id })
+            .await;
+
+        assert!(result.is_ok());
+        let state = lock_state(&state);
+        assert_eq!(0, state.update_count);
+        assert_eq!(0, state.append_count);
+        assert_eq!(1, state.commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_not_found_when_delete_product_missing() {
+        let state = state();
+
+        let result = handler(&state)
+            .execute(
+                &context(),
+                DeleteProductCommand {
+                    product_id: ProductId::new(),
+                },
+            )
+            .await;
+
+        assert!(matches!(result, Err(DeleteProductError::ProductNotFound)));
+        assert_eq!(0, lock_state(&state).commit_count);
+    }
+
+    #[tokio::test]
+    async fn should_map_begin_error_when_delete_begin_fails() {
+        let state = state();
+        lock_state(&state).begin_error = true;
+
+        let result = handler(&state)
+            .execute(
+                &context(),
+                DeleteProductCommand {
+                    product_id: ProductId::new(),
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeleteProductError::BeginTransactionFailed)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_map_commit_error_when_delete_commit_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).commit_error = true;
+        let product = product()?;
+        let product_id = product.id();
+        lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
+
+        let result = handler(&state)
+            .execute(&context(), DeleteProductCommand { product_id })
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeleteProductError::CommitTransactionFailed)
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_delete_find_fails() {
+        let state = state();
+        lock_state(&state).find_by_id_result =
+            Some(Err(ProductRepositoryError::ProductLookupByIdFailed));
+
+        let result = handler(&state)
+            .execute(
+                &context(),
+                DeleteProductCommand {
+                    product_id: ProductId::new(),
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeleteProductError::ProductLookupByIdFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_delete_repository_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        let product = product()?;
+        let product_id = product.id();
+        {
+            let mut state = lock_state(&state);
+            state.find_by_id_result = Some(Ok(Some(versioned_product(product))));
+            state.update_result = Some(Err(ProductRepositoryError::ProductUpdateFailed));
+        }
+
+        let result = handler(&state)
+            .execute(&context(), DeleteProductCommand { product_id })
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeleteProductError::ProductUpdateFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_delete_event_append_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        let product = product()?;
+        let product_id = product.id();
+        {
+            let mut state = lock_state(&state);
+            state.find_by_id_result = Some(Ok(Some(versioned_product(product))));
+            state.append_result = Some(Err(ProductEventStoreError::ProductEventAppendFailed));
+        }
+
+        let result = handler(&state)
+            .execute(&context(), DeleteProductCommand { product_id })
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeleteProductError::ProductEventAppendFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+}

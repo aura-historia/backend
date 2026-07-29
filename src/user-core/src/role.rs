@@ -5,3 +5,13 @@ pub enum UserRole {
     User,
     Admin,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_default_role_to_user() {
+        assert_eq!(UserRole::User, UserRole::default());
+    }
+}

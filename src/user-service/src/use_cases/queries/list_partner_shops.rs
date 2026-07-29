@@ -138,3 +138,266 @@ impl From<UserPartnerShopsReadError> for ListPartnerShopsError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(dead_code, unused_imports)]
+    use super::{
+        ListPartnerShopsError, ListPartnerShopsHandler, ListPartnerShopsRequest,
+        ListPartnerShopsResult, ListPartnerShopsUseCase,
+    };
+    use crate::ports::{
+        UserPartnerShopsReadError, UserPartnerShopsReader, UserPartnerShopsReaderFactory,
+    };
+    use common::user_id::UserId;
+
+    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+    use common::transaction::{Transaction, TransactionError, UnitOfWork};
+    use std::fmt::Debug;
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    #[derive(Default)]
+    struct TxState {
+        begin_error: bool,
+        commit_error: bool,
+        begins: usize,
+        commits: usize,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeUnitOfWork {
+        state: Arc<Mutex<TxState>>,
+    }
+
+    struct FakeTx {
+        state: Arc<Mutex<TxState>>,
+    }
+
+    fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn ctx(principal: Principal) -> OperationContext {
+        OperationContext {
+            principal,
+            request_id: RequestId::new("req-test"),
+            correlation_id: CorrelationId::new("corr-test"),
+        }
+    }
+
+    fn assert_error<T, E, F>(result: Result<T, E>, predicate: F)
+    where
+        E: Debug,
+        F: FnOnce(&E) -> bool,
+    {
+        match result {
+            Ok(_) => panic!("expected error"),
+            Err(error) => assert!(predicate(&error), "unexpected error: {error:?}"),
+        }
+    }
+
+    fn assert_ok<T, E: Debug>(result: Result<T, E>) -> T {
+        match result {
+            Ok(value) => value,
+            Err(error) => panic!("expected ok, got {error:?}"),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let mut state = lock(&self.state);
+            if state.commit_error {
+                Err(TransactionError::CommitFailed)
+            } else {
+                state.commits += 1;
+                Ok(())
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let mut state = lock(&self.state);
+            state.begins += 1;
+            if state.begin_error {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
+            }
+        }
+    }
+
+    use common::error::boxed::{BoxError, box_error};
+
+    #[derive(Debug, Clone, Copy)]
+    enum ReadErrorKind {
+        TemporarilyUnavailable,
+        InvalidReadModel,
+        Internal,
+    }
+
+    fn boxed() -> BoxError {
+        box_error(std::io::Error::other("boom"))
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeReadFactory {
+        state: Arc<Mutex<ReadState>>,
+    }
+    #[derive(Default)]
+    struct ReadState {
+        result: Option<ListPartnerShopsResult>,
+        error: Option<ReadErrorKind>,
+        calls: usize,
+    }
+    struct FakeReader {
+        state: Arc<Mutex<ReadState>>,
+    }
+
+    #[async_trait::async_trait]
+    impl UserPartnerShopsReader for FakeReader {
+        async fn list_partner_shops(
+            &mut self,
+            _request: &ListPartnerShopsRequest,
+        ) -> Result<ListPartnerShopsResult, UserPartnerShopsReadError> {
+            let mut state = lock(&self.state);
+            state.calls += 1;
+            match state.error {
+                Some(ReadErrorKind::TemporarilyUnavailable) => {
+                    Err(UserPartnerShopsReadError::TemporarilyUnavailable { source: boxed() })
+                }
+                Some(ReadErrorKind::InvalidReadModel) => {
+                    Err(UserPartnerShopsReadError::InvalidReadModel { source: boxed() })
+                }
+                Some(ReadErrorKind::Internal) => {
+                    Err(UserPartnerShopsReadError::Internal { source: boxed() })
+                }
+                None => Ok(match state.result.clone() {
+                    Some(result) => result,
+                    None => ListPartnerShopsResult {
+                        user_id: UserId::new(),
+                        items: Vec::new(),
+                    },
+                }),
+            }
+        }
+    }
+    impl UserPartnerShopsReaderFactory<FakeTx> for FakeReadFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl UserPartnerShopsReader + 'tx {
+            FakeReader {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn should_list_partner_shops_when_authorized() {
+        let user_id = UserId::new();
+        let reads = FakeReadFactory::default();
+        lock(&reads.state).result = Some(ListPartnerShopsResult {
+            user_id,
+            items: Vec::new(),
+        });
+        assert_eq!(
+            user_id,
+            assert_ok(
+                ListPartnerShopsHandler::new(FakeUnitOfWork::default(), reads)
+                    .execute(
+                        &ctx(Principal::User(user_id)),
+                        ListPartnerShopsRequest { user_id }
+                    )
+                    .await,
+            )
+            .user_id,
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_unauthorized_partner_shop_list() {
+        let user_id = UserId::new();
+        let reads = FakeReadFactory::default();
+        assert_error(
+            ListPartnerShopsHandler::new(FakeUnitOfWork::default(), reads.clone())
+                .execute(
+                    &ctx(Principal::User(UserId::new())),
+                    ListPartnerShopsRequest { user_id },
+                )
+                .await,
+            |error| matches!(error, ListPartnerShopsError::Forbidden),
+        );
+        assert_error(
+            ListPartnerShopsHandler::new(FakeUnitOfWork::default(), reads)
+                .execute(
+                    &ctx(Principal::Anonymous),
+                    ListPartnerShopsRequest { user_id },
+                )
+                .await,
+            |error| matches!(error, ListPartnerShopsError::Forbidden),
+        );
+    }
+
+    #[tokio::test]
+    async fn should_map_begin_and_commit_failures_for_list_partner_shops() {
+        let user_id = UserId::new();
+        let begin_uow = FakeUnitOfWork::default();
+        lock(&begin_uow.state).begin_error = true;
+        assert_error(
+            ListPartnerShopsHandler::new(begin_uow, FakeReadFactory::default())
+                .execute(&ctx(Principal::System), ListPartnerShopsRequest { user_id })
+                .await,
+            |error| matches!(error, ListPartnerShopsError::BeginTransactionFailed),
+        );
+        let commit_uow = FakeUnitOfWork::default();
+        lock(&commit_uow.state).commit_error = true;
+        assert_error(
+            ListPartnerShopsHandler::new(commit_uow, FakeReadFactory::default())
+                .execute(&ctx(Principal::System), ListPartnerShopsRequest { user_id })
+                .await,
+            |error| matches!(error, ListPartnerShopsError::CommitTransactionFailed),
+        );
+    }
+
+    #[tokio::test]
+    async fn should_map_read_errors_and_not_commit_for_list_partner_shops() {
+        for kind in [
+            ReadErrorKind::TemporarilyUnavailable,
+            ReadErrorKind::InvalidReadModel,
+            ReadErrorKind::Internal,
+        ] {
+            let uow = FakeUnitOfWork::default();
+            let reads = FakeReadFactory::default();
+            lock(&reads.state).error = Some(kind);
+            assert_error(
+                ListPartnerShopsHandler::new(uow.clone(), reads)
+                    .execute(
+                        &ctx(Principal::System),
+                        ListPartnerShopsRequest {
+                            user_id: UserId::new(),
+                        },
+                    )
+                    .await,
+                |error| {
+                    matches!(
+                        error,
+                        ListPartnerShopsError::TemporarilyUnavailable { .. }
+                            | ListPartnerShopsError::InvalidReadModel { .. }
+                            | ListPartnerShopsError::Internal { .. }
+                    )
+                },
+            );
+            assert_eq!(0, lock(&uow.state).commits);
+        }
+    }
+}

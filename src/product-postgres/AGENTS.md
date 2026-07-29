@@ -11,6 +11,7 @@
 - Exports public SQLx repository/event-store factories only.
 - Keeps SQL rows, SQL, mapping, repositories, and event-store internals private.
 - Product row and `product_events` append bind to caller-owned transactions through service factory ports.
+- Real Postgres integration tests live under `tests/` by implementation file, with helpers inline per file.
 
 ## Ownership
 
@@ -34,6 +35,7 @@
 
 - `cargo check -p product-postgres`
 - `cargo test -p product-postgres --all-features`
+- `cargo test -p product-postgres --tests` runs real Postgres integration tests split by implementation file.
 
 ## Child DOX Index
 

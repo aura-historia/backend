@@ -307,3 +307,350 @@ impl From<ProductEventStoreError> for CreateProductError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::currency::domain::Currency;
+    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::price::domain::{MonetaryAmount, Price};
+    use common::product_id::ProductKey;
+    use common::transaction::TransactionError;
+    use product_core::product::ProductDomainEvent;
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    #[derive(Debug, Default)]
+    struct FakeState {
+        begin_error: bool,
+        commit_error: bool,
+        begin_count: usize,
+        commit_count: usize,
+        insert_result: Option<Result<(), ProductRepositoryError>>,
+        append_result: Option<Result<(), ProductEventStoreError>>,
+        insert_count: usize,
+        append_count: usize,
+    }
+
+    type SharedState = Arc<Mutex<FakeState>>;
+
+    #[derive(Clone)]
+    struct FakeUnitOfWork {
+        state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct FakeRepositoryFactory {
+        state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct FakeEventStoreFactory {
+        state: SharedState,
+    }
+
+    struct FakeTx {
+        state: SharedState,
+    }
+
+    struct FakeRepository {
+        state: SharedState,
+    }
+
+    struct FakeEventStore {
+        state: SharedState,
+    }
+
+    fn state() -> SharedState {
+        Arc::new(Mutex::new(FakeState::default()))
+    }
+
+    fn lock_state(state: &SharedState) -> MutexGuard<'_, FakeState> {
+        match state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn uow(state: &SharedState) -> FakeUnitOfWork {
+        FakeUnitOfWork {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn repository_factory(state: &SharedState) -> FakeRepositoryFactory {
+        FakeRepositoryFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn event_store_factory(state: &SharedState) -> FakeEventStoreFactory {
+        FakeEventStoreFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let mut state = lock_state(&self.state);
+            state.begin_count += 1;
+            if state.begin_error {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let mut state = lock_state(&self.state);
+            state.commit_count += 1;
+            if state.commit_error {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl ProductRepositoryFactory<FakeTx> for FakeRepositoryFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ProductRepository + 'tx {
+            FakeRepository {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductRepository for FakeRepository {
+        async fn find_by_id(
+            &mut self,
+            _id: ProductId,
+        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
+        {
+            Ok(None)
+        }
+
+        async fn find_by_key(
+            &mut self,
+            _key: &ProductKey,
+        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
+        {
+            Ok(None)
+        }
+
+        async fn insert(
+            &mut self,
+            _product: &Product,
+            _current_event_id: EventId,
+        ) -> Result<(), ProductRepositoryError> {
+            let mut state = lock_state(&self.state);
+            state.insert_count += 1;
+            match state.insert_result.take() {
+                Some(result) => result,
+                None => Ok(()),
+            }
+        }
+
+        async fn update(
+            &mut self,
+            _product: &Product,
+            _expected_event_id: EventId,
+            _new_event_id: EventId,
+        ) -> Result<(), ProductRepositoryError> {
+            Ok(())
+        }
+    }
+
+    impl ProductEventStoreFactory<FakeTx> for FakeEventStoreFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ProductEventStore + 'tx {
+            FakeEventStore {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductEventStore for FakeEventStore {
+        async fn append(
+            &mut self,
+            _event: &ProductDomainEvent,
+        ) -> Result<(), ProductEventStoreError> {
+            let mut state = lock_state(&self.state);
+            state.append_count += 1;
+            match state.append_result.take() {
+                Some(result) => result,
+                None => Ok(()),
+            }
+        }
+
+        async fn find_current_event_id(
+            &mut self,
+            _product_id: ProductId,
+        ) -> Result<Option<EventId>, ProductEventStoreError> {
+            Ok(None)
+        }
+    }
+
+    fn context() -> OperationContext {
+        OperationContext {
+            principal: Principal::System,
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn url(value: &str) -> Result<Url, url::ParseError> {
+        Url::parse(value)
+    }
+
+    fn create_command() -> Result<CreateProductCommand, url::ParseError> {
+        let input = new_product(ProductId::new())?;
+        Ok(CreateProductCommand {
+            shop_id: input.shop_id,
+            seller_id: input.seller_id,
+            shops_product_id: input.shops_product_id,
+            address: input.address,
+            title: input.title,
+            description: input.description,
+            pricing: input.pricing,
+            state: input.state,
+            url: input.url,
+            images: input.images,
+            auction: input.auction,
+        })
+    }
+
+    fn new_product(product_id: ProductId) -> Result<NewProduct, url::ParseError> {
+        Ok(NewProduct {
+            id: product_id,
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::new(),
+            address: ProductAddress::default(),
+            title: Some(Localized {
+                localization: Language::En,
+                payload: Title::from("Cabinet"),
+            }),
+            description: Some(Localized {
+                localization: Language::En,
+                payload: Description::from("Old cabinet"),
+            }),
+            pricing: ProductPricing {
+                native_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                ..Default::default()
+            },
+            state: ProductState::Listed,
+            url: url("https://shop.example/products/1")?,
+            images: IndexSet::new(),
+            auction: ProductAuction::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn should_create_product_when_valid() -> Result<(), url::ParseError> {
+        let state = state();
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(result.is_ok());
+        let state = lock_state(&state);
+        assert_eq!(1, state.begin_count);
+        assert_eq!(1, state.insert_count);
+        assert_eq!(1, state.append_count);
+        assert_eq!(1, state.commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_begin_error_when_create_begin_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).begin_error = true;
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductError::BeginTransactionFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_commit_error_when_create_commit_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).commit_error = true;
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductError::CommitTransactionFailed)
+        ));
+        assert_eq!(1, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_create_insert_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).insert_result = Some(Err(ProductRepositoryError::ProductInsertFailed));
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductError::ProductInsertFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_create_event_append_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).append_result =
+            Some(Err(ProductEventStoreError::ProductEventAppendFailed));
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductError::ProductEventAppendFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+}

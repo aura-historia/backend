@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortUserField {
     #[default]
-    Score,
+    Name,
     Email,
     FirstName,
     LastName,
@@ -9,4 +9,14 @@ pub enum SortUserField {
     Role,
     Created,
     Updated,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_default_sort_user_field_to_name() {
+        assert_eq!(SortUserField::Name, SortUserField::default());
+    }
 }

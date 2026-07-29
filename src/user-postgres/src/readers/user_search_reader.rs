@@ -1,4 +1,6 @@
-use crate::mapping::{UserRow, bind_role, bind_tier, countries_for_continents, user_columns};
+use crate::mapping::{
+    UserRow, bind_role, bind_tier, countries_for_continents, sort_user_field_columns, user_columns,
+};
 use common::error::boxed::box_error;
 use common::pagination::cursor::Cursor;
 use common::postgres::SqlxTransaction;
@@ -160,27 +162,19 @@ fn push_filters(builder: &mut QueryBuilder<'_, Postgres>, request: &SearchUsersR
 
 fn push_sort(builder: &mut QueryBuilder<'_, Postgres>, sort: Option<Sort<SortUserField>>) {
     let sort = sort.unwrap_or(Sort {
-        sort: SortUserField::Created,
-        order: SortOrder::Desc,
+        sort: SortUserField::default(),
+        order: SortOrder::Asc,
     });
-    let column = match sort.sort {
-        SortUserField::Score => "created",
-        SortUserField::Email => "email",
-        SortUserField::FirstName => "first_name",
-        SortUserField::LastName => "last_name",
-        SortUserField::Tier => "tier",
-        SortUserField::Role => "role",
-        SortUserField::Created => "created",
-        SortUserField::Updated => "updated",
-    };
     let order = match sort.order {
         SortOrder::Asc => "ASC",
         SortOrder::Desc => "DESC",
     };
 
-    builder
-        .push(" ORDER BY ")
-        .push(column)
-        .push(" ")
-        .push(order);
+    builder.push(" ORDER BY ");
+    for (index, column) in sort_user_field_columns(sort.sort).iter().enumerate() {
+        if index > 0 {
+            builder.push(", ");
+        }
+        builder.push(*column).push(" ").push(order);
+    }
 }

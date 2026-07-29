@@ -31,6 +31,7 @@
 - Think caveman. Talk caveman. Few word.
 - Keep orchestration here. Keep rules in `user-core`.
 - Keep adapters outside.
+- Keep unit tests inside the use-case file that owns the handler. No shared test-support module.
 
 ## Verification
 

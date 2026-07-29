@@ -216,6 +216,58 @@ impl ProductSearch {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::query::range_query::RangeQuery;
+    use std::collections::HashSet;
+
+    #[test]
+    fn should_create_product_search_with_language_and_currency() {
+        let search = ProductSearch::new(Language::En, Currency::Eur);
+
+        assert_eq!(Language::En, search.language);
+        assert_eq!(Currency::Eur, search.currency);
+        assert!(search.product_query.is_empty());
+    }
+
+    #[test]
+    fn should_set_builder_fields() {
+        let product_id = ProductId::new();
+        let search = ProductSearch::new(Language::En, Currency::Usd)
+            .with_product_query(text_query("vase"))
+            .with_enhanced_search_description(EnhancedSearchDescription::from("bronze"))
+            .with_exclude_product_id_query(HashSet::from([product_id]).into())
+            .with_state_query(HashSet::from([ProductState::Listed]).into())
+            .with_lifecycle_query(HashSet::from([ProductLifecycle::Active]).into())
+            .with_price_query(RangeQuery {
+                min: Some(MonetaryAmount::from(10_u64)),
+                max: Some(MonetaryAmount::from(20_u64)),
+            });
+
+        assert_eq!(1, search.product_query.len());
+        assert!(search.enhanced_search_description.is_some());
+        assert!(search.exclude_product_id_query.contains(&product_id));
+        assert!(search.state_query.contains(&ProductState::Listed));
+        assert!(search.lifecycle_query.contains(&ProductLifecycle::Active));
+        assert!(search.price_query.is_some());
+    }
+
+    #[test]
+    fn should_truncate_enhanced_search_description() {
+        let description = EnhancedSearchDescription::from("a".repeat(1200));
+
+        assert_eq!(1000, description.as_ref().len());
+    }
+
+    fn text_query(value: &str) -> TextQuery<1> {
+        match TextQuery::try_from(value) {
+            Ok(query) => query,
+            Err(error) => panic!("invalid test text query: {error}"),
+        }
+    }
+}
+
 #[cfg(feature = "test-data")]
 pub mod faker {
     use super::*;

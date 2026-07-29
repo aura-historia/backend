@@ -138,85 +138,117 @@ fn authorize_check(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, RequestId};
+    use common::transaction::{TransactionError, UnitOfWork};
     use std::sync::{Arc, Mutex};
 
-    #[derive(Clone)]
-    struct TestPartnerShopReaderFactory {
-        called: Arc<Mutex<bool>>,
-        is_partner: bool,
+    #[derive(Clone, Copy)]
+    enum ReadErrorKind {
+        Internal,
     }
 
-    struct TestPartnerShopReader {
-        called: Arc<Mutex<bool>>,
-        is_partner: bool,
+    #[derive(Default)]
+    struct Counts {
+        begin: usize,
+        commit: usize,
+        partner_read: usize,
     }
 
-    struct TestUnitOfWork {
-        committed: Arc<Mutex<bool>>,
+    #[derive(Default)]
+    struct State {
+        begin_error: bool,
+        commit_error: bool,
+        partner_read: bool,
+        partner_read_error: Option<ReadErrorKind>,
+        last_partner_request: Option<CheckUserPartnerShopRequest>,
+        counts: Counts,
     }
 
-    struct TestTransaction {
-        committed: Arc<Mutex<bool>>,
+    #[derive(Clone, Default)]
+    struct FakeUnitOfWork {
+        state: Arc<Mutex<State>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakePartnerReaderFactory {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakeTx {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakePartnerReader {
+        state: Arc<Mutex<State>>,
     }
 
     #[async_trait::async_trait]
-    impl UnitOfWork for TestUnitOfWork {
-        type Tx = TestTransaction;
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
 
-        async fn begin(&self) -> Result<Self::Tx, common::transaction::TransactionError> {
-            Ok(TestTransaction {
-                committed: Arc::clone(&self.committed),
-            })
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Transaction for TestTransaction {
-        async fn commit(self) -> Result<(), common::transaction::TransactionError> {
-            with_mutex(&self.committed, |committed| *committed = true);
-            Ok(())
-        }
-    }
-
-    impl PartnerShopReaderFactory<TestTransaction> for TestPartnerShopReaderFactory {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _tx: &'tx mut TestTransaction,
-        ) -> impl PartnerShopReader + 'tx {
-            TestPartnerShopReader {
-                called: Arc::clone(&self.called),
-                is_partner: self.is_partner,
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.begin += 1;
+                state.begin_error
+            });
+            if fail {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
             }
         }
     }
 
     #[async_trait::async_trait]
-    impl PartnerShopReader for TestPartnerShopReader {
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.commit += 1;
+                state.commit_error
+            });
+            if fail {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl PartnerShopReaderFactory<FakeTx> for FakePartnerReaderFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl PartnerShopReader + 'tx {
+            FakePartnerReader {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerShopReader for FakePartnerReader {
         async fn is_user_partner_of_shop(
             &mut self,
-            _request: &CheckUserPartnerShopRequest,
+            request: &CheckUserPartnerShopRequest,
         ) -> Result<bool, PartnerShopReadError> {
-            with_mutex(&self.called, |called| *called = true);
-            Ok(self.is_partner)
+            with_state(&self.state, |state| {
+                state.counts.partner_read += 1;
+                state.last_partner_request = Some(request.clone());
+                match state.partner_read_error {
+                    Some(kind) => Err(partner_read_error(kind)),
+                    None => Ok(state.partner_read),
+                }
+            })
         }
     }
 
     #[tokio::test]
-    async fn should_check_partner_shop_in_owned_transaction() {
+    async fn should_check_user_partner_shop_when_authorized() {
+        let state = shared_state();
         let user_id = UserId::new();
         let shop_id = ShopId::new();
-        let committed = Arc::new(Mutex::new(false));
-        let called = Arc::new(Mutex::new(false));
-        let handler = CheckUserPartnerShopHandler::new(
-            TestUnitOfWork {
-                committed: Arc::clone(&committed),
-            },
-            TestPartnerShopReaderFactory {
-                called: Arc::clone(&called),
-                is_partner: true,
-            },
-        );
+        with_state(&state, |state| state.partner_read = true);
+        let handler = CheckUserPartnerShopHandler::new(uow(&state), partner_reader(&state));
 
         let result = handler
             .execute(
@@ -232,8 +264,104 @@ mod tests {
                 ..
             })
         ));
-        assert!(with_mutex(&called, |called| *called));
-        assert!(with_mutex(&committed, |committed| *committed));
+        assert_eq!(
+            Some(CheckUserPartnerShopRequest { user_id, shop_id }),
+            with_state(&state, |state| state.last_partner_request.clone())
+        );
+        assert_counts(&state, |counts| assert_eq!(1, counts.commit));
+    }
+
+    #[tokio::test]
+    async fn should_forbid_partner_check_before_begin_when_wrong_user_or_anonymous() {
+        let state = shared_state();
+        let handler = CheckUserPartnerShopHandler::new(uow(&state), partner_reader(&state));
+
+        let wrong_user = handler
+            .execute(
+                &user_context(UserId::new()),
+                CheckUserPartnerShopRequest {
+                    user_id: UserId::new(),
+                    shop_id: ShopId::new(),
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            wrong_user,
+            Err(CheckUserPartnerShopError::Forbidden)
+        ));
+        assert_counts(&state, |counts| assert_eq!(0, counts.begin));
+
+        let anonymous = handler
+            .execute(
+                &anonymous_context(),
+                CheckUserPartnerShopRequest {
+                    user_id: UserId::new(),
+                    shop_id: ShopId::new(),
+                },
+            )
+            .await;
+        assert!(matches!(
+            anonymous,
+            Err(CheckUserPartnerShopError::Forbidden)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_cover_partner_check_errors_and_service_auth() {
+        let state = shared_state();
+        with_state(&state, |state| state.begin_error = true);
+        let handler = CheckUserPartnerShopHandler::new(uow(&state), partner_reader(&state));
+        let begin = handler
+            .execute(
+                &service_context(),
+                CheckUserPartnerShopRequest {
+                    user_id: UserId::new(),
+                    shop_id: ShopId::new(),
+                },
+            )
+            .await;
+        assert!(matches!(
+            begin,
+            Err(CheckUserPartnerShopError::BeginTransactionFailed)
+        ));
+
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.partner_read_error = Some(ReadErrorKind::Internal)
+        });
+        let handler = CheckUserPartnerShopHandler::new(uow(&state), partner_reader(&state));
+        let read = handler
+            .execute(
+                &service_context(),
+                CheckUserPartnerShopRequest {
+                    user_id: UserId::new(),
+                    shop_id: ShopId::new(),
+                },
+            )
+            .await;
+        assert!(matches!(
+            read,
+            Err(CheckUserPartnerShopError::Internal { .. })
+        ));
+        assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+
+        let state = shared_state();
+        with_state(&state, |state| state.commit_error = true);
+        let handler = CheckUserPartnerShopHandler::new(uow(&state), partner_reader(&state));
+        let commit = handler
+            .execute(
+                &service_context(),
+                CheckUserPartnerShopRequest {
+                    user_id: UserId::new(),
+                    shop_id: ShopId::new(),
+                },
+            )
+            .await;
+        assert!(matches!(
+            commit,
+            Err(CheckUserPartnerShopError::CommitTransactionFailed)
+        ));
     }
 
     #[test]
@@ -263,6 +391,38 @@ mod tests {
         assert!(matches!(result, Err(CheckUserPartnerShopError::Forbidden)));
     }
 
+    fn partner_reader(state: &Arc<Mutex<State>>) -> FakePartnerReaderFactory {
+        FakePartnerReaderFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn uow(state: &Arc<Mutex<State>>) -> FakeUnitOfWork {
+        FakeUnitOfWork {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn shared_state() -> Arc<Mutex<State>> {
+        Arc::new(Mutex::new(State::default()))
+    }
+
+    fn partner_read_error(kind: ReadErrorKind) -> PartnerShopReadError {
+        match kind {
+            ReadErrorKind::Internal => PartnerShopReadError::Internal {
+                source: static_error("internal"),
+            },
+        }
+    }
+
+    fn service_context() -> OperationContext {
+        OperationContext {
+            principal: Principal::Service("shop-service-test".to_string()),
+            request_id: RequestId::from("request"),
+            correlation_id: CorrelationId::from("correlation"),
+        }
+    }
+
     fn user_context(user_id: UserId) -> OperationContext {
         OperationContext {
             principal: Principal::User(user_id),
@@ -271,8 +431,20 @@ mod tests {
         }
     }
 
-    fn with_mutex<T, R>(mutex: &Mutex<T>, f: impl FnOnce(&mut T) -> R) -> R {
-        match mutex.lock() {
+    fn anonymous_context() -> OperationContext {
+        OperationContext {
+            principal: Principal::Anonymous,
+            request_id: RequestId::from("request"),
+            correlation_id: CorrelationId::from("correlation"),
+        }
+    }
+
+    fn assert_counts(state: &Arc<Mutex<State>>, assert: impl FnOnce(&Counts)) {
+        with_state(state, |state| assert(&state.counts));
+    }
+
+    fn with_state<R>(state: &Arc<Mutex<State>>, f: impl FnOnce(&mut State) -> R) -> R {
+        match state.lock() {
             Ok(mut guard) => f(&mut guard),
             Err(poisoned) => {
                 let mut guard = poisoned.into_inner();

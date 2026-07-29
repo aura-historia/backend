@@ -85,3 +85,55 @@ impl ProductEnrichmentEventPayload {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn translation_payload() -> TranslationProductEnrichmentEventPayload<Title> {
+        TranslationProductEnrichmentEventPayload {
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::from("sku-1"),
+            source_language: Language::De,
+            target_language: Language::En,
+            target: Title::from("Vase"),
+        }
+    }
+
+    fn embedded_payload() -> EmbeddedProductEnrichmentEventPayload {
+        EmbeddedProductEnrichmentEventPayload {
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::from("sku-1"),
+            embedding: vec![1.0, 2.0],
+            native_title: Some(Localized::new(Language::De, Title::from("Vase"))),
+        }
+    }
+
+    #[test]
+    fn should_return_translation_event_type_key_and_accessors() {
+        let payload = translation_payload();
+        let key = payload.key();
+        let event = ProductEnrichmentEventPayload::TranslatedTitle(payload.clone());
+
+        assert_eq!("ENRICHMENT_TRANSLATED_TITLE", event.event_type());
+        assert_eq!(key, payload.key());
+        assert_eq!(key, event.key());
+        assert_eq!(Some(&payload), event.as_translated_title());
+        assert!(event.as_embedded().is_none());
+    }
+
+    #[test]
+    fn should_return_embedded_event_type_key_and_accessors() {
+        let payload = embedded_payload();
+        let key = payload.key();
+        let event = ProductEnrichmentEventPayload::Embedded(payload.clone());
+
+        assert_eq!("ENRICHMENT_EMBEDDED", event.event_type());
+        assert_eq!(key, payload.key());
+        assert_eq!(key, event.key());
+        assert_eq!(Some(&payload), event.as_embedded());
+        assert!(event.as_translated_title().is_none());
+    }
+}

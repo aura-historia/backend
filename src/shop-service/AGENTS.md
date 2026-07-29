@@ -31,6 +31,7 @@
 - Think caveman. Talk caveman. Few word.
 - Keep orchestration here. Keep rules in `shop-core`.
 - Keep adapters outside.
+- Keep unit tests inside the use-case file that owns the handler. No shared test-support module. Do not put plain Tokio unit tests in `tests/`.
 
 ## Verification
 

@@ -232,9 +232,43 @@ mod tests {
 
     #[test]
     fn should_create_user_with_private_state_and_defaults() {
-        let result = User::create(new_user());
+        let input = new_user();
+        let id = input.id;
+        let email = input.email.clone();
+        let result = User::create(input);
 
-        assert!(matches!(result, Ok(ref user) if user.account().tier == UserTier::Free));
+        assert!(
+            matches!(result, Ok(ref user) if user.id() == id && user.email() == &email && user.account().tier == UserTier::Free)
+        );
+    }
+
+    #[test]
+    fn should_default_user_profile_to_empty_fields() {
+        let profile = UserProfile::default();
+
+        assert_eq!(None, profile.first_name);
+        assert_eq!(None, profile.last_name);
+        assert_eq!(None, profile.structured_address);
+        assert_eq!(None, profile.geo_address);
+    }
+
+    #[test]
+    fn should_default_user_preferences_to_empty_fields_and_no_consent() {
+        let preferences = UserPreferences::default();
+
+        assert_eq!(None, preferences.language);
+        assert_eq!(None, preferences.currency);
+        assert_eq!(None, preferences.measurement_unit);
+        assert!(!preferences.prohibited_content_consent);
+    }
+
+    #[test]
+    fn should_default_user_account_to_free_user_without_stripe_customer() {
+        let account = UserAccount::default();
+
+        assert_eq!(UserTier::Free, account.tier);
+        assert_eq!(UserRole::User, account.role);
+        assert_eq!(None, account.stripe_customer_id);
     }
 
     #[test]
@@ -290,5 +324,231 @@ mod tests {
             result,
             Err(RehydrateUserError::GeoLongitudeOutOfRange)
         ));
+    }
+
+    #[test]
+    fn should_change_email_when_email_differs() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+
+        let outcome = user.change_email(email("grace@example.com"));
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(email("grace@example.com"), *user.email());
+    }
+
+    #[test]
+    fn should_report_unchanged_when_email_same() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+        let email = user.email().clone();
+
+        let outcome = user.change_email(email);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_replace_profile_when_profile_differs() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+        let profile = UserProfile {
+            first_name: Some("Grace".into()),
+            last_name: None,
+            structured_address: None,
+            geo_address: Some(GeoAddress {
+                lat: 90.0,
+                lon: -180.0,
+            }),
+        };
+
+        let outcome = user.replace_profile(profile.clone());
+
+        assert_eq!(Ok(ChangeOutcome::Changed), outcome);
+        assert_eq!(&profile, user.profile());
+    }
+
+    #[test]
+    fn should_report_unchanged_when_profile_same() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+        let profile = user.profile().clone();
+
+        let outcome = user.replace_profile(profile);
+
+        assert_eq!(Ok(ChangeOutcome::Unchanged), outcome);
+    }
+
+    #[test]
+    fn should_reject_invalid_profile_geo() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+        let profile = UserProfile {
+            geo_address: Some(GeoAddress {
+                lat: 0.0,
+                lon: 181.0,
+            }),
+            ..user.profile().clone()
+        };
+
+        let outcome = user.replace_profile(profile);
+
+        assert_eq!(Err(RehydrateUserError::GeoLongitudeOutOfRange), outcome);
+    }
+
+    #[test]
+    fn should_reject_invalid_profile_geo_latitude() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+        let profile = UserProfile {
+            geo_address: Some(GeoAddress {
+                lat: 91.0,
+                lon: 0.0,
+            }),
+            ..user.profile().clone()
+        };
+
+        let outcome = user.replace_profile(profile);
+
+        assert_eq!(Err(RehydrateUserError::GeoLatitudeOutOfRange), outcome);
+    }
+
+    #[test]
+    fn should_replace_preferences_when_preferences_differ() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+        let preferences = UserPreferences {
+            prohibited_content_consent: true,
+            ..Default::default()
+        };
+
+        let outcome = user.replace_preferences(preferences.clone());
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(&preferences, user.preferences());
+    }
+
+    #[test]
+    fn should_report_unchanged_when_preferences_same() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+        let preferences = user.preferences().clone();
+
+        let outcome = user.replace_preferences(preferences);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_change_role_when_role_differs() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+
+        let outcome = user.change_role(UserRole::Admin);
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(UserRole::Admin, user.account().role);
+    }
+
+    #[test]
+    fn should_report_unchanged_when_role_same() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+
+        let outcome = user.change_role(UserRole::User);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_change_stripe_customer_id_when_value_differs() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+        let stripe_customer_id = StripeCustomerId::from("cus_test");
+
+        let outcome = user.change_stripe_customer_id(Some(stripe_customer_id.clone()));
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(Some(stripe_customer_id), user.account().stripe_customer_id);
+    }
+
+    #[test]
+    fn should_clear_stripe_customer_id_when_value_exists() {
+        let mut input = new_user();
+        input.account.stripe_customer_id = Some(StripeCustomerId::from("cus_test"));
+        let mut user =
+            User::create(input).unwrap_or_else(|error| panic!("user create failed: {error}"));
+
+        let outcome = user.change_stripe_customer_id(None);
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(None, user.account().stripe_customer_id);
+    }
+
+    #[test]
+    fn should_report_unchanged_when_stripe_customer_id_same() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+
+        let outcome = user.change_stripe_customer_id(None);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_return_user_name_when_only_first_name_set() {
+        let mut input = new_user();
+        input.profile.last_name = None;
+        let user =
+            User::create(input).unwrap_or_else(|error| panic!("user create failed: {error}"));
+
+        assert!(matches!(user.name(), Some(name) if name.as_ref() == "Ada"));
+    }
+
+    #[test]
+    fn should_return_user_name_when_only_last_name_set() {
+        let mut input = new_user();
+        input.profile.first_name = None;
+        let user =
+            User::create(input).unwrap_or_else(|error| panic!("user create failed: {error}"));
+
+        assert!(matches!(user.name(), Some(name) if name.as_ref() == "Lovelace"));
+    }
+
+    #[test]
+    fn should_return_no_user_name_when_names_missing() {
+        let mut input = new_user();
+        input.profile.first_name = None;
+        input.profile.last_name = None;
+        let user =
+            User::create(input).unwrap_or_else(|error| panic!("user create failed: {error}"));
+
+        assert_eq!(None, user.name());
+    }
+
+    #[test]
+    fn should_create_user_with_valid_geo_boundaries() {
+        let mut input = new_user();
+        input.profile.geo_address = Some(GeoAddress {
+            lat: -90.0,
+            lon: 180.0,
+        });
+
+        let result = User::create(input);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn should_reject_create_when_geo_invalid() {
+        let mut input = new_user();
+        input.profile.geo_address = Some(GeoAddress {
+            lat: -91.0,
+            lon: 0.0,
+        });
+
+        let result = User::create(input);
+
+        assert_eq!(Err(RehydrateUserError::GeoLatitudeOutOfRange), result);
     }
 }

@@ -1,0 +1,519 @@
+use common::currency::domain::Currency;
+use common::event_id::EventId;
+use common::language::domain::Language;
+use common::localized::Localized;
+use common::postgres::SqlxUnitOfWork;
+use common::price::domain::{MonetaryAmount, Price};
+use common::product_id::{ProductId, ProductKey};
+use common::product_lifecycle::domain::ProductLifecycle;
+use common::product_slug_id::ProductSlugId;
+use common::product_state::domain::ProductState;
+use common::shop_id::ShopId;
+use common::shop_name::ShopName;
+use common::transaction::{Transaction, UnitOfWork};
+use common::versioned::Versioned;
+use indexmap::IndexSet;
+use product_core::description::Description;
+use product_core::product::{
+    NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, RehydratedProductState,
+};
+use product_core::product_image::ProductImage;
+use product_core::prohibited_content::ProhibitedContent;
+use product_core::title::Title;
+use product_postgres::{SqlxProductEventStoreFactory, SqlxProductRepositoryFactory};
+use product_service::ports::{
+    ProductEventStore, ProductEventStoreFactory, ProductRepository, ProductRepositoryError,
+    ProductRepositoryFactory,
+};
+use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use url::Url;
+
+const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[serial_test::serial]
+async fn should_insert_append_find_update_and_find_product_by_key_in_postgres() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let products = SqlxProductRepositoryFactory::new();
+    let events = SqlxProductEventStoreFactory::new();
+    let shop_id = seed_shop(&pool, "product-postgres-main-shop").await;
+    let seller_id = seed_shop(&pool, "product-postgres-main-seller").await;
+    let product = sample_product("postgres-product-main", shop_id, seller_id);
+    let created_event = product.pending_events()[0].clone();
+
+    let mut tx = begin(&unit_of_work).await;
+    match products
+        .in_transaction(&mut tx)
+        .insert(&product, created_event.event_id)
+        .await
+    {
+        Ok(()) => {}
+        Err(error) => panic!("failed to insert product: {error:?}"),
+    }
+    match events.in_transaction(&mut tx).append(&created_event).await {
+        Ok(()) => {}
+        Err(error) => panic!("failed to append product event: {error:?}"),
+    }
+    commit(tx).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let Versioned {
+        value: loaded_by_id,
+        version,
+    } = match products
+        .in_transaction(&mut tx)
+        .find_by_id(product.id())
+        .await
+    {
+        Ok(Some(loaded)) => loaded,
+        Ok(None) => panic!("missing product by id"),
+        Err(error) => panic!("failed to find product by id: {error:?}"),
+    };
+    let loaded_by_key = match products
+        .in_transaction(&mut tx)
+        .find_by_key(&ProductKey::new(
+            product.shop_id(),
+            product.shops_product_id().clone(),
+        ))
+        .await
+    {
+        Ok(Some(loaded)) => loaded,
+        Ok(None) => panic!("missing product by key"),
+        Err(error) => panic!("failed to find product by key: {error:?}"),
+    };
+    let current_event_id = match events
+        .in_transaction(&mut tx)
+        .find_current_event_id(product.id())
+        .await
+    {
+        Ok(Some(event_id)) => event_id,
+        Ok(None) => panic!("missing current product event id"),
+        Err(error) => panic!("failed to find current event id: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(product.id(), loaded_by_id.id());
+    assert_eq!(product.id(), loaded_by_key.value.id());
+    assert_eq!(created_event.event_id, version);
+    assert_eq!(created_event.event_id, current_event_id);
+    assert_eq!(ProductLifecycle::Active, loaded_by_id.lifecycle());
+
+    let mut updated = loaded_by_key.value;
+    updated.change_state(ProductState::Sold);
+    let update_event = updated.pending_events()[0].clone();
+    let mut tx = begin(&unit_of_work).await;
+    match products
+        .in_transaction(&mut tx)
+        .update(&updated, version, update_event.event_id)
+        .await
+    {
+        Ok(()) => {}
+        Err(error) => panic!("failed to update product: {error:?}"),
+    }
+    match events.in_transaction(&mut tx).append(&update_event).await {
+        Ok(()) => {}
+        Err(error) => panic!("failed to append update event: {error:?}"),
+    }
+    commit(tx).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let loaded = match products
+        .in_transaction(&mut tx)
+        .find_by_id(product.id())
+        .await
+    {
+        Ok(Some(loaded)) => loaded,
+        Ok(None) => panic!("missing updated product"),
+        Err(error) => panic!("failed to load updated product: {error:?}"),
+    };
+    let current_event_id_after_update = match events
+        .in_transaction(&mut tx)
+        .find_current_event_id(product.id())
+        .await
+    {
+        Ok(Some(event_id)) => event_id,
+        Ok(None) => panic!("missing current product event id after update"),
+        Err(error) => panic!("failed to find current event id after update: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(ProductState::Sold, loaded.value.state());
+    assert_eq!(update_event.event_id, loaded.version);
+    assert_eq!(update_event.event_id, current_event_id_after_update);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[serial_test::serial]
+async fn should_return_none_when_product_is_missing_in_postgres() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let products = SqlxProductRepositoryFactory::new();
+    let product_id = ProductId::new();
+    let shop_id = ShopId::new();
+    let key = ProductKey::new(
+        shop_id,
+        common::shops_product_id::ShopsProductId::from("missing-product"),
+    );
+
+    let mut tx = begin(&unit_of_work).await;
+    let by_id = match products
+        .in_transaction(&mut tx)
+        .find_by_id(product_id)
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => panic!("failed to find missing product by id: {error:?}"),
+    };
+    let by_key = match products.in_transaction(&mut tx).find_by_key(&key).await {
+        Ok(value) => value,
+        Err(error) => panic!("failed to find missing product by key: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert!(by_id.is_none());
+    assert!(by_key.is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[serial_test::serial]
+async fn should_report_product_insert_conflict_when_shop_product_key_or_slug_duplicate() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let products = SqlxProductRepositoryFactory::new();
+    let events = SqlxProductEventStoreFactory::new();
+    let shop_id = seed_shop(&pool, "product-postgres-conflict-shop").await;
+    let seller_id = seed_shop(&pool, "product-postgres-conflict-seller").await;
+    let first = sample_product("postgres-product-conflict", shop_id, seller_id);
+    let second = sample_product("postgres-product-conflict", shop_id, seller_id);
+
+    insert_product_with_event(&unit_of_work, &products, &events, &first).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let duplicate_product = products
+        .in_transaction(&mut tx)
+        .insert(&second, EventId::new())
+        .await;
+    assert!(matches!(
+        duplicate_product,
+        Err(ProductRepositoryError::ProductKeyAlreadyExists)
+            | Err(ProductRepositoryError::ProductSlugAlreadyExists)
+            | Err(ProductRepositoryError::ProductInsertFailed)
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[serial_test::serial]
+async fn should_report_product_update_conflict_when_product_row_is_missing() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let products = SqlxProductRepositoryFactory::new();
+    let shop_id = seed_shop(&pool, "product-postgres-missing-update-shop").await;
+    let seller_id = seed_shop(&pool, "product-postgres-missing-update-seller").await;
+    let product = sample_product("postgres-product-missing-update", shop_id, seller_id);
+
+    let result = {
+        let mut tx = begin(&unit_of_work).await;
+        products
+            .in_transaction(&mut tx)
+            .update(&product, EventId::new(), EventId::new())
+            .await
+    };
+
+    assert!(matches!(
+        result,
+        Err(ProductRepositoryError::ProductCurrentEventIdConflict)
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[serial_test::serial]
+async fn should_report_product_update_conflict_when_event_id_is_stale() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let products = SqlxProductRepositoryFactory::new();
+    let events = SqlxProductEventStoreFactory::new();
+    let shop_id = seed_shop(&pool, "product-postgres-stale-shop").await;
+    let seller_id = seed_shop(&pool, "product-postgres-stale-seller").await;
+    let mut product = sample_product("postgres-product-stale", shop_id, seller_id);
+
+    insert_product_with_event(&unit_of_work, &products, &events, &product).await;
+
+    product.change_state(ProductState::Reserved);
+    let result = {
+        let mut tx = begin(&unit_of_work).await;
+        products
+            .in_transaction(&mut tx)
+            .update(&product, EventId::new(), EventId::new())
+            .await
+    };
+
+    assert!(matches!(
+        result,
+        Err(ProductRepositoryError::ProductCurrentEventIdConflict)
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[serial_test::serial]
+async fn should_report_key_conflict_when_update_would_duplicate_shop_product_key() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let products = SqlxProductRepositoryFactory::new();
+    let events = SqlxProductEventStoreFactory::new();
+    let shop_id = seed_shop(&pool, "product-postgres-update-key-shop").await;
+    let seller_id = seed_shop(&pool, "product-postgres-update-key-seller").await;
+    let first = sample_product("postgres-product-update-key-first", shop_id, seller_id);
+    let second = sample_product("postgres-product-update-key-second", shop_id, seller_id);
+    insert_product_with_event(&unit_of_work, &products, &events, &first).await;
+    insert_product_with_event(&unit_of_work, &products, &events, &second).await;
+    let conflict = rehydrate_product_for_update(
+        &second,
+        second.slug_id().clone(),
+        first.shop_id(),
+        first.shops_product_id().clone(),
+    );
+
+    let result = {
+        let mut tx = begin(&unit_of_work).await;
+        products
+            .in_transaction(&mut tx)
+            .update(
+                &conflict,
+                second.pending_events()[0].event_id,
+                EventId::new(),
+            )
+            .await
+    };
+
+    assert!(matches!(
+        result,
+        Err(ProductRepositoryError::ProductKeyAlreadyExists)
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[serial_test::serial]
+async fn should_report_slug_conflict_when_update_would_duplicate_product_slug() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let products = SqlxProductRepositoryFactory::new();
+    let events = SqlxProductEventStoreFactory::new();
+    let shop_id = seed_shop(&pool, "product-postgres-update-slug-shop").await;
+    let seller_id = seed_shop(&pool, "product-postgres-update-slug-seller").await;
+    let first = sample_product("postgres-product-update-slug-first", shop_id, seller_id);
+    let second = sample_product("postgres-product-update-slug-second", shop_id, seller_id);
+    insert_product_with_event(&unit_of_work, &products, &events, &first).await;
+    insert_product_with_event(&unit_of_work, &products, &events, &second).await;
+    let conflict = rehydrate_product_for_update(
+        &second,
+        first.slug_id().clone(),
+        second.shop_id(),
+        second.shops_product_id().clone(),
+    );
+
+    let result = {
+        let mut tx = begin(&unit_of_work).await;
+        products
+            .in_transaction(&mut tx)
+            .update(
+                &conflict,
+                second.pending_events()[0].event_id,
+                EventId::new(),
+            )
+            .await
+    };
+
+    assert!(matches!(
+        result,
+        Err(ProductRepositoryError::ProductSlugAlreadyExists)
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+#[serial_test::serial]
+async fn should_roll_back_product_and_event_when_transaction_is_not_committed() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let products = SqlxProductRepositoryFactory::new();
+    let events = SqlxProductEventStoreFactory::new();
+    let shop_id = seed_shop(&pool, "product-postgres-rollback-shop").await;
+    let seller_id = seed_shop(&pool, "product-postgres-rollback-seller").await;
+    let product = sample_product("postgres-product-rollback", shop_id, seller_id);
+    let event = product.pending_events()[0].clone();
+
+    {
+        let mut tx = begin(&unit_of_work).await;
+        match products
+            .in_transaction(&mut tx)
+            .insert(&product, event.event_id)
+            .await
+        {
+            Ok(()) => {}
+            Err(error) => panic!("failed to insert product before rollback: {error:?}"),
+        }
+        match events.in_transaction(&mut tx).append(&event).await {
+            Ok(()) => {}
+            Err(error) => panic!("failed to append event before rollback: {error:?}"),
+        }
+    }
+
+    let mut tx = begin(&unit_of_work).await;
+    let product_after_rollback = match products
+        .in_transaction(&mut tx)
+        .find_by_id(product.id())
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => panic!("failed to find rolled-back product: {error:?}"),
+    };
+    let current_event_after_rollback = match events
+        .in_transaction(&mut tx)
+        .find_current_event_id(product.id())
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => panic!("failed to find rolled-back current event: {error:?}"),
+    };
+    let persisted_event_count: i64 =
+        match sqlx::query_scalar("SELECT count(*) FROM product_events WHERE product_id = $1")
+            .bind(uuid::Uuid::from(product.id()))
+            .fetch_one(&pool)
+            .await
+        {
+            Ok(value) => value,
+            Err(error) => panic!("failed to count rolled-back events: {error}"),
+        };
+    commit(tx).await;
+
+    assert!(product_after_rollback.is_none());
+    assert_eq!(None, current_event_after_rollback);
+    assert_eq!(0, persisted_event_count);
+}
+
+async fn insert_product_with_event(
+    unit_of_work: &SqlxUnitOfWork,
+    products: &SqlxProductRepositoryFactory,
+    events: &SqlxProductEventStoreFactory,
+    product: &Product,
+) {
+    let event = product.pending_events()[0].clone();
+    let mut tx = begin(unit_of_work).await;
+    match products
+        .in_transaction(&mut tx)
+        .insert(product, event.event_id)
+        .await
+    {
+        Ok(()) => {}
+        Err(error) => panic!("failed to insert product: {error:?}"),
+    }
+    match events.in_transaction(&mut tx).append(&event).await {
+        Ok(()) => {}
+        Err(error) => panic!("failed to append product event: {error:?}"),
+    }
+    commit(tx).await;
+}
+
+fn rehydrate_product_for_update(
+    product: &Product,
+    slug_id: ProductSlugId,
+    shop_id: ShopId,
+    shops_product_id: common::shops_product_id::ShopsProductId,
+) -> Product {
+    match Product::rehydrate(RehydratedProductState {
+        id: product.id(),
+        slug_id,
+        shop_id,
+        seller_id: product.seller_id(),
+        shops_product_id,
+        address: product.address(),
+        title: product.title().cloned(),
+        description: product.description().cloned(),
+        pricing: product.pricing(),
+        state: product.state(),
+        lifecycle: product.lifecycle(),
+        url: product.url().clone(),
+        images: product.images().clone(),
+        auction: product.auction(),
+    }) {
+        Ok(product) => product,
+        Err(error) => panic!("failed to rehydrate conflict product: {error:?}"),
+    }
+}
+
+fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> Product {
+    let mut images = IndexSet::new();
+    images.insert(ProductImage {
+        url: url(&format!("https://example.com/{slug}.jpg")),
+        prohibited_content: ProhibitedContent::None,
+    });
+    match Product::create(NewProduct {
+        id: common::product_id::ProductId::new(),
+        shop_id,
+        seller_id,
+        shops_product_id: common::shops_product_id::ShopsProductId::from(slug),
+        address: ProductAddress::default(),
+        title: Some(Localized::new(Language::En, Title::from(slug))),
+        description: Some(Localized::new(
+            Language::En,
+            Description::from("Nice product"),
+        )),
+        pricing: ProductPricing {
+            native_price: Some(Price::new(MonetaryAmount::from(1_200_u64), Currency::Eur)),
+            native_price_estimate_min: None,
+            native_price_estimate_max: None,
+            fx_rate_id: None,
+        },
+        state: ProductState::Listed,
+        url: url(&format!("https://example.com/{slug}")),
+        images,
+        auction: ProductAuction::default(),
+    }) {
+        Ok(product) => product,
+        Err(error) => panic!("failed to create product: {error}"),
+    }
+}
+
+async fn seed_shop(pool: &sqlx::PgPool, slug: &str) -> ShopId {
+    let shop_id = ShopId::new();
+    let result = sqlx::query(
+        r#"
+        INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+    )
+    .bind(uuid::Uuid::from(shop_id))
+    .bind(slug)
+    .bind(ShopName::from(slug).to_string())
+    .bind("COMMERCIAL_DEALER")
+    .bind("SCRAPED")
+    .bind(Vec::<String>::from([format!("{slug}.example")]))
+    .execute(pool)
+    .await;
+
+    if let Err(error) = result {
+        panic!("failed to seed shop: {error}");
+    }
+
+    shop_id
+}
+
+fn url(value: &str) -> Url {
+    match Url::parse(value) {
+        Ok(url) => url,
+        Err(error) => panic!("invalid test URL: {error}"),
+    }
+}
+
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+    match unit_of_work.begin().await {
+        Ok(tx) => tx,
+        Err(error) => panic!("failed to begin transaction: {error}"),
+    }
+}
+
+async fn commit(tx: common::postgres::SqlxTransaction) {
+    if let Err(error) = tx.commit().await {
+        panic!("failed to commit transaction: {error}");
+    }
+}

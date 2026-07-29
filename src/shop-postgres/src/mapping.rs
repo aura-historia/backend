@@ -615,6 +615,142 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case("AUCTION_HOUSE", Ok(ShopType::AuctionHouse))]
+    #[case("AUCTION_PLATFORM", Ok(ShopType::AuctionPlatform))]
+    #[case("COMMERCIAL_DEALER", Ok(ShopType::CommercialDealer))]
+    #[case("MARKETPLACE", Ok(ShopType::Marketplace))]
+    #[case("UNKNOWN", Err(ShopRowMappingError::InvalidShopType))]
+    fn should_parse_shop_type_branches(
+        #[case] value: &str,
+        #[case] expected: Result<ShopType, ShopRowMappingError>,
+    ) {
+        assert_eq!(expected, parse_shop_type(value));
+    }
+
+    #[rstest::rstest]
+    #[case("SCRAPED", Ok(ShopPartnerStatus::Scraped))]
+    #[case("PARTNERED", Ok(ShopPartnerStatus::Partnered))]
+    #[case("UNKNOWN", Err(ShopRowMappingError::InvalidPartnerStatus))]
+    fn should_parse_partner_status_branches(
+        #[case] value: &str,
+        #[case] expected: Result<ShopPartnerStatus, ShopRowMappingError>,
+    ) {
+        assert_eq!(expected, parse_partner_status(value));
+    }
+
+    #[rstest::rstest]
+    #[case("EUR", Ok(Currency::Eur))]
+    #[case("GBP", Ok(Currency::Gbp))]
+    #[case("USD", Ok(Currency::Usd))]
+    #[case("AUD", Ok(Currency::Aud))]
+    #[case("CAD", Ok(Currency::Cad))]
+    #[case("NZD", Ok(Currency::Nzd))]
+    #[case("CNY", Ok(Currency::Cny))]
+    #[case("BRL", Ok(Currency::Brl))]
+    #[case("PLN", Ok(Currency::Pln))]
+    #[case("TRY", Ok(Currency::Try))]
+    #[case("JPY", Ok(Currency::Jpy))]
+    #[case("CZK", Ok(Currency::Czk))]
+    #[case("RUB", Ok(Currency::Rub))]
+    #[case("AED", Ok(Currency::Aed))]
+    #[case("SAR", Ok(Currency::Sar))]
+    #[case("HKD", Ok(Currency::Hkd))]
+    #[case("SGD", Ok(Currency::Sgd))]
+    #[case("CHF", Ok(Currency::Chf))]
+    #[case("XXX", Err(ShopRowMappingError::InvalidShopifyCurrency))]
+    fn should_parse_currency_branches(
+        #[case] value: &str,
+        #[case] expected: Result<Currency, ShopRowMappingError>,
+    ) {
+        assert_eq!(
+            expected,
+            parse_currency(value, ShopRowMappingError::InvalidShopifyCurrency)
+        );
+    }
+
+    #[rstest::rstest]
+    #[case("de", Ok(Language::De))]
+    #[case("en", Ok(Language::En))]
+    #[case("fr", Ok(Language::Fr))]
+    #[case("es", Ok(Language::Es))]
+    #[case("it", Ok(Language::It))]
+    #[case("zh", Ok(Language::Zh))]
+    #[case("pt", Ok(Language::Pt))]
+    #[case("pl", Ok(Language::Pl))]
+    #[case("tr", Ok(Language::Tr))]
+    #[case("nl", Ok(Language::Nl))]
+    #[case("cs", Ok(Language::Cs))]
+    #[case("ja", Ok(Language::Ja))]
+    #[case("ru", Ok(Language::Ru))]
+    #[case("ar", Ok(Language::Ar))]
+    #[case("xx", Err(ShopRowMappingError::InvalidShopifyLanguage))]
+    fn should_parse_language_branches(
+        #[case] value: &str,
+        #[case] expected: Result<Language, ShopRowMappingError>,
+    ) {
+        assert_eq!(
+            expected,
+            parse_language(value, ShopRowMappingError::InvalidShopifyLanguage)
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::bad_domain(|row: &mut ShopRow| row.shop_domains = vec!["bad domain".to_owned()], ShopRowMappingError::InvalidDomain)]
+    #[case::bad_url(|row: &mut ShopRow| row.url = Some("not-a-url".to_owned()), ShopRowMappingError::InvalidUrl)]
+    #[case::bad_image(|row: &mut ShopRow| row.image = Some("not-a-url".to_owned()), ShopRowMappingError::InvalidImageUrl)]
+    #[case::bad_country(|row: &mut ShopRow| row.structured_address_country = Some("BAD".to_owned()), ShopRowMappingError::InvalidCountry)]
+    #[case::bad_geo(|row: &mut ShopRow| row.geo_address_lon = None, ShopRowMappingError::IncompleteGeoAddress)]
+    #[case::bad_email(|row: &mut ShopRow| row.email = Some("not-email".to_owned()), ShopRowMappingError::InvalidEmail)]
+    #[case::bad_version(|row: &mut ShopRow| row.version = -1, ShopRowMappingError::InvalidVersion)]
+    #[case::bad_shopify_domain(|row: &mut ShopRow| row.shopify_domain = Some("bad domain".to_owned()), ShopRowMappingError::InvalidDomain)]
+    #[case::bad_shopify_currency(|row: &mut ShopRow| row.shopify_currency = Some("XXX".to_owned()), ShopRowMappingError::InvalidShopifyCurrency)]
+    #[case::bad_shopify_language(|row: &mut ShopRow| row.shopify_language = Some("xx".to_owned()), ShopRowMappingError::InvalidShopifyLanguage)]
+    #[case::incomplete_shopify(|row: &mut ShopRow| { row.shopify_domain = None; row.shopify_currency = Some("EUR".to_owned()); }, ShopRowMappingError::IncompleteShopifyIntegration)]
+    #[case::bad_woocommerce_currency(|row: &mut ShopRow| row.woocommerce_currency = Some("XXX".to_owned()), ShopRowMappingError::InvalidWoocommerceCurrency)]
+    #[case::bad_woocommerce_language(|row: &mut ShopRow| row.woocommerce_language = Some("xx".to_owned()), ShopRowMappingError::InvalidWoocommerceLanguage)]
+    fn should_reject_invalid_row_private_mapping_branches(
+        #[case] mutate: fn(&mut ShopRow),
+        #[case] expected: ShopRowMappingError,
+    ) {
+        let mut row = full_row("Antik Markt", "antik-markt");
+        mutate(&mut row);
+
+        let result = VersionedShop::try_from(row);
+
+        assert!(matches!(result, Err(error) if error == expected));
+    }
+
+    #[test]
+    fn should_map_empty_optional_row_sections_to_none() {
+        let mut row = full_row("Antik Markt", "antik-markt");
+        row.shopify_domain = None;
+        row.shopify_currency = None;
+        row.shopify_language = None;
+        row.woocommerce_webhook_secret = None;
+        row.woocommerce_currency = None;
+        row.woocommerce_language = None;
+        row.structured_address_addressline = None;
+        row.structured_address_addressline_extra = None;
+        row.structured_address_locality = None;
+        row.structured_address_region = None;
+        row.structured_address_postal_code = None;
+        row.structured_address_country = None;
+        row.geo_address_lat = None;
+        row.geo_address_lon = None;
+        row.email = None;
+        row.phone = None;
+
+        let result = VersionedShop::try_from(row);
+
+        assert!(matches!(result, Ok(ref loaded)
+            if loaded.value.shopify().is_none()
+                && loaded.value.woocommerce().is_none()
+                && loaded.value.address().is_none()
+                && loaded.value.contact() == &ShopContact::default()
+        ));
+    }
+
     fn full_row(name: &str, slug: &str) -> ShopRow {
         ShopRow {
             shop_id: uuid::Uuid::new_v4(),

@@ -14,9 +14,9 @@ pub use commands::update_product::{
     UpdateProductUseCase,
 };
 pub use queries::get_product::{
-    GetProductError, GetProductRequest, GetProductUseCase, ProductDetailsView,
+    GetProductError, GetProductHandler, GetProductRequest, GetProductUseCase, ProductDetailsView,
 };
 pub use queries::search_products::{
-    ProductSummary, SearchProductsError, SearchProductsRequest, SearchProductsResult,
-    SearchProductsUseCase,
+    ProductSummary, SearchProductsError, SearchProductsHandler, SearchProductsRequest,
+    SearchProductsResult, SearchProductsUseCase,
 };

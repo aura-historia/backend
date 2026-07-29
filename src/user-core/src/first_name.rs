@@ -57,3 +57,38 @@ impl AsRef<str> for FirstName {
         &self.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_keep_first_name_when_at_max_length() {
+        let name = FirstName::from("a".repeat(64));
+
+        assert_eq!(64, name.as_ref().len());
+    }
+
+    #[test]
+    fn should_truncate_first_name_to_max_length() {
+        let name = FirstName::from("a".repeat(80));
+
+        assert_eq!(64, name.as_ref().len());
+    }
+
+    #[test]
+    fn should_keep_first_name_when_split_point_is_not_char_boundary() {
+        let input = format!("{}é", "a".repeat(63));
+        let name = FirstName::from(input.clone());
+
+        assert_eq!(input, name.as_ref());
+    }
+
+    #[test]
+    fn should_convert_first_name_to_string() {
+        let name = FirstName::from("Ada");
+
+        assert_eq!("Ada", name.to_string());
+        assert_eq!("Ada", String::from(name));
+    }
+}

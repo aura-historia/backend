@@ -12,6 +12,7 @@
 - Keeps SQL rows, SQL, mapping, repositories, and readers private.
 - Readers and repositories bind to caller-owned transactions through service factory ports.
 - Access tokens stay outside this crate until their source-of-truth moves off DynamoDB.
+- User search sort maps `Name` to `first_name`, then `last_name`; no score sort.
 
 ## Ownership
 
@@ -30,11 +31,13 @@
 - Keep adapter types private.
 - Map rows with `TryFrom`; never leak SQLx row types.
 - Preserve SQLx and row-mapping failures as error sources in service port errors.
+- Integration tests mirror dedicated impl files one-to-one; duplicate helpers inline, no shared test support modules.
 
 ## Verification
 
 - `cargo check -p user-postgres`
 - `cargo test -p user-postgres --all-features`
+- `cargo test -p user-postgres --tests` runs real Postgres integration tests split by implementation file.
 
 ## Child DOX Index
 

@@ -12,6 +12,7 @@ use time::OffsetDateTime;
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
 use user_core::role::UserRole;
+use user_core::sort_user_field::SortUserField;
 use user_core::tier::UserTier;
 use user_core::user::{RehydratedUserState, User, UserAccount, UserPreferences, UserProfile};
 use user_service::ports::{UserStorageVersion, VersionedUser};
@@ -200,6 +201,19 @@ pub(crate) fn countries_for_continents(
     countries
 }
 
+pub(crate) fn sort_user_field_columns(field: SortUserField) -> &'static [&'static str] {
+    match field {
+        SortUserField::Name => &["first_name", "last_name"],
+        SortUserField::Email => &["email"],
+        SortUserField::FirstName => &["first_name"],
+        SortUserField::LastName => &["last_name"],
+        SortUserField::Tier => &["tier"],
+        SortUserField::Role => &["role"],
+        SortUserField::Created => &["created"],
+        SortUserField::Updated => &["updated"],
+    }
+}
+
 fn profile_from_row(row: &UserRow) -> Result<UserProfile, UserRowMappingError> {
     Ok(UserProfile {
         first_name: row.first_name.clone().map(FirstName::from),
@@ -343,5 +357,234 @@ fn parse_role(value: &str) -> Result<UserRole, UserRowMappingError> {
         "USER" => Ok(UserRole::User),
         "ADMIN" => Ok(UserRole::Admin),
         _ => Err(UserRowMappingError::InvalidRole),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::version::InvalidVersionError;
+    use user_service::use_cases::queries::find_user_by_stripe_customer_id::UserStripeLookupView;
+
+    #[test]
+    fn should_bind_domain_values_for_sql() {
+        let address = StructuredAddress {
+            country: Some(CountryCode::GBR),
+            ..Default::default()
+        };
+
+        assert_eq!(Some("en"), bind_language(Some(Language::En)));
+        assert_eq!(Some("GBP"), bind_currency(Some(Currency::Gbp)));
+        assert_eq!(
+            Some("METRIC"),
+            bind_measurement_unit(Some(MeasurementUnit::Metric))
+        );
+        assert_eq!(
+            Some("IMPERIAL"),
+            bind_measurement_unit(Some(MeasurementUnit::Imperial))
+        );
+        assert_eq!("FREE", bind_tier(UserTier::Free));
+        assert_eq!("PRO", bind_tier(UserTier::Pro));
+        assert_eq!("ULTIMATE", bind_tier(UserTier::Ultimate));
+        assert_eq!("USER", bind_role(UserRole::User));
+        assert_eq!("ADMIN", bind_role(UserRole::Admin));
+        assert_eq!(Some("GBR".to_owned()), bind_country(Some(&address)));
+        assert_eq!(None, bind_country(None));
+    }
+
+    #[test]
+    fn should_map_countries_for_continents_in_stable_order() {
+        let countries =
+            countries_for_continents(&std::collections::HashSet::from([Continent::Europe]));
+
+        assert!(countries.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(countries.contains(&"GBR".to_owned()));
+        assert!(!countries.contains(&"USA".to_owned()));
+    }
+
+    #[test]
+    fn should_map_user_sort_fields_to_postgres_columns() {
+        assert_eq!(
+            &["first_name", "last_name"],
+            sort_user_field_columns(SortUserField::Name)
+        );
+        assert_eq!(&["email"], sort_user_field_columns(SortUserField::Email));
+        assert_eq!(
+            &["first_name"],
+            sort_user_field_columns(SortUserField::FirstName)
+        );
+        assert_eq!(
+            &["last_name"],
+            sort_user_field_columns(SortUserField::LastName)
+        );
+        assert_eq!(&["tier"], sort_user_field_columns(SortUserField::Tier));
+        assert_eq!(&["role"], sort_user_field_columns(SortUserField::Role));
+        assert_eq!(
+            &["created"],
+            sort_user_field_columns(SortUserField::Created)
+        );
+        assert_eq!(
+            &["updated"],
+            sort_user_field_columns(SortUserField::Updated)
+        );
+    }
+
+    #[test]
+    fn should_map_full_user_row_to_views() {
+        let row = user_row();
+
+        let details = UserDetailsView::try_from(row).unwrap_or_else(|error| {
+            panic!("failed to map details: {error}");
+        });
+
+        assert_eq!(Email::try_from("ada@example.com").ok(), Some(details.email));
+        assert_eq!(Some(Language::En), details.language);
+        assert_eq!(Some(Currency::Gbp), details.currency);
+        assert_eq!(Some(MeasurementUnit::Imperial), details.measurement_unit);
+        assert_eq!(UserTier::Pro, details.tier);
+        assert_eq!(UserRole::Admin, details.role);
+        assert!(details.structured_address.is_some());
+        assert!(details.geo_address.is_some());
+    }
+
+    #[test]
+    fn should_map_empty_optional_address_and_preferences() {
+        let row = UserRow {
+            first_name: None,
+            last_name: None,
+            language: None,
+            currency: None,
+            measurement_unit: None,
+            structured_address_addressline: None,
+            structured_address_addressline_extra: None,
+            structured_address_locality: None,
+            structured_address_region: None,
+            structured_address_postal_code: None,
+            structured_address_country: None,
+            geo_address_lat: None,
+            geo_address_lon: None,
+            ..user_row()
+        };
+
+        let summary = UserSummary::try_from(row).unwrap_or_else(|error| {
+            panic!("failed to map summary: {error}");
+        });
+
+        assert!(summary.first_name.is_none());
+        assert!(summary.last_name.is_none());
+    }
+
+    #[test]
+    fn should_report_mapping_errors_for_invalid_scalar_values() {
+        assert!(matches!(
+            UserDetailsView::try_from(UserRow {
+                email: "not-an-email".to_owned(),
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidEmail)
+        ));
+        assert!(matches!(
+            VersionedUser::try_from(UserRow {
+                language: Some("xx".to_owned()),
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidLanguage)
+        ));
+        assert!(matches!(
+            UserDetailsView::try_from(UserRow {
+                currency: Some("BAD".to_owned()),
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidCurrency)
+        ));
+        assert!(matches!(
+            UserDetailsView::try_from(UserRow {
+                measurement_unit: Some("BAD".to_owned()),
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidMeasurementUnit)
+        ));
+        assert!(matches!(
+            UserSummary::try_from(UserRow {
+                tier: "BAD".to_owned(),
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidTier)
+        ));
+        assert!(matches!(
+            UserSummary::try_from(UserRow {
+                role: "BAD".to_owned(),
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidRole)
+        ));
+    }
+
+    #[test]
+    fn should_report_mapping_errors_for_address_stripe_and_version_branches() {
+        assert!(matches!(
+            UserDetailsView::try_from(UserRow {
+                structured_address_country: Some("BAD".to_owned()),
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidCountry)
+        ));
+        assert!(matches!(
+            UserDetailsView::try_from(UserRow {
+                geo_address_lon: None,
+                ..user_row()
+            }),
+            Err(UserRowMappingError::IncompleteGeoAddress)
+        ));
+        assert!(matches!(
+            UserStripeLookupView::try_from(UserRow {
+                stripe_customer_id: None,
+                ..user_row()
+            }),
+            Err(UserRowMappingError::MissingStripeCustomerId)
+        ));
+        assert!(matches!(
+            VersionedUser::try_from(UserRow {
+                version: 0,
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidVersion(
+                InvalidVersionError::Zero
+            ))
+        ));
+        assert!(matches!(
+            VersionedUser::try_from(UserRow {
+                geo_address_lat: Some(91.0),
+                ..user_row()
+            }),
+            Err(UserRowMappingError::InvalidUser(_))
+        ));
+    }
+
+    fn user_row() -> UserRow {
+        UserRow {
+            user_id: uuid::Uuid::nil(),
+            email: "ada@example.com".to_owned(),
+            first_name: Some("Ada".to_owned()),
+            last_name: Some("Lovelace".to_owned()),
+            language: Some("en".to_owned()),
+            currency: Some("GBP".to_owned()),
+            measurement_unit: Some("IMPERIAL".to_owned()),
+            prohibited_content_consent: true,
+            tier: "PRO".to_owned(),
+            role: "ADMIN".to_owned(),
+            stripe_customer_id: Some("cus_test".to_owned()),
+            structured_address_addressline: Some("1 Test Street".to_owned()),
+            structured_address_addressline_extra: None,
+            structured_address_locality: Some("London".to_owned()),
+            structured_address_region: None,
+            structured_address_postal_code: Some("SW1A".to_owned()),
+            structured_address_country: Some("GBR".to_owned()),
+            geo_address_lat: Some(51.5),
+            geo_address_lon: Some(-0.1),
+            version: 1,
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
+        }
     }
 }

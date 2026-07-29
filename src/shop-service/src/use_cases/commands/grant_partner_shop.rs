@@ -181,3 +181,421 @@ impl From<PartnerShopRepositoryError> for GrantPartnerShopError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::{ShopStorageVersion, VersionedShop};
+    use common::error::boxed::static_error;
+    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::shop_name::ShopName;
+    use common::shop_slug_id::ShopSlugId;
+    use common::transaction::{TransactionError, UnitOfWork};
+    use common::versioned::Versioned;
+    use shop_core::partner_status::ShopPartnerStatus;
+    use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
+    use shop_core::shop_type::ShopType;
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Copy)]
+    enum PartnerRepoErrorKind {
+        UserNotFound,
+        ShopNotFound,
+        TemporarilyUnavailable,
+        Internal,
+    }
+
+    #[derive(Default)]
+    struct Counts {
+        begin: usize,
+        commit: usize,
+        find_by_id: usize,
+        grant: usize,
+    }
+
+    #[derive(Default)]
+    struct State {
+        begin_error: bool,
+        commit_error: bool,
+        shop_by_id: Option<VersionedShop>,
+        grant_error: Option<PartnerRepoErrorKind>,
+        counts: Counts,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeUnitOfWork {
+        state: Arc<Mutex<State>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeShopRepositoryFactory {
+        state: Arc<Mutex<State>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakePartnerShopRepositoryFactory {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakeTx {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakeShopRepository {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakePartnerShopRepository {
+        state: Arc<Mutex<State>>,
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.begin += 1;
+                state.begin_error
+            });
+            if fail {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.commit += 1;
+                state.commit_error
+            });
+            if fail {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl ShopRepositoryFactory<FakeTx> for FakeShopRepositoryFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ShopRepository + 'tx {
+            FakeShopRepository {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ShopRepository for FakeShopRepository {
+        async fn find_by_id(
+            &mut self,
+            _id: ShopId,
+        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+            with_state(&self.state, |state| {
+                state.counts.find_by_id += 1;
+                Ok(state.shop_by_id.clone())
+            })
+        }
+
+        async fn find_by_slug(
+            &mut self,
+            _slug_id: &ShopSlugId,
+        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+            Ok(None)
+        }
+
+        async fn insert(&mut self, _shop: &Shop) -> Result<(), ShopRepositoryError> {
+            Ok(())
+        }
+
+        async fn update(
+            &mut self,
+            _shop: &Shop,
+            _expected_version: ShopStorageVersion,
+        ) -> Result<(), ShopRepositoryError> {
+            Ok(())
+        }
+    }
+
+    impl PartnerShopRepositoryFactory<FakeTx> for FakePartnerShopRepositoryFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl PartnerShopRepository + 'tx {
+            FakePartnerShopRepository {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerShopRepository for FakePartnerShopRepository {
+        async fn grant(
+            &mut self,
+            _user_id: UserId,
+            _shop_id: ShopId,
+        ) -> Result<(), PartnerShopRepositoryError> {
+            with_state(&self.state, |state| {
+                state.counts.grant += 1;
+                match state.grant_error {
+                    Some(kind) => Err(partner_repo_error(kind)),
+                    None => Ok(()),
+                }
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn should_grant_partner_shop_when_shop_exists() {
+        let state = shared_state();
+        let existing = shop("Grant Shop");
+        let shop_id = existing.id();
+        let user_id = UserId::new();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing))
+        });
+        let handler =
+            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+
+        let result = handler
+            .execute(
+                &system_context(),
+                GrantPartnerShopCommand { user_id, shop_id },
+            )
+            .await;
+
+        assert!(
+            matches!(result, Ok(ref value) if value.user_id == user_id && value.shop_id == shop_id)
+        );
+        assert_counts(&state, |counts| {
+            assert_eq!(1, counts.find_by_id);
+            assert_eq!(1, counts.grant);
+            assert_eq!(1, counts.commit);
+        });
+    }
+
+    #[tokio::test]
+    async fn should_cover_grant_partner_shop_errors() {
+        let state = shared_state();
+        let handler =
+            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+        let not_found = handler
+            .execute(
+                &system_context(),
+                GrantPartnerShopCommand {
+                    user_id: UserId::new(),
+                    shop_id: ShopId::new(),
+                },
+            )
+            .await;
+        assert!(matches!(
+            not_found,
+            Err(GrantPartnerShopError::ShopNotFound { source: None })
+        ));
+        assert_counts(&state, |counts| {
+            assert_eq!(0, counts.grant);
+            assert_eq!(0, counts.commit);
+        });
+
+        let state = shared_state();
+        with_state(&state, |state| state.begin_error = true);
+        let handler =
+            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+        let begin = handler
+            .execute(
+                &system_context(),
+                GrantPartnerShopCommand {
+                    user_id: UserId::new(),
+                    shop_id: ShopId::new(),
+                },
+            )
+            .await;
+        assert!(matches!(
+            begin,
+            Err(GrantPartnerShopError::BeginTransactionFailed)
+        ));
+
+        let state = shared_state();
+        let existing = shop("Grant Error");
+        let shop_id = existing.id();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing));
+            state.grant_error = Some(PartnerRepoErrorKind::UserNotFound);
+        });
+        let handler =
+            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+        let grant = handler
+            .execute(
+                &system_context(),
+                GrantPartnerShopCommand {
+                    user_id: UserId::new(),
+                    shop_id,
+                },
+            )
+            .await;
+        assert!(matches!(
+            grant,
+            Err(GrantPartnerShopError::UserNotFound { source: Some(_) })
+        ));
+        assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+
+        let state = shared_state();
+        let existing = shop("Commit Grant");
+        let shop_id = existing.id();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing));
+            state.commit_error = true;
+        });
+        let handler =
+            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+        let commit = handler
+            .execute(
+                &system_context(),
+                GrantPartnerShopCommand {
+                    user_id: UserId::new(),
+                    shop_id,
+                },
+            )
+            .await;
+        assert!(matches!(
+            commit,
+            Err(GrantPartnerShopError::CommitTransactionFailed)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_map_remaining_partner_repository_errors() {
+        for (kind, assertion) in [
+            (PartnerRepoErrorKind::ShopNotFound, "shop_not_found"),
+            (
+                PartnerRepoErrorKind::TemporarilyUnavailable,
+                "temporarily_unavailable",
+            ),
+            (PartnerRepoErrorKind::Internal, "internal"),
+        ] {
+            let state = shared_state();
+            let existing = shop("Grant Map");
+            let shop_id = existing.id();
+            with_state(&state, |state| {
+                state.shop_by_id = Some(versioned_shop(existing));
+                state.grant_error = Some(kind);
+            });
+            let handler =
+                GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+            let result = handler
+                .execute(
+                    &system_context(),
+                    GrantPartnerShopCommand {
+                        user_id: UserId::new(),
+                        shop_id,
+                    },
+                )
+                .await;
+            match assertion {
+                "shop_not_found" => assert!(matches!(
+                    result,
+                    Err(GrantPartnerShopError::ShopNotFound { source: Some(_) })
+                )),
+                "temporarily_unavailable" => assert!(matches!(
+                    result,
+                    Err(GrantPartnerShopError::TemporarilyUnavailable { .. })
+                )),
+                _ => assert!(matches!(
+                    result,
+                    Err(GrantPartnerShopError::Internal { .. })
+                )),
+            }
+            assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+        }
+    }
+
+    fn shop_repo(state: &Arc<Mutex<State>>) -> FakeShopRepositoryFactory {
+        FakeShopRepositoryFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn partner_repo(state: &Arc<Mutex<State>>) -> FakePartnerShopRepositoryFactory {
+        FakePartnerShopRepositoryFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn uow(state: &Arc<Mutex<State>>) -> FakeUnitOfWork {
+        FakeUnitOfWork {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn shared_state() -> Arc<Mutex<State>> {
+        Arc::new(Mutex::new(State::default()))
+    }
+
+    fn partner_repo_error(kind: PartnerRepoErrorKind) -> PartnerShopRepositoryError {
+        match kind {
+            PartnerRepoErrorKind::UserNotFound => PartnerShopRepositoryError::UserNotFound {
+                source: static_error("user"),
+            },
+            PartnerRepoErrorKind::ShopNotFound => PartnerShopRepositoryError::ShopNotFound {
+                source: static_error("shop"),
+            },
+            PartnerRepoErrorKind::TemporarilyUnavailable => {
+                PartnerShopRepositoryError::TemporarilyUnavailable {
+                    source: static_error("temporary"),
+                }
+            }
+            PartnerRepoErrorKind::Internal => PartnerShopRepositoryError::Internal {
+                source: static_error("internal"),
+            },
+        }
+    }
+
+    fn shop(name: &str) -> Shop {
+        Shop::create(NewShop {
+            id: ShopId::new(),
+            name: ShopName::from(name),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::new(),
+            shopify: None,
+            woocommerce: None,
+            presentation: ShopPresentation::default(),
+            address: None,
+            contact: ShopContact::default(),
+            partner_status: ShopPartnerStatus::Scraped,
+            affiliate_configuration: None,
+        })
+    }
+
+    fn versioned_shop(shop: Shop) -> VersionedShop {
+        Versioned::new(shop, ShopStorageVersion::INITIAL)
+    }
+
+    fn system_context() -> OperationContext {
+        OperationContext {
+            principal: Principal::System,
+            request_id: RequestId::from("request"),
+            correlation_id: CorrelationId::from("correlation"),
+        }
+    }
+
+    fn assert_counts(state: &Arc<Mutex<State>>, assert: impl FnOnce(&Counts)) {
+        with_state(state, |state| assert(&state.counts));
+    }
+
+    fn with_state<R>(state: &Arc<Mutex<State>>, f: impl FnOnce(&mut State) -> R) -> R {
+        match state.lock() {
+            Ok(mut guard) => f(&mut guard),
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                f(&mut guard)
+            }
+        }
+    }
+}

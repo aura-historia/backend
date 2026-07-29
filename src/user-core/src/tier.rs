@@ -12,6 +12,11 @@ mod tests {
     use super::UserTier;
 
     #[test]
+    fn should_default_user_tier_to_free() {
+        assert_eq!(UserTier::Free, UserTier::default());
+    }
+
+    #[test]
     fn should_order_user_tiers() {
         assert!(UserTier::Free < UserTier::Pro);
         assert!(UserTier::Pro < UserTier::Ultimate);

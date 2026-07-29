@@ -603,4 +603,312 @@ mod tests {
 
         assert_eq!(Err(RehydrateProductError::GeoLatitudeOutOfRange), result);
     }
+
+    #[test]
+    fn should_reject_invalid_longitude_when_rehydrating() {
+        let input = new_product();
+        let result = Product::rehydrate(RehydratedProductState {
+            id: input.id,
+            slug_id: product_slug_id(input.id, input.title.as_ref()),
+            shop_id: input.shop_id,
+            seller_id: input.seller_id,
+            shops_product_id: input.shops_product_id,
+            address: ProductAddress {
+                structured: None,
+                geo: Some(GeoAddress {
+                    lat: 0.0,
+                    lon: 181.0,
+                }),
+            },
+            title: input.title,
+            description: input.description,
+            pricing: input.pricing,
+            state: input.state,
+            lifecycle: ProductLifecycle::Active,
+            url: input.url,
+            images: input.images,
+            auction: input.auction,
+        });
+
+        assert_eq!(Err(RehydrateProductError::GeoLongitudeOutOfRange), result);
+    }
+
+    #[test]
+    fn should_accept_geo_boundaries_when_rehydrating() {
+        let input = new_product();
+        let result = Product::rehydrate(RehydratedProductState {
+            id: input.id,
+            slug_id: product_slug_id(input.id, input.title.as_ref()),
+            shop_id: input.shop_id,
+            seller_id: input.seller_id,
+            shops_product_id: input.shops_product_id,
+            address: ProductAddress {
+                structured: None,
+                geo: Some(GeoAddress {
+                    lat: -90.0,
+                    lon: 180.0,
+                }),
+            },
+            title: input.title,
+            description: input.description,
+            pricing: input.pricing,
+            state: input.state,
+            lifecycle: ProductLifecycle::Active,
+            url: input.url,
+            images: input.images,
+            auction: input.auction,
+        });
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn should_use_title_for_slug_when_product_created() {
+        let product = created_product();
+
+        assert!(product.slug_id().as_ref().starts_with("bronze-vase"));
+    }
+
+    #[test]
+    fn should_use_product_id_for_slug_when_title_missing() {
+        let mut input = new_product();
+        input.title = None;
+        let product_id = input.id;
+
+        let product = Product::create(input);
+
+        assert!(
+            matches!(product, Ok(ref product) if product.slug_id().as_ref().starts_with(&format!("{product_id}-")))
+        );
+    }
+
+    #[test]
+    fn should_emit_event_when_address_changes() {
+        let mut product = created_product();
+        product.take_pending_events();
+        let address = ProductAddress {
+            structured: None,
+            geo: Some(GeoAddress {
+                lat: 10.0,
+                lon: 20.0,
+            }),
+        };
+
+        let outcome = product.replace_address(address.clone());
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert!(matches!(
+            product.pending_events(),
+            [ProductDomainEvent {
+                payload: ProductDomainEventPayload::AddressChanged(ProductAddressChanged { address: event_address }),
+                ..
+            }] if *event_address == address
+        ));
+    }
+
+    #[test]
+    fn should_not_emit_event_when_address_unchanged() {
+        let mut product = created_product();
+        product.take_pending_events();
+        let address = product.address();
+
+        let outcome = product.replace_address(address);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+        assert!(product.pending_events().is_empty());
+    }
+
+    #[test]
+    fn should_emit_event_when_pricing_changes() {
+        let mut product = created_product();
+        product.take_pending_events();
+        let pricing = ProductPricing::default();
+
+        let outcome = product.replace_pricing(pricing);
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert!(matches!(
+            product.pending_events(),
+            [ProductDomainEvent {
+                payload: ProductDomainEventPayload::PriceChanged(_),
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn should_not_emit_event_when_pricing_unchanged() {
+        let mut product = created_product();
+        product.take_pending_events();
+
+        let outcome = product.replace_pricing(product.pricing());
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+        assert!(product.pending_events().is_empty());
+    }
+
+    #[test]
+    fn should_emit_event_when_url_changes() {
+        let mut product = created_product();
+        product.take_pending_events();
+        let new_url = Url::parse("https://shop.example/products/2")
+            .unwrap_or_else(|error| panic!("invalid URL: {error}"));
+
+        let outcome = product.change_url(new_url.clone());
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert!(matches!(
+            product.pending_events(),
+            [ProductDomainEvent {
+                payload: ProductDomainEventPayload::UrlChanged(ProductUrlChanged { new_url: event_url, .. }),
+                ..
+            }] if *event_url == new_url
+        ));
+    }
+
+    #[test]
+    fn should_not_emit_event_when_url_unchanged() {
+        let mut product = created_product();
+        product.take_pending_events();
+        let url = product.url().clone();
+
+        let outcome = product.change_url(url);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+        assert!(product.pending_events().is_empty());
+    }
+
+    #[test]
+    fn should_emit_event_when_images_change() {
+        let mut product = created_product();
+        product.take_pending_events();
+        let mut images = IndexSet::new();
+        images.insert(ProductImage {
+            url: Url::parse("https://shop.example/image.jpg")
+                .unwrap_or_else(|error| panic!("invalid URL: {error}")),
+            prohibited_content: crate::prohibited_content::ProhibitedContent::None,
+        });
+
+        let outcome = product.replace_images(images.clone());
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert!(matches!(
+            product.pending_events(),
+            [ProductDomainEvent {
+                payload: ProductDomainEventPayload::ImagesChanged(payload),
+                ..
+            }] if payload.images == images
+        ));
+    }
+
+    #[test]
+    fn should_not_emit_event_when_images_unchanged() {
+        let mut product = created_product();
+        product.take_pending_events();
+        let images = product.images().clone();
+
+        let outcome = product.replace_images(images);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+        assert!(product.pending_events().is_empty());
+    }
+
+    #[test]
+    fn should_emit_event_when_auction_changes() {
+        let mut product = created_product();
+        product.take_pending_events();
+        let auction = ProductAuction {
+            start: Some(OffsetDateTime::UNIX_EPOCH),
+            end: None,
+        };
+
+        let outcome = product.replace_auction(auction);
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert!(matches!(
+            product.pending_events(),
+            [ProductDomainEvent {
+                payload: ProductDomainEventPayload::AuctionChanged(_),
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn should_not_emit_event_when_auction_unchanged() {
+        let mut product = created_product();
+        product.take_pending_events();
+
+        let outcome = product.replace_auction(product.auction());
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+        assert!(product.pending_events().is_empty());
+    }
+
+    #[test]
+    fn should_emit_event_when_deleted() {
+        let mut product = created_product();
+        product.take_pending_events();
+
+        let outcome = product.delete();
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(ProductLifecycle::Deleted, product.lifecycle());
+        assert!(matches!(
+            product.pending_events(),
+            [ProductDomainEvent {
+                payload: ProductDomainEventPayload::Deleted(_),
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn should_not_emit_event_when_deleted_twice() {
+        let mut product = created_product();
+        product.delete();
+        product.take_pending_events();
+
+        let outcome = product.delete();
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+        assert!(product.pending_events().is_empty());
+    }
+
+    #[rstest::rstest]
+    #[case(ProductDomainEventPayload::Created(Box::new(ProductCreated {
+        title: None,
+        description: None,
+        address: ProductAddress::default(),
+        pricing: ProductPricing::default(),
+        state: ProductState::Listed,
+        url: test_url(),
+        images: IndexSet::new(),
+        auction: ProductAuction::default(),
+    })), "PRODUCT_CREATED")]
+    #[case(ProductDomainEventPayload::StateChanged(ProductStateChanged { old_state: ProductState::Listed, new_state: ProductState::Available }), "PRODUCT_STATE_CHANGED")]
+    #[case(ProductDomainEventPayload::AddressChanged(ProductAddressChanged { address: ProductAddress::default() }), "PRODUCT_ADDRESS_CHANGED")]
+    #[case(ProductDomainEventPayload::PriceChanged(ProductPriceChanged { old_pricing: ProductPricing::default(), new_pricing: ProductPricing::default() }), "PRODUCT_PRICE_CHANGED")]
+    #[case(ProductDomainEventPayload::UrlChanged(ProductUrlChanged { old_url: test_url(), new_url: test_url() }), "PRODUCT_URL_CHANGED")]
+    #[case(ProductDomainEventPayload::ImagesChanged(Box::new(ProductImagesChanged { images: IndexSet::new() })), "PRODUCT_IMAGES_CHANGED")]
+    #[case(ProductDomainEventPayload::AuctionChanged(ProductAuctionChanged { auction: ProductAuction::default() }), "PRODUCT_AUCTION_CHANGED")]
+    #[case(ProductDomainEventPayload::Deleted(ProductDeleted { old_lifecycle: ProductLifecycle::Active, new_lifecycle: ProductLifecycle::Deleted }), "PRODUCT_DELETED")]
+    fn should_return_event_type_for_each_product_domain_event(
+        #[case] payload: ProductDomainEventPayload,
+        #[case] expected: &'static str,
+    ) {
+        assert_eq!(expected, payload.event_type());
+    }
+
+    #[test]
+    fn should_append_utm_params_for_product_view_url() {
+        let product = created_product();
+
+        assert!(
+            product
+                .view_url()
+                .as_str()
+                .contains("utm_source=aura_historia")
+        );
+    }
 }

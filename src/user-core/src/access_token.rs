@@ -243,6 +243,107 @@ pub mod api {
     }
 }
 
+#[cfg(all(test, feature = "data"))]
+mod api_tests {
+    use super::*;
+    use crate::access_token::api::{
+        extract_access_token_id_path, extract_bearer_access_token, extract_bearer_token,
+    };
+    use http::{HeaderMap, HeaderValue, header::AUTHORIZATION};
+    use std::collections::HashMap;
+
+    #[test]
+    fn should_return_none_when_authorization_header_missing() {
+        let headers = HeaderMap::new();
+
+        assert!(matches!(extract_bearer_token(&headers), Ok(None)));
+    }
+
+    #[test]
+    fn should_extract_bearer_token_when_authorization_header_valid() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer token-value"),
+        );
+
+        assert!(
+            matches!(extract_bearer_token(&headers), Ok(Some(token)) if token == "token-value")
+        );
+    }
+
+    #[test]
+    fn should_reject_authorization_header_when_not_bearer() {
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, HeaderValue::from_static("Basic token-value"));
+
+        assert!(extract_bearer_token(&headers).is_err());
+    }
+
+    #[test]
+    fn should_reject_authorization_header_when_value_not_visible_ascii() {
+        let mut headers = HeaderMap::new();
+        let value = HeaderValue::from_bytes(b"Bearer \xff")
+            .unwrap_or_else(|error| panic!("invalid test header value: {error}"));
+        headers.insert(AUTHORIZATION, value);
+
+        assert!(extract_bearer_token(&headers).is_err());
+    }
+
+    #[test]
+    fn should_extract_bearer_access_token_when_header_valid() {
+        let key = RawAccessToken::new();
+        let key_string = String::from(key.clone());
+        let mut headers = HeaderMap::new();
+        let value = HeaderValue::from_str(&format!("Bearer {key_string}"))
+            .unwrap_or_else(|error| panic!("invalid test header value: {error}"));
+        headers.insert(AUTHORIZATION, value);
+
+        let result = extract_bearer_access_token(&headers);
+
+        assert!(matches!(result, Ok(Some(token)) if token == key));
+    }
+
+    #[test]
+    fn should_return_none_when_bearer_access_token_missing() {
+        let headers = HeaderMap::new();
+
+        assert!(matches!(extract_bearer_access_token(&headers), Ok(None)));
+    }
+
+    #[test]
+    fn should_reject_bearer_access_token_when_token_invalid() {
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer invalid"));
+
+        assert!(extract_bearer_access_token(&headers).is_err());
+    }
+
+    #[test]
+    fn should_extract_access_token_id_from_path() {
+        let id = AccessTokenId::new();
+        let mut path_params = HashMap::new();
+        path_params.insert("accessTokenId".to_string(), id.to_string());
+
+        assert!(matches!(extract_access_token_id_path(&path_params), Ok(value) if value == id));
+    }
+
+    #[test]
+    fn should_reject_access_token_id_path_when_missing() {
+        let path_params = HashMap::new();
+
+        assert!(extract_access_token_id_path(&path_params).is_err());
+    }
+
+    #[test]
+    fn should_reject_access_token_id_path_when_invalid() {
+        let mut path_params = HashMap::new();
+        path_params.insert("accessTokenId".to_string(), "not-a-uuid".to_string());
+
+        assert!(extract_access_token_id_path(&path_params).is_err());
+    }
+}
+
 // `PrefixedApiKey::from_string` requires exactly three `_`-delimited parts, so
 // it cannot handle prefixes that themselves contain underscores.  We parse with
 // `parse_token` instead and construct via `PrefixedApiKey::new`.
@@ -332,6 +433,73 @@ impl<P: TokenPrefix> From<PrefixedApiKey> for HashedRawToken<P> {
             short_token: value.short_token().to_string(),
             long_token_hash: value.long_token_hashed(&mut digest),
             _marker: PhantomData,
+        }
+    }
+}
+
+#[cfg(test)]
+mod access_token_state_tests {
+    use super::*;
+    use common::actor::domain::Actor;
+
+    #[test]
+    fn should_report_not_expired_when_no_expiry() {
+        let token = access_token(None, HashSet::new());
+
+        assert!(!token.is_expired());
+    }
+
+    #[test]
+    fn should_report_not_expired_when_expiry_in_future() {
+        let token = access_token(
+            Some(OffsetDateTime::now_utc() + time::Duration::days(1)),
+            HashSet::new(),
+        );
+
+        assert!(!token.is_expired());
+    }
+
+    #[test]
+    fn should_report_expired_when_expiry_in_past() {
+        let token = access_token(
+            Some(OffsetDateTime::now_utc() - time::Duration::days(1)),
+            HashSet::new(),
+        );
+
+        assert!(token.is_expired());
+    }
+
+    #[test]
+    fn should_report_scope_presence() {
+        let token = access_token(None, HashSet::from([Scope::ProductsWrite]));
+
+        assert!(token.has_scope(Scope::ProductsWrite));
+        assert!(!token.has_scope(Scope::ShopsManage));
+    }
+
+    #[test]
+    fn should_preserve_oauth_origin_client_id() {
+        let client_id = OAuthClientId::new();
+        let mut token = access_token(None, HashSet::new());
+        token.origin = AccessTokenOrigin::OAuth { client_id };
+
+        assert_eq!(AccessTokenOrigin::OAuth { client_id }, token.origin);
+    }
+
+    fn access_token(expires: Option<OffsetDateTime>, scopes: HashSet<Scope>) -> AccessToken {
+        let now = OffsetDateTime::now_utc();
+        AccessToken {
+            id: AccessTokenId::new(),
+            hashed_token: RawAccessToken::new().into(),
+            user_id: UserId::new(),
+            name: AccessTokenName::from("test"),
+            scopes,
+            origin: AccessTokenOrigin::User,
+            expires,
+            created_by: Actor::System,
+            updated_by: Actor::System,
+            created: now,
+            updated: now,
         }
     }
 }
@@ -505,6 +673,19 @@ mod tests {
         let key_str: String = key.into();
         let result = RawAccessToken::try_from(key_str);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn should_produce_valid_parseable_key_when_default_for_oauth_secret() {
+        let key = RawOAuthClientSecret::default();
+        let key_str: String = key.into();
+        let result = RawOAuthClientSecret::try_from(key_str);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn should_create_distinct_ids_when_default_for_access_token_id() {
+        assert_ne!(AccessTokenId::default(), AccessTokenId::default());
     }
 
     // ── TryFrom<String>: valid cases ──────────────────────────────────────
@@ -734,6 +915,13 @@ mod tests {
         let prefixed: PrefixedApiKey = (&key).into();
         let hashed = HashedRawAccessToken::from(prefixed);
         assert_eq!(hashed.prefix(), AccessTokenPrefix::PREFIX);
+    }
+
+    #[test]
+    fn should_mask_long_token_when_displaying_hashed_access_token() {
+        let hashed = HashedRawAccessToken::new("short".to_string(), "secret_hash".to_string());
+
+        assert_eq!("aurahistoria_accesstoken_short_****", hashed.to_string());
     }
 
     // ── Error messages ────────────────────────────────────────────────────

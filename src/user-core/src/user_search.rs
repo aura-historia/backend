@@ -19,3 +19,25 @@ pub struct UserSearch {
     pub created: Option<RangeQuery<OffsetDateTime>>,
     pub updated: Option<RangeQuery<OffsetDateTime>>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_default_user_search_to_empty_filters() {
+        let search = UserSearch::default();
+
+        assert_eq!(None, search.query);
+        assert_eq!(None, search.email_query);
+        assert_eq!(None, search.first_name_query);
+        assert_eq!(None, search.last_name_query);
+        assert!(search.tier_query.is_empty());
+        assert!(search.role_query.is_empty());
+        assert!(search.country_query.is_empty());
+        assert!(search.continent_query.is_empty());
+        assert_eq!(None, search.geo_address_distance_query);
+        assert_eq!(None, search.created);
+        assert_eq!(None, search.updated);
+    }
+}

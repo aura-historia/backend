@@ -217,3 +217,90 @@ impl HasKey for ProductEventLog {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
+    use common::product_state::domain::ProductState;
+    use time::OffsetDateTime;
+
+    fn domain_payload() -> ProductDomainEventPayload {
+        ProductDomainEventPayload::StateChanged(domain::ProductStateChangeDomainEventPayload {
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::from("sku-1"),
+            old_state: ProductState::Listed,
+            new_state: ProductState::Available,
+        })
+    }
+
+    fn lifecycle_payload() -> ProductLifecycleEventPayload {
+        ProductLifecycleEventPayload::Deleted(lifecycle::ProductDeletedLifecycleEventPayload {
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::from("sku-1"),
+            old_lifecycle: common::product_lifecycle::domain::ProductLifecycle::Active,
+            new_lifecycle: common::product_lifecycle::domain::ProductLifecycle::Deleted,
+        })
+    }
+
+    fn policy_payload() -> ProductPolicyEventPayload {
+        ProductPolicyEventPayload::ProhibitedContentDecision(
+            policy::ProhibitedContentProductPolicyEventPayload {
+                shop_id: ShopId::new(),
+                seller_id: ShopId::new(),
+                shops_product_id: ShopsProductId::from("sku-1"),
+                decision: ProhibitedContent::NaziGermany,
+                reason: ProhibitedContentReason::ProductText,
+            },
+        )
+    }
+
+    #[test]
+    fn should_wrap_and_downcast_event_payloads() {
+        let domain = ProductEventPayload::from(domain_payload());
+        let lifecycle = ProductEventPayload::from(lifecycle_payload());
+        let policy = ProductEventPayload::from(policy_payload());
+
+        assert!(domain.as_domain_event().is_some());
+        assert!(domain.as_enrichment_event().is_none());
+        assert!(lifecycle.as_lifecycle_event().is_some());
+        assert!(policy.as_policy_event().is_some());
+    }
+
+    #[test]
+    fn should_delegate_event_type_and_key() {
+        let payload = ProductEventPayload::from(domain_payload());
+        let key = payload.key();
+
+        assert_eq!("DOMAIN_STATE_CHANGED", payload.event_type());
+        assert_eq!(key, payload.key());
+    }
+
+    #[test]
+    fn should_create_log_from_policy_event_with_decision_context() {
+        let event = ProductEvent {
+            aggregate_id: ProductId::new(),
+            event_id: EventId::new(),
+            timestamp: OffsetDateTime::now_utc(),
+            payload: ProductEventPayload::from(policy_payload()),
+        };
+
+        let log = ProductEventLog::from(&event)
+            .with_event_type(LogEventType::PolicyDecision)
+            .with_write_source(LogWriteSource::ProductCommandService)
+            .with_msg("done");
+
+        assert_eq!(event.aggregate_id, log.product_id);
+        assert_eq!(event.event_id, log.event_id);
+        assert_eq!("POLICY_PROHIBITED_CONTENT_DECISION", log.product_event_type);
+        assert_eq!(Some("NAZI_GERMANY".to_owned()), log.decision);
+        assert_eq!(Some("PRODUCT_TEXT".to_owned()), log.reason);
+        assert_eq!(
+            ProductKey::new(log.shop_id, log.shops_product_id.clone()),
+            log.key()
+        );
+        assert_eq!(Some("done"), log.msg);
+    }
+}

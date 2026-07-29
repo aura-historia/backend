@@ -38,3 +38,29 @@ impl ProhibitedContentReason {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[rstest::rstest]
+    #[case(ProhibitedContent::Unknown, false, "UNKNOWN")]
+    #[case(ProhibitedContent::None, true, "NONE")]
+    #[case(ProhibitedContent::NaziGermany, false, "NAZI_GERMANY")]
+    fn should_report_safety_and_string_for_prohibited_content(
+        #[case] content: ProhibitedContent,
+        #[case] safe: bool,
+        #[case] value: &'static str,
+    ) {
+        assert_eq!(safe, content.is_safe());
+        assert_eq!(value, content.as_str());
+    }
+
+    #[test]
+    fn should_report_reason_string() {
+        assert_eq!(
+            "PRODUCT_TEXT",
+            ProhibitedContentReason::ProductText.as_str()
+        );
+    }
+}
