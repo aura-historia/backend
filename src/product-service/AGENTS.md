@@ -9,7 +9,8 @@
 
 - Depends on `product-core` and shared `common` app contracts.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
-- Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories when added.
+- Write handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/event-store factories.
+- OpenSearch-backed search is an ordinary reader. Do not model it as transactional.
 - Ports are public because adapter crates implement them.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
 - No SQLx, DynamoDB, OpenSearch, transport, or legacy `product` dependency.

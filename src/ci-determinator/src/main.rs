@@ -9,6 +9,7 @@ use std::process::Command;
 /// These paths are relative to the workspace root.
 const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/product-core",
+    "src/product-opensearch",
     "src/product-postgres",
     "src/product-service",
     "src/shop-core",

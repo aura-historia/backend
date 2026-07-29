@@ -109,6 +109,7 @@
 - `src/product-core/AGENTS.md` — canonical Product domain crate.
 - `src/product-service/AGENTS.md` — canonical Product service crate.
 - `src/product-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
+- `src/product-opensearch/AGENTS.md` — canonical Product OpenSearch adapter crate.
 - `src/product-api/AGENTS.md` — `product-api` crate.
 - `src/product-api-partner/AGENTS.md` — `product-api-partner` crate.
 - `src/product-lambda/AGENTS.md` — `product-lambda` crate.

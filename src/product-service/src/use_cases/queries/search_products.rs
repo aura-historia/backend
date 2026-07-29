@@ -1,4 +1,4 @@
-use crate::ports::{ProductSearchReadError, ProductSearchReader, ProductSearchReaderFactory};
+use crate::ports::{ProductSearchReadError, ProductSearchReader};
 use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
@@ -14,7 +14,7 @@ use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
-use common::transaction::{Transaction, UnitOfWork};
+
 use indexmap::IndexSet;
 use product_core::product_image::ProductImage;
 use product_core::product_search::ProductSearch;
@@ -59,10 +59,6 @@ pub enum SearchProductsError {
     ProductSearchQueryFailed,
     #[error("product search read model is invalid")]
     ProductSearchReadModelInvalid,
-    #[error("failed to begin search products transaction")]
-    BeginTransactionFailed,
-    #[error("failed to commit search products transaction")]
-    CommitTransactionFailed,
 }
 
 #[async_trait::async_trait]
@@ -74,25 +70,20 @@ pub trait SearchProductsUseCase: Send + Sync {
     ) -> Result<SearchProductsResult, SearchProductsError>;
 }
 
-pub struct SearchProductsHandler<U, R> {
-    unit_of_work: U,
+pub struct SearchProductsHandler<R> {
     reader: R,
 }
 
-impl<U, R> SearchProductsHandler<U, R> {
-    pub fn new(unit_of_work: U, reader: R) -> Self {
-        Self {
-            unit_of_work,
-            reader,
-        }
+impl<R> SearchProductsHandler<R> {
+    pub fn new(reader: R) -> Self {
+        Self { reader }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> SearchProductsUseCase for SearchProductsHandler<U, R>
+impl<R> SearchProductsUseCase for SearchProductsHandler<R>
 where
-    U: UnitOfWork,
-    R: ProductSearchReaderFactory<U::Tx>,
+    R: ProductSearchReader,
 {
     #[tracing::instrument(
         name = "search_products",
@@ -108,17 +99,7 @@ where
         context: &OperationContext,
         request: SearchProductsRequest,
     ) -> Result<SearchProductsResult, SearchProductsError> {
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| SearchProductsError::BeginTransactionFailed)?;
-        let result = self.reader.in_transaction(&mut tx).search(&request).await?;
-        tx.commit()
-            .await
-            .map_err(|_| SearchProductsError::CommitTransactionFailed)?;
-
-        Ok(result)
+        self.reader.search(&request).await.map_err(Into::into)
     }
 }
 
@@ -140,33 +121,16 @@ mod tests {
     use common::language::domain::Language;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::MonetaryAmount;
-    use common::transaction::TransactionError;
     use std::sync::{Arc, Mutex, MutexGuard};
 
     #[derive(Debug, Default)]
     struct FakeState {
-        begin_error: bool,
-        commit_error: bool,
         search_result: Option<Result<SearchProductsResult, ProductSearchReadError>>,
-        commit_count: usize,
     }
 
     type SharedState = Arc<Mutex<FakeState>>;
 
     #[derive(Clone)]
-    struct FakeUnitOfWork {
-        state: SharedState,
-    }
-
-    #[derive(Clone)]
-    struct FakeSearchReaderFactory {
-        state: SharedState,
-    }
-
-    struct FakeTx {
-        state: SharedState,
-    }
-
     struct FakeSearchReader {
         state: SharedState,
     }
@@ -182,59 +146,16 @@ mod tests {
         }
     }
 
-    fn uow(state: &SharedState) -> FakeUnitOfWork {
-        FakeUnitOfWork {
+    fn search_reader(state: &SharedState) -> FakeSearchReader {
+        FakeSearchReader {
             state: Arc::clone(state),
-        }
-    }
-
-    fn search_reader_factory(state: &SharedState) -> FakeSearchReaderFactory {
-        FakeSearchReaderFactory {
-            state: Arc::clone(state),
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl UnitOfWork for FakeUnitOfWork {
-        type Tx = FakeTx;
-
-        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
-            let state = lock_state(&self.state);
-            if state.begin_error {
-                Err(TransactionError::BeginFailed)
-            } else {
-                Ok(FakeTx {
-                    state: Arc::clone(&self.state),
-                })
-            }
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Transaction for FakeTx {
-        async fn commit(self) -> Result<(), TransactionError> {
-            let mut state = lock_state(&self.state);
-            state.commit_count += 1;
-            if state.commit_error {
-                Err(TransactionError::CommitFailed)
-            } else {
-                Ok(())
-            }
-        }
-    }
-
-    impl ProductSearchReaderFactory<FakeTx> for FakeSearchReaderFactory {
-        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ProductSearchReader + 'tx {
-            FakeSearchReader {
-                state: Arc::clone(&self.state),
-            }
         }
     }
 
     #[async_trait::async_trait]
     impl ProductSearchReader for FakeSearchReader {
         async fn search(
-            &mut self,
+            &self,
             _request: &SearchProductsRequest,
         ) -> Result<SearchProductsResult, ProductSearchReadError> {
             let mut state = lock_state(&self.state);
@@ -245,10 +166,8 @@ mod tests {
         }
     }
 
-    fn handler(
-        state: &SharedState,
-    ) -> SearchProductsHandler<FakeUnitOfWork, FakeSearchReaderFactory> {
-        SearchProductsHandler::new(uow(state), search_reader_factory(state))
+    fn handler(state: &SharedState) -> SearchProductsHandler<FakeSearchReader> {
+        SearchProductsHandler::new(search_reader(state))
     }
 
     fn context() -> OperationContext {
@@ -307,41 +226,11 @@ mod tests {
         let result = handler(&state).execute(&context(), request()).await;
 
         assert!(matches!(result, Ok(actual) if actual == expected));
-        assert_eq!(1, lock_state(&state).commit_count);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_map_begin_error_when_search_products_begin_fails() {
-        let state = state();
-        lock_state(&state).begin_error = true;
-
-        let result = handler(&state).execute(&context(), request()).await;
-
-        assert!(matches!(
-            result,
-            Err(SearchProductsError::BeginTransactionFailed)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_map_commit_error_when_search_products_commit_fails()
-    -> Result<(), url::ParseError> {
-        let state = state();
-        lock_state(&state).commit_error = true;
-        lock_state(&state).search_result = Some(Ok(search_result()?));
-
-        let result = handler(&state).execute(&context(), request()).await;
-
-        assert!(matches!(
-            result,
-            Err(SearchProductsError::CommitTransactionFailed)
-        ));
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_not_commit_when_search_products_read_fails() {
+    async fn should_map_reader_error_when_search_products_read_fails() {
         let state = state();
         lock_state(&state).search_result =
             Some(Err(ProductSearchReadError::ProductSearchQueryFailed));
@@ -352,7 +241,6 @@ mod tests {
             result,
             Err(SearchProductsError::ProductSearchQueryFailed)
         ));
-        assert_eq!(0, lock_state(&state).commit_count);
     }
 
     #[test]
