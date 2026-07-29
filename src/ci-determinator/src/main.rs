@@ -7,8 +7,17 @@ use std::process::Command;
 
 /// Integration test crates that run on ubuntu-latest with LocalStack.
 /// These paths are relative to the workspace root.
-const INTEGRATION_TEST_CRATES: &[&str] =
-    &["src/shop-core", "src/shop-postgres", "src/shop-service"];
+const INTEGRATION_TEST_CRATES: &[&str] = &[
+    "src/product-core",
+    "src/product-postgres",
+    "src/product-service",
+    "src/shop-core",
+    "src/shop-postgres",
+    "src/shop-service",
+    "src/user-core",
+    "src/user-postgres",
+    "src/user-service",
+];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.
 /// These paths are relative to the workspace root.

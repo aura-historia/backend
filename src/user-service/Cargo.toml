@@ -1,0 +1,26 @@
+[package]
+name = "user-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+common = { workspace = true }
+geo = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-email = { workspace = true }
+time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+user-core = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+default = []
+test-data = ["fake", "user-core/test-data", "common/test-data", "geo/test-data"]

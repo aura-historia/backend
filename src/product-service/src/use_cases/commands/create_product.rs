@@ -1,0 +1,656 @@
+use crate::ports::{
+    ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
+    ProductRepositoryError, ProductRepositoryFactory,
+};
+use common::event_id::EventId;
+use common::language::domain::Language;
+use common::localized::Localized;
+use common::operation_context::OperationContext;
+use common::product_id::ProductId;
+use common::product_slug_id::ProductSlugId;
+use common::product_state::domain::ProductState;
+use common::shop_id::ShopId;
+use common::shops_product_id::ShopsProductId;
+use common::transaction::{Transaction, UnitOfWork};
+use indexmap::IndexSet;
+use product_core::description::Description;
+use product_core::product::{
+    NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, RehydrateProductError,
+};
+use product_core::product_image::ProductImage;
+use product_core::title::Title;
+use url::Url;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateProductCommand {
+    pub shop_id: ShopId,
+    pub seller_id: ShopId,
+    pub shops_product_id: ShopsProductId,
+    pub address: ProductAddress,
+    pub title: Option<Localized<Language, Title>>,
+    pub description: Option<Localized<Language, Description>>,
+    pub pricing: ProductPricing,
+    pub state: ProductState,
+    pub url: Url,
+    pub images: IndexSet<ProductImage>,
+    pub auction: ProductAuction,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateProductResult {
+    pub product_id: ProductId,
+    pub product_slug_id: ProductSlugId,
+    pub event_id: EventId,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CreateProductError {
+    #[error("authenticated actor required to create product")]
+    AuthenticatedActorRequired,
+    #[error("product already exists for shop product key")]
+    ProductKeyAlreadyExists,
+    #[error("product slug already exists")]
+    ProductSlugAlreadyExists,
+    #[error("product state is invalid")]
+    InvalidProductState,
+    #[error("created product did not record a domain event")]
+    CreatedEventMissing,
+    #[error("product current event id did not match expected event id")]
+    ProductCurrentEventIdConflict,
+    #[error("product lookup by id failed")]
+    ProductLookupByIdFailed,
+    #[error("product lookup by natural key failed")]
+    ProductLookupByKeyFailed,
+    #[error("product insert failed")]
+    ProductInsertFailed,
+    #[error("product update failed")]
+    ProductUpdateFailed,
+    #[error("persisted product slug is invalid")]
+    InvalidProductSlugPersisted,
+    #[error("persisted title is incomplete")]
+    IncompleteTitlePersisted,
+    #[error("persisted title language is invalid")]
+    InvalidTitleLanguagePersisted,
+    #[error("persisted description is incomplete")]
+    IncompleteDescriptionPersisted,
+    #[error("persisted description language is invalid")]
+    InvalidDescriptionLanguagePersisted,
+    #[error("persisted price is incomplete")]
+    IncompletePricePersisted,
+    #[error("persisted price amount is negative")]
+    NegativePriceAmountPersisted,
+    #[error("persisted price currency is invalid")]
+    InvalidPriceCurrencyPersisted,
+    #[error("persisted product state is invalid")]
+    InvalidProductStatePersisted,
+    #[error("persisted product lifecycle is invalid")]
+    InvalidProductLifecyclePersisted,
+    #[error("persisted product URL is invalid")]
+    InvalidProductUrlPersisted,
+    #[error("persisted product images value is invalid")]
+    InvalidProductImagesPersisted,
+    #[error("persisted product image URL is invalid")]
+    InvalidProductImageUrlPersisted,
+    #[error("persisted product image prohibited-content value is invalid")]
+    InvalidProductImageProhibitedContentPersisted,
+    #[error("persisted aggregate state is invalid")]
+    InvalidAggregateStatePersisted,
+    #[error("product event already exists")]
+    ProductEventAlreadyExists,
+    #[error("product event append failed")]
+    ProductEventAppendFailed,
+    #[error("current product event lookup failed")]
+    CurrentProductEventLookupFailed,
+    #[error("failed to begin create product transaction")]
+    BeginTransactionFailed,
+    #[error("failed to commit create product transaction")]
+    CommitTransactionFailed,
+}
+
+#[async_trait::async_trait]
+pub trait CreateProductUseCase: Send + Sync {
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: CreateProductCommand,
+    ) -> Result<CreateProductResult, CreateProductError>;
+}
+
+pub struct CreateProductHandler<U, R, E> {
+    unit_of_work: U,
+    products: R,
+    events: E,
+}
+
+impl<U, R, E> CreateProductHandler<U, R, E> {
+    pub fn new(unit_of_work: U, products: R, events: E) -> Self {
+        Self {
+            unit_of_work,
+            products,
+            events,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<U, R, E> CreateProductUseCase for CreateProductHandler<U, R, E>
+where
+    U: UnitOfWork,
+    R: ProductRepositoryFactory<U::Tx>,
+    E: ProductEventStoreFactory<U::Tx>,
+{
+    #[tracing::instrument(
+        name = "create_product",
+        skip_all,
+        fields(
+            shop_id = %command.shop_id,
+            shops_product_id = %command.shops_product_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: CreateProductCommand,
+    ) -> Result<CreateProductResult, CreateProductError> {
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
+
+        let product = Product::create(command.into_new_product(ProductId::new()))?;
+        let event_id = product
+            .pending_events()
+            .last()
+            .map(|event| event.event_id)
+            .ok_or(CreateProductError::CreatedEventMissing)?;
+
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| CreateProductError::BeginTransactionFailed)?;
+
+        self.products
+            .in_transaction(&mut tx)
+            .insert(&product, event_id)
+            .await?;
+        for event in product.pending_events() {
+            self.events.in_transaction(&mut tx).append(event).await?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|_| CreateProductError::CommitTransactionFailed)?;
+
+        tracing::info!(
+            event = "product.created",
+            actor_type = context.principal.kind(),
+            actor_id = %context.principal.label(),
+            product_id = %product.id(),
+            event_id = %event_id,
+            outcome = "success",
+        );
+
+        CreateProductResult::try_from(&product)
+    }
+}
+
+impl CreateProductCommand {
+    pub fn into_new_product(self, product_id: ProductId) -> NewProduct {
+        NewProduct {
+            id: product_id,
+            shop_id: self.shop_id,
+            seller_id: self.seller_id,
+            shops_product_id: self.shops_product_id,
+            address: self.address,
+            title: self.title,
+            description: self.description,
+            pricing: self.pricing,
+            state: self.state,
+            url: self.url,
+            images: self.images,
+            auction: self.auction,
+        }
+    }
+}
+
+impl TryFrom<&Product> for CreateProductResult {
+    type Error = CreateProductError;
+
+    fn try_from(product: &Product) -> Result<Self, Self::Error> {
+        let event_id = product
+            .pending_events()
+            .last()
+            .map(|event| event.event_id)
+            .ok_or(CreateProductError::CreatedEventMissing)?;
+        Ok(Self {
+            product_id: product.id(),
+            product_slug_id: product.slug_id().clone(),
+            event_id,
+        })
+    }
+}
+
+impl From<RehydrateProductError> for CreateProductError {
+    fn from(_error: RehydrateProductError) -> Self {
+        Self::InvalidProductState
+    }
+}
+
+impl From<ProductRepositoryError> for CreateProductError {
+    fn from(error: ProductRepositoryError) -> Self {
+        match error {
+            ProductRepositoryError::ProductCurrentEventIdConflict => {
+                Self::ProductCurrentEventIdConflict
+            }
+            ProductRepositoryError::ProductKeyAlreadyExists => Self::ProductKeyAlreadyExists,
+            ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
+            ProductRepositoryError::ProductLookupByIdFailed => Self::ProductLookupByIdFailed,
+            ProductRepositoryError::ProductLookupByKeyFailed => Self::ProductLookupByKeyFailed,
+            ProductRepositoryError::ProductInsertFailed => Self::ProductInsertFailed,
+            ProductRepositoryError::ProductUpdateFailed => Self::ProductUpdateFailed,
+            ProductRepositoryError::InvalidProductSlugPersisted => {
+                Self::InvalidProductSlugPersisted
+            }
+            ProductRepositoryError::IncompleteTitlePersisted => Self::IncompleteTitlePersisted,
+            ProductRepositoryError::InvalidTitleLanguagePersisted => {
+                Self::InvalidTitleLanguagePersisted
+            }
+            ProductRepositoryError::IncompleteDescriptionPersisted => {
+                Self::IncompleteDescriptionPersisted
+            }
+            ProductRepositoryError::InvalidDescriptionLanguagePersisted => {
+                Self::InvalidDescriptionLanguagePersisted
+            }
+            ProductRepositoryError::IncompletePricePersisted => Self::IncompletePricePersisted,
+            ProductRepositoryError::NegativePriceAmountPersisted => {
+                Self::NegativePriceAmountPersisted
+            }
+            ProductRepositoryError::InvalidPriceCurrencyPersisted => {
+                Self::InvalidPriceCurrencyPersisted
+            }
+            ProductRepositoryError::InvalidProductStatePersisted => {
+                Self::InvalidProductStatePersisted
+            }
+            ProductRepositoryError::InvalidProductLifecyclePersisted => {
+                Self::InvalidProductLifecyclePersisted
+            }
+            ProductRepositoryError::InvalidProductUrlPersisted => Self::InvalidProductUrlPersisted,
+            ProductRepositoryError::InvalidProductImagesPersisted => {
+                Self::InvalidProductImagesPersisted
+            }
+            ProductRepositoryError::InvalidProductImageUrlPersisted => {
+                Self::InvalidProductImageUrlPersisted
+            }
+            ProductRepositoryError::InvalidProductImageProhibitedContentPersisted => {
+                Self::InvalidProductImageProhibitedContentPersisted
+            }
+            ProductRepositoryError::InvalidAggregateStatePersisted => {
+                Self::InvalidAggregateStatePersisted
+            }
+        }
+    }
+}
+
+impl From<ProductEventStoreError> for CreateProductError {
+    fn from(error: ProductEventStoreError) -> Self {
+        match error {
+            ProductEventStoreError::ProductEventAlreadyExists => Self::ProductEventAlreadyExists,
+            ProductEventStoreError::ProductEventAppendFailed => Self::ProductEventAppendFailed,
+            ProductEventStoreError::CurrentProductEventLookupFailed => {
+                Self::CurrentProductEventLookupFailed
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::currency::domain::Currency;
+    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::price::domain::{MonetaryAmount, Price};
+    use common::product_id::ProductKey;
+    use common::transaction::TransactionError;
+    use product_core::product::ProductDomainEvent;
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    #[derive(Debug, Default)]
+    struct FakeState {
+        begin_error: bool,
+        commit_error: bool,
+        begin_count: usize,
+        commit_count: usize,
+        insert_result: Option<Result<(), ProductRepositoryError>>,
+        append_result: Option<Result<(), ProductEventStoreError>>,
+        insert_count: usize,
+        append_count: usize,
+    }
+
+    type SharedState = Arc<Mutex<FakeState>>;
+
+    #[derive(Clone)]
+    struct FakeUnitOfWork {
+        state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct FakeRepositoryFactory {
+        state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct FakeEventStoreFactory {
+        state: SharedState,
+    }
+
+    struct FakeTx {
+        state: SharedState,
+    }
+
+    struct FakeRepository {
+        state: SharedState,
+    }
+
+    struct FakeEventStore {
+        state: SharedState,
+    }
+
+    fn state() -> SharedState {
+        Arc::new(Mutex::new(FakeState::default()))
+    }
+
+    fn lock_state(state: &SharedState) -> MutexGuard<'_, FakeState> {
+        match state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    fn uow(state: &SharedState) -> FakeUnitOfWork {
+        FakeUnitOfWork {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn repository_factory(state: &SharedState) -> FakeRepositoryFactory {
+        FakeRepositoryFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn event_store_factory(state: &SharedState) -> FakeEventStoreFactory {
+        FakeEventStoreFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let mut state = lock_state(&self.state);
+            state.begin_count += 1;
+            if state.begin_error {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let mut state = lock_state(&self.state);
+            state.commit_count += 1;
+            if state.commit_error {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl ProductRepositoryFactory<FakeTx> for FakeRepositoryFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ProductRepository + 'tx {
+            FakeRepository {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductRepository for FakeRepository {
+        async fn find_by_id(
+            &mut self,
+            _id: ProductId,
+        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
+        {
+            Ok(None)
+        }
+
+        async fn find_by_key(
+            &mut self,
+            _key: &ProductKey,
+        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
+        {
+            Ok(None)
+        }
+
+        async fn insert(
+            &mut self,
+            _product: &Product,
+            _current_event_id: EventId,
+        ) -> Result<(), ProductRepositoryError> {
+            let mut state = lock_state(&self.state);
+            state.insert_count += 1;
+            match state.insert_result.take() {
+                Some(result) => result,
+                None => Ok(()),
+            }
+        }
+
+        async fn update(
+            &mut self,
+            _product: &Product,
+            _expected_event_id: EventId,
+            _new_event_id: EventId,
+        ) -> Result<(), ProductRepositoryError> {
+            Ok(())
+        }
+    }
+
+    impl ProductEventStoreFactory<FakeTx> for FakeEventStoreFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ProductEventStore + 'tx {
+            FakeEventStore {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductEventStore for FakeEventStore {
+        async fn append(
+            &mut self,
+            _event: &ProductDomainEvent,
+        ) -> Result<(), ProductEventStoreError> {
+            let mut state = lock_state(&self.state);
+            state.append_count += 1;
+            match state.append_result.take() {
+                Some(result) => result,
+                None => Ok(()),
+            }
+        }
+
+        async fn find_current_event_id(
+            &mut self,
+            _product_id: ProductId,
+        ) -> Result<Option<EventId>, ProductEventStoreError> {
+            Ok(None)
+        }
+    }
+
+    fn context() -> OperationContext {
+        OperationContext {
+            principal: Principal::System,
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn url(value: &str) -> Result<Url, url::ParseError> {
+        Url::parse(value)
+    }
+
+    fn create_command() -> Result<CreateProductCommand, url::ParseError> {
+        let input = new_product(ProductId::new())?;
+        Ok(CreateProductCommand {
+            shop_id: input.shop_id,
+            seller_id: input.seller_id,
+            shops_product_id: input.shops_product_id,
+            address: input.address,
+            title: input.title,
+            description: input.description,
+            pricing: input.pricing,
+            state: input.state,
+            url: input.url,
+            images: input.images,
+            auction: input.auction,
+        })
+    }
+
+    fn new_product(product_id: ProductId) -> Result<NewProduct, url::ParseError> {
+        Ok(NewProduct {
+            id: product_id,
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::new(),
+            address: ProductAddress::default(),
+            title: Some(Localized {
+                localization: Language::En,
+                payload: Title::from("Cabinet"),
+            }),
+            description: Some(Localized {
+                localization: Language::En,
+                payload: Description::from("Old cabinet"),
+            }),
+            pricing: ProductPricing {
+                native_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                ..Default::default()
+            },
+            state: ProductState::Listed,
+            url: url("https://shop.example/products/1")?,
+            images: IndexSet::new(),
+            auction: ProductAuction::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn should_create_product_when_valid() -> Result<(), url::ParseError> {
+        let state = state();
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(result.is_ok());
+        let state = lock_state(&state);
+        assert_eq!(1, state.begin_count);
+        assert_eq!(1, state.insert_count);
+        assert_eq!(1, state.append_count);
+        assert_eq!(1, state.commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_begin_error_when_create_begin_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).begin_error = true;
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductError::BeginTransactionFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_commit_error_when_create_commit_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).commit_error = true;
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductError::CommitTransactionFailed)
+        ));
+        assert_eq!(1, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_create_insert_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).insert_result = Some(Err(ProductRepositoryError::ProductInsertFailed));
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductError::ProductInsertFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_when_create_event_append_fails() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).append_result =
+            Some(Err(ProductEventStoreError::ProductEventAppendFailed));
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductError::ProductEventAppendFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+}

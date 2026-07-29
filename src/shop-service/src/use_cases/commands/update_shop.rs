@@ -479,6 +479,174 @@ fn apply_optional_patch<T>(current: Option<T>, patch: PatchField<T>) -> Option<T
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::{
+        ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion,
+        VersionedShop,
+    };
+    use common::error::boxed::static_error;
+    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::transaction::{TransactionError, UnitOfWork};
+    use common::versioned::Versioned;
+    use shop_core::address::GeoAddress;
+    use shop_core::partner_status::ShopPartnerStatus;
+    use shop_core::shop::NewShop;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Copy)]
+    enum RepoErrorKind {
+        SlugConflict,
+        ConcurrencyConflict,
+    }
+
+    #[derive(Default)]
+    struct Counts {
+        begin: usize,
+        commit: usize,
+        find_by_id: usize,
+        update: usize,
+        geocode: usize,
+    }
+
+    #[derive(Default)]
+    struct State {
+        begin_error: bool,
+        commit_error: bool,
+        shop_by_id: Option<VersionedShop>,
+        find_by_id_error: Option<RepoErrorKind>,
+        update_error: Option<RepoErrorKind>,
+        geocoder_error: Option<ShopGeocoderError>,
+        updated: Option<Shop>,
+        counts: Counts,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeUnitOfWork {
+        state: Arc<Mutex<State>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeShopRepositoryFactory {
+        state: Arc<Mutex<State>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeGeocoder {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakeTx {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakeShopRepository {
+        state: Arc<Mutex<State>>,
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.begin += 1;
+                state.begin_error
+            });
+            if fail {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.commit += 1;
+                state.commit_error
+            });
+            if fail {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl ShopRepositoryFactory<FakeTx> for FakeShopRepositoryFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ShopRepository + 'tx {
+            FakeShopRepository {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ShopRepository for FakeShopRepository {
+        async fn find_by_id(
+            &mut self,
+            _id: ShopId,
+        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+            with_state(&self.state, |state| {
+                state.counts.find_by_id += 1;
+                match state.find_by_id_error {
+                    Some(kind) => Err(shop_repo_error(kind)),
+                    None => Ok(state.shop_by_id.clone()),
+                }
+            })
+        }
+
+        async fn find_by_slug(
+            &mut self,
+            _slug_id: &ShopSlugId,
+        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+            Ok(None)
+        }
+
+        async fn insert(&mut self, _shop: &Shop) -> Result<(), ShopRepositoryError> {
+            Ok(())
+        }
+
+        async fn update(
+            &mut self,
+            shop: &Shop,
+            _expected_version: ShopStorageVersion,
+        ) -> Result<(), ShopRepositoryError> {
+            with_state(&self.state, |state| {
+                state.counts.update += 1;
+                match state.update_error {
+                    Some(kind) => Err(shop_repo_error(kind)),
+                    None => {
+                        state.updated = Some(shop.clone());
+                        Ok(())
+                    }
+                }
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ShopGeocoder for FakeGeocoder {
+        async fn geocode(
+            &self,
+            _address: &StructuredAddress,
+        ) -> Result<GeoAddress, ShopGeocoderError> {
+            with_state(&self.state, |state| {
+                state.counts.geocode += 1;
+                match &state.geocoder_error {
+                    Some(ShopGeocoderError::NotFound) => Err(ShopGeocoderError::NotFound),
+                    Some(ShopGeocoderError::TemporarilyUnavailable) => {
+                        Err(ShopGeocoderError::TemporarilyUnavailable)
+                    }
+                    Some(ShopGeocoderError::Internal) => Err(ShopGeocoderError::Internal),
+                    None => Ok(GeoAddress { lat: 1.0, lon: 2.0 }),
+                }
+            })
+        }
+    }
 
     #[test]
     fn should_report_empty_update_when_all_fields_unchanged() {
@@ -525,5 +693,347 @@ mod tests {
             result,
             Err(UpdateShopError::ShopifyDomainRequired)
         ));
+    }
+
+    #[tokio::test]
+    async fn should_update_shop_when_patch_changes_fields() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let state = shared_state();
+        let existing = shop("Antik Markt");
+        let shop_id = existing.id();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing))
+        });
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let mut domains = HashSet::new();
+        domains.insert(Domain::try_from("example.org")?);
+        let command = UpdateShopCommand {
+            shop_id,
+            shop_type: PatchField::Set(ShopType::Marketplace),
+            domains: PatchField::Set(domains),
+            shopify_domain: PatchField::Set(Domain::try_from("shopify.example.org")?),
+            shopify_currency: PatchField::Set(Currency::Usd),
+            shopify_language: PatchField::Set(Language::De),
+            woocommerce_webhook_secret: PatchField::Set(WoocommerceWebhookSecret::from("secret")),
+            woocommerce_currency: PatchField::Set(Currency::Gbp),
+            woocommerce_language: PatchField::Set(Language::Fr),
+            url: PatchField::Set(Url::parse("https://example.org")?),
+            image: PatchField::Set(Url::parse("https://example.org/image.png")?),
+            structured_address: PatchField::Set(address()),
+            phone: PatchField::Set("123".to_string()),
+            email: PatchField::Unchanged,
+            affiliate_configuration: PatchField::Set(AffiliateConfiguration::Partnerize {
+                camref: "camref".to_string(),
+            }),
+        };
+
+        let result = handler.execute(&system_context(), command).await;
+
+        assert!(matches!(result, Ok(ref value) if value.shop_id == shop_id));
+        assert_counts(&state, |counts| {
+            assert_eq!(1, counts.geocode);
+            assert_eq!(1, counts.update);
+            assert_eq!(1, counts.commit);
+        });
+        let updated = with_state(&state, |state| state.updated.clone());
+        assert!(matches!(updated, Some(ref shop) if shop.shop_type() == ShopType::Marketplace));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_commit_without_update_when_update_noop() {
+        let state = shared_state();
+        let existing = shop("Antik Markt");
+        let shop_id = existing.id();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing))
+        });
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let result = handler
+            .execute(
+                &system_context(),
+                UpdateShopCommand {
+                    shop_id,
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        assert!(result.is_ok());
+        assert_counts(&state, |counts| {
+            assert_eq!(0, counts.update);
+            assert_eq!(1, counts.commit);
+        });
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_update_when_operation_fails() {
+        let state = shared_state();
+        let existing = shop("Antik Markt");
+        let shop_id = existing.id();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing))
+        });
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let result = handler
+            .execute(
+                &system_context(),
+                UpdateShopCommand {
+                    shop_id,
+                    shop_type: PatchField::Clear,
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        assert!(matches!(result, Err(UpdateShopError::ShopTypeRequired)));
+        assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+    }
+
+    #[tokio::test]
+    async fn should_cover_update_not_found_repo_geocoder_and_transaction_errors() {
+        let state = shared_state();
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let not_found = handler
+            .execute(
+                &system_context(),
+                UpdateShopCommand {
+                    shop_id: ShopId::new(),
+                    shop_type: PatchField::Set(ShopType::Marketplace),
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        assert!(matches!(not_found, Err(UpdateShopError::ShopNotFound)));
+        assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+
+        let state = shared_state();
+        with_state(&state, |state| state.begin_error = true);
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let begin = handler
+            .execute(&system_context(), UpdateShopCommand::default())
+            .await;
+        assert!(matches!(
+            begin,
+            Err(UpdateShopError::BeginTransactionFailed)
+        ));
+
+        let state = shared_state();
+        let existing = shop("Commit Fail");
+        let shop_id = existing.id();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing));
+            state.commit_error = true;
+        });
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let commit = handler
+            .execute(
+                &system_context(),
+                UpdateShopCommand {
+                    shop_id,
+                    shop_type: PatchField::Set(ShopType::Marketplace),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(matches!(
+            commit,
+            Err(UpdateShopError::CommitTransactionFailed)
+        ));
+
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.find_by_id_error = Some(RepoErrorKind::ConcurrencyConflict)
+        });
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let repo = handler
+            .execute(
+                &system_context(),
+                UpdateShopCommand {
+                    shop_id: ShopId::new(),
+                    shop_type: PatchField::Set(ShopType::Marketplace),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(matches!(repo, Err(UpdateShopError::ConcurrencyConflict)));
+
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.geocoder_error = Some(ShopGeocoderError::Internal)
+        });
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let geo = handler
+            .execute(
+                &system_context(),
+                UpdateShopCommand {
+                    shop_id: ShopId::new(),
+                    structured_address: PatchField::Set(address()),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(matches!(geo, Err(UpdateShopError::Internal { .. })));
+        assert_counts(&state, |counts| assert_eq!(0, counts.begin));
+    }
+
+    #[tokio::test]
+    async fn should_cover_update_patch_validation_branches() {
+        let state = shared_state();
+        let existing = shop("Patch Bad");
+        let shop_id = existing.id();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing))
+        });
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let domains = handler
+            .execute(
+                &system_context(),
+                UpdateShopCommand {
+                    shop_id,
+                    domains: PatchField::Clear,
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(matches!(domains, Err(UpdateShopError::DomainsRequired)));
+
+        let state = shared_state();
+        let existing = shop("Patch Bad 2");
+        let shop_id = existing.id();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing))
+        });
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let shopify = handler
+            .execute(
+                &system_context(),
+                UpdateShopCommand {
+                    shop_id,
+                    shopify_currency: PatchField::Set(Currency::Usd),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(matches!(
+            shopify,
+            Err(UpdateShopError::ShopifyDomainRequired)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_map_slug_conflict_when_update_fails() {
+        let state = shared_state();
+        let existing = shop("Slug Error");
+        let shop_id = existing.id();
+        with_state(&state, |state| {
+            state.shop_by_id = Some(versioned_shop(existing));
+            state.update_error = Some(RepoErrorKind::SlugConflict);
+        });
+        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let result = handler
+            .execute(
+                &system_context(),
+                UpdateShopCommand {
+                    shop_id,
+                    shop_type: PatchField::Set(ShopType::Marketplace),
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        assert!(matches!(result, Err(UpdateShopError::SlugConflict { .. })));
+        assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+    }
+
+    fn shop_repo(state: &Arc<Mutex<State>>) -> FakeShopRepositoryFactory {
+        FakeShopRepositoryFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn geocoder(state: &Arc<Mutex<State>>) -> FakeGeocoder {
+        FakeGeocoder {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn uow(state: &Arc<Mutex<State>>) -> FakeUnitOfWork {
+        FakeUnitOfWork {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn shared_state() -> Arc<Mutex<State>> {
+        Arc::new(Mutex::new(State::default()))
+    }
+
+    fn shop_repo_error(kind: RepoErrorKind) -> ShopRepositoryError {
+        match kind {
+            RepoErrorKind::SlugConflict => ShopRepositoryError::SlugConflict {
+                source: static_error("slug conflict"),
+            },
+            RepoErrorKind::ConcurrencyConflict => ShopRepositoryError::ConcurrencyConflict,
+        }
+    }
+
+    fn shop(name: &str) -> Shop {
+        Shop::create(NewShop {
+            id: ShopId::new(),
+            name: ShopName::from(name),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::new(),
+            shopify: None,
+            woocommerce: None,
+            presentation: ShopPresentation::default(),
+            address: None,
+            contact: ShopContact::default(),
+            partner_status: ShopPartnerStatus::Scraped,
+            affiliate_configuration: None,
+        })
+    }
+
+    fn versioned_shop(shop: Shop) -> VersionedShop {
+        Versioned::new(shop, ShopStorageVersion::INITIAL)
+    }
+
+    fn address() -> StructuredAddress {
+        StructuredAddress {
+            addressline: Some("Street 1".to_string()),
+            addressline_extra: None,
+            locality: Some("Berlin".to_string()),
+            region: None,
+            postal_code: Some("10115".to_string()),
+            country: None,
+            continent: None,
+        }
+    }
+
+    fn system_context() -> OperationContext {
+        OperationContext {
+            principal: Principal::System,
+            request_id: RequestId::from("request"),
+            correlation_id: CorrelationId::from("correlation"),
+        }
+    }
+
+    fn assert_counts(state: &Arc<Mutex<State>>, assert: impl FnOnce(&Counts)) {
+        with_state(state, |state| assert(&state.counts));
+    }
+
+    fn with_state<R>(state: &Arc<Mutex<State>>, f: impl FnOnce(&mut State) -> R) -> R {
+        match state.lock() {
+            Ok(mut guard) => f(&mut guard),
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                f(&mut guard)
+            }
+        }
     }
 }

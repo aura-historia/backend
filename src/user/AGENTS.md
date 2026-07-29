@@ -2,18 +2,17 @@
 
 ## Purpose
 
-- Own `user` crate.
+- Own legacy `user` crate.
 
 ## Core Design
 
-- User domain, repositories, search projection, and services.
+- Legacy User domain, DynamoDB repositories, OpenSearch projection, and services.
 - Root modules: `core`, `data`, `dynamodb`, `opensearch`, `service`.
-- New migration contracts live beside old DynamoDB/OpenSearch paths: canonical aggregate in `core::user_aggregate`, use-case traits in `service::use_cases`, capability ports in `service::ports`, bundle in `service::use_case_bundle`.
-- Canonical `User` keeps business state private, leaves operational metadata and partner-shop joins to readers, targets Postgres via `UserRepository`, and keeps access tokens behind `AccessTokenStore` for DynamoDB.
+- Canonical migration types now live in `user-core` and `user-service`.
 - Old `core::user::User` and `service::{command,user_service}` stay until cutover.
 
 - Main neighbors: `common`, `geo`.
-- Library crate. Keep domain, persistence, and service seams explicit.
+- Library crate. Keep old behavior stable while migration moves canonical code out.
 
 ## Ownership
 
@@ -25,8 +24,8 @@
 
 - Read `AGENTS.md`, `src/AGENTS.md`, then here, before edit.
 - New doc only for child crate. No module doc.
-- Update this file when crate contract, route/event shape, env vars, or child index change.
-- Keep business rules here, not leaked into callers.
+- Update this file when legacy crate contract, route/event shape, env vars, or child index change.
+- Do not add new canonical migration contracts here.
 
 ## Work Guidance
 

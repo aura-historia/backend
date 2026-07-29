@@ -101,4 +101,16 @@ mod tests {
         assert!(result.as_str().contains("%3D")); // '=' encoded
         assert!(result.as_str().contains("%26")); // '&' encoded
     }
+
+    #[test]
+    fn should_keep_unreserved_destination_chars_when_building_partnerize_affiliate_url() {
+        let deeplink = Url::parse("https://example.com/a-Z_0.9~").unwrap();
+        let config = AffiliateConfiguration::Partnerize {
+            camref: "1110lF73C".to_string(),
+        };
+
+        let result = config.build_url(&deeplink);
+
+        assert!(result.as_str().ends_with("%2Fa-Z_0.9~"));
+    }
 }

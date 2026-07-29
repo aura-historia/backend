@@ -309,6 +309,78 @@ mod tests {
     }
 
     #[test]
+    fn should_create_shop_with_all_input_state() {
+        let id = ShopId::new();
+        let shopify = ShopifyIntegration {
+            domain: domain("shopify.example.com"),
+            currency: Some(Currency::Eur),
+            language: Some(Language::De),
+        };
+        let woocommerce = WoocommerceIntegration {
+            webhook_secret: Some(WoocommerceWebhookSecret::from("secret")),
+            currency: Some(Currency::Usd),
+            language: Some(Language::En),
+        };
+        let presentation = ShopPresentation {
+            url: Some(Url::parse("https://example.com").unwrap()),
+            image: Some(Url::parse("https://example.com/image.jpg").unwrap()),
+        };
+        let address = ShopAddress {
+            structured: StructuredAddress {
+                addressline: Some("Main 1".to_string()),
+                addressline_extra: Some("Back house".to_string()),
+                locality: Some("Berlin".to_string()),
+                region: Some("Berlin".to_string()),
+                postal_code: Some("10115".to_string()),
+                country: Some(isocountry::CountryCode::DEU),
+                continent: Some(crate::continent::Continent::Europe),
+            },
+            geo: Some(GeoAddress {
+                lat: 52.5,
+                lon: 13.4,
+            }),
+        };
+        let contact = ShopContact {
+            phone: Some("+49 123".to_string()),
+            email: Some("shop@example.com".parse().unwrap()),
+        };
+        let affiliate_configuration = AffiliateConfiguration::Partnerize {
+            camref: "1110lF73C".to_string(),
+        };
+        let input = NewShop {
+            id,
+            name: ShopName::from("Antik und Stil"),
+            shop_type: ShopType::AuctionHouse,
+            domains: HashSet::from([domain("https://example.com")]),
+            shopify: Some(shopify.clone()),
+            woocommerce: Some(woocommerce.clone()),
+            presentation: presentation.clone(),
+            address: Some(address.clone()),
+            contact: contact.clone(),
+            partner_status: ShopPartnerStatus::Partnered,
+            affiliate_configuration: Some(affiliate_configuration.clone()),
+        };
+
+        let shop = Shop::create(input);
+
+        assert_eq!(id, shop.id());
+        assert_eq!("antik-und-stil", shop.slug_id().to_string());
+        assert_eq!("Antik und Stil", shop.name().as_ref());
+        assert_eq!(ShopType::AuctionHouse, shop.shop_type());
+        assert!(shop.domains().contains(&domain("https://example.com")));
+        assert_eq!(Some(&shopify), shop.shopify());
+        assert_eq!(Some(&woocommerce), shop.woocommerce());
+        assert_eq!(&presentation, shop.presentation());
+        assert_eq!(Some(&address), shop.address());
+        assert_eq!(&contact, shop.contact());
+        assert_eq!(ShopPartnerStatus::Partnered, shop.partner_status());
+        assert_eq!(
+            Some(&affiliate_configuration),
+            shop.affiliate_configuration()
+        );
+    }
+
+    #[test]
     fn should_rehydrate_shop_when_slug_matches_name() {
         let shop = Shop::rehydrate(shop_state("Antik und Stil", "antik-und-stil")).unwrap();
 
@@ -319,10 +391,13 @@ mod tests {
     fn should_reject_rehydrate_when_slug_does_not_match_name() {
         let result = Shop::rehydrate(shop_state("Antik und Stil", "wrong"));
 
-        assert!(matches!(
-            result,
-            Err(RehydrateShopError::SlugMismatch { .. })
-        ));
+        assert_eq!(
+            Err(RehydrateShopError::SlugMismatch {
+                expected: ShopSlugId::from("antik-und-stil"),
+                actual: ShopSlugId::from("wrong"),
+            }),
+            result
+        );
     }
 
     #[test]
@@ -487,6 +562,22 @@ mod tests {
     }
 
     #[test]
+    fn should_clear_woocommerce_integration_when_changed() {
+        let mut input = new_shop("Antik und Stil");
+        input.woocommerce = Some(WoocommerceIntegration {
+            webhook_secret: Some(WoocommerceWebhookSecret::from("secret")),
+            currency: Some(Currency::Usd),
+            language: Some(Language::En),
+        });
+        let mut shop = Shop::create(input);
+
+        let outcome = shop.replace_woocommerce_integration(None);
+
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(None, shop.woocommerce());
+    }
+
+    #[test]
     fn should_report_unchanged_when_woocommerce_integration_same() {
         let woocommerce = WoocommerceIntegration {
             webhook_secret: Some(WoocommerceWebhookSecret::from("secret")),
@@ -554,6 +645,41 @@ mod tests {
         assert_eq!(ChangeOutcome::Changed, set);
         assert_eq!(ChangeOutcome::Changed, clear);
         assert_eq!(None, shop.address());
+    }
+
+    #[test]
+    fn should_report_unchanged_when_address_same() {
+        let address = ShopAddress {
+            structured: StructuredAddress {
+                addressline: Some("Main 1".to_string()),
+                addressline_extra: None,
+                locality: Some("Berlin".to_string()),
+                region: None,
+                postal_code: Some("10115".to_string()),
+                country: Some(isocountry::CountryCode::DEU),
+                continent: Some(crate::continent::Continent::Europe),
+            },
+            geo: Some(GeoAddress {
+                lat: 52.5,
+                lon: 13.4,
+            }),
+        };
+        let mut input = new_shop("Antik und Stil");
+        input.address = Some(address.clone());
+        let mut shop = Shop::create(input);
+
+        let outcome = shop.replace_address(Some(address));
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
+    }
+
+    #[test]
+    fn should_report_unchanged_when_clearing_missing_address() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+
+        let outcome = shop.replace_address(None);
+
+        assert_eq!(ChangeOutcome::Unchanged, outcome);
     }
 
     #[test]

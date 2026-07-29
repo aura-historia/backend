@@ -134,90 +134,192 @@ impl From<ShopSearchReadError> for SearchShopsError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::transaction::{TransactionError, UnitOfWork};
     use std::sync::{Arc, Mutex};
 
-    #[derive(Clone)]
-    struct TestShopSearchReaderFactory {
-        called: Arc<Mutex<bool>>,
-        result: SearchShopsResult,
+    #[derive(Clone, Copy)]
+    enum ReadErrorKind {
+        TemporarilyUnavailable,
     }
 
-    struct TestShopSearchReader {
-        called: Arc<Mutex<bool>>,
-        result: SearchShopsResult,
+    #[derive(Default)]
+    struct Counts {
+        begin: usize,
+        commit: usize,
+        search: usize,
     }
 
-    struct TestUnitOfWork {
-        committed: Arc<Mutex<bool>>,
+    struct State {
+        begin_error: bool,
+        commit_error: bool,
+        search: SearchShopsResult,
+        search_error: Option<ReadErrorKind>,
+        last_search_request: Option<SearchShopsRequest>,
+        counts: Counts,
     }
 
-    struct TestTransaction {
-        committed: Arc<Mutex<bool>>,
-    }
-
-    #[async_trait::async_trait]
-    impl UnitOfWork for TestUnitOfWork {
-        type Tx = TestTransaction;
-
-        async fn begin(&self) -> Result<Self::Tx, common::transaction::TransactionError> {
-            Ok(TestTransaction {
-                committed: Arc::clone(&self.committed),
-            })
+    impl Default for State {
+        fn default() -> Self {
+            Self {
+                begin_error: false,
+                commit_error: false,
+                search: search_result(),
+                search_error: None,
+                last_search_request: None,
+                counts: Counts::default(),
+            }
         }
     }
 
-    #[async_trait::async_trait]
-    impl Transaction for TestTransaction {
-        async fn commit(self) -> Result<(), common::transaction::TransactionError> {
-            with_mutex(&self.committed, |committed| *committed = true);
-            Ok(())
-        }
+    #[derive(Clone, Default)]
+    struct FakeUnitOfWork {
+        state: Arc<Mutex<State>>,
     }
 
-    impl ShopSearchReaderFactory<TestTransaction> for TestShopSearchReaderFactory {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _tx: &'tx mut TestTransaction,
-        ) -> impl ShopSearchReader + 'tx {
-            TestShopSearchReader {
-                called: Arc::clone(&self.called),
-                result: self.result.clone(),
+    #[derive(Clone, Default)]
+    struct FakeSearchReaderFactory {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakeTx {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakeSearchReader {
+        state: Arc<Mutex<State>>,
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.begin += 1;
+                state.begin_error
+            });
+            if fail {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
             }
         }
     }
 
     #[async_trait::async_trait]
-    impl ShopSearchReader for TestShopSearchReader {
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.commit += 1;
+                state.commit_error
+            });
+            if fail {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl ShopSearchReaderFactory<FakeTx> for FakeSearchReaderFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ShopSearchReader + 'tx {
+            FakeSearchReader {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ShopSearchReader for FakeSearchReader {
         async fn search(
             &mut self,
-            _request: &SearchShopsRequest,
+            request: &SearchShopsRequest,
         ) -> Result<SearchShopsResult, ShopSearchReadError> {
-            with_mutex(&self.called, |called| *called = true);
-            Ok(self.result.clone())
+            with_state(&self.state, |state| {
+                state.counts.search += 1;
+                state.last_search_request = Some(request.clone());
+                match state.search_error {
+                    Some(kind) => Err(search_read_error(kind)),
+                    None => Ok(state.search.clone()),
+                }
+            })
         }
     }
 
     #[tokio::test]
-    async fn should_search_shops_in_owned_transaction() {
-        let committed = Arc::new(Mutex::new(false));
-        let called = Arc::new(Mutex::new(false));
+    async fn should_search_shops_and_cover_errors() {
+        let state = shared_state();
         let expected = search_result();
-        let handler = SearchShopsHandler::new(
-            TestUnitOfWork {
-                committed: Arc::clone(&committed),
-            },
-            TestShopSearchReaderFactory {
-                called: Arc::clone(&called),
-                result: expected.clone(),
-            },
-        );
+        with_state(&state, |state| state.search = expected.clone());
+        let handler = SearchShopsHandler::new(uow(&state), search_reader(&state));
+        let request = search_request();
 
-        let result = handler.execute(&context(), search_request()).await;
+        let result = handler.execute(&system_context(), request.clone()).await;
 
         assert!(matches!(result, Ok(ref value) if value.items == expected.items));
-        assert!(with_mutex(&called, |called| *called));
-        assert!(with_mutex(&committed, |committed| *committed));
+        assert_eq!(
+            Some(request),
+            with_state(&state, |state| state.last_search_request.clone())
+        );
+        assert_counts(&state, |counts| assert_eq!(1, counts.commit));
+
+        let state = shared_state();
+        with_state(&state, |state| state.begin_error = true);
+        let handler = SearchShopsHandler::new(uow(&state), search_reader(&state));
+        let begin = handler.execute(&system_context(), search_request()).await;
+        assert!(matches!(
+            begin,
+            Err(SearchShopsError::BeginTransactionFailed)
+        ));
+
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.search_error = Some(ReadErrorKind::TemporarilyUnavailable)
+        });
+        let handler = SearchShopsHandler::new(uow(&state), search_reader(&state));
+        let read = handler.execute(&system_context(), search_request()).await;
+        assert!(matches!(
+            read,
+            Err(SearchShopsError::TemporarilyUnavailable { .. })
+        ));
+        assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+
+        let state = shared_state();
+        with_state(&state, |state| state.commit_error = true);
+        let handler = SearchShopsHandler::new(uow(&state), search_reader(&state));
+        let commit = handler.execute(&system_context(), search_request()).await;
+        assert!(matches!(
+            commit,
+            Err(SearchShopsError::CommitTransactionFailed)
+        ));
+    }
+
+    fn search_reader(state: &Arc<Mutex<State>>) -> FakeSearchReaderFactory {
+        FakeSearchReaderFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn uow(state: &Arc<Mutex<State>>) -> FakeUnitOfWork {
+        FakeUnitOfWork {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn shared_state() -> Arc<Mutex<State>> {
+        Arc::new(Mutex::new(State::default()))
+    }
+
+    fn search_read_error(kind: ReadErrorKind) -> ShopSearchReadError {
+        match kind {
+            ReadErrorKind::TemporarilyUnavailable => ShopSearchReadError::TemporarilyUnavailable {
+                source: static_error("temporary"),
+            },
+        }
     }
 
     fn search_request() -> SearchShopsRequest {
@@ -249,7 +351,7 @@ mod tests {
         }
     }
 
-    fn context() -> OperationContext {
+    fn system_context() -> OperationContext {
         OperationContext {
             principal: Principal::System,
             request_id: RequestId::from("request"),
@@ -257,8 +359,12 @@ mod tests {
         }
     }
 
-    fn with_mutex<T, R>(mutex: &Mutex<T>, f: impl FnOnce(&mut T) -> R) -> R {
-        match mutex.lock() {
+    fn assert_counts(state: &Arc<Mutex<State>>, assert: impl FnOnce(&Counts)) {
+        with_state(state, |state| assert(&state.counts));
+    }
+
+    fn with_state<R>(state: &Arc<Mutex<State>>, f: impl FnOnce(&mut State) -> R) -> R {
+        match state.lock() {
             Ok(mut guard) => f(&mut guard),
             Err(poisoned) => {
                 let mut guard = poisoned.into_inner();

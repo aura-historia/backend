@@ -256,10 +256,13 @@ dependencies = [
  "product",
  "product-api",
  "product-api-partner",
+ "product-core",
  "product-lambda",
  "product-lambda-delete-product",
  "product-personalization",
  "product-pipeline",
+ "product-postgres",
+ "product-service",
  "product-watchlist",
  "product-watchlist-api",
  "search-filter",
@@ -278,7 +281,10 @@ dependencies = [
  "test-api",
  "user",
  "user-api",
+ "user-core",
  "user-lambda",
+ "user-postgres",
+ "user-service",
  "webhook-api",
 ]
 
@@ -5576,6 +5582,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "product-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "geo",
+ "html-escape",
+ "indexmap 2.14.0",
+ "isocountry",
+ "regex",
+ "rstest",
+ "serde",
+ "serde_fields",
+ "serde_json",
+ "shop-core",
+ "thiserror 2.0.19",
+ "time",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
@@ -5792,6 +5821,49 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "product-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "geo",
+ "indexmap 2.14.0",
+ "isocountry",
+ "product-core",
+ "product-service",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "product-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "geo",
+ "indexmap 2.14.0",
+ "product-core",
+ "serde_json",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -8936,6 +9008,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "user-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "geo",
+ "http 1.4.2",
+ "isocountry",
+ "prefixed-api-key",
+ "rstest",
+ "serde",
+ "serde-email",
+ "thiserror 2.0.19",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "user-lambda"
 version = "0.1.0"
 dependencies = [
@@ -8985,6 +9075,47 @@ dependencies = [
  "tokio",
  "tracing",
  "user",
+]
+
+[[package]]
+name = "user-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "geo",
+ "isocountry",
+ "rstest",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "user-core",
+ "user-service",
+ "uuid",
+]
+
+[[package]]
+name = "user-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "geo",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "user-core",
 ]
 
 [[package]]

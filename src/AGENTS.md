@@ -105,7 +105,10 @@
 - `src/partner-shop-application/AGENTS.md` — `partner-shop-application` crate.
 - `src/partner-shop-application-api/AGENTS.md` — `partner-shop-application-api` crate.
 - `src/partner-shop-application-lambda/AGENTS.md` — `partner-shop-application-lambda` crate.
-- `src/product/AGENTS.md` — `product` crate.
+- `src/product/AGENTS.md` — legacy `product` crate.
+- `src/product-core/AGENTS.md` — canonical Product domain crate.
+- `src/product-service/AGENTS.md` — canonical Product service crate.
+- `src/product-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
 - `src/product-api/AGENTS.md` — `product-api` crate.
 - `src/product-api-partner/AGENTS.md` — `product-api-partner` crate.
 - `src/product-lambda/AGENTS.md` — `product-lambda` crate.
@@ -127,7 +130,10 @@
 - `src/stripe-api/AGENTS.md` — `stripe-api` crate.
 - `src/stripe-lambda/AGENTS.md` — `stripe-lambda` crate.
 - `src/test-api/AGENTS.md` — `test-api` crate.
-- `src/user/AGENTS.md` — `user` crate.
+- `src/user/AGENTS.md` — legacy `user` crate.
+- `src/user-core/AGENTS.md` — canonical User domain crate.
+- `src/user-service/AGENTS.md` — canonical User service crate.
+- `src/user-postgres/AGENTS.md` — canonical User Postgres adapter crate.
 - `src/user-api/AGENTS.md` — `user-api` crate.
 - `src/user-lambda/AGENTS.md` — `user-lambda` crate.
 - `src/webhook-api/AGENTS.md` — `webhook-api` crate.

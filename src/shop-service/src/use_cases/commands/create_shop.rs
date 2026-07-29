@@ -295,89 +295,142 @@ pub(crate) fn woocommerce_integration(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::ShopStorageVersion;
+    use crate::ports::{
+        ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion,
+        VersionedShop,
+    };
+    use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::transaction::{TransactionError, UnitOfWork};
     use common::versioned::Versioned;
+    use shop_core::shop::{NewShop, ShopContact, ShopPresentation};
     use std::sync::{Arc, Mutex};
 
+    #[derive(Clone, Copy)]
+    enum RepoErrorKind {
+        TemporarilyUnavailable,
+        InvalidPersistedState,
+    }
+
     #[derive(Default)]
-    struct RepositoryState {
-        existing_by_slug: Option<Versioned<Shop, ShopStorageVersion>>,
+    struct Counts {
+        begin: usize,
+        commit: usize,
+        find_by_slug: usize,
+        insert: usize,
+        geocode: usize,
+    }
+
+    #[derive(Default)]
+    struct State {
+        begin_error: bool,
+        commit_error: bool,
+        shop_by_slug: Option<VersionedShop>,
+        find_by_slug_error: Option<RepoErrorKind>,
+        insert_error: Option<RepoErrorKind>,
+        geocoder_error: Option<ShopGeocoderError>,
         inserted: Option<Shop>,
+        counts: Counts,
     }
 
-    #[derive(Clone)]
-    struct TestShopRepositoryFactory {
-        state: Arc<Mutex<RepositoryState>>,
+    #[derive(Clone, Default)]
+    struct FakeUnitOfWork {
+        state: Arc<Mutex<State>>,
     }
 
-    struct TestShopRepository {
-        state: Arc<Mutex<RepositoryState>>,
+    #[derive(Clone, Default)]
+    struct FakeShopRepositoryFactory {
+        state: Arc<Mutex<State>>,
     }
 
-    struct TestUnitOfWork {
-        committed: Arc<Mutex<bool>>,
+    #[derive(Clone, Default)]
+    struct FakeGeocoder {
+        state: Arc<Mutex<State>>,
     }
 
-    struct TestTransaction {
-        committed: Arc<Mutex<bool>>,
+    struct FakeTx {
+        state: Arc<Mutex<State>>,
     }
 
-    struct TestGeocoder;
+    struct FakeShopRepository {
+        state: Arc<Mutex<State>>,
+    }
 
     #[async_trait::async_trait]
-    impl common::transaction::UnitOfWork for TestUnitOfWork {
-        type Tx = TestTransaction;
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
 
-        async fn begin(&self) -> Result<Self::Tx, common::transaction::TransactionError> {
-            Ok(TestTransaction {
-                committed: Arc::clone(&self.committed),
-            })
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.begin += 1;
+                state.begin_error
+            });
+            if fail {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
+            }
         }
     }
 
     #[async_trait::async_trait]
-    impl common::transaction::Transaction for TestTransaction {
-        async fn commit(self) -> Result<(), common::transaction::TransactionError> {
-            with_mutex(&self.committed, |committed| *committed = true);
-            Ok(())
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.commit += 1;
+                state.commit_error
+            });
+            if fail {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
         }
     }
 
-    impl crate::ports::ShopRepositoryFactory<TestTransaction> for TestShopRepositoryFactory {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _tx: &'tx mut TestTransaction,
-        ) -> impl crate::ports::ShopRepository + 'tx {
-            TestShopRepository {
+    impl ShopRepositoryFactory<FakeTx> for FakeShopRepositoryFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ShopRepository + 'tx {
+            FakeShopRepository {
                 state: Arc::clone(&self.state),
             }
         }
     }
 
     #[async_trait::async_trait]
-    impl crate::ports::ShopRepository for TestShopRepository {
+    impl ShopRepository for FakeShopRepository {
         async fn find_by_id(
             &mut self,
             _id: ShopId,
-        ) -> Result<Option<Versioned<Shop, ShopStorageVersion>>, ShopRepositoryError> {
+        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
             Ok(None)
         }
 
         async fn find_by_slug(
             &mut self,
             _slug_id: &ShopSlugId,
-        ) -> Result<Option<Versioned<Shop, ShopStorageVersion>>, ShopRepositoryError> {
-            Ok(with_mutex(&self.state, |state| {
-                state.existing_by_slug.clone()
-            }))
+        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+            with_state(&self.state, |state| {
+                state.counts.find_by_slug += 1;
+                match state.find_by_slug_error {
+                    Some(kind) => Err(shop_repo_error(kind)),
+                    None => Ok(state.shop_by_slug.clone()),
+                }
+            })
         }
 
         async fn insert(&mut self, shop: &Shop) -> Result<(), ShopRepositoryError> {
-            with_mutex(&self.state, |state| {
-                state.inserted = Some(shop.clone());
-            });
-            Ok(())
+            with_state(&self.state, |state| {
+                state.counts.insert += 1;
+                match state.insert_error {
+                    Some(kind) => Err(shop_repo_error(kind)),
+                    None => {
+                        state.inserted = Some(shop.clone());
+                        Ok(())
+                    }
+                }
+            })
         }
 
         async fn update(
@@ -390,72 +443,205 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ShopGeocoder for TestGeocoder {
+    impl ShopGeocoder for FakeGeocoder {
         async fn geocode(
             &self,
             _address: &StructuredAddress,
         ) -> Result<GeoAddress, ShopGeocoderError> {
-            Ok(GeoAddress { lat: 1.0, lon: 2.0 })
+            with_state(&self.state, |state| {
+                state.counts.geocode += 1;
+                match &state.geocoder_error {
+                    Some(ShopGeocoderError::NotFound) => Err(ShopGeocoderError::NotFound),
+                    Some(ShopGeocoderError::TemporarilyUnavailable) => {
+                        Err(ShopGeocoderError::TemporarilyUnavailable)
+                    }
+                    Some(ShopGeocoderError::Internal) => Err(ShopGeocoderError::Internal),
+                    None => Ok(GeoAddress { lat: 1.0, lon: 2.0 }),
+                }
+            })
         }
     }
 
     #[tokio::test]
     async fn should_create_shop_when_slug_free() {
-        let state = Arc::new(Mutex::new(RepositoryState::default()));
-        let committed = Arc::new(Mutex::new(false));
-        let handler = CreateShopHandler::new(
-            TestUnitOfWork {
-                committed: Arc::clone(&committed),
-            },
-            TestShopRepositoryFactory {
-                state: Arc::clone(&state),
-            },
-            TestGeocoder,
-        );
+        let state = shared_state();
+        let handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
 
-        let result = handler.execute(&context(), command("Antik Markt")).await;
+        let result = handler
+            .execute(&system_context(), create_command("Antik Markt"))
+            .await;
 
         assert!(matches!(result, Ok(ref value) if value.name == ShopName::from("Antik Markt")));
-        assert!(with_mutex(&committed, |value| *value));
-        let inserted = with_mutex(&state, |state| state.inserted.clone());
-        assert!(
-            matches!(inserted, Some(ref shop) if shop.name() == &ShopName::from("Antik Markt"))
-        );
+        assert_counts(&state, |counts| {
+            assert_eq!(1, counts.begin);
+            assert_eq!(1, counts.find_by_slug);
+            assert_eq!(1, counts.insert);
+            assert_eq!(1, counts.commit);
+        });
+        assert!(with_state(&state, |state| state.inserted.is_some()));
     }
 
     #[tokio::test]
-    async fn should_reject_create_when_slug_exists() {
-        let state = Arc::new(Mutex::new(RepositoryState::default()));
-        with_mutex(&state, |state| {
-            let shop = Shop::create(command("Antik Markt").into_new_shop(ShopId::new(), None));
-            state.existing_by_slug = Some(Versioned::new(shop, ShopStorageVersion::INITIAL));
+    async fn should_not_begin_create_when_geocoder_fails() {
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.geocoder_error = Some(ShopGeocoderError::NotFound)
         });
-        let committed = Arc::new(Mutex::new(false));
-        let handler = CreateShopHandler::new(
-            TestUnitOfWork {
-                committed: Arc::clone(&committed),
-            },
-            TestShopRepositoryFactory {
-                state: Arc::clone(&state),
-            },
-            TestGeocoder,
-        );
+        let handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
 
-        let result = handler.execute(&context(), command("Antik Markt")).await;
+        let result = handler
+            .execute(
+                &system_context(),
+                create_command_with_address("Antik Markt"),
+            )
+            .await;
 
-        assert!(matches!(result, Err(CreateShopError::SlugConflict { .. })));
-        assert!(!with_mutex(&committed, |value| *value));
+        assert!(matches!(result, Err(CreateShopError::InvalidAddress)));
+        assert_counts(&state, |counts| {
+            assert_eq!(1, counts.geocode);
+            assert_eq!(0, counts.begin);
+            assert_eq!(0, counts.commit);
+        });
     }
 
-    fn context() -> OperationContext {
-        OperationContext {
-            principal: Principal::System,
-            request_id: RequestId::from("request"),
-            correlation_id: CorrelationId::from("correlation"),
+    #[tokio::test]
+    async fn should_map_create_begin_and_commit_failures() {
+        let state = shared_state();
+        with_state(&state, |state| state.begin_error = true);
+        let begin_handler =
+            CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let begin_result = begin_handler
+            .execute(&system_context(), create_command("Begin Fail"))
+            .await;
+
+        assert!(matches!(
+            begin_result,
+            Err(CreateShopError::BeginTransactionFailed)
+        ));
+
+        let state = shared_state();
+        with_state(&state, |state| state.commit_error = true);
+        let commit_handler =
+            CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let commit_result = commit_handler
+            .execute(&system_context(), create_command("Commit Fail"))
+            .await;
+
+        assert!(matches!(
+            commit_result,
+            Err(CreateShopError::CommitTransactionFailed)
+        ));
+        assert_counts(&state, |counts| assert_eq!(1, counts.commit));
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_create_when_slug_exists_or_repo_fails() {
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.shop_by_slug = Some(versioned_shop(shop("Antik Markt")))
+        });
+        let slug_handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let slug_result = slug_handler
+            .execute(&system_context(), create_command("Antik Markt"))
+            .await;
+
+        assert!(matches!(
+            slug_result,
+            Err(CreateShopError::SlugConflict { .. })
+        ));
+        assert_counts(&state, |counts| {
+            assert_eq!(0, counts.insert);
+            assert_eq!(0, counts.commit);
+        });
+
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.insert_error = Some(RepoErrorKind::TemporarilyUnavailable)
+        });
+        let insert_handler =
+            CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let insert_result = insert_handler
+            .execute(&system_context(), create_command("Repo Fail"))
+            .await;
+
+        assert!(matches!(
+            insert_result,
+            Err(CreateShopError::TemporarilyUnavailable { .. })
+        ));
+        assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+    }
+
+    #[tokio::test]
+    async fn should_map_create_repo_and_geocoder_errors() {
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.find_by_slug_error = Some(RepoErrorKind::InvalidPersistedState)
+        });
+        let handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let repo_result = handler
+            .execute(&system_context(), create_command("Bad Read"))
+            .await;
+
+        assert!(matches!(
+            repo_result,
+            Err(CreateShopError::InvalidPersistedState { .. })
+        ));
+
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.geocoder_error = Some(ShopGeocoderError::TemporarilyUnavailable)
+        });
+        let handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+
+        let geo_result = handler
+            .execute(&system_context(), create_command_with_address("Bad Geo"))
+            .await;
+
+        assert!(matches!(
+            geo_result,
+            Err(CreateShopError::TemporarilyUnavailable { .. })
+        ));
+    }
+
+    fn shop_repo(state: &Arc<Mutex<State>>) -> FakeShopRepositoryFactory {
+        FakeShopRepositoryFactory {
+            state: Arc::clone(state),
         }
     }
 
-    fn command(name: &str) -> CreateShopCommand {
+    fn geocoder(state: &Arc<Mutex<State>>) -> FakeGeocoder {
+        FakeGeocoder {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn uow(state: &Arc<Mutex<State>>) -> FakeUnitOfWork {
+        FakeUnitOfWork {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn shared_state() -> Arc<Mutex<State>> {
+        Arc::new(Mutex::new(State::default()))
+    }
+
+    fn shop_repo_error(kind: RepoErrorKind) -> ShopRepositoryError {
+        match kind {
+            RepoErrorKind::TemporarilyUnavailable => ShopRepositoryError::TemporarilyUnavailable {
+                source: static_error("temporary"),
+            },
+            RepoErrorKind::InvalidPersistedState => ShopRepositoryError::InvalidPersistedState {
+                source: static_error("invalid"),
+            },
+        }
+    }
+
+    fn create_command(name: &str) -> CreateShopCommand {
         CreateShopCommand {
             name: ShopName::from(name),
             shop_type: ShopType::CommercialDealer,
@@ -475,8 +661,59 @@ mod tests {
         }
     }
 
-    fn with_mutex<T, R>(mutex: &Mutex<T>, f: impl FnOnce(&mut T) -> R) -> R {
-        match mutex.lock() {
+    fn create_command_with_address(name: &str) -> CreateShopCommand {
+        CreateShopCommand {
+            structured_address: Some(address()),
+            ..create_command(name)
+        }
+    }
+
+    fn shop(name: &str) -> Shop {
+        Shop::create(NewShop {
+            id: ShopId::new(),
+            name: ShopName::from(name),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::new(),
+            shopify: None,
+            woocommerce: None,
+            presentation: ShopPresentation::default(),
+            address: None,
+            contact: ShopContact::default(),
+            partner_status: ShopPartnerStatus::Scraped,
+            affiliate_configuration: None,
+        })
+    }
+
+    fn versioned_shop(shop: Shop) -> VersionedShop {
+        Versioned::new(shop, ShopStorageVersion::INITIAL)
+    }
+
+    fn address() -> StructuredAddress {
+        StructuredAddress {
+            addressline: Some("Street 1".to_string()),
+            addressline_extra: None,
+            locality: Some("Berlin".to_string()),
+            region: None,
+            postal_code: Some("10115".to_string()),
+            country: None,
+            continent: None,
+        }
+    }
+
+    fn system_context() -> OperationContext {
+        OperationContext {
+            principal: Principal::System,
+            request_id: RequestId::from("request"),
+            correlation_id: CorrelationId::from("correlation"),
+        }
+    }
+
+    fn assert_counts(state: &Arc<Mutex<State>>, assert: impl FnOnce(&Counts)) {
+        with_state(state, |state| assert(&state.counts));
+    }
+
+    fn with_state<R>(state: &Arc<Mutex<State>>, f: impl FnOnce(&mut State) -> R) -> R {
+        match state.lock() {
             Ok(mut guard) => f(&mut guard),
             Err(poisoned) => {
                 let mut guard = poisoned.into_inner();

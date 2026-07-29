@@ -151,113 +151,197 @@ impl From<ShopDetailsReadError> for GetShopError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::transaction::{TransactionError, UnitOfWork};
     use std::sync::{Arc, Mutex};
 
-    #[derive(Clone)]
-    struct TestShopDetailsReaderFactory {
-        called: Arc<Mutex<bool>>,
-        view: Option<ShopDetailsView>,
+    #[derive(Clone, Copy)]
+    enum ReadErrorKind {
+        InvalidReadModel,
     }
 
-    struct TestShopDetailsReader {
-        called: Arc<Mutex<bool>>,
-        view: Option<ShopDetailsView>,
+    #[derive(Default)]
+    struct Counts {
+        begin: usize,
+        commit: usize,
+        details: usize,
     }
 
-    struct TestUnitOfWork {
-        committed: Arc<Mutex<bool>>,
+    #[derive(Default)]
+    struct State {
+        begin_error: bool,
+        commit_error: bool,
+        details: Option<ShopDetailsView>,
+        details_error: Option<ReadErrorKind>,
+        last_details_request: Option<GetShopRequest>,
+        counts: Counts,
     }
 
-    struct TestTransaction {
-        committed: Arc<Mutex<bool>>,
+    #[derive(Clone, Default)]
+    struct FakeUnitOfWork {
+        state: Arc<Mutex<State>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeDetailsReaderFactory {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakeTx {
+        state: Arc<Mutex<State>>,
+    }
+
+    struct FakeDetailsReader {
+        state: Arc<Mutex<State>>,
     }
 
     #[async_trait::async_trait]
-    impl UnitOfWork for TestUnitOfWork {
-        type Tx = TestTransaction;
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
 
-        async fn begin(&self) -> Result<Self::Tx, common::transaction::TransactionError> {
-            Ok(TestTransaction {
-                committed: Arc::clone(&self.committed),
-            })
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl Transaction for TestTransaction {
-        async fn commit(self) -> Result<(), common::transaction::TransactionError> {
-            with_mutex(&self.committed, |committed| *committed = true);
-            Ok(())
-        }
-    }
-
-    impl ShopDetailsReaderFactory<TestTransaction> for TestShopDetailsReaderFactory {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _tx: &'tx mut TestTransaction,
-        ) -> impl ShopDetailsReader + 'tx {
-            TestShopDetailsReader {
-                called: Arc::clone(&self.called),
-                view: self.view.clone(),
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.begin += 1;
+                state.begin_error
+            });
+            if fail {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTx {
+                    state: Arc::clone(&self.state),
+                })
             }
         }
     }
 
     #[async_trait::async_trait]
-    impl ShopDetailsReader for TestShopDetailsReader {
+    impl Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let fail = with_state(&self.state, |state| {
+                state.counts.commit += 1;
+                state.commit_error
+            });
+            if fail {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl ShopDetailsReaderFactory<FakeTx> for FakeDetailsReaderFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ShopDetailsReader + 'tx {
+            FakeDetailsReader {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ShopDetailsReader for FakeDetailsReader {
         async fn find_details(
             &mut self,
-            _request: &GetShopRequest,
+            request: &GetShopRequest,
         ) -> Result<Option<ShopDetailsView>, ShopDetailsReadError> {
-            with_mutex(&self.called, |called| *called = true);
-            Ok(self.view.clone())
+            with_state(&self.state, |state| {
+                state.counts.details += 1;
+                state.last_details_request = Some(request.clone());
+                match state.details_error {
+                    Some(kind) => Err(details_read_error(kind)),
+                    None => Ok(state.details.clone()),
+                }
+            })
         }
     }
 
     #[tokio::test]
-    async fn should_read_shop_details_in_owned_transaction() {
-        let committed = Arc::new(Mutex::new(false));
-        let called = Arc::new(Mutex::new(false));
-        let view = shop_details_view();
-        let handler = GetShopHandler::new(
-            TestUnitOfWork {
-                committed: Arc::clone(&committed),
-            },
-            TestShopDetailsReaderFactory {
-                called: Arc::clone(&called),
-                view: Some(view.clone()),
-            },
-        );
+    async fn should_get_shop_by_all_request_shapes() -> Result<(), Box<dyn std::error::Error>> {
+        for request in [
+            GetShopRequest::ById(ShopId::new()),
+            GetShopRequest::BySlug(ShopSlugId::from("antik-markt")),
+            GetShopRequest::ByShopifyDomain(Domain::try_from("shopify.example.org")?),
+        ] {
+            let state = shared_state();
+            let view = shop_details_view();
+            with_state(&state, |state| state.details = Some(view.clone()));
+            let handler = GetShopHandler::new(uow(&state), details_reader(&state));
 
-        let result = handler
-            .execute(&context(), GetShopRequest::ById(view.shop_id))
-            .await;
+            let result = handler.execute(&system_context(), request.clone()).await;
 
-        assert!(matches!(result, Ok(ref value) if value.shop_id == view.shop_id));
-        assert!(with_mutex(&called, |called| *called));
-        assert!(with_mutex(&committed, |committed| *committed));
+            assert!(matches!(result, Ok(ref value) if value.shop_id == view.shop_id));
+            assert_eq!(
+                Some(request),
+                with_state(&state, |state| state.last_details_request.clone())
+            );
+            assert_counts(&state, |counts| assert_eq!(1, counts.commit));
+        }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn should_not_commit_when_shop_details_missing() {
-        let committed = Arc::new(Mutex::new(false));
-        let handler = GetShopHandler::new(
-            TestUnitOfWork {
-                committed: Arc::clone(&committed),
-            },
-            TestShopDetailsReaderFactory {
-                called: Arc::new(Mutex::new(false)),
-                view: None,
-            },
-        );
-
-        let result = handler
-            .execute(&context(), GetShopRequest::ById(ShopId::new()))
+    async fn should_cover_get_shop_errors() {
+        let state = shared_state();
+        let handler = GetShopHandler::new(uow(&state), details_reader(&state));
+        let not_found = handler
+            .execute(&system_context(), GetShopRequest::ById(ShopId::new()))
             .await;
+        assert!(matches!(not_found, Err(GetShopError::NotFound)));
+        assert_counts(&state, |counts| assert_eq!(0, counts.commit));
 
-        assert!(matches!(result, Err(GetShopError::NotFound)));
-        assert!(!with_mutex(&committed, |committed| *committed));
+        let state = shared_state();
+        with_state(&state, |state| state.begin_error = true);
+        let handler = GetShopHandler::new(uow(&state), details_reader(&state));
+        let begin = handler
+            .execute(&system_context(), GetShopRequest::ById(ShopId::new()))
+            .await;
+        assert!(matches!(begin, Err(GetShopError::BeginTransactionFailed)));
+
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.details_error = Some(ReadErrorKind::InvalidReadModel)
+        });
+        let handler = GetShopHandler::new(uow(&state), details_reader(&state));
+        let read = handler
+            .execute(&system_context(), GetShopRequest::ById(ShopId::new()))
+            .await;
+        assert!(matches!(read, Err(GetShopError::InvalidReadModel { .. })));
+        assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+
+        let state = shared_state();
+        with_state(&state, |state| {
+            state.details = Some(shop_details_view());
+            state.commit_error = true;
+        });
+        let handler = GetShopHandler::new(uow(&state), details_reader(&state));
+        let commit = handler
+            .execute(&system_context(), GetShopRequest::ById(ShopId::new()))
+            .await;
+        assert!(matches!(commit, Err(GetShopError::CommitTransactionFailed)));
+    }
+
+    fn details_reader(state: &Arc<Mutex<State>>) -> FakeDetailsReaderFactory {
+        FakeDetailsReaderFactory {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn uow(state: &Arc<Mutex<State>>) -> FakeUnitOfWork {
+        FakeUnitOfWork {
+            state: Arc::clone(state),
+        }
+    }
+
+    fn shared_state() -> Arc<Mutex<State>> {
+        Arc::new(Mutex::new(State::default()))
+    }
+
+    fn details_read_error(kind: ReadErrorKind) -> ShopDetailsReadError {
+        match kind {
+            ReadErrorKind::InvalidReadModel => ShopDetailsReadError::InvalidReadModel {
+                source: static_error("invalid"),
+            },
+        }
     }
 
     fn shop_details_view() -> ShopDetailsView {
@@ -284,7 +368,7 @@ mod tests {
         }
     }
 
-    fn context() -> OperationContext {
+    fn system_context() -> OperationContext {
         OperationContext {
             principal: Principal::System,
             request_id: RequestId::from("request"),
@@ -292,8 +376,12 @@ mod tests {
         }
     }
 
-    fn with_mutex<T, R>(mutex: &Mutex<T>, f: impl FnOnce(&mut T) -> R) -> R {
-        match mutex.lock() {
+    fn assert_counts(state: &Arc<Mutex<State>>, assert: impl FnOnce(&Counts)) {
+        with_state(state, |state| assert(&state.counts));
+    }
+
+    fn with_state<R>(state: &Arc<Mutex<State>>, f: impl FnOnce(&mut State) -> R) -> R {
+        match state.lock() {
             Ok(mut guard) => f(&mut guard),
             Err(poisoned) => {
                 let mut guard = poisoned.into_inner();

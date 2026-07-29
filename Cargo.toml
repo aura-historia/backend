@@ -28,6 +28,9 @@ shopify-lambda = { workspace = true }
 stripe-lambda = { workspace = true }
 stripe-api = { workspace = true }
 product = { workspace = true }
+product-core = { workspace = true }
+product-service = { workspace = true }
+product-postgres = { workspace = true }
 product-api = { workspace = true }
 product-api-partner = { workspace = true }
 product-personalization = { workspace = true }
@@ -37,6 +40,9 @@ product-lambda = { workspace = true }
 product-lambda-delete-product = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
+user-postgres = { workspace = true }
 user-api = { workspace = true }
 user-lambda = { workspace = true }
 notification-send = { workspace = true }
@@ -68,6 +74,9 @@ members = [
     "src/search-filter-lambda",
     "src/search-filter-periodic-match",
     "src/product",
+    "src/product-core",
+    "src/product-service",
+    "src/product-postgres",
     "src/product-api",
     "src/product-api-partner",
     "src/product-personalization",
@@ -86,6 +95,9 @@ members = [
     "src/stripe-lambda",
     "src/stripe-api",
     "src/user",
+    "src/user-core",
+    "src/user-service",
+    "src/user-postgres",
     "src/user-api",
     "src/user-lambda",
     "src/notification-send",
@@ -159,6 +171,9 @@ hex = "0.4.3"
 http = "1.4.2"
 httpdate = "1.0.3"
 product = { path = "src/product" }
+product-core = { path = "src/product-core" }
+product-service = { path = "src/product-service" }
+product-postgres = { path = "src/product-postgres" }
 product-api = { path = "src/product-api" }
 product-api-partner = { path = "src/product-api-partner" }
 product-personalization = { path = "src/product-personalization" }
@@ -223,6 +238,9 @@ futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
 user = { path = "src/user" }
+user-core = { path = "src/user-core" }
+user-service = { path = "src/user-service" }
+user-postgres = { path = "src/user-postgres" }
 user-api = { path = "src/user-api" }
 user-lambda = { path = "src/user-lambda" }
 user-lambda-index-opensearch = { path = "src/user-lambda/src/user-lambda-index-opensearch" }
