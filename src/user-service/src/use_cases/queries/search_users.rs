@@ -1,6 +1,9 @@
+use crate::ports::{UserSearchReadError, UserSearchReader, UserSearchReaderFactory};
+use common::error::boxed::BoxError;
 use common::operation_context::OperationContext;
 use common::pagination::cursor::Cursor;
 use common::sort::Sort;
+use common::transaction::{Transaction, UnitOfWork};
 use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
 use serde_email::Email;
 use serde_json::Value;
@@ -32,7 +35,27 @@ pub struct SearchUsersResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SearchUsersError {}
+pub enum SearchUsersError {
+    #[error("temporary user search failure")]
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("invalid user search read model")]
+    InvalidReadModel {
+        #[source]
+        source: BoxError,
+    },
+    #[error("internal user search failure")]
+    Internal {
+        #[source]
+        source: BoxError,
+    },
+    #[error("failed to begin search users transaction")]
+    BeginTransactionFailed,
+    #[error("failed to commit search users transaction")]
+    CommitTransactionFailed,
+}
 
 #[async_trait::async_trait]
 pub trait SearchUsersUseCase: Send + Sync {
@@ -41,4 +64,64 @@ pub trait SearchUsersUseCase: Send + Sync {
         context: &OperationContext,
         request: SearchUsersRequest,
     ) -> Result<SearchUsersResult, SearchUsersError>;
+}
+
+pub struct SearchUsersHandler<U, R> {
+    unit_of_work: U,
+    reader: R,
+}
+
+impl<U, R> SearchUsersHandler<U, R> {
+    pub fn new(unit_of_work: U, reader: R) -> Self {
+        Self {
+            unit_of_work,
+            reader,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<U, R> SearchUsersUseCase for SearchUsersHandler<U, R>
+where
+    U: UnitOfWork,
+    R: UserSearchReaderFactory<U::Tx>,
+{
+    #[tracing::instrument(
+        name = "search_users",
+        skip_all,
+        fields(
+            principal_type = context.principal.kind(),
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        request: SearchUsersRequest,
+    ) -> Result<SearchUsersResult, SearchUsersError> {
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| SearchUsersError::BeginTransactionFailed)?;
+        let result = self.reader.in_transaction(&mut tx).search(&request).await?;
+        tx.commit()
+            .await
+            .map_err(|_| SearchUsersError::CommitTransactionFailed)?;
+
+        Ok(result)
+    }
+}
+
+impl From<UserSearchReadError> for SearchUsersError {
+    fn from(error: UserSearchReadError) -> Self {
+        match error {
+            UserSearchReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            UserSearchReadError::InvalidReadModel { source } => Self::InvalidReadModel { source },
+            UserSearchReadError::Internal { source } => Self::Internal { source },
+        }
+    }
 }

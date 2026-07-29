@@ -1,10 +1,13 @@
-use crate::ports::product_event_store::ProductEventStoreError;
-use crate::ports::product_repository::ProductRepositoryError;
+use crate::ports::{
+    ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
+    ProductRepositoryError, ProductRepositoryFactory,
+};
 use common::event_id::EventId;
 use common::operation_context::OperationContext;
 use common::patch_field::PatchField;
 use common::product_id::ProductId;
 use common::product_state::domain::ProductState;
+use common::transaction::{Transaction, UnitOfWork};
 use indexmap::IndexSet;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
 use product_core::product_image::ProductImage;
@@ -113,6 +116,158 @@ pub trait UpdateProductUseCase: Send + Sync {
         context: &OperationContext,
         command: UpdateProductCommand,
     ) -> Result<UpdateProductResult, UpdateProductError>;
+}
+
+pub struct UpdateProductHandler<U, R, E> {
+    unit_of_work: U,
+    products: R,
+    events: E,
+}
+
+impl<U, R, E> UpdateProductHandler<U, R, E> {
+    pub fn new(unit_of_work: U, products: R, events: E) -> Self {
+        Self {
+            unit_of_work,
+            products,
+            events,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<U, R, E> UpdateProductUseCase for UpdateProductHandler<U, R, E>
+where
+    U: UnitOfWork,
+    R: ProductRepositoryFactory<U::Tx>,
+    E: ProductEventStoreFactory<U::Tx>,
+{
+    #[tracing::instrument(
+        name = "update_product",
+        skip_all,
+        fields(
+            product_id = %command.product_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: UpdateProductCommand,
+    ) -> Result<UpdateProductResult, UpdateProductError> {
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
+
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| UpdateProductError::BeginTransactionFailed)?;
+        let loaded = self
+            .products
+            .in_transaction(&mut tx)
+            .find_by_id(command.product_id)
+            .await?
+            .ok_or(UpdateProductError::ProductNotFound)?;
+        let expected_event_id = loaded.version;
+        let mut product = loaded.value;
+
+        apply_command(&mut product, command)?;
+        let events = product.take_pending_events();
+        let event_id = events.last().map(|event| event.event_id);
+
+        if let Some(new_event_id) = event_id {
+            self.products
+                .in_transaction(&mut tx)
+                .update(&product, expected_event_id, new_event_id)
+                .await?;
+            for event in &events {
+                self.events.in_transaction(&mut tx).append(event).await?;
+            }
+        }
+
+        tx.commit()
+            .await
+            .map_err(|_| UpdateProductError::CommitTransactionFailed)?;
+
+        if let Some(event_id) = event_id {
+            tracing::info!(
+                event = "product.updated",
+                actor_type = context.principal.kind(),
+                actor_id = %context.principal.label(),
+                product_id = %product.id(),
+                event_id = %event_id,
+                outcome = "success",
+            );
+        }
+
+        Ok(UpdateProductResult {
+            product_id: product.id(),
+            event_id,
+        })
+    }
+}
+
+fn apply_command(
+    product: &mut product_core::product::Product,
+    command: UpdateProductCommand,
+) -> Result<(), UpdateProductError> {
+    match command.address {
+        PatchField::Unchanged => {}
+        PatchField::Set(address) => {
+            product.replace_address(address);
+        }
+        PatchField::Clear => {
+            product.replace_address(Default::default());
+        }
+    }
+    match command.pricing {
+        PatchField::Unchanged => {}
+        PatchField::Set(pricing) => {
+            product.replace_pricing(pricing);
+        }
+        PatchField::Clear => {
+            product.replace_pricing(Default::default());
+        }
+    }
+    match command.state {
+        PatchField::Unchanged => {}
+        PatchField::Set(state) => {
+            product.change_state(state);
+        }
+        PatchField::Clear => return Err(UpdateProductError::StateRequired),
+    }
+    match command.url {
+        PatchField::Unchanged => {}
+        PatchField::Set(url) => {
+            product.change_url(url);
+        }
+        PatchField::Clear => return Err(UpdateProductError::UrlRequired),
+    }
+    match command.images {
+        PatchField::Unchanged => {}
+        PatchField::Set(images) => {
+            product.replace_images(images);
+        }
+        PatchField::Clear => {
+            product.replace_images(Default::default());
+        }
+    }
+    match command.auction {
+        PatchField::Unchanged => {}
+        PatchField::Set(auction) => {
+            product.replace_auction(auction);
+        }
+        PatchField::Clear => {
+            product.replace_auction(Default::default());
+        }
+    }
+
+    Ok(())
 }
 
 impl From<ProductRepositoryError> for UpdateProductError {

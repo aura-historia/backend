@@ -15,10 +15,12 @@ impl fake::Dummy<fake::Faker> for Description {
 #[cfg(test)]
 mod tests {
     use crate::description::Description;
-    use fake::{Fake, Faker};
 
+    #[cfg(feature = "test-data")]
     #[test]
     fn should_fake_description() {
+        use fake::{Fake, Faker};
+
         let _ = Faker.fake::<Description>();
     }
 

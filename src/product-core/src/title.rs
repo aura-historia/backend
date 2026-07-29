@@ -56,10 +56,12 @@ impl fake::Dummy<fake::Faker> for Title {
 #[cfg(test)]
 mod tests {
     use crate::title::Title;
-    use fake::{Fake, Faker};
 
+    #[cfg(feature = "test-data")]
     #[test]
     fn should_fake_title() {
+        use fake::{Fake, Faker};
+
         let _ = Faker.fake::<Title>();
     }
 

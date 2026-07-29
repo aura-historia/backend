@@ -1,8 +1,11 @@
-use crate::ports::product_event_store::ProductEventStoreError;
-use crate::ports::product_repository::ProductRepositoryError;
+use crate::ports::{
+    ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
+    ProductRepositoryError, ProductRepositoryFactory,
+};
 use common::event_id::EventId;
 use common::operation_context::OperationContext;
 use common::product_id::ProductId;
+use common::transaction::{Transaction, UnitOfWork};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteProductCommand {
@@ -84,6 +87,100 @@ pub trait DeleteProductUseCase: Send + Sync {
         context: &OperationContext,
         command: DeleteProductCommand,
     ) -> Result<DeleteProductResult, DeleteProductError>;
+}
+
+pub struct DeleteProductHandler<U, R, E> {
+    unit_of_work: U,
+    products: R,
+    events: E,
+}
+
+impl<U, R, E> DeleteProductHandler<U, R, E> {
+    pub fn new(unit_of_work: U, products: R, events: E) -> Self {
+        Self {
+            unit_of_work,
+            products,
+            events,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<U, R, E> DeleteProductUseCase for DeleteProductHandler<U, R, E>
+where
+    U: UnitOfWork,
+    R: ProductRepositoryFactory<U::Tx>,
+    E: ProductEventStoreFactory<U::Tx>,
+{
+    #[tracing::instrument(
+        name = "delete_product",
+        skip_all,
+        fields(
+            product_id = %command.product_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: DeleteProductCommand,
+    ) -> Result<DeleteProductResult, DeleteProductError> {
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
+
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| DeleteProductError::BeginTransactionFailed)?;
+        let loaded = self
+            .products
+            .in_transaction(&mut tx)
+            .find_by_id(command.product_id)
+            .await?
+            .ok_or(DeleteProductError::ProductNotFound)?;
+        let expected_event_id = loaded.version;
+        let mut product = loaded.value;
+        product.delete();
+        let events = product.take_pending_events();
+        let event_id = events
+            .last()
+            .map(|event| event.event_id)
+            .unwrap_or(expected_event_id);
+
+        if !events.is_empty() {
+            self.products
+                .in_transaction(&mut tx)
+                .update(&product, expected_event_id, event_id)
+                .await?;
+            for event in &events {
+                self.events.in_transaction(&mut tx).append(event).await?;
+            }
+        }
+
+        tx.commit()
+            .await
+            .map_err(|_| DeleteProductError::CommitTransactionFailed)?;
+
+        tracing::info!(
+            event = "product.deleted",
+            actor_type = context.principal.kind(),
+            actor_id = %context.principal.label(),
+            product_id = %product.id(),
+            event_id = %event_id,
+            outcome = "success",
+        );
+
+        Ok(DeleteProductResult {
+            product_id: product.id(),
+            event_id,
+        })
+    }
 }
 
 impl From<ProductRepositoryError> for DeleteProductError {

@@ -5862,6 +5862,7 @@ dependencies = [
  "thiserror 2.0.19",
  "time",
  "tokio",
+ "tracing",
  "url",
 ]
 
@@ -9113,6 +9114,7 @@ dependencies = [
  "thiserror 2.0.19",
  "time",
  "tokio",
+ "tracing",
  "user-core",
 ]
 

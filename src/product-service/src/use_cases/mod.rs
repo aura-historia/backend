@@ -2,13 +2,16 @@ pub mod commands;
 pub mod queries;
 
 pub use commands::create_product::{
-    CreateProductCommand, CreateProductError, CreateProductResult, CreateProductUseCase,
+    CreateProductCommand, CreateProductError, CreateProductHandler, CreateProductResult,
+    CreateProductUseCase,
 };
 pub use commands::delete_product::{
-    DeleteProductCommand, DeleteProductError, DeleteProductResult, DeleteProductUseCase,
+    DeleteProductCommand, DeleteProductError, DeleteProductHandler, DeleteProductResult,
+    DeleteProductUseCase,
 };
 pub use commands::update_product::{
-    UpdateProductCommand, UpdateProductError, UpdateProductResult, UpdateProductUseCase,
+    UpdateProductCommand, UpdateProductError, UpdateProductHandler, UpdateProductResult,
+    UpdateProductUseCase,
 };
 pub use queries::get_product::{
     GetProductError, GetProductRequest, GetProductUseCase, ProductDetailsView,

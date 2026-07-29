@@ -3,14 +3,14 @@
 ## Purpose
 
 - Own `product-postgres` crate.
-- Own canonical Product SQLx adapters and Postgres-backed handlers.
+- Own canonical Product SQLx adapters for Postgres.
 
 ## Core Design
 
 - Depends on `product-core`, `product-service`, and shared `common` Postgres UoW primitives.
-- Exports public SQLx repository/event-store factories and Postgres handler types.
+- Exports public SQLx repository/event-store factories only.
 - Keeps SQL rows, SQL, mapping, repositories, and event-store internals private.
-- Product row and `product_events` append stay in one caller-owned transaction.
+- Product row and `product_events` append bind to caller-owned transactions through service factory ports.
 
 ## Ownership
 
@@ -26,7 +26,7 @@
 ## Work Guidance
 
 - Think caveman. Talk caveman. Few word.
-- Keep adapter types private unless composition root needs them.
+- Keep adapter types private unless composition root needs factories.
 - Map rows with `TryFrom`; never leak SQLx row types.
 - Preserve SQLx and row-mapping failures as error sources in service port errors.
 

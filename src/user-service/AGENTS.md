@@ -3,13 +3,13 @@
 ## Purpose
 
 - Own `user-service` crate.
-- Own canonical User use-case contracts and outbound ports for migration.
+- Own canonical User use-case contracts, handlers, and outbound ports for migration.
 
 ## Core Design
 
 - Depends on `user-core` and shared `common` app contracts.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
-- Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories when added.
+- Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
 - Ports are public because adapter crates implement them.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
 - No SQLx, DynamoDB, OpenSearch, transport, or legacy `user` dependency.
