@@ -278,7 +278,10 @@ dependencies = [
  "test-api",
  "user",
  "user-api",
+ "user-core",
  "user-lambda",
+ "user-postgres",
+ "user-service",
  "webhook-api",
 ]
 
@@ -8936,6 +8939,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "user-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "geo",
+ "http 1.4.2",
+ "isocountry",
+ "prefixed-api-key",
+ "rstest",
+ "serde",
+ "serde-email",
+ "thiserror 2.0.19",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "user-lambda"
 version = "0.1.0"
 dependencies = [
@@ -8985,6 +9006,46 @@ dependencies = [
  "tokio",
  "tracing",
  "user",
+]
+
+[[package]]
+name = "user-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "geo",
+ "isocountry",
+ "rstest",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "user-core",
+ "user-service",
+ "uuid",
+]
+
+[[package]]
+name = "user-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "geo",
+ "serde",
+ "serde-email",
+ "serde_json",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "user-core",
 ]
 
 [[package]]

@@ -127,7 +127,10 @@
 - `src/stripe-api/AGENTS.md` — `stripe-api` crate.
 - `src/stripe-lambda/AGENTS.md` — `stripe-lambda` crate.
 - `src/test-api/AGENTS.md` — `test-api` crate.
-- `src/user/AGENTS.md` — `user` crate.
+- `src/user/AGENTS.md` — legacy `user` crate.
+- `src/user-core/AGENTS.md` — canonical User domain crate.
+- `src/user-service/AGENTS.md` — canonical User service crate.
+- `src/user-postgres/AGENTS.md` — canonical User Postgres adapter crate.
 - `src/user-api/AGENTS.md` — `user-api` crate.
 - `src/user-lambda/AGENTS.md` — `user-lambda` crate.
 - `src/webhook-api/AGENTS.md` — `webhook-api` crate.

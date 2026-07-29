@@ -37,6 +37,9 @@ product-lambda = { workspace = true }
 product-lambda-delete-product = { workspace = true }
 test-api = { workspace = true }
 user = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
+user-postgres = { workspace = true }
 user-api = { workspace = true }
 user-lambda = { workspace = true }
 notification-send = { workspace = true }
@@ -86,6 +89,9 @@ members = [
     "src/stripe-lambda",
     "src/stripe-api",
     "src/user",
+    "src/user-core",
+    "src/user-service",
+    "src/user-postgres",
     "src/user-api",
     "src/user-lambda",
     "src/notification-send",
@@ -223,6 +229,9 @@ futures-util = "0.3.32"
 proc-macro2 = "1.0.106"
 smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tests-macros" }
 user = { path = "src/user" }
+user-core = { path = "src/user-core" }
+user-service = { path = "src/user-service" }
+user-postgres = { path = "src/user-postgres" }
 user-api = { path = "src/user-api" }
 user-lambda = { path = "src/user-lambda" }
 user-lambda-index-opensearch = { path = "src/user-lambda/src/user-lambda-index-opensearch" }
