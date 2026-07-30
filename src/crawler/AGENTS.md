@@ -30,6 +30,7 @@
 - Initial schema generation accepts product schema responses only. Append repair accepts product, removed, and not-product classifications.
 - Append repair classifies failed pages as product, removed, or not-product. Removed needs verified selector-bound text or regex evidence, stores shop-scoped `shops_removed_page_schema`, and marks URL `REMOVED`. Not-product needs verified reason and only changes that URL class to `other`; never update shop URL pattern from one page.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.
+- Local DB backup, restore, and reset scripts are for the local crawler Docker Postgres dev instance only. Never point destructive scripts at shared, AWS dev, or prod Postgres.
 - `fetch-fixture` writes fetched HTML to `tests/fixtures/html`.
 - `demo` and `server` auto-run migrations on startup. Migrations be authoritative DB contract.
 

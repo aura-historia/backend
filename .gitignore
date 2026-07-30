@@ -42,3 +42,4 @@ coverage.lcov
 # Output files
 **/scraper_output.json
 **/spider_output.json
+src/crawler/backups/
