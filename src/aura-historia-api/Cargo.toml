@@ -4,10 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-trait = { workspace = true }
 common = { workspace = true }
+http = { workspace = true }
+jsonwebtokens = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
 tracing = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
 
 [dev-dependencies]
+base64 = { workspace = true }
+openssl = { workspace = true, features = ["vendored"] }
 rstest = { workspace = true }
+time = { workspace = true }

@@ -1,3 +1,5 @@
+pub mod auth;
+
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
