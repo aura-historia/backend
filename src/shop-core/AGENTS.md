@@ -8,8 +8,9 @@
 ## Core Design
 
 - Domain-only crate.
-- Root modules: `address`, `affiliate_configuration`, `continent`, `partner_status`, `shop`, `shop_search`, `shop_type`, `sort_shop_field`, `woocommerce_webhook_secret`.
+- Root modules: `address`, `affiliate_configuration`, `continent`, `lifecycle`, `partner_status`, `shop`, `shop_search`, `shop_type`, `sort_shop_field`, `woocommerce_webhook_secret`.
 - `shop::Shop` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
+- Shop lifecycle defaults to `Drafted`; partner applications may create draft shops.
 - No dependency on `shop-service`, legacy `shop`, or adapters.
 
 ## Ownership

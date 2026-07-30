@@ -8,22 +8,21 @@ use ::common::user_id::UserId;
 use geo::core::{address::StructuredAddress, continent::Continent};
 use isocountry::CountryCode;
 use serde_email::Email;
+use shop_partner_postgres::SqlxUserPartnerShopsReaderFactory;
+use shop_partner_service::ports::{UserPartnerShopsReader, UserPartnerShopsReaderFactory};
+use shop_partner_service::use_cases::list_partner_shops::ListPartnerShopsRequest;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
 use user_core::role::UserRole;
 use user_core::tier::UserTier;
 use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
-use user_postgres::{SqlxUserPartnerShopsReaderFactory, SqlxUserRepositoryFactory};
-use user_service::ports::{
-    UserPartnerShopsReader, UserPartnerShopsReaderFactory, UserRepository, UserRepositoryFactory,
-};
-use user_service::use_cases::queries::list_partner_shops::ListPartnerShopsRequest;
+use user_postgres::SqlxUserRepositoryFactory;
+use user_service::ports::{UserRepository, UserRepositoryFactory};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_list_partner_shops_for_user_in_name_order() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

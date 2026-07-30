@@ -25,6 +25,9 @@ shop = { workspace = true }
 shop-core = { workspace = true }
 shop-service = { workspace = true }
 shop-postgres = { workspace = true }
+shop-partner-core = { workspace = true }
+shop-partner-service = { workspace = true }
+shop-partner-postgres = { workspace = true }
 shop-api = { workspace = true }
 webhook-api = { workspace = true }
 shop-lambda = { workspace = true }
@@ -104,6 +107,9 @@ members = [
     "src/shop-core",
     "src/shop-service",
     "src/shop-postgres",
+    "src/shop-partner-core",
+    "src/shop-partner-service",
+    "src/shop-partner-postgres",
     "src/shop-api",
     "src/webhook-api",
     "src/shop-lambda",
@@ -175,6 +181,9 @@ shop = { path = "src/shop" }
 shop-core = { path = "src/shop-core" }
 shop-service = { path = "src/shop-service" }
 shop-postgres = { path = "src/shop-postgres" }
+shop-partner-core = { path = "src/shop-partner-core" }
+shop-partner-service = { path = "src/shop-partner-service" }
+shop-partner-postgres = { path = "src/shop-partner-postgres" }
 shop-lambda = { path = "src/shop-lambda" }
 shop-lambda-opensearch-index = { path = "src/shop-lambda/src/shop-lambda-opensearch-index" }
 shop-api = { path = "src/shop-api" }

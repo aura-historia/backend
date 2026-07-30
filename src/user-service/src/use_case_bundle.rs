@@ -2,8 +2,7 @@ use crate::use_cases::{
     AuthenticateAccessTokenUseCase, ChangeUserRoleUseCase, ChangeUserTierUseCase,
     CheckUserAdminUseCase, CreateAccessTokenUseCase, CreateUserUseCase, DeleteAccessTokenUseCase,
     FindUserByStripeCustomerIdUseCase, GetAccessTokenUseCase, GetUserUseCase,
-    ListAccessTokensUseCase, ListPartnerShopsUseCase, SearchUsersUseCase, UpdateAccessTokenUseCase,
-    UpdateUserUseCase,
+    ListAccessTokensUseCase, SearchUsersUseCase, UpdateAccessTokenUseCase, UpdateUserUseCase,
 };
 use std::sync::Arc;
 
@@ -15,7 +14,6 @@ pub struct UserUseCases {
     pub get: Arc<dyn GetUserUseCase>,
     pub check_admin: Arc<dyn CheckUserAdminUseCase>,
     pub search: Arc<dyn SearchUsersUseCase>,
-    pub list_partner_shops: Arc<dyn ListPartnerShopsUseCase>,
     pub find_by_stripe_customer_id: Arc<dyn FindUserByStripeCustomerIdUseCase>,
     pub create_access_token: Arc<dyn CreateAccessTokenUseCase>,
     pub update_access_token: Arc<dyn UpdateAccessTokenUseCase>,
@@ -33,7 +31,6 @@ pub struct UserUseCasesInput {
     pub get: Arc<dyn GetUserUseCase>,
     pub check_admin: Arc<dyn CheckUserAdminUseCase>,
     pub search: Arc<dyn SearchUsersUseCase>,
-    pub list_partner_shops: Arc<dyn ListPartnerShopsUseCase>,
     pub find_by_stripe_customer_id: Arc<dyn FindUserByStripeCustomerIdUseCase>,
     pub create_access_token: Arc<dyn CreateAccessTokenUseCase>,
     pub update_access_token: Arc<dyn UpdateAccessTokenUseCase>,
@@ -53,7 +50,6 @@ impl UserUseCases {
             get: input.get,
             check_admin: input.check_admin,
             search: input.search,
-            list_partner_shops: input.list_partner_shops,
             find_by_stripe_customer_id: input.find_by_stripe_customer_id,
             create_access_token: input.create_access_token,
             update_access_token: input.update_access_token,

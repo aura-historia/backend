@@ -1,0 +1,31 @@
+# DOX
+
+## Purpose
+
+- Own `shop-partner-core` crate.
+- Own canonical Partner Shop Application domain.
+
+## Core Design
+
+- Domain-only crate.
+- Root modules: `partner_shop_application`, `partner_shop_application_state`.
+- Applications always link one valid `ShopId`; new applications use a draft shop created before the application.
+
+## Ownership
+
+- This doc rule `src/shop-partner-core/**`.
+- Parent doc: `src/AGENTS.md`.
+
+## Work Guidance
+
+- Think caveman. Talk caveman. Few word.
+- No persistence, transport, runtime glue.
+
+## Verification
+
+- `cargo check -p shop-partner-core`
+- `cargo test -p shop-partner-core --all-features`
+
+## Child DOX Index
+
+- None.

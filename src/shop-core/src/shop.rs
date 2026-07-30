@@ -1,6 +1,7 @@
 use crate::{
     address::{GeoAddress, StructuredAddress},
     affiliate_configuration::AffiliateConfiguration,
+    lifecycle::ShopLifecycle,
     partner_status::ShopPartnerStatus,
     shop_type::ShopType,
     woocommerce_webhook_secret::WoocommerceWebhookSecret,
@@ -26,6 +27,7 @@ pub struct Shop {
     address: Option<ShopAddress>,
     contact: ShopContact,
     partner_status: ShopPartnerStatus,
+    lifecycle: ShopLifecycle,
     affiliate_configuration: Option<AffiliateConfiguration>,
 }
 
@@ -58,6 +60,7 @@ pub struct RehydratedShopState {
     pub address: Option<ShopAddress>,
     pub contact: ShopContact,
     pub partner_status: ShopPartnerStatus,
+    pub lifecycle: ShopLifecycle,
     pub affiliate_configuration: Option<AffiliateConfiguration>,
 }
 
@@ -104,6 +107,10 @@ pub enum RehydrateShopError {
 
 impl Shop {
     pub fn create(input: NewShop) -> Self {
+        Self::create_with_lifecycle(input, ShopLifecycle::Drafted)
+    }
+
+    pub fn create_with_lifecycle(input: NewShop, lifecycle: ShopLifecycle) -> Self {
         Self {
             slug_id: ShopSlugId::from(input.name.as_ref()),
             id: input.id,
@@ -116,6 +123,7 @@ impl Shop {
             address: input.address,
             contact: input.contact,
             partner_status: input.partner_status,
+            lifecycle,
             affiliate_configuration: input.affiliate_configuration,
         }
     }
@@ -143,6 +151,7 @@ impl Shop {
             address: state.address,
             contact: state.contact,
             partner_status: state.partner_status,
+            lifecycle: state.lifecycle,
             affiliate_configuration: state.affiliate_configuration,
         })
     }
@@ -245,6 +254,14 @@ impl Shop {
         self.partner_status
     }
 
+    pub fn lifecycle(&self) -> ShopLifecycle {
+        self.lifecycle
+    }
+
+    pub fn publish(&mut self) -> ChangeOutcome {
+        replace_if_changed(&mut self.lifecycle, ShopLifecycle::Published)
+    }
+
     pub fn affiliate_configuration(&self) -> Option<&AffiliateConfiguration> {
         self.affiliate_configuration.as_ref()
     }
@@ -296,6 +313,7 @@ mod tests {
             address: None,
             contact: ShopContact::default(),
             partner_status: ShopPartnerStatus::Scraped,
+            lifecycle: ShopLifecycle::Drafted,
             affiliate_configuration: None,
         }
     }

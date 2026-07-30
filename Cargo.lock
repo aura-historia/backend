@@ -278,6 +278,9 @@ dependencies = [
  "shop-api",
  "shop-core",
  "shop-lambda",
+ "shop-partner-core",
+ "shop-partner-postgres",
+ "shop-partner-service",
  "shop-postgres",
  "shop-service",
  "shopify-lambda",
@@ -7531,6 +7534,64 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "shop-partner-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "shop-core",
+ "thiserror 2.0.19",
+ "time",
+]
+
+[[package]]
+name = "shop-partner-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "geo",
+ "isocountry",
+ "rstest",
+ "serde-email",
+ "serial_test",
+ "shop-core",
+ "shop-partner-core",
+ "shop-partner-service",
+ "shop-postgres",
+ "shop-service",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "user-core",
+ "user-postgres",
+ "user-service",
+ "uuid",
+]
+
+[[package]]
+name = "shop-partner-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "geo",
+ "serde",
+ "serde-email",
+ "shop-core",
+ "shop-partner-core",
+ "shop-service",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
