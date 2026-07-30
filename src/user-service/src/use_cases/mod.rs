@@ -51,10 +51,6 @@ pub use queries::list_access_tokens::{
     ListAccessTokensError, ListAccessTokensHandler, ListAccessTokensRequest,
     ListAccessTokensResult, ListAccessTokensUseCase,
 };
-pub use queries::list_partner_shops::{
-    ListPartnerShopsError, ListPartnerShopsHandler, ListPartnerShopsRequest,
-    ListPartnerShopsResult, ListPartnerShopsUseCase, PartnerShopSummary,
-};
 pub use queries::search_users::{
     SearchUsersError, SearchUsersHandler, SearchUsersRequest, SearchUsersResult,
     SearchUsersUseCase, UserSummary,

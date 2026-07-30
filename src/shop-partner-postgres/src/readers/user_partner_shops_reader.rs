@@ -1,13 +1,13 @@
 use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
-use sqlx::FromRow;
-use user_service::ports::{
+use shop_partner_service::ports::{
     UserPartnerShopsReadError, UserPartnerShopsReader, UserPartnerShopsReaderFactory,
 };
-use user_service::use_cases::queries::list_partner_shops::{
+use shop_partner_service::use_cases::list_partner_shops::{
     ListPartnerShopsRequest, ListPartnerShopsResult, PartnerShopSummary,
 };
+use sqlx::FromRow;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxUserPartnerShopsReaderFactory;
@@ -55,11 +55,9 @@ impl UserPartnerShopsReader for SqlxUserPartnerShopsReader<'_> {
             source: box_error(source),
         })?;
 
-        let items = rows.into_iter().map(PartnerShopSummary::from).collect();
-
         Ok(ListPartnerShopsResult {
             user_id: request.user_id,
-            items,
+            items: rows.into_iter().map(PartnerShopSummary::from).collect(),
         })
     }
 }

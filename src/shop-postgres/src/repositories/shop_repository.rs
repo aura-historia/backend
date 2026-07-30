@@ -1,6 +1,7 @@
 use crate::mapping::{
     ShopRow, bind_affiliate_configuration, bind_country, bind_currency, bind_domains,
-    bind_language, bind_partner_status, bind_shop_type, shop_columns, version_to_i64,
+    bind_language, bind_lifecycle, bind_partner_status, bind_shop_type, shop_columns,
+    version_to_i64,
 };
 use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
@@ -84,7 +85,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
         sqlx::query(
             r#"
             INSERT INTO shops (
-                shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains,
+                shop_id, shop_slug_id, name, shop_type, partner_status, lifecycle, shop_domains,
                 shopify_domain, shopify_currency, shopify_language,
                 woocommerce_webhook_secret, woocommerce_currency, woocommerce_language,
                 url, image,
@@ -93,12 +94,12 @@ impl ShopRepository for SqlxShopRepository<'_> {
                 structured_address_postal_code, structured_address_country,
                 geo_address_lat, geo_address_lon, phone, email, affiliate_configuration
             ) VALUES (
-                $1, $2, $3, $4, $5, $6,
-                $7, $8, $9,
-                $10, $11, $12,
-                $13, $14,
-                $15, $16, $17, $18, $19, $20,
-                $21, $22, $23, $24, $25
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9, $10,
+                $11, $12, $13,
+                $14, $15,
+                $16, $17, $18, $19, $20, $21,
+                $22, $23, $24, $25, $26
             )
             "#,
         )
@@ -107,6 +108,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
         .bind(shop.name().as_ref())
         .bind(bind_shop_type(shop.shop_type()))
         .bind(bind_partner_status(shop.partner_status()))
+        .bind(bind_lifecycle(shop.lifecycle()))
         .bind(bind_domains(shop))
         .bind(shopify.map(|value| value.domain.as_str()))
         .bind(bind_currency(shopify.and_then(|value| value.currency)))
@@ -154,35 +156,37 @@ impl ShopRepository for SqlxShopRepository<'_> {
                 name = $2,
                 shop_type = $3,
                 partner_status = $4,
-                shop_domains = $5,
-                shopify_domain = $6,
-                shopify_currency = $7,
-                shopify_language = $8,
-                woocommerce_webhook_secret = $9,
-                woocommerce_currency = $10,
-                woocommerce_language = $11,
-                url = $12,
-                image = $13,
-                structured_address_addressline = $14,
-                structured_address_addressline_extra = $15,
-                structured_address_locality = $16,
-                structured_address_region = $17,
-                structured_address_postal_code = $18,
-                structured_address_country = $19,
-                geo_address_lat = $20,
-                geo_address_lon = $21,
-                phone = $22,
-                email = $23,
-                affiliate_configuration = $24,
+                lifecycle = $5,
+                shop_domains = $6,
+                shopify_domain = $7,
+                shopify_currency = $8,
+                shopify_language = $9,
+                woocommerce_webhook_secret = $10,
+                woocommerce_currency = $11,
+                woocommerce_language = $12,
+                url = $13,
+                image = $14,
+                structured_address_addressline = $15,
+                structured_address_addressline_extra = $16,
+                structured_address_locality = $17,
+                structured_address_region = $18,
+                structured_address_postal_code = $19,
+                structured_address_country = $20,
+                geo_address_lat = $21,
+                geo_address_lon = $22,
+                phone = $23,
+                email = $24,
+                affiliate_configuration = $25,
                 version = version + 1,
                 updated = now()
-            WHERE shop_id = $25 AND version = $26
+            WHERE shop_id = $26 AND version = $27
             "#,
         )
         .bind(shop.slug_id().as_ref())
         .bind(shop.name().as_ref())
         .bind(bind_shop_type(shop.shop_type()))
         .bind(bind_partner_status(shop.partner_status()))
+        .bind(bind_lifecycle(shop.lifecycle()))
         .bind(bind_domains(shop))
         .bind(shopify.map(|value| value.domain.as_str()))
         .bind(bind_currency(shopify.and_then(|value| value.currency)))

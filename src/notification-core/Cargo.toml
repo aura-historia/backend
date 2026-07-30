@@ -1,0 +1,19 @@
+[package]
+name = "notification-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+product-core = { workspace = true }
+serde = { workspace = true }
+serde-email = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+uuid = { workspace = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[features]
+default = []
+test-data = ["fake", "common/test-data", "product-core/test-data"]

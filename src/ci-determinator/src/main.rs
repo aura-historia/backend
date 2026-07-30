@@ -16,6 +16,9 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/shop-core",
     "src/shop-postgres",
     "src/shop-service",
+    "src/shop-partner-core",
+    "src/shop-partner-postgres",
+    "src/shop-partner-service",
     "src/user-core",
     "src/user-postgres",
     "src/user-service",
@@ -26,6 +29,9 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/watchlist-core",
     "src/watchlist-postgres",
     "src/watchlist-service",
+    "src/notification-core",
+    "src/notification-dynamodb",
+    "src/notification-service",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.

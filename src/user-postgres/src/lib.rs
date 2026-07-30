@@ -3,7 +3,7 @@ mod readers;
 mod repositories;
 
 pub use readers::{
-    SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserPartnerShopsReaderFactory,
-    SqlxUserSearchReaderFactory, SqlxUserStripeCustomerReaderFactory,
+    SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserSearchReaderFactory,
+    SqlxUserStripeCustomerReaderFactory,
 };
 pub use repositories::SqlxUserRepositoryFactory;

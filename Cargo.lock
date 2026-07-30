@@ -247,7 +247,10 @@ dependencies = [
  "newsletter-api",
  "notification",
  "notification-api",
+ "notification-core",
+ "notification-dynamodb",
  "notification-send",
+ "notification-service",
  "oauth",
  "oauth-api",
  "partner-shop-application",
@@ -278,6 +281,9 @@ dependencies = [
  "shop-api",
  "shop-core",
  "shop-lambda",
+ "shop-partner-core",
+ "shop-partner-postgres",
+ "shop-partner-service",
  "shop-postgres",
  "shop-service",
  "shopify-lambda",
@@ -4566,6 +4572,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "notification-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "product-core",
+ "serde",
+ "serde-email",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "notification-dynamodb"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "field",
+ "mockall",
+ "notification-core",
+ "notification-dynamodb",
+ "notification-service",
+ "product",
+ "product-core",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_fields",
+ "serial_test",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "notification-send"
 version = "0.1.0"
 dependencies = [
@@ -4589,6 +4636,22 @@ dependencies = [
  "tracing-subscriber",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "notification-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "mockall",
+ "notification-core",
+ "notification-service",
+ "rstest",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
 ]
 
 [[package]]
@@ -7531,6 +7594,64 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "shop-partner-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "shop-core",
+ "thiserror 2.0.19",
+ "time",
+]
+
+[[package]]
+name = "shop-partner-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "geo",
+ "isocountry",
+ "rstest",
+ "serde-email",
+ "serial_test",
+ "shop-core",
+ "shop-partner-core",
+ "shop-partner-service",
+ "shop-postgres",
+ "shop-service",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "user-core",
+ "user-postgres",
+ "user-service",
+ "uuid",
+]
+
+[[package]]
+name = "shop-partner-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "geo",
+ "serde",
+ "serde-email",
+ "shop-core",
+ "shop-partner-core",
+ "shop-service",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

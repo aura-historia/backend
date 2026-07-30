@@ -1,0 +1,3 @@
+mod partner_shop_application_repository;
+
+pub use partner_shop_application_repository::SqlxPartnerShopApplicationRepositoryFactory;

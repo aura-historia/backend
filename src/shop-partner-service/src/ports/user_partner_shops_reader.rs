@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
-use crate::use_cases::queries::list_partner_shops::{
-    ListPartnerShopsRequest, ListPartnerShopsResult,
-};
+use crate::use_cases::list_partner_shops::{ListPartnerShopsRequest, ListPartnerShopsResult};
 use common::error::boxed::BoxError;
 
 #[derive(Debug, thiserror::Error)]

@@ -97,7 +97,10 @@
 - `src/fxrate-lambda/AGENTS.md` — `fxrate-lambda` crate.
 - `src/geo/AGENTS.md` — `geo` crate.
 - `src/newsletter-api/AGENTS.md` — `newsletter-api` crate.
-- `src/notification/AGENTS.md` — `notification` crate.
+- `src/notification/AGENTS.md` — legacy notification crate.
+- `src/notification-core/AGENTS.md` — canonical Notification domain crate.
+- `src/notification-service/AGENTS.md` — canonical Notification service/use-case crate.
+- `src/notification-dynamodb/AGENTS.md` — canonical Notification DynamoDB adapter crate.
 - `src/notification-api/AGENTS.md` — `notification-api` crate.
 - `src/notification-send/AGENTS.md` — `notification-send` crate.
 - `src/oauth/AGENTS.md` — `oauth` crate.
@@ -132,6 +135,9 @@
 - `src/shop-core/AGENTS.md` — canonical Shop domain crate.
 - `src/shop-service/AGENTS.md` — canonical Shop service crate.
 - `src/shop-postgres/AGENTS.md` — canonical Shop Postgres adapter crate.
+- `src/shop-partner-core/AGENTS.md` — canonical Partner Shop Application domain crate.
+- `src/shop-partner-service/AGENTS.md` — canonical Partner Shop Application service crate.
+- `src/shop-partner-postgres/AGENTS.md` — canonical Partner Shop Application Postgres adapter crate.
 - `src/shop-api/AGENTS.md` — `shop-api` crate.
 - `src/shop-lambda/AGENTS.md` — `shop-lambda` crate.
 - `src/shopify-lambda/AGENTS.md` — `shopify-lambda` crate.

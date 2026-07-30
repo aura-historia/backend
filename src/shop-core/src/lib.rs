@@ -1,6 +1,7 @@
 pub mod address;
 pub mod affiliate_configuration;
 pub mod continent;
+pub mod lifecycle;
 pub mod partner_status;
 pub mod shop;
 pub mod shop_search;

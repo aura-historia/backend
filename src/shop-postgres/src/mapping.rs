@@ -9,6 +9,7 @@ use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use shop_core::affiliate_configuration::AffiliateConfiguration;
+use shop_core::lifecycle::ShopLifecycle;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{
     RehydratedShopState, Shop, ShopAddress, ShopContact, ShopPresentation, ShopifyIntegration,
@@ -30,6 +31,7 @@ pub(crate) struct ShopRow {
     pub name: String,
     pub shop_type: String,
     pub partner_status: String,
+    pub lifecycle: String,
     pub shop_domains: Vec<String>,
     pub shopify_domain: Option<String>,
     pub shopify_currency: Option<String>,
@@ -78,6 +80,8 @@ pub(crate) enum ShopRowMappingError {
     InvalidShopType,
     #[error("invalid shop partner status persisted")]
     InvalidPartnerStatus,
+    #[error("invalid shop lifecycle persisted")]
+    InvalidLifecycle,
     #[error("invalid shopify currency persisted")]
     InvalidShopifyCurrency,
     #[error("invalid shopify language persisted")]
@@ -107,7 +111,7 @@ pub(crate) enum ShopRowMappingError {
 }
 
 const SHOP_COLUMNS: &str = r#"
-    shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains,
+    shop_id, shop_slug_id, name, shop_type, partner_status, lifecycle, shop_domains,
     shopify_domain, shopify_currency, shopify_language,
     woocommerce_webhook_secret, woocommerce_currency, woocommerce_language,
     url, image,
@@ -224,6 +228,7 @@ impl ShopRow {
             address,
             contact,
             partner_status: parse_partner_status(&self.partner_status)?,
+            lifecycle: parse_lifecycle(&self.lifecycle)?,
             affiliate_configuration: parse_affiliate_configuration(&self.affiliate_configuration)?,
         };
 
@@ -271,6 +276,13 @@ pub(crate) fn bind_partner_status(value: ShopPartnerStatus) -> &'static str {
     match value {
         ShopPartnerStatus::Scraped => "SCRAPED",
         ShopPartnerStatus::Partnered => "PARTNERED",
+    }
+}
+
+pub(crate) fn bind_lifecycle(value: ShopLifecycle) -> &'static str {
+    match value {
+        ShopLifecycle::Drafted => "DRAFTED",
+        ShopLifecycle::Published => "PUBLISHED",
     }
 }
 
@@ -528,6 +540,14 @@ fn parse_partner_status(value: &str) -> Result<ShopPartnerStatus, ShopRowMapping
     }
 }
 
+fn parse_lifecycle(value: &str) -> Result<ShopLifecycle, ShopRowMappingError> {
+    match value {
+        "DRAFTED" => Ok(ShopLifecycle::Drafted),
+        "PUBLISHED" => Ok(ShopLifecycle::Published),
+        _ => Err(ShopRowMappingError::InvalidLifecycle),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -758,6 +778,7 @@ mod tests {
             name: name.to_owned(),
             shop_type: "COMMERCIAL_DEALER".to_owned(),
             partner_status: "SCRAPED".to_owned(),
+            lifecycle: "DRAFTED".to_owned(),
             shop_domains: vec!["example.com".to_owned()],
             shopify_domain: Some("shopify.example".to_owned()),
             shopify_currency: Some("EUR".to_owned()),
