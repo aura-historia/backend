@@ -247,7 +247,10 @@ dependencies = [
  "newsletter-api",
  "notification",
  "notification-api",
+ "notification-core",
+ "notification-dynamodb",
  "notification-send",
+ "notification-service",
  "oauth",
  "oauth-api",
  "partner-shop-application",
@@ -4569,6 +4572,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "notification-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "product-core",
+ "serde",
+ "serde-email",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "notification-dynamodb"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "field",
+ "mockall",
+ "notification-core",
+ "notification-dynamodb",
+ "notification-service",
+ "product",
+ "product-core",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_fields",
+ "serial_test",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "notification-send"
 version = "0.1.0"
 dependencies = [
@@ -4592,6 +4636,22 @@ dependencies = [
  "tracing-subscriber",
  "user",
  "uuid",
+]
+
+[[package]]
+name = "notification-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fake",
+ "mockall",
+ "notification-core",
+ "notification-service",
+ "rstest",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
 ]
 
 [[package]]

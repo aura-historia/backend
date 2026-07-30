@@ -1,0 +1,26 @@
+[package]
+name = "notification-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+common = { workspace = true }
+notification-core = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+mockall = { workspace = true, optional = true }
+
+# Optional
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+notification-service = { workspace = true, features = ["test-data", "mock"] }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+
+[features]
+default = []
+mock = ["mockall"]
+data = ["common/api"]
+test-data = ["fake", "common/test-data", "notification-core/test-data"]

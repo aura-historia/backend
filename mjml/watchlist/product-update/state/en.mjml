@@ -13,8 +13,8 @@
             .state-old { text-decoration: line-through; color: #6d625d; }
             .state-new { color: #42120f; font-weight: 700; font-size: 18px; }
         </mj-style>
-        <mj-title>Status change: {{title}}</mj-title>
-        <mj-preview>The availability of "{{title}}" has changed — view details now.</mj-preview>
+        <mj-title>Status change{{#if title}}: {{title}}{{/if}}</mj-title>
+        <mj-preview>{{#if title}}The availability of "{{title}}" has changed — view details now.{{else}}A watchlist item availability changed — view details now.{{/if}}</mj-preview>
     </mj-head>
 
     <mj-body background-color="#F7F4E9" width="600px">
@@ -44,14 +44,16 @@
         <!-- Product info -->
         <mj-section background-color="#ffffff" padding="0 32px" border-radius="12px">
             <mj-column>
+                {{#if title}}
                 <mj-text font-family="'Newsreader', Georgia, serif" font-size="22px" font-weight="600" color="#1c1c16" padding-bottom="4px">
                     {{title}}
                 </mj-text>
+                {{/if}}
                 <mj-text font-size="14px" color="#6d625d" padding-bottom="16px">
                     Offered by <b>{{shop_name}}</b>
                 </mj-text>
                 {{#if image_url}}
-                <mj-image src="{{image_url}}" alt="{{title}}" padding="0 0 16px" border-radius="8px" />
+                <mj-image src="{{image_url}}" alt="{{shop_name}}" padding="0 0 16px" border-radius="8px" />
                 {{/if}}
             </mj-column>
         </mj-section>
