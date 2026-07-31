@@ -103,8 +103,6 @@ where
             scopes: command.scopes,
             origin: command.origin,
             expires: command.expires,
-            created_by: principal.clone(),
-            updated_by: principal.clone(),
             created: now,
             updated: now,
         };
@@ -233,8 +231,6 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Principal::User(user_id),
-            updated_by: Principal::User(user_id),
             created: now,
             updated: now,
         }
@@ -379,13 +375,13 @@ mod tests {
         let state = lock(&store.state);
         assert_eq!(1, state.insert_calls);
         assert_eq!(
-            Some(Principal::User(user_id)),
-            state.token.as_ref().map(|token| token.created_by.clone())
+            Some(user_id),
+            state.token.as_ref().map(|token| token.user_id)
         );
     }
 
     #[tokio::test]
-    async fn should_create_access_token_with_delegated_user_actor() {
+    async fn should_create_access_token_with_delegated_user() {
         let user_id = UserId::new();
         let store = FakeAccessTokenStore::default();
 
@@ -408,16 +404,7 @@ mod tests {
         );
 
         assert_eq!(user_id, created.user_id);
-        assert_eq!(
-            Some(Principal::DelegatedUser {
-                user_id,
-                capabilities: BTreeSet::from([CredentialCapability::ShopsManage]),
-            }),
-            lock(&store.state)
-                .token
-                .as_ref()
-                .map(|token| token.created_by.clone())
-        );
+        assert_eq!(1, lock(&store.state).insert_calls);
     }
 
     #[tokio::test]

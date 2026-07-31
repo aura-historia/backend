@@ -210,8 +210,6 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Principal::User(user_id),
-            updated_by: Principal::User(user_id),
             created: now,
             updated: now,
         }

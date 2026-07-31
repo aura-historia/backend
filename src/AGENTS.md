@@ -147,6 +147,7 @@
 - `src/user/AGENTS.md` — legacy `user` crate.
 - `src/user-core/AGENTS.md` — canonical User domain crate.
 - `src/user-service/AGENTS.md` — canonical User service crate.
+- `src/user-dynamodb/AGENTS.md` — canonical User DynamoDB adapter crate.
 - `src/user-postgres/AGENTS.md` — canonical User Postgres adapter crate.
 - `src/user-api/AGENTS.md` — `user-api` crate.
 - `src/user-lambda/AGENTS.md` — `user-lambda` crate.

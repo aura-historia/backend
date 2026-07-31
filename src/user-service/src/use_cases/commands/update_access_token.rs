@@ -1,6 +1,6 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
 use common::error::boxed::BoxError;
-use common::operation_context::{AuthenticationRequired, OperationContext, Principal};
+use common::operation_context::{AuthenticationRequired, OperationContext};
 use common::patch_field::PatchField;
 use common::user_id::UserId;
 use std::collections::HashSet;
@@ -108,7 +108,7 @@ where
             .await?
             .ok_or(UpdateAccessTokenError::AccessTokenNotFound)?;
 
-        let changed = apply_update(&mut access_token, command, principal.clone())?;
+        let changed = apply_update(&mut access_token, command)?;
         if changed {
             self.store.replace(access_token.clone()).await?;
         }
@@ -132,7 +132,6 @@ where
 fn apply_update(
     access_token: &mut AccessToken,
     command: UpdateAccessTokenCommand,
-    principal: Principal,
 ) -> Result<bool, UpdateAccessTokenError> {
     let mut changed = false;
 
@@ -168,7 +167,6 @@ fn apply_update(
     }
 
     if changed {
-        access_token.updated_by = principal;
         access_token.updated = OffsetDateTime::now_utc();
     }
 
@@ -281,8 +279,6 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Principal::User(user_id),
-            updated_by: Principal::User(user_id),
             created: now,
             updated: now,
         }
@@ -465,7 +461,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_update_access_token_with_delegated_user_actor() {
+    async fn should_update_access_token_with_delegated_user() {
         let user_id = UserId::new();
         let store = FakeAccessTokenStore::default();
         let current = token(user_id, HashSet::new(), None);
@@ -488,16 +484,7 @@ mod tests {
                 .await,
         );
 
-        assert_eq!(
-            Some(Principal::DelegatedUser {
-                user_id,
-                capabilities: BTreeSet::from([CredentialCapability::ShopsManage]),
-            }),
-            lock(&store.state)
-                .token
-                .as_ref()
-                .map(|token| token.updated_by.clone())
-        );
+        assert_eq!(1, lock(&store.state).replace_calls);
     }
 
     #[tokio::test]

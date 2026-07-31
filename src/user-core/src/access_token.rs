@@ -1,7 +1,4 @@
-use common::{
-    oauth_client_id::OAuthClientId, operation_context::Principal, string_newtype, user_id::UserId,
-    uuid_v7_newtype,
-};
+use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId, uuid_v7_newtype};
 use prefixed_api_key::{
     PrefixedApiKey, PrefixedApiKeyController,
     sha2::{Digest, Sha256},
@@ -28,8 +25,6 @@ pub struct AccessToken {
     pub scopes: HashSet<Scope>,
     pub origin: AccessTokenOrigin,
     pub expires: Option<OffsetDateTime>,
-    pub created_by: Principal,
-    pub updated_by: Principal,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -495,8 +490,6 @@ mod access_token_state_tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Principal::System,
-            updated_by: Principal::System,
             created: now,
             updated: now,
         }
@@ -542,8 +535,6 @@ mod faker {
                 scopes: [Scope::ProductsWrite].into(),
                 origin: AccessTokenOrigin::User,
                 expires: None,
-                created_by: Principal::System,
-                updated_by: Principal::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
