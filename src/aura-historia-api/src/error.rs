@@ -42,7 +42,6 @@ pub(crate) const BAD_QUERY_PARAMETER_VALUE: ApiErrorCode =
 pub(crate) const BAD_SORT_VALUE: ApiErrorCode = ApiErrorCode("BAD_SORT_VALUE");
 pub(crate) const CONFLICT: ApiErrorCode = ApiErrorCode("CONFLICT");
 pub(crate) const FORBIDDEN: ApiErrorCode = ApiErrorCode("FORBIDDEN");
-pub(crate) const INVALID_DOMAIN: ApiErrorCode = ApiErrorCode("INVALID_DOMAIN");
 pub(crate) const INVALID_UUID: ApiErrorCode = ApiErrorCode("INVALID_UUID");
 pub(crate) const SHOP_EXISTS_ALREADY: ApiErrorCode = ApiErrorCode("SHOP_EXISTS_ALREADY");
 pub(crate) const SHOP_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("SHOP_INTERNAL_ERROR");

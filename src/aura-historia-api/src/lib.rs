@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod error;
+pub mod shop_write_policy;
 pub mod shops;
 pub mod state;
 
@@ -7,9 +8,10 @@ use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
 };
+use crate::shop_write_policy::ShopWritePolicyAdapter;
 use crate::state::{AppState, ShopsState};
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::get;
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use shop_postgres::{
     SqlxPartnerShopReaderFactory, SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory,
@@ -90,14 +92,6 @@ pub fn app(state: AppState) -> Router {
             get(shops::get_shop_by_slug::get_shop_by_slug),
         )
         .route(
-            "/api/v1/by-domain/shops/{shop_domain}",
-            get(shops::get_shop_by_domain::get_shop_by_domain),
-        )
-        .route(
-            "/api/v1/shops/search",
-            post(shops::search_shops::post_shop_search),
-        )
-        .route(
             "/api/v1/shops",
             get(shops::search_shops::get_shops).post(shops::create_shop::create_shop),
         )
@@ -122,20 +116,25 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
     let search_shops =
         SearchShopsHandler::new(unit_of_work.clone(), SqlxShopSearchReaderFactory::new());
-    let create_shop = CreateShopHandler::new(
-        unit_of_work.clone(),
-        SqlxShopRepositoryFactory::new(),
-        UnavailableShopGeocoder,
-    );
-    let update_shop = UpdateShopHandler::new(
-        unit_of_work.clone(),
-        SqlxShopRepositoryFactory::new(),
-        UnavailableShopGeocoder,
-    );
     let check_user_admin =
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
     let check_user_partner_shop =
         CheckUserPartnerShopHandler::new(unit_of_work.clone(), SqlxPartnerShopReaderFactory::new());
+    let write_policy = ShopWritePolicyAdapter::new(check_user_admin, check_user_partner_shop);
+    let create_shop = CreateShopHandler::new(
+        unit_of_work.clone(),
+        SqlxShopRepositoryFactory::new(),
+        SqlxShopDetailsReaderFactory::new(),
+        UnavailableShopGeocoder,
+        write_policy.clone(),
+    );
+    let update_shop = UpdateShopHandler::new(
+        unit_of_work.clone(),
+        SqlxShopRepositoryFactory::new(),
+        SqlxShopDetailsReaderFactory::new(),
+        UnavailableShopGeocoder,
+        write_policy,
+    );
     let list_user_partner_shops =
         ListUserPartnerShopsHandler::new(unit_of_work, SqlxPartnerShopReaderFactory::new());
 
@@ -155,13 +154,11 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         AuraAccessTokenAuthenticator::new(access_token_use_case),
     );
 
-    Ok(AppState::new(ShopsState::with_all(
+    Ok(AppState::new(ShopsState::new(
         Arc::new(get_shop),
         Arc::new(search_shops),
         Arc::new(create_shop),
         Arc::new(update_shop),
-        Arc::new(check_user_admin),
-        Arc::new(check_user_partner_shop),
         Arc::new(list_user_partner_shops),
         Arc::new(authenticator),
     )))
@@ -327,6 +324,10 @@ mod tests {
     fn test_state() -> AppState {
         AppState::new(ShopsState::new(
             Arc::new(RejectGetShopUseCase),
+            Arc::new(UnusedUseCase),
+            Arc::new(UnusedUseCase),
+            Arc::new(UnusedUseCase),
+            Arc::new(UnusedUseCase),
             Arc::new(StaticAuthenticator),
         ))
     }
@@ -344,6 +345,66 @@ mod tests {
             shop_service::use_cases::queries::get_shop::GetShopError,
         > {
             Err(shop_service::use_cases::queries::get_shop::GetShopError::NotFound)
+        }
+    }
+
+    struct UnusedUseCase;
+
+    #[async_trait::async_trait]
+    impl shop_service::use_cases::queries::search_shops::SearchShopsUseCase for UnusedUseCase {
+        async fn execute(
+            &self,
+            _context: &common::operation_context::OperationContext,
+            _request: shop_service::use_cases::queries::search_shops::SearchShopsRequest,
+        ) -> Result<
+            shop_service::use_cases::queries::search_shops::SearchShopsResult,
+            shop_service::use_cases::queries::search_shops::SearchShopsError,
+        > {
+            unreachable!("unused search use case")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl shop_service::use_cases::commands::create_shop::CreateShopUseCase for UnusedUseCase {
+        async fn execute(
+            &self,
+            _context: &common::operation_context::OperationContext,
+            _command: shop_service::use_cases::commands::create_shop::CreateShopCommand,
+        ) -> Result<
+            shop_service::use_cases::commands::create_shop::CreateShopResult,
+            shop_service::use_cases::commands::create_shop::CreateShopError,
+        > {
+            unreachable!("unused create shop use case")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl shop_service::use_cases::commands::update_shop::UpdateShopUseCase for UnusedUseCase {
+        async fn execute(
+            &self,
+            _context: &common::operation_context::OperationContext,
+            _command: shop_service::use_cases::commands::update_shop::UpdateShopCommand,
+        ) -> Result<
+            shop_service::use_cases::commands::update_shop::UpdateShopResult,
+            shop_service::use_cases::commands::update_shop::UpdateShopError,
+        > {
+            unreachable!("unused update shop use case")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsUseCase
+        for UnusedUseCase
+    {
+        async fn execute(
+            &self,
+            _context: &common::operation_context::OperationContext,
+            _request: shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsRequest,
+        ) -> Result<
+            shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsResult,
+            shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsError,
+        > {
+            unreachable!("unused partner shops use case")
         }
     }
 

@@ -1,5 +1,5 @@
 use crate::error::{ApiError, BAD_BODY_VALUE};
-use crate::shops::authz::{ensure_admin, protected_context};
+use crate::shops::authz::protected_context;
 use crate::shops::shop_data::shop_response;
 use crate::shops::types::ShopTypeData;
 use crate::state::ShopsState;
@@ -15,7 +15,6 @@ use serde::Deserialize;
 use serde_email::Email;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_service::use_cases::commands::create_shop::CreateShopCommand;
-use shop_service::use_cases::queries::get_shop::GetShopRequest;
 use std::collections::HashSet;
 use url::Url;
 
@@ -54,13 +53,10 @@ pub async fn create_shop(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (context, user_id) = match protected_context(&state, &headers).await {
+    let (context, _) = match protected_context(&state, &headers).await {
         Ok(value) => value,
         Err(response) => return response,
     };
-    if let Err(response) = ensure_admin(&state, &context, user_id).await {
-        return response;
-    }
     let data = match parse_body(&body) {
         Ok(data) => data,
         Err(error) => return error.into_response(),
@@ -82,15 +78,7 @@ pub async fn create_shop(
         email: data.email,
         affiliate_configuration: None,
     };
-    let created = match state.create_shop.execute(&context, command).await {
-        Ok(result) => result,
-        Err(error) => return ApiError::from(error).into_response(),
-    };
-    match state
-        .get_shop
-        .execute(&context, GetShopRequest::ById(created.shop_id))
-        .await
-    {
+    match state.create_shop.execute(&context, command).await {
         Ok(view) => {
             let mut response = shop_response(view, None);
             *response.status_mut() = StatusCode::CREATED;

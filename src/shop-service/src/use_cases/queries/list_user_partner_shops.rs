@@ -1,10 +1,11 @@
 use crate::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
+use crate::use_cases::queries::search_shops::ShopSummary;
 use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, user_id::UserId};
+use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListUserPartnerShopsRequest {
@@ -14,7 +15,7 @@ pub struct ListUserPartnerShopsRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListUserPartnerShopsResult {
     pub user_id: UserId,
-    pub shop_ids: Vec<ShopId>,
+    pub items: Vec<ShopSummary>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -99,10 +100,10 @@ where
             .await
             .map_err(|_| ListUserPartnerShopsError::BeginTransactionFailed)?;
 
-        let shop_ids = self
+        let items = self
             .reader
             .in_transaction(&mut tx)
-            .list_shop_ids_for_user(request.user_id)
+            .list_summaries_for_user(request.user_id)
             .await?;
 
         tx.commit()
@@ -111,7 +112,7 @@ where
 
         Ok(ListUserPartnerShopsResult {
             user_id: request.user_id,
-            shop_ids,
+            items,
         })
     }
 }

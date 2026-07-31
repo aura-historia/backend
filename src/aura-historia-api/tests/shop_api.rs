@@ -2,6 +2,7 @@ use aura_historia_api::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
 };
+use aura_historia_api::shop_write_policy::ShopWritePolicyAdapter;
 use aura_historia_api::state::ShopsState;
 use aura_historia_api::{app, state::AppState};
 use common::domain::Domain;
@@ -108,28 +109,6 @@ async fn should_get_shop_by_slug() {
     let response = reqwest::Client::new()
         .get(format!(
             "{}/api/v1/by-slug/shops/api-integration-shop",
-            AURA_API.base_url()
-        ))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
-    let status = response.status();
-    let body = response
-        .json::<serde_json::Value>()
-        .await
-        .unwrap_or_else(|error| panic!("failed to decode shop API response: {error}"));
-
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(serde_json::json!(shop.id().to_string()), body["shopId"]);
-}
-
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
-async fn should_get_shop_by_domain() {
-    let shop = seed_shop().await;
-
-    let response = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/by-domain/shops/api-integration-shop.myshopify.com",
             AURA_API.base_url()
         ))
         .send()
@@ -391,16 +370,6 @@ async fn test_state() -> AppState {
         unit_of_work.clone(),
         shop_postgres::SqlxShopSearchReaderFactory::new(),
     );
-    let create_shop = CreateShopHandler::new(
-        unit_of_work.clone(),
-        SqlxShopRepositoryFactory::new(),
-        RejectGeocoder,
-    );
-    let update_shop = UpdateShopHandler::new(
-        unit_of_work.clone(),
-        SqlxShopRepositoryFactory::new(),
-        RejectGeocoder,
-    );
     let check_user_admin = CheckUserAdminHandler::new(
         unit_of_work.clone(),
         user_postgres::SqlxUserAdminReaderFactory::new(),
@@ -408,6 +377,21 @@ async fn test_state() -> AppState {
     let check_user_partner_shop = CheckUserPartnerShopHandler::new(
         unit_of_work.clone(),
         shop_postgres::SqlxPartnerShopReaderFactory::new(),
+    );
+    let write_policy = ShopWritePolicyAdapter::new(check_user_admin, check_user_partner_shop);
+    let create_shop = CreateShopHandler::new(
+        unit_of_work.clone(),
+        SqlxShopRepositoryFactory::new(),
+        shop_postgres::SqlxShopDetailsReaderFactory::new(),
+        RejectGeocoder,
+        write_policy.clone(),
+    );
+    let update_shop = UpdateShopHandler::new(
+        unit_of_work.clone(),
+        SqlxShopRepositoryFactory::new(),
+        shop_postgres::SqlxShopDetailsReaderFactory::new(),
+        RejectGeocoder,
+        write_policy,
     );
     let list_user_partner_shops = ListUserPartnerShopsHandler::new(
         unit_of_work,
@@ -420,13 +404,11 @@ async fn test_state() -> AppState {
         RejectJwtAuthenticator,
         AuraAccessTokenAuthenticator::new(access_token),
     );
-    AppState::new(ShopsState::with_all(
+    AppState::new(ShopsState::new(
         std::sync::Arc::new(get_shop),
         std::sync::Arc::new(search_shops),
         std::sync::Arc::new(create_shop),
         std::sync::Arc::new(update_shop),
-        std::sync::Arc::new(check_user_admin),
-        std::sync::Arc::new(check_user_partner_shop),
         std::sync::Arc::new(list_user_partner_shops),
         std::sync::Arc::new(authenticator),
     ))

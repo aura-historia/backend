@@ -5,10 +5,7 @@ use crate::state::ShopsState;
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use common::operation_context::OperationContext;
-use common::shop_id::ShopId;
 use common::user_id::UserId;
-use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
-use user_service::use_cases::queries::check_user_admin::CheckUserAdminRequest;
 
 pub(crate) async fn protected_context(
     state: &ShopsState,
@@ -25,49 +22,6 @@ pub(crate) async fn protected_context(
             .into_response()
     })?;
     Ok((principal.operation_context(metadata), user_id))
-}
-
-pub(crate) async fn ensure_admin(
-    state: &ShopsState,
-    context: &OperationContext,
-    user_id: UserId,
-) -> Result<(), axum::response::Response> {
-    state
-        .check_user_admin
-        .execute(context, CheckUserAdminRequest { user_id })
-        .await
-        .map(drop)
-        .map_err(|error| ApiError::from(error).into_response())
-}
-
-pub(crate) async fn ensure_admin_or_partner(
-    state: &ShopsState,
-    context: &OperationContext,
-    user_id: UserId,
-    shop_id: ShopId,
-) -> Result<(), axum::response::Response> {
-    match state
-        .check_user_admin
-        .execute(context, CheckUserAdminRequest { user_id })
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(user_service::use_cases::queries::check_user_admin::CheckUserAdminError::Forbidden) => {
-            let result = state
-                .check_user_partner_shop
-                .execute(context, CheckUserPartnerShopRequest { user_id, shop_id })
-                .await
-                .map_err(|error| ApiError::from(error).into_response())?;
-            if result.is_partner {
-                Ok(())
-            } else {
-                Err(ApiError::forbidden(FORBIDDEN)
-                    .with_detail("User is not partner of this shop.")
-                    .into_response())
-            }
-        }
-        Err(error) => Err(ApiError::from(error).into_response()),
-    }
 }
 
 fn user_id(principal: &TransportPrincipal) -> Option<UserId> {

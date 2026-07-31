@@ -254,6 +254,10 @@ mod tests {
                 result: Arc::new(Mutex::new(shop_result)),
                 calls: Arc::clone(&calls),
             }),
+            Arc::new(UnusedUseCase),
+            Arc::new(UnusedUseCase),
+            Arc::new(UnusedUseCase),
+            Arc::new(UnusedUseCase),
             Arc::new(FakeAuthenticator {
                 result: Arc::new(Mutex::new(auth_result)),
             }),
@@ -264,6 +268,66 @@ mod tests {
                 .with_state(state),
             calls,
         )
+    }
+
+    struct UnusedUseCase;
+
+    #[async_trait::async_trait]
+    impl shop_service::use_cases::queries::search_shops::SearchShopsUseCase for UnusedUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _request: shop_service::use_cases::queries::search_shops::SearchShopsRequest,
+        ) -> Result<
+            shop_service::use_cases::queries::search_shops::SearchShopsResult,
+            shop_service::use_cases::queries::search_shops::SearchShopsError,
+        > {
+            unreachable!("unused search use case")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl shop_service::use_cases::commands::create_shop::CreateShopUseCase for UnusedUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _command: shop_service::use_cases::commands::create_shop::CreateShopCommand,
+        ) -> Result<
+            shop_service::use_cases::commands::create_shop::CreateShopResult,
+            shop_service::use_cases::commands::create_shop::CreateShopError,
+        > {
+            unreachable!("unused create shop use case")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl shop_service::use_cases::commands::update_shop::UpdateShopUseCase for UnusedUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _command: shop_service::use_cases::commands::update_shop::UpdateShopCommand,
+        ) -> Result<
+            shop_service::use_cases::commands::update_shop::UpdateShopResult,
+            shop_service::use_cases::commands::update_shop::UpdateShopError,
+        > {
+            unreachable!("unused update shop use case")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsUseCase
+        for UnusedUseCase
+    {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _request: shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsRequest,
+        ) -> Result<
+            shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsResult,
+            shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsError,
+        > {
+            unreachable!("unused partner shops use case")
+        }
     }
 
     async fn body_json(response: Response) -> Result<Value, Box<dyn std::error::Error>> {

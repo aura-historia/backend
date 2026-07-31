@@ -1,5 +1,5 @@
 use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
-use crate::shops::authz::{ensure_admin_or_partner, protected_context};
+use crate::shops::authz::protected_context;
 use crate::shops::shop_data::shop_response;
 use crate::shops::types::ShopTypeData;
 use crate::state::ShopsState;
@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_email::Email;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_service::use_cases::commands::update_shop::UpdateShopCommand;
-use shop_service::use_cases::queries::get_shop::GetShopRequest;
+
 use std::collections::HashSet;
 use url::Url;
 
@@ -66,13 +66,10 @@ pub async fn update_shop(
                 .into_response();
         }
     };
-    let (context, user_id) = match protected_context(&state, &headers).await {
+    let (context, _) = match protected_context(&state, &headers).await {
         Ok(value) => value,
         Err(response) => return response,
     };
-    if let Err(response) = ensure_admin_or_partner(&state, &context, user_id, shop_id).await {
-        return response;
-    }
     let data = match parse_body(&body) {
         Ok(data) => data,
         Err(error) => return error.into_response(),
@@ -94,15 +91,7 @@ pub async fn update_shop(
         email: patch(data.email),
         affiliate_configuration: PatchField::Unchanged,
     };
-    let updated = match state.update_shop.execute(&context, command).await {
-        Ok(result) => result,
-        Err(error) => return ApiError::from(error).into_response(),
-    };
-    match state
-        .get_shop
-        .execute(&context, GetShopRequest::ById(updated.shop_id))
-        .await
-    {
+    match state.update_shop.execute(&context, command).await {
         Ok(view) => shop_response(view, None),
         Err(error) => ApiError::from(error).into_response(),
     }

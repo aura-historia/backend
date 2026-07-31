@@ -13,9 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Shop API routes** now have `aura-historia-api` implementations backed by canonical Postgres shop use cases:
   - `GET /api/v1/shops/{shopId}`
   - `GET /api/v1/by-slug/shops/{shopSlugId}`
-  - `GET /api/v1/by-domain/shops/{shopDomain}`
   - `GET /api/v1/shops`
-  - `POST /api/v1/shops/search`
   - `POST /api/v1/shops`
   - `PATCH /api/v1/shops/{shopId}`
   - `GET /api/v1/me/partner-shops`

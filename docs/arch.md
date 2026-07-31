@@ -235,7 +235,7 @@ runtime/
 
 The composition root MAY depend on every crate required to assemble the process. It MUST NOT contain business behavior.
 
-In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients. Protected endpoints MAY call authorization use cases before the command/query use case; do not inline authorization SQL or role checks in controllers.
+In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients. Route files authenticate and map only; protected endpoint authorization policies MUST live inside service use cases or service-owned policies, not in controllers.
 
 ### 3.6 Dependency direction
 
@@ -2427,6 +2427,7 @@ A controller MUST NOT:
 - build SQL or search DSL;
 - compose multiple data sources;
 - construct concrete adapters;
+- enforce business authorization policy such as admin role, ownership, or partner-shop relation;
 - enforce domain invariants;
 - mutate aggregates;
 - return storage types;
@@ -2450,6 +2451,8 @@ HTTP request
 `aura-historia-api/state.rs` owns axum state structs. State SHOULD contain inbound use-case trait objects and authenticator trait objects, not repositories. Route modules SHOULD take state through axum `State<T>` and remain thin.
 
 For read endpoints with cache behavior, cache headers are REST contract and belong in the controller. If the cache policy depends on anonymous vs authenticated access, derive it from `OperationContext.principal`, not from raw headers.
+
+Query use cases SHOULD be read-optimized for their public result shape. If an API needs a summary list, the query use case should return summary read models directly instead of returning IDs for controller-side hydration. Controllers MUST NOT introduce N+1 reads to assemble response payloads.
 
 ---
 

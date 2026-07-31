@@ -1,9 +1,10 @@
+use crate::mapping::ShopSummaryRow;
 use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
-use common::shop_id::ShopId;
 use common::user_id::UserId;
 use shop_service::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
 use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
+use shop_service::use_cases::queries::search_shops::ShopSummary;
 use sqlx::PgConnection;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -53,24 +54,39 @@ impl PartnerShopReader for SqlxPartnerShopReader<'_> {
         .map_err(Into::into)
     }
 
-    async fn list_shop_ids_for_user(
+    async fn list_summaries_for_user(
         &mut self,
         user_id: UserId,
-    ) -> Result<Vec<ShopId>, PartnerShopReadError> {
-        sqlx::query_scalar::<_, uuid::Uuid>(
+    ) -> Result<Vec<ShopSummary>, PartnerShopReadError> {
+        let rows = sqlx::query_as::<_, ShopSummaryRow>(
             r#"
-            SELECT shop_id
-            FROM user_partner_shops
-            WHERE user_id = $1
-            ORDER BY created ASC, shop_id ASC
+            SELECT
+                s.shop_id,
+                s.shop_slug_id,
+                s.name,
+                s.shop_type,
+                s.partner_status,
+                s.shop_domains,
+                s.image,
+                s.created,
+                s.updated
+            FROM user_partner_shops ups
+            JOIN shops s ON s.shop_id = ups.shop_id
+            WHERE ups.user_id = $1
+            ORDER BY ups.created ASC, s.shop_id ASC
             "#,
         )
         .bind(uuid::Uuid::from(user_id))
         .fetch_all(&mut *self.connection)
         .await
-        .map(|rows| rows.into_iter().map(ShopId::from).collect())
-        .map_err(PartnerShopReadSqlxError)
-        .map_err(Into::into)
+        .map_err(PartnerShopReadSqlxError)?;
+
+        rows.into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|source| PartnerShopReadError::InvalidReadModel {
+                source: box_error(source),
+            })
     }
 }
 

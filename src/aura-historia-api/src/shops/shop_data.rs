@@ -11,6 +11,7 @@ use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::Serialize;
 use serde_email::Email;
 use shop_service::use_cases::queries::get_shop::ShopDetailsView;
+use shop_service::use_cases::queries::search_shops::ShopSummary;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -52,6 +53,39 @@ pub(crate) struct ShopData {
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     updated: OffsetDateTime,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ShopSummaryData {
+    shop_id: ShopId,
+    shop_slug_id: common::shop_slug_id::ShopSlugId,
+    name: common::shop_name::ShopName,
+    shop_type: ShopTypeData,
+    domains: Vec<common::domain::Domain>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image: Option<Url>,
+    partner_status: ShopPartnerStatusData,
+    #[serde(with = "time::serde::rfc3339")]
+    created: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated: OffsetDateTime,
+}
+
+impl From<ShopSummary> for ShopSummaryData {
+    fn from(summary: ShopSummary) -> Self {
+        Self {
+            shop_id: summary.shop_id,
+            shop_slug_id: summary.shop_slug_id,
+            name: summary.name,
+            shop_type: summary.shop_type.into(),
+            domains: summary.domains,
+            image: summary.image,
+            partner_status: summary.partner_status.into(),
+            created: summary.created,
+            updated: summary.updated,
+        }
+    }
 }
 
 impl From<ShopDetailsView> for ShopData {

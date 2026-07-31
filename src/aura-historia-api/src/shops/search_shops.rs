@@ -1,9 +1,8 @@
 use crate::auth::OptionalAuthExtractor;
 use crate::error::{
-    ApiError, BAD_BODY_VALUE, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE,
-    INVALID_UUID,
+    ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE, INVALID_UUID,
 };
-use crate::shops::shop_data::{ShopData, cache_control, request_metadata};
+use crate::shops::shop_data::{ShopSummaryData, cache_control, request_metadata};
 use crate::shops::types::{ShopContinentData, ShopPartnerStatusData, ShopTypeData};
 use crate::state::ShopsState;
 use axum::Json;
@@ -22,7 +21,6 @@ use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop_search::ShopSearch;
 use shop_core::shop_type::ShopType;
 use shop_core::sort_shop_field::SortShopField;
-use shop_service::use_cases::queries::get_shop::GetShopRequest;
 use shop_service::use_cases::queries::search_shops::SearchShopsRequest;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -97,32 +95,10 @@ pub async fn get_shops(
     headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> Response {
-    handle_search(state, headers, query.as_deref(), None, true).await
+    handle_search(state, headers, query.as_deref()).await
 }
 
-pub async fn post_shop_search(
-    State(state): State<ShopsState>,
-    headers: HeaderMap,
-    RawQuery(query): RawQuery,
-    body: String,
-) -> Response {
-    if body.trim().is_empty() {
-        return ApiError::bad_request(BAD_BODY_VALUE)
-            .with_detail(
-                "Body cannot be empty. If you want to search without any restrictions, supply the body '{}'.",
-            )
-            .into_response();
-    }
-    handle_search(state, headers, query.as_deref(), Some(body), false).await
-}
-
-async fn handle_search(
-    state: ShopsState,
-    headers: HeaderMap,
-    raw_query: Option<&str>,
-    body: Option<String>,
-    cacheable: bool,
-) -> Response {
+async fn handle_search(state: ShopsState, headers: HeaderMap, raw_query: Option<&str>) -> Response {
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
         .extract(&headers, &metadata)
@@ -132,7 +108,7 @@ async fn handle_search(
         Err(error) => return ApiError::from(error).into_response(),
     };
     let context = principal.operation_context(metadata);
-    let search = match parse_search(raw_query, body.as_deref()) {
+    let search = match parse_search(raw_query) {
         Ok(search) => search,
         Err(error) => return error.into_response(),
     };
@@ -160,43 +136,29 @@ async fn handle_search(
         Err(error) => return ApiError::from(error).into_response(),
     };
 
-    let mut items = Vec::with_capacity(result.items.len());
-    for item in result.items {
-        match state
-            .get_shop
-            .execute(&context, GetShopRequest::ById(item.shop_id))
-            .await
-        {
-            Ok(view) => items.push(ShopData::from(view)),
-            Err(error) => return ApiError::from(error).into_response(),
-        }
-    }
-
     let mut response = Json(JsonCursoredData {
-        items,
+        items: result
+            .items
+            .into_iter()
+            .map(ShopSummaryData::from)
+            .collect(),
         size: result.cursor.size,
         search_after: result.cursor.search_after,
         total: result.total,
     })
     .into_response();
-    if cacheable {
-        response.headers_mut().insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static(cache_control(&context.principal)),
-        );
-    }
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_control(&context.principal)),
+    );
     response
 }
 
-fn parse_search(raw_query: Option<&str>, body: Option<&str>) -> Result<ShopSearch, ApiError> {
-    let data: ShopSearchData = match body {
-        Some(body) => serde_json::from_str(body).map_err(|error| {
-            ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string())
-        })?,
-        None => serde_qs::from_str(raw_query.unwrap_or_default()).map_err(|error| {
+fn parse_search(raw_query: Option<&str>) -> Result<ShopSearch, ApiError> {
+    let data: ShopSearchData =
+        serde_qs::from_str(raw_query.unwrap_or_default()).map_err(|error| {
             ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_detail(error.to_string())
-        })?,
-    };
+        })?;
     Ok(ShopSearch {
         shop_name_query: data.shop_name_query,
         shop_type_query: data

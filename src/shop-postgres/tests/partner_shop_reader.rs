@@ -53,9 +53,20 @@ async fn should_read_granted_partner_shop() {
         Ok(is_partner) => is_partner,
         Err(error) => panic!("failed to read partner shop: {error:?}"),
     };
+    let summaries = match partner_reader
+        .in_transaction(&mut tx)
+        .list_summaries_for_user(user_id)
+        .await
+    {
+        Ok(summaries) => summaries,
+        Err(error) => panic!("failed to list partner shops: {error:?}"),
+    };
     commit(tx).await;
 
     assert!(is_partner);
+    assert_eq!(1, summaries.len());
+    assert_eq!(shop.id(), summaries[0].shop_id);
+    assert_eq!(shop.name(), &summaries[0].name);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
