@@ -35,6 +35,6 @@ base64 = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
-test-api = { workspace = true, features = ["dynamodb", "postgres"] }
+test-api = { workspace = true, features = ["aura-historia-api", "dynamodb", "postgres"] }
 time = { workspace = true }
 tower = { workspace = true, features = ["util"] }

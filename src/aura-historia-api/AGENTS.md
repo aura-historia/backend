@@ -8,6 +8,8 @@
 
 - `main.rs` bootstraps logging, config, and graceful shutdown.
 - `lib.rs` owns runtime config, axum router, health/readiness endpoints, server loop, and composition root wiring.
+- `state.rs` owns axum application state shared by route modules.
+- `error.rs` owns API problem JSON errors.
 - `auth/` owns bearer auth extraction, Cognito JWT verification via cached JWKS, Aura access-token auth, and mapping to `OperationContext`.
 - Auth accepts Cognito JWTs and Aura access tokens through one interface. Cognito maps to open-world first-party `Principal::User`; Aura access tokens map explicit scopes to closed-world delegated capabilities.
 - Auth extractors only authenticate. Required capability checks belong in service/use-case code.

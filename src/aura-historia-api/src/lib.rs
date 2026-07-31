@@ -1,11 +1,13 @@
 pub mod auth;
+pub mod error;
 pub mod shops;
+pub mod state;
 
 use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
 };
-use crate::shops::ShopsState;
+use crate::state::{AppState, ShopsState};
 use axum::Router;
 use axum::routing::get;
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
@@ -62,17 +64,6 @@ pub enum ApiConfigError {
         value: String,
         source: AddrParseError,
     },
-}
-
-#[derive(Clone)]
-pub struct AppState {
-    shops: ShopsState,
-}
-
-impl AppState {
-    pub fn new(shops: ShopsState) -> Self {
-        Self { shops }
-    }
 }
 
 pub fn app(state: AppState) -> Router {

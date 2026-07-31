@@ -8605,6 +8605,7 @@ dependencies = [
  "aws-sdk-sqs",
  "aws-tests-common",
  "aws_lambda_events",
+ "axum",
  "base64 0.23.0",
  "common",
  "ctrlc",

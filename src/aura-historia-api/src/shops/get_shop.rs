@@ -1,8 +1,10 @@
-use crate::auth::{AuthError, OptionalAuthExtractor, RequestMetadata};
-use crate::shops::ShopsState;
+use crate::auth::{OptionalAuthExtractor, RequestMetadata};
+use crate::error::{ApiError, INVALID_UUID};
+use crate::shops::types::{ShopPartnerStatusData, ShopTypeData};
+use crate::state::ShopsState;
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
@@ -11,16 +13,10 @@ use common::shop_id::ShopId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::Serialize;
 use serde_email::Email;
-use shop_core::partner_status::ShopPartnerStatus;
-use shop_core::shop_type::ShopType;
-use shop_service::use_cases::queries::get_shop::{GetShopError, GetShopRequest, ShopDetailsView};
+use shop_service::use_cases::queries::get_shop::{GetShopRequest, ShopDetailsView};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
-
-const ANONYMOUS_CACHE_CONTROL: &str = "public, max-age=600, s-maxage=3600";
-const AUTHENTICATED_CACHE_CONTROL: &str = "no-store";
-const CORRELATION_ID_HEADER: &str = "x-correlation-id";
 
 pub async fn get_shop(
     State(state): State<ShopsState>,
@@ -33,17 +29,16 @@ pub async fn get_shop(
         .await
     {
         Ok(principal) => principal,
-        Err(error) => return ApiProblem::from_auth_error(error).into_response(),
+        Err(error) => return ApiError::from(error).into_response(),
     };
 
     let shop_id = match ShopId::try_from(raw_shop_id.as_str()) {
         Ok(shop_id) => shop_id,
         Err(_) => {
-            return ApiProblem::bad_request(
-                "INVALID_UUID",
-                "Path parameter 'shopId' must be a UUID.",
-            )
-            .into_response();
+            return ApiError::bad_request(INVALID_UUID)
+                .with_path_field("shopId")
+                .with_detail("Path parameter 'shopId' must be a UUID.")
+                .into_response();
         }
     };
 
@@ -55,7 +50,7 @@ pub async fn get_shop(
         .await
     {
         Ok(view) => shop_response(view, cache_control),
-        Err(error) => ApiProblem::from_get_shop_error(error).into_response(),
+        Err(error) => ApiError::from(error).into_response(),
     }
 }
 
@@ -75,18 +70,18 @@ fn shop_response(view: ShopDetailsView, cache_control: &'static str) -> Response
 
 fn cache_control(principal: &Principal) -> &'static str {
     match principal {
-        Principal::Anonymous => ANONYMOUS_CACHE_CONTROL,
+        Principal::Anonymous => "public, max-age=600, s-maxage=3600",
         Principal::User(_)
         | Principal::DelegatedUser { .. }
         | Principal::Service(_)
-        | Principal::System => AUTHENTICATED_CACHE_CONTROL,
+        | Principal::System => "no-store",
     }
 }
 
 fn request_metadata(headers: &HeaderMap) -> RequestMetadata {
     let request_id = uuid::Uuid::new_v4().to_string();
     let correlation_id = headers
-        .get(CORRELATION_ID_HEADER)
+        .get("x-correlation-id")
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
@@ -160,137 +155,14 @@ impl From<ShopDetailsView> for GetShopData {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ShopTypeData {
-    AuctionHouse,
-    AuctionPlatform,
-    CommercialDealer,
-    Marketplace,
-}
-
-impl From<ShopType> for ShopTypeData {
-    fn from(value: ShopType) -> Self {
-        match value {
-            ShopType::AuctionHouse => Self::AuctionHouse,
-            ShopType::AuctionPlatform => Self::AuctionPlatform,
-            ShopType::CommercialDealer => Self::CommercialDealer,
-            ShopType::Marketplace => Self::Marketplace,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ShopPartnerStatusData {
-    Scraped,
-    Partnered,
-}
-
-impl From<ShopPartnerStatus> for ShopPartnerStatusData {
-    fn from(value: ShopPartnerStatus) -> Self {
-        match value {
-            ShopPartnerStatus::Scraped => Self::Scraped,
-            ShopPartnerStatus::Partnered => Self::Partnered,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProblemData {
-    code: &'static str,
-    message: &'static str,
-}
-
-struct ApiProblem {
-    status: StatusCode,
-    body: ProblemData,
-}
-
-impl ApiProblem {
-    fn bad_request(code: &'static str, message: &'static str) -> Self {
-        Self {
-            status: StatusCode::BAD_REQUEST,
-            body: ProblemData { code, message },
-        }
-    }
-
-    fn from_auth_error(error: AuthError) -> Self {
-        match error {
-            AuthError::TemporarilyUnavailable => Self {
-                status: StatusCode::SERVICE_UNAVAILABLE,
-                body: ProblemData {
-                    code: "AUTH_TEMPORARILY_UNAVAILABLE",
-                    message: "Authentication is temporarily unavailable.",
-                },
-            },
-            AuthError::Internal(_) => Self {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                body: ProblemData {
-                    code: "AUTH_INTERNAL_ERROR",
-                    message: "Authentication failed internally.",
-                },
-            },
-            AuthError::MissingCredentials
-            | AuthError::InvalidAuthorizationHeader
-            | AuthError::MalformedCredentials
-            | AuthError::InvalidCredentials
-            | AuthError::MissingClaim(_)
-            | AuthError::InvalidClaimType(_)
-            | AuthError::JwksKeyNotFound
-            | AuthError::JwksFetch(_) => Self {
-                status: StatusCode::UNAUTHORIZED,
-                body: ProblemData {
-                    code: "INVALID_CREDENTIALS",
-                    message: "Bearer token is invalid.",
-                },
-            },
-        }
-    }
-
-    fn from_get_shop_error(error: GetShopError) -> Self {
-        match error {
-            GetShopError::NotFound => Self {
-                status: StatusCode::NOT_FOUND,
-                body: ProblemData {
-                    code: "SHOP_NOT_FOUND",
-                    message: "Shop was not found.",
-                },
-            },
-            GetShopError::TemporarilyUnavailable { .. }
-            | GetShopError::BeginTransactionFailed
-            | GetShopError::CommitTransactionFailed => Self {
-                status: StatusCode::SERVICE_UNAVAILABLE,
-                body: ProblemData {
-                    code: "SHOP_TEMPORARILY_UNAVAILABLE",
-                    message: "Shop details are temporarily unavailable.",
-                },
-            },
-            GetShopError::InvalidReadModel { .. } | GetShopError::Internal { .. } => Self {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                body: ProblemData {
-                    code: "SHOP_INTERNAL_ERROR",
-                    message: "Shop details failed internally.",
-                },
-            },
-        }
-    }
-}
-
-impl IntoResponse for ApiProblem {
-    fn into_response(self) -> Response {
-        (self.status, Json(self.body)).into_response()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::{AuthMethod, TokenAuthenticator, TransportPrincipal};
+    use crate::auth::{AuthError, AuthMethod, TokenAuthenticator, TransportPrincipal};
+    use crate::error::SHOP_NOT_FOUND;
     use axum::Router;
     use axum::body::Body;
-    use axum::http::Request;
+    use axum::http::{Request, StatusCode};
     use common::currency::domain::Currency;
     use common::domain::Domain;
     use common::language::domain::Language;
@@ -299,6 +171,9 @@ mod tests {
     use common::shop_slug_id::ShopSlugId;
     use common::user_id::UserId;
     use serde_json::{Value, json};
+    use shop_core::partner_status::ShopPartnerStatus;
+    use shop_core::shop_type::ShopType;
+    use shop_service::use_cases::queries::get_shop::GetShopError;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::macros::datetime;
@@ -370,7 +245,7 @@ mod tests {
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
-            ANONYMOUS_CACHE_CONTROL,
+            "public, max-age=600, s-maxage=3600",
             response.headers()[header::CACHE_CONTROL]
         );
         assert_eq!(
@@ -413,10 +288,7 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::OK, response.status());
-        assert_eq!(
-            AUTHENTICATED_CACHE_CONTROL,
-            response.headers()[header::CACHE_CONTROL]
-        );
+        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
         assert!(
             matches!(lock(&calls)[0].0.principal, Principal::DelegatedUser { user_id: actual, .. } if actual == user_id)
         );
@@ -473,7 +345,10 @@ mod tests {
             .await?;
 
         assert_eq!(StatusCode::NOT_FOUND, response.status());
-        assert_eq!(json!("SHOP_NOT_FOUND"), body_json(response).await?["code"]);
+        assert_eq!(
+            json!(SHOP_NOT_FOUND.to_string()),
+            body_json(response).await?["error"]
+        );
         Ok(())
     }
 

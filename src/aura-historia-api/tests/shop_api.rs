@@ -2,8 +2,8 @@ use aura_historia_api::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
 };
-use aura_historia_api::shops::ShopsState;
-use aura_historia_api::{AppState, app};
+use aura_historia_api::state::ShopsState;
+use aura_historia_api::{app, state::AppState};
 use common::domain::Domain;
 use common::postgres::SqlxUnitOfWork;
 use common::transaction::{Transaction, UnitOfWork};
@@ -16,9 +16,11 @@ use shop_postgres::SqlxShopRepositoryFactory;
 use shop_service::ports::{ShopRepository, ShopRepositoryFactory};
 use shop_service::use_cases::queries::get_shop::GetShopHandler;
 use std::collections::HashSet;
+use std::future::Future;
+use std::pin::Pin;
 use test_api::{
-    DynamoDB, IntegrationTestService, Postgres, aura_integration_test, get_dynamodb_client,
-    get_postgres_client,
+    AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    get_dynamodb_client, get_postgres_client,
 };
 use time::OffsetDateTime;
 use url::Url;
@@ -31,27 +33,19 @@ use user_service::use_cases::AuthenticateAccessTokenHandler;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const DYNAMODB: DynamoDB = DynamoDB();
+static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(aura_api_app);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
 async fn should_get_shop_by_id_with_aura_access_token() {
     let shop = seed_shop().await;
     let token = seed_access_token().await;
-    let state = test_state().await;
-    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
-        Ok(listener) => listener,
-        Err(error) => panic!("failed to bind listener: {error}"),
-    };
-    let addr = match listener.local_addr() {
-        Ok(addr) => addr,
-        Err(error) => panic!("failed to get listener address: {error}"),
-    };
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-    let server = tokio::spawn(aura_historia_api::serve(listener, app(state), async move {
-        let _ = shutdown_rx.await;
-    }));
 
     let response = match reqwest::Client::new()
-        .get(format!("http://{addr}/api/v1/shops/{}", shop.id()))
+        .get(format!(
+            "{}/api/v1/shops/{}",
+            AURA_API.base_url(),
+            shop.id()
+        ))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -68,12 +62,6 @@ async fn should_get_shop_by_id_with_aura_access_token() {
         Ok(body) => body,
         Err(error) => panic!("failed to decode shop API response: {error}"),
     };
-    let _send_result = shutdown_tx.send(());
-    match server.await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => panic!("server failed: {error}"),
-        Err(error) => panic!("server task failed: {error}"),
-    }
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(
@@ -156,6 +144,10 @@ fn domain(value: &str) -> Domain {
         Ok(domain) => domain,
         Err(error) => panic!("invalid test domain: {error}"),
     }
+}
+
+fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
+    Box::pin(async { app(test_state().await) })
 }
 
 async fn test_state() -> AppState {
