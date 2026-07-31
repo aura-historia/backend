@@ -1,7 +1,4 @@
-use common::{
-    actor::domain::Actor, oauth_client_id::OAuthClientId, string_newtype, user_id::UserId,
-    uuid_v7_newtype,
-};
+use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId, uuid_v7_newtype};
 use prefixed_api_key::{
     PrefixedApiKey, PrefixedApiKeyController,
     sha2::{Digest, Sha256},
@@ -15,8 +12,37 @@ string_newtype!(AccessTokenName, max_length(128));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Scope {
-    ShopsManage,
     ProductsWrite,
+    ShopsRead,
+    ShopsWrite,
+    PartnerShopApplicationsWrite,
+    PartnerShopsRead,
+    PartnerShopsWrite,
+    UsersRead,
+    UsersWrite,
+    AccessTokensRead,
+    AccessTokensWrite,
+    SearchFiltersWrite,
+    WatchlistWrite,
+}
+
+impl Scope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Scope::ProductsWrite => "products:write",
+            Scope::ShopsRead => "shops:read",
+            Scope::ShopsWrite => "shops:write",
+            Scope::PartnerShopApplicationsWrite => "partner-shop-applications:write",
+            Scope::PartnerShopsRead => "partner-shops:read",
+            Scope::PartnerShopsWrite => "partner-shops:write",
+            Scope::UsersRead => "users:read",
+            Scope::UsersWrite => "users:write",
+            Scope::AccessTokensRead => "access-tokens:read",
+            Scope::AccessTokensWrite => "access-tokens:write",
+            Scope::SearchFiltersWrite => "search-filters:write",
+            Scope::WatchlistWrite => "watchlist:write",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,8 +54,6 @@ pub struct AccessToken {
     pub scopes: HashSet<Scope>,
     pub origin: AccessTokenOrigin,
     pub expires: Option<OffsetDateTime>,
-    pub created_by: Actor,
-    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -440,7 +464,6 @@ impl<P: TokenPrefix> From<PrefixedApiKey> for HashedRawToken<P> {
 #[cfg(test)]
 mod access_token_state_tests {
     use super::*;
-    use common::actor::domain::Actor;
 
     #[test]
     fn should_report_not_expired_when_no_expiry() {
@@ -470,11 +493,34 @@ mod access_token_state_tests {
     }
 
     #[test]
+    fn should_render_all_scope_strings() {
+        for (scope, value) in [
+            (Scope::ProductsWrite, "products:write"),
+            (Scope::ShopsRead, "shops:read"),
+            (Scope::ShopsWrite, "shops:write"),
+            (
+                Scope::PartnerShopApplicationsWrite,
+                "partner-shop-applications:write",
+            ),
+            (Scope::PartnerShopsRead, "partner-shops:read"),
+            (Scope::PartnerShopsWrite, "partner-shops:write"),
+            (Scope::UsersRead, "users:read"),
+            (Scope::UsersWrite, "users:write"),
+            (Scope::AccessTokensRead, "access-tokens:read"),
+            (Scope::AccessTokensWrite, "access-tokens:write"),
+            (Scope::SearchFiltersWrite, "search-filters:write"),
+            (Scope::WatchlistWrite, "watchlist:write"),
+        ] {
+            assert_eq!(value, scope.as_str());
+        }
+    }
+
+    #[test]
     fn should_report_scope_presence() {
         let token = access_token(None, HashSet::from([Scope::ProductsWrite]));
 
         assert!(token.has_scope(Scope::ProductsWrite));
-        assert!(!token.has_scope(Scope::ShopsManage));
+        assert!(!token.has_scope(Scope::ShopsWrite));
     }
 
     #[test]
@@ -496,8 +542,6 @@ mod access_token_state_tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Actor::System,
-            updated_by: Actor::System,
             created: now,
             updated: now,
         }
@@ -543,8 +587,6 @@ mod faker {
                 scopes: [Scope::ProductsWrite].into(),
                 origin: AccessTokenOrigin::User,
                 expires: None,
-                created_by: config.fake_with_rng(rng),
-                updated_by: config.fake_with_rng(rng),
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }

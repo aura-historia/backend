@@ -1,6 +1,8 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
 use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::user_id::UserId;
 use user_core::access_token::AccessTokenId;
 
@@ -20,6 +22,8 @@ pub struct DeleteAccessTokenResult {
 pub enum DeleteAccessTokenError {
     #[error("authenticated actor required to delete access token")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("access token already exists")]
     Conflict {
         #[source]
@@ -82,10 +86,7 @@ where
         context: &OperationContext,
         command: DeleteAccessTokenCommand,
     ) -> Result<DeleteAccessTokenResult, DeleteAccessTokenError> {
-        context
-            .principal
-            .require_authenticated()
-            .map_err(|_| DeleteAccessTokenError::AuthenticatedActorRequired)?;
+        authorize_access_token_write(context, command.user_id)?;
 
         self.store
             .delete(&command.user_id, &command.access_token_id)
@@ -104,6 +105,30 @@ where
             user_id: command.user_id,
             access_token_id: command.access_token_id,
         })
+    }
+}
+
+fn authorize_access_token_write(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), DeleteAccessTokenError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::AccessTokensWrite)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<DeleteAccessTokenError>()
+}
+
+impl From<OperationAuthorizationError> for DeleteAccessTokenError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 
@@ -132,7 +157,6 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use common::actor::domain::Actor;
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::patch_field::PatchField;
@@ -206,8 +230,6 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Actor::User(user_id),
-            updated_by: Actor::User(user_id),
             created: now,
             updated: now,
         }

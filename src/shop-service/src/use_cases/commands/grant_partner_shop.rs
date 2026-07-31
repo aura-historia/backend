@@ -3,7 +3,9 @@ use crate::ports::{
     ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
 };
 use common::error::boxed::{BoxError, static_error};
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, user_id::UserId};
 
@@ -105,6 +107,10 @@ where
         context: &OperationContext,
         command: GrantPartnerShopCommand,
     ) -> Result<GrantPartnerShopResult, GrantPartnerShopError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::PartnerShopsWrite)
+            .authorize::<GrantPartnerShopError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -144,6 +150,18 @@ where
             user_id: command.user_id,
             shop_id: command.shop_id,
         })
+    }
+}
+
+impl From<OperationAuthorizationError> for GrantPartnerShopError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 

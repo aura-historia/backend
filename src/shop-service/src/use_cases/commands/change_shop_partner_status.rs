@@ -1,6 +1,8 @@
 use crate::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use shop_core::{partner_status::ShopPartnerStatus, shop::Shop};
@@ -23,6 +25,8 @@ pub struct ChangeShopPartnerStatusResult {
 pub enum ChangeShopPartnerStatusError {
     #[error("authenticated actor required to change shop partner status")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("shop not found")]
     ShopNotFound,
     #[error("concurrent shop update")]
@@ -94,6 +98,10 @@ where
         context: &OperationContext,
         command: ChangeShopPartnerStatusCommand,
     ) -> Result<ChangeShopPartnerStatusResult, ChangeShopPartnerStatusError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::ShopsWrite)
+            .authorize::<ChangeShopPartnerStatusError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -148,6 +156,18 @@ impl From<&Shop> for ChangeShopPartnerStatusResult {
             shop_slug_id: shop.slug_id().clone(),
             name: shop.name().clone(),
             partner_status: shop.partner_status(),
+        }
+    }
+}
+
+impl From<OperationAuthorizationError> for ChangeShopPartnerStatusError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
         }
     }
 }

@@ -20,6 +20,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/shop-partner-postgres",
     "src/shop-partner-service",
     "src/user-core",
+    "src/user-dynamodb",
     "src/user-postgres",
     "src/user-service",
     "srcsearch-filter-core",

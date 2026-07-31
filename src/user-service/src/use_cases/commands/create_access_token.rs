@@ -1,7 +1,8 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-use common::actor::domain::Actor;
 use common::error::boxed::BoxError;
-use common::operation_context::{OperationContext, Principal};
+use common::operation_context::{
+    AuthenticationRequired, CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::user_id::UserId;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -29,6 +30,8 @@ pub struct CreateAccessTokenResult {
 pub enum CreateAccessTokenError {
     #[error("authenticated actor required to create access token")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("access token already exists")]
     Conflict {
         #[source]
@@ -91,8 +94,9 @@ where
         context: &OperationContext,
         command: CreateAccessTokenCommand,
     ) -> Result<CreateAccessTokenResult, CreateAccessTokenError> {
-        let actor = actor_from_context(context)?;
-        tracing::Span::current().record("actor_id", tracing::field::display(actor));
+        authorize_access_token_write(context, command.user_id)?;
+        let principal = context.principal.require_authenticated()?;
+        tracing::Span::current().record("actor_id", tracing::field::display(principal.label()));
 
         let raw_access_token = RawAccessToken::new();
         let now = OffsetDateTime::now_utc();
@@ -104,8 +108,6 @@ where
             scopes: command.scopes,
             origin: command.origin,
             expires: command.expires,
-            created_by: actor,
-            updated_by: actor,
             created: now,
             updated: now,
         };
@@ -114,7 +116,7 @@ where
 
         tracing::info!(
             event = "access_token.created",
-            actor_id = %actor,
+            actor_id = %principal.label(),
             user_id = %access_token.user_id,
             access_token_id = %access_token.id,
             outcome = "success",
@@ -128,12 +130,34 @@ where
     }
 }
 
-fn actor_from_context(context: &OperationContext) -> Result<Actor, CreateAccessTokenError> {
-    match &context.principal {
-        Principal::Anonymous => Err(CreateAccessTokenError::AuthenticatedActorRequired),
-        Principal::User(user_id) => Ok(Actor::User(*user_id)),
-        Principal::Service(_) | Principal::System => Ok(Actor::System),
+impl From<OperationAuthorizationError> for CreateAccessTokenError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
+}
+
+impl From<AuthenticationRequired> for CreateAccessTokenError {
+    fn from(_: AuthenticationRequired) -> Self {
+        Self::AuthenticatedActorRequired
+    }
+}
+
+fn authorize_access_token_write(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), CreateAccessTokenError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::AccessTokensWrite)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<CreateAccessTokenError>()
 }
 
 impl From<AccessTokenStoreError> for CreateAccessTokenError {
@@ -161,11 +185,12 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use common::actor::domain::Actor;
     use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+    use common::operation_context::{
+        CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
+    };
     use common::patch_field::PatchField;
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::{Duration, OffsetDateTime};
@@ -235,8 +260,6 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Actor::User(user_id),
-            updated_by: Actor::User(user_id),
             created: now,
             updated: now,
         }
@@ -361,7 +384,7 @@ mod tests {
     async fn should_create_access_token_when_authenticated() {
         let user_id = UserId::new();
         let store = FakeAccessTokenStore::default();
-        let scopes = HashSet::from([Scope::ShopsManage]);
+        let scopes = HashSet::from([Scope::ShopsWrite]);
         let created = assert_ok(
             CreateAccessTokenHandler::new(store.clone())
                 .execute(
@@ -370,6 +393,38 @@ mod tests {
                         user_id,
                         name: AccessTokenName::from("created"),
                         scopes,
+                        expires: None,
+                        origin: AccessTokenOrigin::User,
+                    },
+                )
+                .await,
+        );
+
+        assert_eq!(user_id, created.user_id);
+        let state = lock(&store.state);
+        assert_eq!(1, state.insert_calls);
+        assert_eq!(
+            Some(user_id),
+            state.token.as_ref().map(|token| token.user_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_create_access_token_with_delegated_user() {
+        let user_id = UserId::new();
+        let store = FakeAccessTokenStore::default();
+
+        let created = assert_ok(
+            CreateAccessTokenHandler::new(store.clone())
+                .execute(
+                    &ctx(Principal::DelegatedUser {
+                        user_id,
+                        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
+                    }),
+                    CreateAccessTokenCommand {
+                        user_id,
+                        name: AccessTokenName::from("delegated"),
+                        scopes: HashSet::new(),
                         expires: None,
                         origin: AccessTokenOrigin::User,
                     },

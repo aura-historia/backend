@@ -3,7 +3,9 @@ use crate::ports::{
     ProductRepositoryError, ProductRepositoryFactory,
 };
 use common::event_id::EventId;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::patch_field::PatchField;
 use common::product_id::ProductId;
 use common::product_state::domain::ProductState;
@@ -45,6 +47,8 @@ pub struct UpdateProductResult {
 pub enum UpdateProductError {
     #[error("authenticated actor required to update product")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("product not found")]
     ProductNotFound,
     #[error("product current event id did not match expected event id")]
@@ -157,6 +161,10 @@ where
         context: &OperationContext,
         command: UpdateProductCommand,
     ) -> Result<UpdateProductResult, UpdateProductError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductsWrite)
+            .authorize::<UpdateProductError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -268,6 +276,18 @@ fn apply_command(
     }
 
     Ok(())
+}
+
+impl From<OperationAuthorizationError> for UpdateProductError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
 }
 
 impl From<ProductRepositoryError> for UpdateProductError {

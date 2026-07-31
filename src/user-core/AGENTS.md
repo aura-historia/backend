@@ -10,7 +10,8 @@
 - Domain-only crate.
 - Root modules: `access_token`, `first_name`, `last_name`, `name`, `role`, `sort_user_field`, `tier`, `user`, `user_search`.
 - `user::User` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
-- Access-token domain types live here; persistence stays behind service ports.
+- Access-token domain types and canonical scope enum live here; persistence stays behind service ports.
+- Access-token has timestamps only; no actor audit fields.
 - User sort defaults to `Name`; no score sort in canonical user.
 - No dependency on `user-service`, legacy `user`, or adapters.
 

@@ -53,6 +53,7 @@ test-api = { workspace = true }
 user = { workspace = true }
 user-core = { workspace = true }
 user-service = { workspace = true }
+user-dynamodb = { workspace = true }
 user-postgres = { workspace = true }
 user-api = { workspace = true }
 user-lambda = { workspace = true }
@@ -122,6 +123,7 @@ members = [
     "src/user",
     "src/user-core",
     "src/user-service",
+    "src/user-dynamodb",
     "src/user-postgres",
     "src/user-api",
     "src/user-lambda",
@@ -282,6 +284,7 @@ smoking-tests-macros = { path = "src/aws-tests/src/smoking-tests/src/smoking-tes
 user = { path = "src/user" }
 user-core = { path = "src/user-core" }
 user-service = { path = "src/user-service" }
+user-dynamodb = { path = "src/user-dynamodb" }
 user-postgres = { path = "src/user-postgres" }
 user-api = { path = "src/user-api" }
 user-lambda = { path = "src/user-lambda" }

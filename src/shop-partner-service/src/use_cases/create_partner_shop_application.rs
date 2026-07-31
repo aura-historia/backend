@@ -6,7 +6,9 @@ use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
 use common::language::domain::Language;
-use common::operation_context::{OperationContext, Principal};
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::transaction::{Transaction, UnitOfWork};
 use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, shop_name::ShopName,
@@ -69,6 +71,8 @@ pub struct CreatePartnerShopApplicationResult {
 pub enum CreatePartnerShopApplicationError {
     #[error("authenticated actor required to create partner shop application")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("shop not found")]
     ShopNotFound,
     #[error("shop slug already exists")]
@@ -141,9 +145,7 @@ where
         context: &OperationContext,
         command: CreatePartnerShopApplicationCommand,
     ) -> Result<CreatePartnerShopApplicationResult, CreatePartnerShopApplicationError> {
-        if matches!(context.principal, Principal::Anonymous) {
-            return Err(CreatePartnerShopApplicationError::AuthenticatedActorRequired);
-        }
+        authorize_create(context, command.applicant_user_id)?;
 
         let mut tx = self
             .unit_of_work
@@ -264,6 +266,18 @@ fn woocommerce_integration(
     }
 }
 
+impl From<OperationAuthorizationError> for CreatePartnerShopApplicationError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
 impl From<ShopRepositoryError> for CreatePartnerShopApplicationError {
     fn from(error: ShopRepositoryError) -> Self {
         match error {
@@ -280,6 +294,18 @@ impl From<ShopRepositoryError> for CreatePartnerShopApplicationError {
             ShopRepositoryError::Internal { source } => Self::Internal { source },
         }
     }
+}
+
+fn authorize_create(
+    context: &OperationContext,
+    applicant_user_id: common::user_id::UserId,
+) -> Result<(), CreatePartnerShopApplicationError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::PartnerShopApplicationsWrite)
+        .user(&applicant_user_id)
+        .service_or_system()
+        .authorize::<CreatePartnerShopApplicationError>()
 }
 
 impl From<PartnerShopApplicationRepositoryError> for CreatePartnerShopApplicationError {

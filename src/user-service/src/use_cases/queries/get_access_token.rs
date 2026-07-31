@@ -1,6 +1,8 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
 use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::user_id::UserId;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -26,6 +28,8 @@ pub struct AccessTokenView {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetAccessTokenError {
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("access token not found")]
     NotFound,
     #[error("access token already exists")]
@@ -90,6 +94,7 @@ where
         context: &OperationContext,
         request: GetAccessTokenRequest,
     ) -> Result<AccessTokenView, GetAccessTokenError> {
+        authorize_access_token_read(context, request.user_id)?;
         let access_token = self
             .store
             .find_by_id(&request.user_id, &request.access_token_id)
@@ -97,6 +102,16 @@ where
             .ok_or(GetAccessTokenError::NotFound)?;
 
         Ok(AccessTokenView::from(access_token))
+    }
+}
+
+impl From<OperationAuthorizationError> for GetAccessTokenError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => Self::Forbidden,
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 
@@ -111,6 +126,18 @@ impl From<AccessToken> for AccessTokenView {
             expires: access_token.expires,
         }
     }
+}
+
+fn authorize_access_token_read(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), GetAccessTokenError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::AccessTokensRead)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<GetAccessTokenError>()
 }
 
 impl From<AccessTokenStoreError> for GetAccessTokenError {
@@ -137,7 +164,6 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use common::actor::domain::Actor;
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::patch_field::PatchField;
@@ -211,8 +237,6 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Actor::User(user_id),
-            updated_by: Actor::User(user_id),
             created: now,
             updated: now,
         }
@@ -345,7 +369,7 @@ mod tests {
             assert_ok(
                 GetAccessTokenHandler::new(store)
                     .execute(
-                        &ctx(Principal::Anonymous),
+                        &ctx(Principal::User(user_id)),
                         GetAccessTokenRequest {
                             user_id,
                             access_token_id: current.id,

@@ -1,6 +1,8 @@
 use crate::ports::{UserRepository, UserRepositoryError, UserRepositoryFactory};
 use common::error::boxed::{BoxError, box_error};
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use serde_email::Email;
@@ -24,6 +26,8 @@ pub struct CreateUserResult {
 pub enum CreateUserError {
     #[error("authenticated actor required to create user")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("user email already exists")]
     EmailConflict {
         #[source]
@@ -107,10 +111,7 @@ where
         context: &OperationContext,
         command: CreateUserCommand,
     ) -> Result<CreateUserResult, CreateUserError> {
-        context
-            .principal
-            .require_authenticated()
-            .map_err(|_| CreateUserError::AuthenticatedActorRequired)?;
+        authorize_user_write(context, command.user_id)?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -155,6 +156,18 @@ impl TryFrom<CreateUserCommand> for User {
     }
 }
 
+impl From<OperationAuthorizationError> for CreateUserError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
 impl From<&User> for CreateUserResult {
     fn from(user: &User) -> Self {
         Self {
@@ -170,6 +183,18 @@ impl From<RehydrateUserError> for CreateUserError {
             source: box_error(error),
         }
     }
+}
+
+fn authorize_user_write(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), CreateUserError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::UsersWrite)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<CreateUserError>()
 }
 
 impl From<UserRepositoryError> for CreateUserError {

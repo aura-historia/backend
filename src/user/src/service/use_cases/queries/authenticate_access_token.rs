@@ -6,12 +6,12 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthenticateAccessTokenRequest {
     pub hashed_token: HashedRawAccessToken,
-    pub required_scopes: HashSet<Scope>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthenticateAccessTokenResult {
     pub user_id: UserId,
+    pub scopes: HashSet<Scope>,
 }
 
 #[derive(Debug, thiserror::Error)]

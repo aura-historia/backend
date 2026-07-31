@@ -2,7 +2,9 @@ use crate::ports::{
     UserPartnerShopsReadError, UserPartnerShopsReader, UserPartnerShopsReaderFactory,
 };
 use common::error::boxed::BoxError;
-use common::operation_context::{OperationContext, Principal};
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId};
 
@@ -106,10 +108,21 @@ fn authorize_list(
     context: &OperationContext,
     requested_user_id: UserId,
 ) -> Result<(), ListPartnerShopsError> {
-    match &context.principal {
-        Principal::User(user_id) if *user_id == requested_user_id => Ok(()),
-        Principal::Service(_) | Principal::System => Ok(()),
-        Principal::Anonymous | Principal::User(_) => Err(ListPartnerShopsError::Forbidden),
+    context
+        .require()
+        .credential_capability(CredentialCapability::PartnerShopsRead)
+        .user(&requested_user_id)
+        .service_or_system()
+        .authorize::<ListPartnerShopsError>()
+}
+
+impl From<OperationAuthorizationError> for ListPartnerShopsError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => Self::Forbidden,
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 
@@ -123,6 +136,65 @@ impl From<UserPartnerShopsReadError> for ListPartnerShopsError {
                 Self::InvalidReadModel { source }
             }
             UserPartnerShopsReadError::Internal { source } => Self::Internal { source },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::operation_context::{CorrelationId, CredentialCapability, Principal, RequestId};
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn should_allow_user_to_list_own_partner_shops() {
+        let user_id = UserId::new();
+
+        let result = authorize_list(&context(Principal::User(user_id)), user_id);
+
+        assert!(matches!(result, Ok(())));
+    }
+
+    #[test]
+    fn should_allow_delegated_user_to_list_own_partner_shops() {
+        let user_id = UserId::new();
+
+        let result = authorize_list(
+            &context(Principal::DelegatedUser {
+                user_id,
+                capabilities: BTreeSet::from([CredentialCapability::PartnerShopsRead]),
+            }),
+            user_id,
+        );
+
+        assert!(matches!(result, Ok(())));
+    }
+
+    #[test]
+    fn should_reject_user_listing_other_user_partner_shops() {
+        let result = authorize_list(&context(Principal::User(UserId::new())), UserId::new());
+
+        assert!(matches!(result, Err(ListPartnerShopsError::Forbidden)));
+    }
+
+    #[test]
+    fn should_reject_delegated_user_listing_other_user_partner_shops() {
+        let result = authorize_list(
+            &context(Principal::DelegatedUser {
+                user_id: UserId::new(),
+                capabilities: BTreeSet::new(),
+            }),
+            UserId::new(),
+        );
+
+        assert!(matches!(result, Err(ListPartnerShopsError::Forbidden)));
+    }
+
+    fn context(principal: Principal) -> OperationContext {
+        OperationContext {
+            principal,
+            request_id: RequestId::from("request"),
+            correlation_id: CorrelationId::from("correlation"),
         }
     }
 }
