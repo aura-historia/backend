@@ -9,6 +9,7 @@
 
 - Depends on `user-core` and shared `common` app contracts.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
+- `use_cases::authorization` owns shared service-layer admin actor policy helpers.
 - Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
 - Ports are public because adapter crates implement them.
 - `AuthenticateAccessTokenUseCase` only validates token existence/expiry and returns token scopes; protected use cases enforce credential capability via `OperationContext`.

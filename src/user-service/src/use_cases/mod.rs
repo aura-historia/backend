@@ -1,3 +1,4 @@
+pub(crate) mod authorization;
 pub mod commands;
 pub mod queries;
 

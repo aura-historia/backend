@@ -1,11 +1,12 @@
 use crate::ports::{UserRepository, UserRepositoryError, UserRepositoryFactory};
-use common::error::boxed::BoxError;
-use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+use crate::use_cases::authorization::{
+    RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
+use common::error::boxed::BoxError;
+use common::operation_context::{CredentialCapability, OperationContext};
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
-use user_core::{role::UserRole, tier::UserTier, user::User};
+use user_core::{tier::UserTier, user::User};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangeUserTierCommand {
@@ -105,7 +106,7 @@ where
         context: &OperationContext,
         command: ChangeUserTierCommand,
     ) -> Result<ChangeUserTierResult, ChangeUserTierError> {
-        require_users_write_credential(context)?;
+        require_admin_actor_credential(context, CredentialCapability::UsersWrite)?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -159,42 +160,12 @@ impl From<&User> for ChangeUserTierResult {
     }
 }
 
-fn require_users_write_credential(context: &OperationContext) -> Result<(), ChangeUserTierError> {
-    context
-        .require()
-        .credential_capability(CredentialCapability::UsersWrite)
-        .authorize::<ChangeUserTierError>()
-}
-
-async fn require_admin_actor<R: UserRepository>(
-    context: &OperationContext,
-    users: &mut R,
-) -> Result<(), ChangeUserTierError> {
-    match &context.principal {
-        Principal::Service(_) | Principal::System => Ok(()),
-        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => {
-            let actor = users
-                .find_by_id(*user_id)
-                .await?
-                .ok_or(ChangeUserTierError::Forbidden)?;
-            if actor.value.account().role == UserRole::Admin {
-                Ok(())
-            } else {
-                Err(ChangeUserTierError::Forbidden)
-            }
-        }
-        Principal::Anonymous => Err(ChangeUserTierError::AuthenticatedActorRequired),
-    }
-}
-
-impl From<OperationAuthorizationError> for ChangeUserTierError {
-    fn from(error: OperationAuthorizationError) -> Self {
+impl From<RequireAdminActorError> for ChangeUserTierError {
+    fn from(error: RequireAdminActorError) -> Self {
         match error {
-            OperationAuthorizationError::AuthenticationRequired(_) => {
-                Self::AuthenticatedActorRequired
-            }
-            OperationAuthorizationError::Forbidden
-            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+            RequireAdminActorError::AuthenticationRequired => Self::AuthenticatedActorRequired,
+            RequireAdminActorError::Forbidden => Self::Forbidden,
+            RequireAdminActorError::UserRepository(error) => error.into(),
         }
     }
 }
