@@ -1,4 +1,5 @@
 use bloomfilter::Bloom;
+use reqwest::header::{ACCEPT_ENCODING, HeaderMap, HeaderValue};
 use spider::page::AntiBotTech;
 use spider::tokio;
 use spider::utils::auto_throttle::AutoThrottleConfig;
@@ -10,6 +11,16 @@ use url::Url;
 use crate::spider::utils::url::CrawledUrl;
 
 const SPIDER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36";
+const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
+
+fn spider_request_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        ACCEPT_ENCODING,
+        HeaderValue::from_static(SPIDER_ACCEPT_ENCODING),
+    );
+    headers
+}
 
 /// Single crawled page represented by its normalized URL.
 #[derive(Debug, Clone)]
@@ -161,6 +172,7 @@ impl Spider for SpiderImpl {
         website
             .with_blacklist_url(Some(blacklist_regex))
             .with_respect_robots_txt(true)
+            .with_headers(Some(spider_request_headers()))
             .with_user_agent(Some(SPIDER_USER_AGENT))
             .with_request_timeout(Some(std::time::Duration::from_secs(
                 self.config.request_timeout_secs,
@@ -406,6 +418,16 @@ mod tests {
         };
 
         assert_eq!(page.url.to_string(), "https://example.com/about");
+    }
+
+    #[test]
+    fn should_not_request_zstd_when_building_spider_headers() {
+        let headers = spider_request_headers();
+        let accept_encoding = headers
+            .get(reqwest::header::ACCEPT_ENCODING)
+            .and_then(|value| value.to_str().ok());
+
+        assert_eq!(accept_encoding, Some("gzip, br, deflate"));
     }
 
     #[test]
