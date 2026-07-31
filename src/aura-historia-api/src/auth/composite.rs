@@ -1,6 +1,4 @@
 use crate::auth::core::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
-use std::collections::HashSet;
-use user_core::access_token::Scope;
 
 pub struct ApiAuthService<J, A> {
     jwt: J,
@@ -22,20 +20,13 @@ where
     async fn authenticate(
         &self,
         bearer_token: &str,
-        required_scopes: &HashSet<Scope>,
         metadata: &RequestMetadata,
     ) -> Result<TransportPrincipal, AuthError> {
         if bearer_token.starts_with("aurahistoria_accesstoken_") {
-            return self
-                .access_token
-                .authenticate(bearer_token, required_scopes, metadata)
-                .await;
+            return self.access_token.authenticate(bearer_token, metadata).await;
         }
         if bearer_token.matches('.').count() == 2 {
-            return self
-                .jwt
-                .authenticate(bearer_token, required_scopes, metadata)
-                .await;
+            return self.jwt.authenticate(bearer_token, metadata).await;
         }
         Err(AuthError::MalformedCredentials)
     }
@@ -45,7 +36,9 @@ where
 mod tests {
     use super::*;
     use crate::auth::core::AuthMethod;
+    use common::operation_context::CredentialCapability;
     use common::user_id::UserId;
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,7 +47,7 @@ mod tests {
         AccessToken,
     }
 
-    type AuthCall = (AuthenticatorKind, String, HashSet<Scope>, RequestMetadata);
+    type AuthCall = (AuthenticatorKind, String, RequestMetadata);
     type AuthCalls = Arc<Mutex<Vec<AuthCall>>>;
 
     #[derive(Clone)]
@@ -74,15 +67,9 @@ mod tests {
         async fn authenticate(
             &self,
             bearer_token: &str,
-            required_scopes: &HashSet<Scope>,
             metadata: &RequestMetadata,
         ) -> Result<TransportPrincipal, AuthError> {
-            lock(&self.calls).push((
-                self.kind,
-                bearer_token.to_owned(),
-                required_scopes.clone(),
-                metadata.clone(),
-            ));
+            lock(&self.calls).push((self.kind, bearer_token.to_owned(), metadata.clone()));
             self.result
                 .clone()
                 .map_err(|_| AuthError::InvalidCredentials)
@@ -98,10 +85,6 @@ mod tests {
 
     fn metadata() -> RequestMetadata {
         RequestMetadata::new("req-1", "corr-1")
-    }
-
-    fn required_scopes() -> HashSet<Scope> {
-        HashSet::from([Scope::ProductsWrite])
     }
 
     fn service(
@@ -132,14 +115,14 @@ mod tests {
             Ok(TransportPrincipal::User {
                 user_id,
                 auth_method: AuthMethod::CognitoJwt,
-                scopes: HashSet::new(),
+                capabilities: BTreeSet::new(),
             }),
             Err(StaticAuthError::InvalidCredentials),
         );
         let metadata = metadata();
 
         let result = service
-            .authenticate("header.claims.signature", &required_scopes(), &metadata)
+            .authenticate("header.claims.signature", &metadata)
             .await;
 
         let calls = lock(&calls).clone();
@@ -149,8 +132,7 @@ mod tests {
         assert_eq!(1, calls.len());
         assert_eq!(AuthenticatorKind::Jwt, calls[0].0);
         assert_eq!("header.claims.signature", calls[0].1);
-        assert_eq!(required_scopes(), calls[0].2);
-        assert_eq!(metadata, calls[0].3);
+        assert_eq!(metadata, calls[0].2);
     }
 
     #[tokio::test]
@@ -161,16 +143,12 @@ mod tests {
             Ok(TransportPrincipal::User {
                 user_id,
                 auth_method: AuthMethod::AuraAccessToken,
-                scopes: HashSet::new(),
+                capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
             }),
         );
 
         let result = service
-            .authenticate(
-                "aurahistoria_accesstoken_short_long",
-                &HashSet::new(),
-                &metadata(),
-            )
+            .authenticate("aurahistoria_accesstoken_short_long", &metadata())
             .await;
 
         let calls = lock(&calls).clone();
@@ -189,7 +167,7 @@ mod tests {
         );
 
         let result = service
-            .authenticate("not-a-supported-token", &HashSet::new(), &metadata())
+            .authenticate("not-a-supported-token", &metadata())
             .await;
 
         assert!(matches!(result, Err(AuthError::MalformedCredentials)));
@@ -204,7 +182,7 @@ mod tests {
         );
 
         let result = service
-            .authenticate("header.claims.signature", &HashSet::new(), &metadata())
+            .authenticate("header.claims.signature", &metadata())
             .await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));

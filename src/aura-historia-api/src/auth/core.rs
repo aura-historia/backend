@@ -1,7 +1,8 @@
-use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+use common::operation_context::{
+    CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
+};
 use common::user_id::UserId;
-use std::collections::HashSet;
-use user_core::access_token::Scope;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestMetadata {
@@ -24,7 +25,7 @@ pub enum TransportPrincipal {
     User {
         user_id: UserId,
         auth_method: AuthMethod,
-        scopes: HashSet<Scope>,
+        capabilities: BTreeSet<CredentialCapability>,
     },
 }
 
@@ -32,7 +33,19 @@ impl TransportPrincipal {
     pub fn to_service_principal(&self) -> Principal {
         match self {
             TransportPrincipal::Anonymous => Principal::Anonymous,
-            TransportPrincipal::User { user_id, .. } => Principal::User(*user_id),
+            TransportPrincipal::User {
+                user_id,
+                auth_method: AuthMethod::CognitoJwt,
+                ..
+            } => Principal::User(*user_id),
+            TransportPrincipal::User {
+                user_id,
+                auth_method: AuthMethod::AuraAccessToken,
+                capabilities,
+            } => Principal::DelegatedUser {
+                user_id: *user_id,
+                capabilities: capabilities.clone(),
+            },
         }
     }
 
@@ -61,8 +74,6 @@ pub enum AuthError {
     MalformedCredentials,
     #[error("credential is invalid, expired, or revoked")]
     InvalidCredentials,
-    #[error("credential lacks required scope")]
-    InsufficientScope,
     #[error("claim '{0}' is missing")]
     MissingClaim(&'static str),
     #[error("claim '{0}' has invalid type")]
@@ -82,7 +93,6 @@ pub trait TokenAuthenticator: Send + Sync {
     async fn authenticate(
         &self,
         bearer_token: &str,
-        required_scopes: &HashSet<Scope>,
         metadata: &RequestMetadata,
     ) -> Result<TransportPrincipal, AuthError>;
 }
@@ -124,7 +134,7 @@ mod tests {
         let principal = TransportPrincipal::User {
             user_id,
             auth_method: AuthMethod::CognitoJwt,
-            scopes: HashSet::new(),
+            capabilities: BTreeSet::new(),
         };
 
         assert_eq!(Principal::User(user_id), principal.to_service_principal());
@@ -136,12 +146,18 @@ mod tests {
         let principal = TransportPrincipal::User {
             user_id,
             auth_method: AuthMethod::AuraAccessToken,
-            scopes: HashSet::from([Scope::ProductsWrite]),
+            capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
         };
 
         let context = principal.operation_context(metadata());
 
-        assert_eq!(Principal::User(user_id), context.principal);
+        assert_eq!(
+            Principal::DelegatedUser {
+                user_id,
+                capabilities: BTreeSet::from([CredentialCapability::ProductsWrite])
+            },
+            context.principal
+        );
         assert_eq!("req-1", context.request_id.as_str());
         assert_eq!("corr-1", context.correlation_id.as_str());
     }
@@ -161,10 +177,7 @@ mod tests {
             "authorization header is missing",
             AuthError::MissingCredentials.to_string()
         );
-        assert_eq!(
-            "credential lacks required scope",
-            AuthError::InsufficientScope.to_string()
-        );
+
         assert_eq!(
             "auth service failed internally: boom",
             AuthError::Internal("boom".to_owned()).to_string()

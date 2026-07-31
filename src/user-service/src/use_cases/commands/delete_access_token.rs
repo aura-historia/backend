@@ -132,7 +132,6 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use common::actor::domain::Actor;
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::patch_field::PatchField;
@@ -206,8 +205,8 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Actor::User(user_id),
-            updated_by: Actor::User(user_id),
+            created_by: Principal::User(user_id),
+            updated_by: Principal::User(user_id),
             created: now,
             updated: now,
         }

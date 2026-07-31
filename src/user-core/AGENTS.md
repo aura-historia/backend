@@ -11,6 +11,7 @@
 - Root modules: `access_token`, `first_name`, `last_name`, `name`, `role`, `sort_user_field`, `tier`, `user`, `user_search`.
 - `user::User` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
 - Access-token domain types live here; persistence stays behind service ports.
+- Canonical access-token audit fields use service-owned `Principal`, not legacy `Actor`.
 - User sort defaults to `Name`; no score sort in canonical user.
 - No dependency on `user-service`, legacy `user`, or adapters.
 

@@ -1,7 +1,8 @@
 use crate::auth::core::{
     AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
 };
-use std::collections::HashSet;
+use common::operation_context::CredentialCapability;
+use std::collections::{BTreeSet, HashSet};
 use user_core::access_token::{RawAccessToken, Scope};
 use user_service::use_cases::{
     AuthenticateAccessTokenError, AuthenticateAccessTokenRequest, AuthenticateAccessTokenUseCase,
@@ -25,7 +26,6 @@ where
     async fn authenticate(
         &self,
         bearer_token: &str,
-        required_scopes: &HashSet<Scope>,
         metadata: &RequestMetadata,
     ) -> Result<TransportPrincipal, AuthError> {
         let raw_token = RawAccessToken::try_from(bearer_token.to_owned())
@@ -37,7 +37,6 @@ where
                 &context,
                 AuthenticateAccessTokenRequest {
                     hashed_token: raw_token.into(),
-                    required_scopes: required_scopes.clone(),
                 },
             )
             .await
@@ -46,7 +45,7 @@ where
         Ok(TransportPrincipal::User {
             user_id: result.user_id,
             auth_method: AuthMethod::AuraAccessToken,
-            scopes: required_scopes.clone(),
+            capabilities: capabilities_from_scopes(&result.scopes),
         })
     }
 }
@@ -56,13 +55,23 @@ fn map_access_token_error(error: AuthenticateAccessTokenError) -> AuthError {
         AuthenticateAccessTokenError::NotFound | AuthenticateAccessTokenError::Expired => {
             AuthError::InvalidCredentials
         }
-        AuthenticateAccessTokenError::InsufficientScope => AuthError::InsufficientScope,
         AuthenticateAccessTokenError::TemporarilyUnavailable { .. } => {
             AuthError::TemporarilyUnavailable
         }
         AuthenticateAccessTokenError::Conflict { .. }
         | AuthenticateAccessTokenError::InvalidPersistedState { .. }
         | AuthenticateAccessTokenError::Internal { .. } => AuthError::Internal(error.to_string()),
+    }
+}
+
+fn capabilities_from_scopes(scopes: &HashSet<Scope>) -> BTreeSet<CredentialCapability> {
+    scopes.iter().copied().map(credential_capability).collect()
+}
+
+fn credential_capability(scope: Scope) -> CredentialCapability {
+    match scope {
+        Scope::ProductsWrite => CredentialCapability::ProductsWrite,
+        Scope::ShopsManage => CredentialCapability::ShopsManage,
     }
 }
 
@@ -78,10 +87,12 @@ mod tests {
 
     #[derive(Clone)]
     enum FakeTokenOutcome {
-        Success(UserId),
+        Success {
+            user_id: UserId,
+            scopes: HashSet<Scope>,
+        },
         NotFound,
         Expired,
-        InsufficientScope,
         Conflict,
         TemporarilyUnavailable,
         InvalidPersistedState,
@@ -106,12 +117,16 @@ mod tests {
         ) -> Result<AuthenticateAccessTokenResult, AuthenticateAccessTokenError> {
             lock(&self.calls).push((context.clone(), request));
             match self.outcome {
-                FakeTokenOutcome::Success(user_id) => Ok(AuthenticateAccessTokenResult { user_id }),
+                FakeTokenOutcome::Success {
+                    user_id,
+                    ref scopes,
+                } => Ok(AuthenticateAccessTokenResult {
+                    user_id,
+                    scopes: scopes.clone(),
+                }),
                 FakeTokenOutcome::NotFound => Err(AuthenticateAccessTokenError::NotFound),
                 FakeTokenOutcome::Expired => Err(AuthenticateAccessTokenError::Expired),
-                FakeTokenOutcome::InsufficientScope => {
-                    Err(AuthenticateAccessTokenError::InsufficientScope)
-                }
+
                 FakeTokenOutcome::Conflict => {
                     Err(AuthenticateAccessTokenError::Conflict { source: boxed() })
                 }
@@ -143,7 +158,7 @@ mod tests {
         RequestMetadata::new("req-1", "corr-1")
     }
 
-    fn required_products_write() -> HashSet<Scope> {
+    fn products_write_scope() -> HashSet<Scope> {
         HashSet::from([Scope::ProductsWrite])
     }
 
@@ -164,12 +179,13 @@ mod tests {
         let user_id = UserId::new();
         let raw_token = RawAccessToken::new();
         let token = String::from(raw_token.clone());
-        let (use_case, calls) = use_case(FakeTokenOutcome::Success(user_id));
+        let (use_case, calls) = use_case(FakeTokenOutcome::Success {
+            user_id,
+            scopes: products_write_scope(),
+        });
         let authenticator = AuraAccessTokenAuthenticator::new(use_case);
 
-        let principal = authenticator
-            .authenticate(&token, &required_products_write(), &metadata())
-            .await?;
+        let principal = authenticator.authenticate(&token, &metadata()).await?;
 
         let recorded = lock(&calls).clone();
         let expected_hash: HashedRawAccessToken = raw_token.into();
@@ -178,25 +194,28 @@ mod tests {
             TransportPrincipal::User {
                 user_id: actual,
                 auth_method: AuthMethod::AuraAccessToken,
-                scopes,
-            } if actual == user_id && scopes == required_products_write()
+                capabilities,
+            } if actual == user_id
+                && capabilities == BTreeSet::from([CredentialCapability::ProductsWrite])
         ));
         assert_eq!(1, recorded.len());
         assert_eq!(Principal::Anonymous, recorded[0].0.principal);
         assert_eq!("req-1", recorded[0].0.request_id.as_str());
         assert_eq!("corr-1", recorded[0].0.correlation_id.as_str());
         assert_eq!(expected_hash, recorded[0].1.hashed_token);
-        assert_eq!(required_products_write(), recorded[0].1.required_scopes);
         Ok(())
     }
 
     #[tokio::test]
     async fn should_reject_opaque_access_token_when_malformed() {
-        let (use_case, calls) = use_case(FakeTokenOutcome::Success(UserId::new()));
+        let (use_case, calls) = use_case(FakeTokenOutcome::Success {
+            user_id: UserId::new(),
+            scopes: HashSet::new(),
+        });
         let authenticator = AuraAccessTokenAuthenticator::new(use_case);
 
         let result = authenticator
-            .authenticate("not-an-aura-token", &HashSet::new(), &metadata())
+            .authenticate("not-an-aura-token", &metadata())
             .await;
 
         assert!(matches!(result, Err(AuthError::MalformedCredentials)));
@@ -209,9 +228,7 @@ mod tests {
         let authenticator = AuraAccessTokenAuthenticator::new(use_case);
         let token = String::from(RawAccessToken::new());
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
     }
@@ -222,24 +239,20 @@ mod tests {
         let authenticator = AuraAccessTokenAuthenticator::new(use_case);
         let token = String::from(RawAccessToken::new());
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
     }
 
-    #[tokio::test]
-    async fn should_reject_opaque_access_token_when_scope_missing() {
-        let (use_case, _calls) = use_case(FakeTokenOutcome::InsufficientScope);
-        let authenticator = AuraAccessTokenAuthenticator::new(use_case);
-        let token = String::from(RawAccessToken::new());
-
-        let result = authenticator
-            .authenticate(&token, &required_products_write(), &metadata())
-            .await;
-
-        assert!(matches!(result, Err(AuthError::InsufficientScope)));
+    #[test]
+    fn should_map_token_scopes_to_credential_capabilities() {
+        assert_eq!(
+            BTreeSet::from([
+                CredentialCapability::ProductsWrite,
+                CredentialCapability::ShopsManage,
+            ]),
+            capabilities_from_scopes(&HashSet::from([Scope::ProductsWrite, Scope::ShopsManage]))
+        );
     }
 
     #[tokio::test]
@@ -248,9 +261,7 @@ mod tests {
         let authenticator = AuraAccessTokenAuthenticator::new(use_case);
         let token = String::from(RawAccessToken::new());
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::TemporarilyUnavailable)));
     }
@@ -266,9 +277,7 @@ mod tests {
             let authenticator = AuraAccessTokenAuthenticator::new(use_case);
             let token = String::from(RawAccessToken::new());
 
-            let result = authenticator
-                .authenticate(&token, &HashSet::new(), &metadata())
-                .await;
+            let result = authenticator.authenticate(&token, &metadata()).await;
 
             assert!(matches!(result, Err(AuthError::Internal(_))));
         }

@@ -8,12 +8,12 @@ use user_core::access_token::{HashedRawAccessToken, Scope};
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthenticateAccessTokenRequest {
     pub hashed_token: HashedRawAccessToken,
-    pub required_scopes: HashSet<Scope>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthenticateAccessTokenResult {
     pub user_id: UserId,
+    pub scopes: HashSet<Scope>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -22,8 +22,6 @@ pub enum AuthenticateAccessTokenError {
     NotFound,
     #[error("access token expired")]
     Expired,
-    #[error("access token lacks required scope")]
-    InsufficientScope,
     #[error("access token already exists")]
     Conflict {
         #[source]
@@ -93,17 +91,9 @@ where
         if access_token.is_expired() {
             return Err(AuthenticateAccessTokenError::Expired);
         }
-        if !request
-            .required_scopes
-            .iter()
-            .copied()
-            .all(|scope| access_token.has_scope(scope))
-        {
-            return Err(AuthenticateAccessTokenError::InsufficientScope);
-        }
-
         Ok(AuthenticateAccessTokenResult {
             user_id: access_token.user_id,
+            scopes: access_token.scopes,
         })
     }
 }
@@ -133,7 +123,6 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use common::actor::domain::Actor;
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::patch_field::PatchField;
@@ -207,8 +196,8 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Actor::User(user_id),
-            updated_by: Actor::User(user_id),
+            created_by: Principal::User(user_id),
+            updated_by: Principal::User(user_id),
             created: now,
             updated: now,
         }
@@ -342,21 +331,19 @@ mod tests {
         let store = FakeAccessTokenStore::default();
         lock(&store.state).token = Some(valid);
 
-        assert_eq!(
-            user_id,
-            assert_ok(
-                AuthenticateAccessTokenHandler::new(store)
-                    .execute(
-                        &ctx(Principal::Anonymous),
-                        AuthenticateAccessTokenRequest {
-                            hashed_token: hashed,
-                            required_scopes: scopes,
-                        },
-                    )
-                    .await,
-            )
-            .user_id,
+        let result = assert_ok(
+            AuthenticateAccessTokenHandler::new(store)
+                .execute(
+                    &ctx(Principal::Anonymous),
+                    AuthenticateAccessTokenRequest {
+                        hashed_token: hashed,
+                    },
+                )
+                .await,
         );
+
+        assert_eq!(user_id, result.user_id);
+        assert_eq!(scopes, result.scopes);
     }
 
     #[tokio::test]
@@ -369,7 +356,6 @@ mod tests {
                     &ctx(Principal::System),
                     AuthenticateAccessTokenRequest {
                         hashed_token: RawAccessToken::new().into(),
-                        required_scopes: HashSet::new(),
                     },
                 )
                 .await,
@@ -389,27 +375,10 @@ mod tests {
                     &ctx(Principal::System),
                     AuthenticateAccessTokenRequest {
                         hashed_token: hashed,
-                        required_scopes: HashSet::new(),
                     },
                 )
                 .await,
             |error| matches!(error, AuthenticateAccessTokenError::Expired),
-        );
-
-        let scoped = token(user_id, HashSet::from([Scope::ShopsManage]), None);
-        let hashed = scoped.hashed_token.clone();
-        lock(&store.state).token = Some(scoped);
-        assert_error(
-            AuthenticateAccessTokenHandler::new(store)
-                .execute(
-                    &ctx(Principal::System),
-                    AuthenticateAccessTokenRequest {
-                        hashed_token: hashed,
-                        required_scopes: HashSet::from([Scope::ProductsWrite]),
-                    },
-                )
-                .await,
-            |error| matches!(error, AuthenticateAccessTokenError::InsufficientScope),
         );
     }
 
@@ -429,7 +398,6 @@ mod tests {
                         &ctx(Principal::System),
                         AuthenticateAccessTokenRequest {
                             hashed_token: RawAccessToken::new().into(),
-                            required_scopes: HashSet::new(),
                         },
                     )
                     .await,

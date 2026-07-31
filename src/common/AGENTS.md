@@ -6,10 +6,12 @@
 
 ## Core Design
 
-- Shared primitives, IDs, logging, boxed error-source helpers, AWS helpers, and cross-crate utilities.
+- Shared primitives, IDs, logging, boxed error-source helpers, AWS helpers, operation context/auth principals, and cross-crate utilities.
 - As lean as possible.
 - Root modules: `actor`, `currency`, `distance`, `api`, `batch`, `change_outcome`, `domain`, `enhanced_match_reason`, `dynamodb_update`, `dynamodb_stream`, `error`, `event`, `event_id`, `execution_state`, `fake`, `has_key`, `language`, `localized`, `logging`, `measurement_unit`, `mergeable`, `product_id`, `product_lifecycle`, `product_slug_id`, `product_state`, `oauth_client_id`, `operation_context`, `opensearch`, `pagination`, `patch_field`, `postgres`, `partner_shop_application_id`, `personalized`, `price`, `query`, `resource_state`, `seller_slug_id`, `shop_id`, `shop_name`, `shop_slug_id`, `shops_product_id`, `slug_id`, `sort`, `string_newtype`, `stripe_customer_id`, `transaction`, `user_id`, `user_search_filter_id`, `user_search_filter_name`, `utm`, `uuid_newtype`, `version`, `versioned`, `year`.
 - Library crate. Keep domain, persistence, and service seams explicit.
+- `operation_context` owns service principals. Cognito user sessions are `Principal::User` with open-world credential capability. Aura access tokens are `Principal::DelegatedUser` with explicit closed-world `CredentialCapability` set.
+- `Principal` exposes lean `require*` guards and chainable principal requirements. Use `Principal` in services instead of direct `Actor` matching.
 - `postgres` feature provides env parsing, SQLx pool construction, and SQLx unit-of-work primitives.
 
 ## Ownership

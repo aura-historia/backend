@@ -1,7 +1,5 @@
 use crate::auth::core::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
 use http::{HeaderMap, header::AUTHORIZATION};
-use std::collections::HashSet;
-use user_core::access_token::Scope;
 
 pub struct OptionalAuthExtractor<'a, A> {
     authenticator: &'a A,
@@ -20,16 +18,11 @@ where
     pub async fn extract(
         &self,
         headers: &HeaderMap,
-        required_scopes: &HashSet<Scope>,
         metadata: &RequestMetadata,
     ) -> Result<TransportPrincipal, AuthError> {
         match extract_bearer_token(headers)? {
             None => Ok(TransportPrincipal::Anonymous),
-            Some(token) => {
-                self.authenticator
-                    .authenticate(&token, required_scopes, metadata)
-                    .await
-            }
+            Some(token) => self.authenticator.authenticate(&token, metadata).await,
         }
     }
 }
@@ -51,13 +44,10 @@ where
     pub async fn extract(
         &self,
         headers: &HeaderMap,
-        required_scopes: &HashSet<Scope>,
         metadata: &RequestMetadata,
     ) -> Result<TransportPrincipal, AuthError> {
         let token = extract_bearer_token(headers)?.ok_or(AuthError::MissingCredentials)?;
-        self.authenticator
-            .authenticate(&token, required_scopes, metadata)
-            .await
+        self.authenticator.authenticate(&token, metadata).await
     }
 }
 
@@ -78,11 +68,13 @@ fn extract_bearer_token(headers: &HeaderMap) -> Result<Option<String>, AuthError
 mod tests {
     use super::*;
     use crate::auth::core::AuthMethod;
+    use common::operation_context::CredentialCapability;
     use common::user_id::UserId;
     use http::HeaderValue;
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
 
-    type AuthCall = (String, HashSet<Scope>, RequestMetadata);
+    type AuthCall = (String, RequestMetadata);
     type AuthCalls = Arc<Mutex<Vec<AuthCall>>>;
 
     #[derive(Clone)]
@@ -101,14 +93,9 @@ mod tests {
         async fn authenticate(
             &self,
             bearer_token: &str,
-            required_scopes: &HashSet<Scope>,
             metadata: &RequestMetadata,
         ) -> Result<TransportPrincipal, AuthError> {
-            lock(&self.calls).push((
-                bearer_token.to_owned(),
-                required_scopes.clone(),
-                metadata.clone(),
-            ));
+            lock(&self.calls).push((bearer_token.to_owned(), metadata.clone()));
             self.result
                 .clone()
                 .map_err(|_| AuthError::InvalidCredentials)
@@ -124,10 +111,6 @@ mod tests {
 
     fn metadata() -> RequestMetadata {
         RequestMetadata::new("server-req-1", "corr-1")
-    }
-
-    fn required_scopes() -> HashSet<Scope> {
-        HashSet::from([Scope::ProductsWrite])
     }
 
     fn headers(value: &'static str) -> HeaderMap {
@@ -188,9 +171,7 @@ mod tests {
         let (authenticator, calls) = authenticator(Ok(TransportPrincipal::Anonymous));
         let extractor = OptionalAuthExtractor::new(&authenticator);
 
-        let principal = extractor
-            .extract(&HeaderMap::new(), &HashSet::new(), &metadata())
-            .await;
+        let principal = extractor.extract(&HeaderMap::new(), &metadata()).await;
 
         assert!(matches!(principal, Ok(TransportPrincipal::Anonymous)));
         assert!(lock(&calls).is_empty());
@@ -202,13 +183,13 @@ mod tests {
         let (authenticator, calls) = authenticator(Ok(TransportPrincipal::User {
             user_id,
             auth_method: AuthMethod::CognitoJwt,
-            scopes: HashSet::new(),
+            capabilities: BTreeSet::new(),
         }));
         let extractor = OptionalAuthExtractor::new(&authenticator);
         let metadata = metadata();
 
         let principal = extractor
-            .extract(&headers("Bearer good-token"), &required_scopes(), &metadata)
+            .extract(&headers("Bearer good-token"), &metadata)
             .await;
 
         let calls = lock(&calls).clone();
@@ -217,8 +198,7 @@ mod tests {
         );
         assert_eq!(1, calls.len());
         assert_eq!("good-token", calls[0].0);
-        assert_eq!(required_scopes(), calls[0].1);
-        assert_eq!(metadata, calls[0].2);
+        assert_eq!(metadata, calls[0].1);
     }
 
     #[tokio::test]
@@ -227,7 +207,7 @@ mod tests {
         let extractor = OptionalAuthExtractor::new(&authenticator);
 
         let principal = extractor
-            .extract(&headers("Bearer bad-token"), &HashSet::new(), &metadata())
+            .extract(&headers("Bearer bad-token"), &metadata())
             .await;
 
         assert!(matches!(principal, Err(AuthError::InvalidCredentials)));
@@ -238,9 +218,7 @@ mod tests {
         let (authenticator, calls) = authenticator(Ok(TransportPrincipal::Anonymous));
         let extractor = ProtectedAuthExtractor::new(&authenticator);
 
-        let principal = extractor
-            .extract(&HeaderMap::new(), &HashSet::new(), &metadata())
-            .await;
+        let principal = extractor.extract(&HeaderMap::new(), &metadata()).await;
 
         assert!(matches!(principal, Err(AuthError::MissingCredentials)));
         assert!(lock(&calls).is_empty());
@@ -252,12 +230,12 @@ mod tests {
         let (authenticator, calls) = authenticator(Ok(TransportPrincipal::User {
             user_id,
             auth_method: AuthMethod::AuraAccessToken,
-            scopes: HashSet::new(),
+            capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
         }));
         let extractor = ProtectedAuthExtractor::new(&authenticator);
 
         let principal = extractor
-            .extract(&headers("Bearer good-token"), &HashSet::new(), &metadata())
+            .extract(&headers("Bearer good-token"), &metadata())
             .await;
 
         assert!(

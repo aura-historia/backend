@@ -5,9 +5,8 @@ use common::user_id::UserId;
 use jsonwebtokens::{Algorithm, AlgorithmID, Verifier, raw};
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use user_core::access_token::Scope;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CognitoJwtConfig {
@@ -151,7 +150,6 @@ where
     async fn authenticate(
         &self,
         bearer_token: &str,
-        required_scopes: &HashSet<Scope>,
         _metadata: &RequestMetadata,
     ) -> Result<TransportPrincipal, AuthError> {
         let algorithm = self.algorithm_for_token(bearer_token).await?;
@@ -161,16 +159,13 @@ where
             .map_err(|_| AuthError::InvalidCredentials)?;
 
         verify_audience(&claims, &self.config.audiences)?;
-        if !required_scopes.is_empty() {
-            return Err(AuthError::InsufficientScope);
-        }
         let user_id = UserId::try_from(claim_string(&claims, "sub")?)
             .map_err(|_| AuthError::InvalidCredentials)?;
 
         Ok(TransportPrincipal::User {
             user_id,
             auth_method: AuthMethod::CognitoJwt,
-            scopes: HashSet::new(),
+            capabilities: BTreeSet::new(),
         })
     }
 }
@@ -365,17 +360,15 @@ mod tests {
         let user_id = UserId::new();
         let token = signed_jwt(&key, jwt_claims(user_id, 3_600, json!("audience-1")))?;
 
-        let principal = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await?;
+        let principal = authenticator.authenticate(&token, &metadata()).await?;
 
         assert!(matches!(
             principal,
             TransportPrincipal::User {
                 user_id: actual,
                 auth_method: AuthMethod::CognitoJwt,
-                scopes,
-            } if actual == user_id && scopes.is_empty()
+                capabilities,
+            } if actual == user_id && capabilities.is_empty()
         ));
         assert_eq!(
             vec!["https://issuer.example/pool/.well-known/jwks.json".to_owned()],
@@ -397,9 +390,7 @@ mod tests {
         }
         let token = signed_jwt(&key, claims)?;
 
-        let principal = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await?;
+        let principal = authenticator.authenticate(&token, &metadata()).await?;
 
         assert!(
             matches!(principal, TransportPrincipal::User { user_id: actual, .. } if actual == user_id)
@@ -418,9 +409,7 @@ mod tests {
             jwt_claims(user_id, 3_600, json!(["audience-0", "audience-1"])),
         )?;
 
-        let principal = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await?;
+        let principal = authenticator.authenticate(&token, &metadata()).await?;
 
         assert!(
             matches!(principal, TransportPrincipal::User { user_id: actual, .. } if actual == user_id)
@@ -436,29 +425,10 @@ mod tests {
         let user_id = UserId::new();
         let token = signed_jwt(&key, jwt_claims(user_id, 3_600, json!("audience-1")))?;
 
-        let _ = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await?;
-        let _ = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await?;
+        let _ = authenticator.authenticate(&token, &metadata()).await?;
+        let _ = authenticator.authenticate(&token, &metadata()).await?;
 
         assert_eq!(1, lock(&calls).len());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_reject_cognito_jwt_when_route_requires_scope()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let key = test_key("kid-1")?;
-        let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
-        let token = signed_jwt(&key, jwt_claims(UserId::new(), 3_600, json!("audience-1")))?;
-
-        let result = authenticator
-            .authenticate(&token, &HashSet::from([Scope::ProductsWrite]), &metadata())
-            .await;
-
-        assert!(matches!(result, Err(AuthError::InsufficientScope)));
         Ok(())
     }
 
@@ -468,9 +438,7 @@ mod tests {
         let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
         let token = signed_jwt(&key, jwt_claims(UserId::new(), -60, json!("audience-1")))?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
         Ok(())
@@ -485,9 +453,7 @@ mod tests {
         claims["iss"] = json!("https://evil.example/pool");
         let token = signed_jwt(&key, claims)?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
         Ok(())
@@ -503,9 +469,7 @@ mod tests {
             jwt_claims(UserId::new(), 3_600, json!("other-audience")),
         )?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
         Ok(())
@@ -518,9 +482,7 @@ mod tests {
         let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
         let token = signed_jwt(&key, jwt_claims(UserId::new(), 3_600, json!(123)))?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
         Ok(())
@@ -533,9 +495,7 @@ mod tests {
         let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
         let token = signed_jwt(&key, jwt_claims(UserId::new(), 3_600, json!([123])))?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
         Ok(())
@@ -566,9 +526,7 @@ mod tests {
         }
         let token = signed_jwt(&key, claims)?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::MissingClaim("sub"))));
         Ok(())
@@ -583,9 +541,7 @@ mod tests {
         claims["sub"] = json!(123);
         let token = signed_jwt(&key, claims)?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
         Ok(())
@@ -600,9 +556,7 @@ mod tests {
         claims["sub"] = json!("not-a-uuid");
         let token = signed_jwt(&key, claims)?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
         Ok(())
@@ -612,9 +566,7 @@ mod tests {
     async fn should_reject_cognito_jwt_when_token_malformed() -> Result<(), AuthError> {
         let authenticator = authenticator(Vec::new(), Arc::new(Mutex::new(Vec::new())))?;
 
-        let result = authenticator
-            .authenticate("not-a-jwt", &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate("not-a-jwt", &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::MalformedCredentials)));
         Ok(())
@@ -633,9 +585,7 @@ mod tests {
             &algorithm,
         )?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::MissingClaim("kid"))));
         Ok(())
@@ -654,9 +604,7 @@ mod tests {
             &algorithm,
         )?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::InvalidClaimType("kid"))));
         Ok(())
@@ -670,7 +618,7 @@ mod tests {
         )?;
 
         let result = authenticator
-            .authenticate("header.claims.signature", &HashSet::new(), &metadata())
+            .authenticate("header.claims.signature", &metadata())
             .await;
 
         assert!(matches!(result, Err(AuthError::MalformedCredentials)));
@@ -685,9 +633,7 @@ mod tests {
         let authenticator = authenticator(vec![jwk(&other_key)], Arc::new(Mutex::new(Vec::new())))?;
         let token = signed_jwt(&key, jwt_claims(UserId::new(), 3_600, json!("audience-1")))?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::JwksKeyNotFound)));
         Ok(())
@@ -701,9 +647,7 @@ mod tests {
         let authenticator = authenticator(vec![key_record], Arc::new(Mutex::new(Vec::new())))?;
         let token = signed_jwt(&key, jwt_claims(UserId::new(), 3_600, json!("audience-1")))?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::JwksKeyNotFound)));
         Ok(())
@@ -719,9 +663,7 @@ mod tests {
         )?;
         let token = signed_jwt(&key, jwt_claims(UserId::new(), 3_600, json!("audience-1")))?;
 
-        let result = authenticator
-            .authenticate(&token, &HashSet::new(), &metadata())
-            .await;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
         assert!(matches!(result, Err(AuthError::JwksFetch(_))));
         Ok(())

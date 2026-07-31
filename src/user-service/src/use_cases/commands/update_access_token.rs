@@ -1,7 +1,6 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-use common::actor::domain::Actor;
 use common::error::boxed::BoxError;
-use common::operation_context::{OperationContext, Principal};
+use common::operation_context::{AuthenticationRequired, OperationContext, Principal};
 use common::patch_field::PatchField;
 use common::user_id::UserId;
 use std::collections::HashSet;
@@ -100,8 +99,8 @@ where
         context: &OperationContext,
         command: UpdateAccessTokenCommand,
     ) -> Result<UpdateAccessTokenResult, UpdateAccessTokenError> {
-        let actor = actor_from_context(context)?;
-        tracing::Span::current().record("actor_id", tracing::field::display(actor));
+        let principal = context.principal.require_authenticated()?.clone();
+        tracing::Span::current().record("actor_id", tracing::field::display(principal.label()));
 
         let mut access_token = self
             .store
@@ -109,14 +108,14 @@ where
             .await?
             .ok_or(UpdateAccessTokenError::AccessTokenNotFound)?;
 
-        let changed = apply_update(&mut access_token, command, actor)?;
+        let changed = apply_update(&mut access_token, command, principal.clone())?;
         if changed {
             self.store.replace(access_token.clone()).await?;
         }
 
         tracing::info!(
             event = "access_token.updated",
-            actor_id = %actor,
+            actor_id = %principal.label(),
             user_id = %access_token.user_id,
             access_token_id = %access_token.id,
             changed,
@@ -133,7 +132,7 @@ where
 fn apply_update(
     access_token: &mut AccessToken,
     command: UpdateAccessTokenCommand,
-    actor: Actor,
+    principal: Principal,
 ) -> Result<bool, UpdateAccessTokenError> {
     let mut changed = false;
 
@@ -169,18 +168,16 @@ fn apply_update(
     }
 
     if changed {
-        access_token.updated_by = actor;
+        access_token.updated_by = principal;
         access_token.updated = OffsetDateTime::now_utc();
     }
 
     Ok(changed)
 }
 
-fn actor_from_context(context: &OperationContext) -> Result<Actor, UpdateAccessTokenError> {
-    match &context.principal {
-        Principal::Anonymous => Err(UpdateAccessTokenError::AuthenticatedActorRequired),
-        Principal::User(user_id) => Ok(Actor::User(*user_id)),
-        Principal::Service(_) | Principal::System => Ok(Actor::System),
+impl From<AuthenticationRequired> for UpdateAccessTokenError {
+    fn from(_: AuthenticationRequired) -> Self {
+        Self::AuthenticatedActorRequired
     }
 }
 
@@ -209,11 +206,12 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use common::actor::domain::Actor;
     use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+    use common::operation_context::{
+        CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
+    };
     use common::patch_field::PatchField;
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::{Duration, OffsetDateTime};
@@ -283,8 +281,8 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Actor::User(user_id),
-            updated_by: Actor::User(user_id),
+            created_by: Principal::User(user_id),
+            updated_by: Principal::User(user_id),
             created: now,
             updated: now,
         }
@@ -464,6 +462,42 @@ mod tests {
                 .await,
         );
         assert_eq!(1, lock(&store.state).replace_calls);
+    }
+
+    #[tokio::test]
+    async fn should_update_access_token_with_delegated_user_actor() {
+        let user_id = UserId::new();
+        let store = FakeAccessTokenStore::default();
+        let current = token(user_id, HashSet::new(), None);
+        lock(&store.state).token = Some(current.clone());
+
+        assert_ok(
+            UpdateAccessTokenHandler::new(store.clone())
+                .execute(
+                    &ctx(Principal::DelegatedUser {
+                        user_id,
+                        capabilities: BTreeSet::from([CredentialCapability::ShopsManage]),
+                    }),
+                    UpdateAccessTokenCommand {
+                        user_id,
+                        access_token_id: current.id,
+                        name: PatchField::Set(AccessTokenName::from("delegated update")),
+                        ..Default::default()
+                    },
+                )
+                .await,
+        );
+
+        assert_eq!(
+            Some(Principal::DelegatedUser {
+                user_id,
+                capabilities: BTreeSet::from([CredentialCapability::ShopsManage]),
+            }),
+            lock(&store.state)
+                .token
+                .as_ref()
+                .map(|token| token.updated_by.clone())
+        );
     }
 
     #[tokio::test]

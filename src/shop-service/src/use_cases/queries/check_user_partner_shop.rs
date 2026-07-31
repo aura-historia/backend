@@ -1,6 +1,6 @@
 use crate::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
 use common::error::boxed::BoxError;
-use common::operation_context::{OperationContext, Principal};
+use common::operation_context::{OperationContext, PrincipalAuthorizationError};
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, user_id::UserId};
 
@@ -128,10 +128,22 @@ fn authorize_check(
     context: &OperationContext,
     requested_user_id: UserId,
 ) -> Result<(), CheckUserPartnerShopError> {
-    match &context.principal {
-        Principal::User(user_id) if *user_id == requested_user_id => Ok(()),
-        Principal::Service(_) | Principal::System => Ok(()),
-        Principal::Anonymous | Principal::User(_) => Err(CheckUserPartnerShopError::Forbidden),
+    context
+        .principal
+        .require()
+        .user(&requested_user_id)
+        .service_or_system()
+        .check()
+        .map(|_| ())
+        .map_err(map_principal_authorization_error)
+}
+
+fn map_principal_authorization_error(
+    error: PrincipalAuthorizationError,
+) -> CheckUserPartnerShopError {
+    match error {
+        PrincipalAuthorizationError::AuthenticationRequired(_)
+        | PrincipalAuthorizationError::Forbidden => CheckUserPartnerShopError::Forbidden,
     }
 }
 
@@ -139,8 +151,9 @@ fn authorize_check(
 mod tests {
     use super::*;
     use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, RequestId};
+    use common::operation_context::{CorrelationId, CredentialCapability, Principal, RequestId};
     use common::transaction::{TransactionError, UnitOfWork};
+    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Copy)]
@@ -379,9 +392,42 @@ mod tests {
     }
 
     #[test]
+    fn should_allow_delegated_user_to_check_own_partner_shop() {
+        let user_id = UserId::new();
+        let context = OperationContext {
+            principal: Principal::DelegatedUser {
+                user_id,
+                capabilities: BTreeSet::from([CredentialCapability::ShopsManage]),
+            },
+            request_id: RequestId::from("request"),
+            correlation_id: CorrelationId::from("correlation"),
+        };
+
+        let result = authorize_check(&context, user_id);
+
+        assert!(matches!(result, Ok(())));
+    }
+
+    #[test]
     fn should_reject_user_checking_other_user() {
         let context = OperationContext {
             principal: Principal::User(UserId::new()),
+            request_id: RequestId::from("request"),
+            correlation_id: CorrelationId::from("correlation"),
+        };
+
+        let result = authorize_check(&context, UserId::new());
+
+        assert!(matches!(result, Err(CheckUserPartnerShopError::Forbidden)));
+    }
+
+    #[test]
+    fn should_reject_delegated_user_checking_other_user() {
+        let context = OperationContext {
+            principal: Principal::DelegatedUser {
+                user_id: UserId::new(),
+                capabilities: BTreeSet::new(),
+            },
             request_id: RequestId::from("request"),
             correlation_id: CorrelationId::from("correlation"),
         };

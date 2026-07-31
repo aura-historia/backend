@@ -1,5 +1,5 @@
 use common::{
-    actor::domain::Actor, oauth_client_id::OAuthClientId, string_newtype, user_id::UserId,
+    oauth_client_id::OAuthClientId, operation_context::Principal, string_newtype, user_id::UserId,
     uuid_v7_newtype,
 };
 use prefixed_api_key::{
@@ -28,8 +28,8 @@ pub struct AccessToken {
     pub scopes: HashSet<Scope>,
     pub origin: AccessTokenOrigin,
     pub expires: Option<OffsetDateTime>,
-    pub created_by: Actor,
-    pub updated_by: Actor,
+    pub created_by: Principal,
+    pub updated_by: Principal,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
@@ -440,7 +440,6 @@ impl<P: TokenPrefix> From<PrefixedApiKey> for HashedRawToken<P> {
 #[cfg(test)]
 mod access_token_state_tests {
     use super::*;
-    use common::actor::domain::Actor;
 
     #[test]
     fn should_report_not_expired_when_no_expiry() {
@@ -496,8 +495,8 @@ mod access_token_state_tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created_by: Actor::System,
-            updated_by: Actor::System,
+            created_by: Principal::System,
+            updated_by: Principal::System,
             created: now,
             updated: now,
         }
@@ -543,8 +542,8 @@ mod faker {
                 scopes: [Scope::ProductsWrite].into(),
                 origin: AccessTokenOrigin::User,
                 expires: None,
-                created_by: config.fake_with_rng(rng),
-                updated_by: config.fake_with_rng(rng),
+                created_by: Principal::System,
+                updated_by: Principal::System,
                 created: OffsetDateTime::now_utc(),
                 updated: OffsetDateTime::now_utc(),
             }
