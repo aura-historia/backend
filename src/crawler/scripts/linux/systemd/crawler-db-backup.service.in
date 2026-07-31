@@ -1,0 +1,10 @@
+[Unit]
+Description=Crawler Postgres backup
+Wants=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__CRAWLER_DIR__/src/crawler
+Environment=BACKUP_RETENTION_DAYS=__BACKUP_RETENTION_DAYS__
+ExecStart=/usr/bin/env bash __CRAWLER_DIR__/src/crawler/scripts/linux/db-backup.sh

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run crawler Postgres backup hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=10m
+Unit=crawler-db-backup.service
+
+[Install]
+WantedBy=timers.target
