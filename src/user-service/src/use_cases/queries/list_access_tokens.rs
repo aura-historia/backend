@@ -1,7 +1,9 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
 use crate::use_cases::queries::get_access_token::AccessTokenView;
 use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -16,6 +18,8 @@ pub struct ListAccessTokensResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListAccessTokensError {
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("access token already exists")]
     Conflict {
         #[source]
@@ -77,6 +81,7 @@ where
         context: &OperationContext,
         request: ListAccessTokensRequest,
     ) -> Result<ListAccessTokensResult, ListAccessTokensError> {
+        authorize_access_token_read(context, request.user_id)?;
         let items = self
             .store
             .list_for_user(&request.user_id)
@@ -86,6 +91,28 @@ where
             .collect();
 
         Ok(ListAccessTokensResult { items })
+    }
+}
+
+fn authorize_access_token_read(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), ListAccessTokensError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::AccessTokensRead)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<ListAccessTokensError>()
+}
+
+impl From<OperationAuthorizationError> for ListAccessTokensError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => Self::Forbidden,
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 
@@ -318,7 +345,7 @@ mod tests {
             assert_ok(
                 ListAccessTokensHandler::new(store)
                     .execute(
-                        &ctx(Principal::Anonymous),
+                        &ctx(Principal::User(user_id)),
                         ListAccessTokensRequest { user_id }
                     )
                     .await,

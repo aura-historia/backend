@@ -1,7 +1,9 @@
 use crate::ports::{
     SearchFilterRepository, SearchFilterRepositoryError, SearchFilterRepositoryFactory,
 };
-use common::operation_context::{OperationContext, Principal};
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
@@ -28,6 +30,8 @@ pub struct CreateSearchFilterResult {
 pub enum CreateSearchFilterError {
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("search filter already exists")]
     AlreadyExists,
     #[error("temporary search filter persistence failure")]
@@ -75,9 +79,7 @@ where
         context: &OperationContext,
         command: CreateSearchFilterCommand,
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError> {
-        if matches!(context.principal, Principal::Anonymous) {
-            return Err(CreateSearchFilterError::AuthenticatedActorRequired);
-        }
+        authorize_create(context, command.user_id)?;
         let mut tx = self
             .unit_of_work
             .begin()
@@ -97,6 +99,30 @@ where
             .await
             .map_err(|_| CreateSearchFilterError::CommitTransactionFailed)?;
         Ok(CreateSearchFilterResult { filter })
+    }
+}
+
+fn authorize_create(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), CreateSearchFilterError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::SearchFiltersWrite)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<CreateSearchFilterError>()
+}
+
+impl From<OperationAuthorizationError> for CreateSearchFilterError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 

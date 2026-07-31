@@ -1,9 +1,11 @@
 use crate::ports::{UserRepository, UserRepositoryError, UserRepositoryFactory};
 use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+};
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
-use user_core::{tier::UserTier, user::User};
+use user_core::{role::UserRole, tier::UserTier, user::User};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangeUserTierCommand {
@@ -21,6 +23,8 @@ pub struct ChangeUserTierResult {
 pub enum ChangeUserTierError {
     #[error("authenticated actor required to change user tier")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("user not found")]
     UserNotFound,
     #[error("concurrent user update")]
@@ -101,10 +105,7 @@ where
         context: &OperationContext,
         command: ChangeUserTierCommand,
     ) -> Result<ChangeUserTierResult, ChangeUserTierError> {
-        context
-            .principal
-            .require_authenticated()
-            .map_err(|_| ChangeUserTierError::AuthenticatedActorRequired)?;
+        require_users_write_credential(context)?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -115,23 +116,21 @@ where
             .begin()
             .await
             .map_err(|_| ChangeUserTierError::BeginTransactionFailed)?;
+        let mut users = self.users.in_transaction(&mut tx);
+        require_admin_actor(context, &mut users).await?;
         let common::versioned::Versioned {
             value: mut user,
             version,
-        } = self
-            .users
-            .in_transaction(&mut tx)
+        } = users
             .find_by_id(command.user_id)
             .await?
             .ok_or(ChangeUserTierError::UserNotFound)?;
 
         let outcome = user.change_tier(command.tier);
         if outcome.changed() {
-            self.users
-                .in_transaction(&mut tx)
-                .update(&user, version)
-                .await?;
+            users.update(&user, version).await?;
         }
+        drop(users);
 
         tx.commit()
             .await
@@ -156,6 +155,46 @@ impl From<&User> for ChangeUserTierResult {
         Self {
             user_id: user.id(),
             tier: user.account().tier,
+        }
+    }
+}
+
+fn require_users_write_credential(context: &OperationContext) -> Result<(), ChangeUserTierError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::UsersWrite)
+        .authorize::<ChangeUserTierError>()
+}
+
+async fn require_admin_actor<R: UserRepository>(
+    context: &OperationContext,
+    users: &mut R,
+) -> Result<(), ChangeUserTierError> {
+    match &context.principal {
+        Principal::Service(_) | Principal::System => Ok(()),
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => {
+            let actor = users
+                .find_by_id(*user_id)
+                .await?
+                .ok_or(ChangeUserTierError::Forbidden)?;
+            if actor.value.account().role == UserRole::Admin {
+                Ok(())
+            } else {
+                Err(ChangeUserTierError::Forbidden)
+            }
+        }
+        Principal::Anonymous => Err(ChangeUserTierError::AuthenticatedActorRequired),
+    }
+}
+
+impl From<OperationAuthorizationError> for ChangeUserTierError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
         }
     }
 }
@@ -197,6 +236,7 @@ mod tests {
     use common::transaction::{Transaction, TransactionError, UnitOfWork};
     use common::versioned::Versioned;
     use serde_email::Email;
+    use std::collections::BTreeSet;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::role::UserRole;
@@ -473,6 +513,74 @@ mod tests {
                 .await,
             |error| matches!(error, ChangeUserTierError::CommitTransactionFailed),
         );
+    }
+
+    #[tokio::test]
+    async fn should_allow_admin_user_and_reject_non_admin_user_for_change_user_tier() {
+        let user_id = UserId::new();
+        let uow = FakeUnitOfWork::default();
+        let repo = FakeUserRepositoryFactory::default();
+        lock(&repo.state).user = Some(versioned(user_with(
+            user_id,
+            "admin@example.com",
+            UserRole::Admin,
+            UserTier::Free,
+        )));
+
+        assert_ok(
+            ChangeUserTierHandler::new(uow.clone(), repo.clone())
+                .execute(
+                    &ctx(Principal::User(user_id)),
+                    ChangeUserTierCommand {
+                        user_id,
+                        tier: UserTier::Pro,
+                    },
+                )
+                .await,
+        );
+
+        lock(&repo.state).user = Some(versioned(user_with(
+            user_id,
+            "user@example.com",
+            UserRole::User,
+            UserTier::Free,
+        )));
+        assert_error(
+            ChangeUserTierHandler::new(uow, repo.clone())
+                .execute(
+                    &ctx(Principal::User(user_id)),
+                    ChangeUserTierCommand {
+                        user_id,
+                        tier: UserTier::Ultimate,
+                    },
+                )
+                .await,
+            |error| matches!(error, ChangeUserTierError::Forbidden),
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_delegated_user_without_users_write_before_tx_for_change_user_tier() {
+        let user_id = UserId::new();
+        let uow = FakeUnitOfWork::default();
+        let repo = FakeUserRepositoryFactory::default();
+
+        assert_error(
+            ChangeUserTierHandler::new(uow.clone(), repo)
+                .execute(
+                    &ctx(Principal::DelegatedUser {
+                        user_id,
+                        capabilities: BTreeSet::new(),
+                    }),
+                    ChangeUserTierCommand {
+                        user_id,
+                        tier: UserTier::Pro,
+                    },
+                )
+                .await,
+            |error| matches!(error, ChangeUserTierError::Forbidden),
+        );
+        assert_eq!(0, lock(&uow.state).begins);
     }
 
     #[tokio::test]

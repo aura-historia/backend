@@ -11,7 +11,42 @@ pub struct CorrelationId(String);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CredentialCapability {
     ProductsWrite,
-    ShopsManage,
+    ShopsRead,
+    ShopsWrite,
+    PartnerShopApplicationsWrite,
+    PartnerShopsRead,
+    PartnerShopsWrite,
+    UsersRead,
+    UsersWrite,
+    AccessTokensRead,
+    AccessTokensWrite,
+    SearchFiltersWrite,
+    WatchlistWrite,
+}
+
+impl CredentialCapability {
+    pub fn as_scope_str(self) -> &'static str {
+        match self {
+            CredentialCapability::ProductsWrite => "products:write",
+            CredentialCapability::ShopsRead => "shops:read",
+            CredentialCapability::ShopsWrite => "shops:write",
+            CredentialCapability::PartnerShopApplicationsWrite => "partner-shop-applications:write",
+            CredentialCapability::PartnerShopsRead => "partner-shops:read",
+            CredentialCapability::PartnerShopsWrite => "partner-shops:write",
+            CredentialCapability::UsersRead => "users:read",
+            CredentialCapability::UsersWrite => "users:write",
+            CredentialCapability::AccessTokensRead => "access-tokens:read",
+            CredentialCapability::AccessTokensWrite => "access-tokens:write",
+            CredentialCapability::SearchFiltersWrite => "search-filters:write",
+            CredentialCapability::WatchlistWrite => "watchlist:write",
+        }
+    }
+}
+
+impl Display for CredentialCapability {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_scope_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -62,7 +97,17 @@ pub enum PrincipalAuthorizationError {
 pub enum CredentialAuthorizationError {
     #[error(transparent)]
     AuthenticationRequired(#[from] AuthenticationRequired),
-    #[error("credential lacks required capability: {capability:?}")]
+    #[error("credential lacks required capability: {capability}")]
+    InsufficientCapability { capability: CredentialCapability },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum OperationAuthorizationError {
+    #[error(transparent)]
+    AuthenticationRequired(#[from] AuthenticationRequired),
+    #[error("operation is not permitted")]
+    Forbidden,
+    #[error("credential lacks required capability: {capability}")]
     InsufficientCapability { capability: CredentialCapability },
 }
 
@@ -165,6 +210,13 @@ pub struct PrincipalRequirement<'a> {
     allowed: bool,
 }
 
+pub struct OperationRequirement<'a> {
+    context: &'a OperationContext,
+    credential_error: Option<CredentialAuthorizationError>,
+    principal_rule_used: bool,
+    principal_allowed: bool,
+}
+
 impl<'a> PrincipalRequirement<'a> {
     fn new(principal: &'a Principal) -> Self {
         Self {
@@ -215,7 +267,108 @@ impl<'a> PrincipalRequirement<'a> {
     }
 }
 
+impl From<CredentialAuthorizationError> for OperationAuthorizationError {
+    fn from(error: CredentialAuthorizationError) -> Self {
+        match error {
+            CredentialAuthorizationError::AuthenticationRequired(error) => {
+                OperationAuthorizationError::AuthenticationRequired(error)
+            }
+            CredentialAuthorizationError::InsufficientCapability { capability } => {
+                OperationAuthorizationError::InsufficientCapability { capability }
+            }
+        }
+    }
+}
+
+impl From<PrincipalAuthorizationError> for OperationAuthorizationError {
+    fn from(error: PrincipalAuthorizationError) -> Self {
+        match error {
+            PrincipalAuthorizationError::AuthenticationRequired(error) => {
+                OperationAuthorizationError::AuthenticationRequired(error)
+            }
+            PrincipalAuthorizationError::Forbidden => OperationAuthorizationError::Forbidden,
+        }
+    }
+}
+
+impl<'a> OperationRequirement<'a> {
+    fn new(context: &'a OperationContext) -> Self {
+        Self {
+            context,
+            credential_error: None,
+            principal_rule_used: false,
+            principal_allowed: false,
+        }
+    }
+
+    pub fn credential_capability(mut self, capability: CredentialCapability) -> Self {
+        if let Err(error) = self.context.require_credential_capability(capability) {
+            self.credential_error.get_or_insert(error);
+        }
+        self
+    }
+
+    pub fn user(mut self, required_user_id: &UserId) -> Self {
+        self.principal_rule_used = true;
+        self.principal_allowed |= matches!(
+            &self.context.principal,
+            Principal::User(user_id) | Principal::DelegatedUser { user_id, .. }
+                if user_id == required_user_id
+        );
+        self
+    }
+
+    pub fn any_user(mut self) -> Self {
+        self.principal_rule_used = true;
+        self.principal_allowed |= matches!(
+            &self.context.principal,
+            Principal::User(_) | Principal::DelegatedUser { .. }
+        );
+        self
+    }
+
+    pub fn service(mut self) -> Self {
+        self.principal_rule_used = true;
+        self.principal_allowed |= matches!(&self.context.principal, Principal::Service(_));
+        self
+    }
+
+    pub fn system(mut self) -> Self {
+        self.principal_rule_used = true;
+        self.principal_allowed |= matches!(&self.context.principal, Principal::System);
+        self
+    }
+
+    pub fn service_or_system(self) -> Self {
+        self.service().system()
+    }
+
+    pub fn check(self) -> Result<&'a OperationContext, OperationAuthorizationError> {
+        if let Some(error) = self.credential_error {
+            return Err(error.into());
+        }
+        if !self.principal_rule_used || self.principal_allowed {
+            Ok(self.context)
+        } else if matches!(self.context.principal, Principal::Anonymous) {
+            Err(AuthenticationRequired.into())
+        } else {
+            Err(OperationAuthorizationError::Forbidden)
+        }
+    }
+
+    pub fn authorize<E>(self) -> Result<(), E>
+    where
+        E: From<OperationAuthorizationError>,
+    {
+        self.check().map(drop).map_err(E::from)
+    }
+}
+
 impl OperationContext {
+    pub fn require(&self) -> OperationRequirement<'_> {
+        OperationRequirement::new(self)
+    }
+
     pub fn require_user(
         &self,
         required_user_id: &UserId,
@@ -301,6 +454,39 @@ mod tests {
     }
 
     #[test]
+    fn should_render_all_capabilities_as_oauth_scope_strings() {
+        for (capability, scope) in [
+            (CredentialCapability::ProductsWrite, "products:write"),
+            (CredentialCapability::ShopsRead, "shops:read"),
+            (CredentialCapability::ShopsWrite, "shops:write"),
+            (
+                CredentialCapability::PartnerShopApplicationsWrite,
+                "partner-shop-applications:write",
+            ),
+            (CredentialCapability::PartnerShopsRead, "partner-shops:read"),
+            (
+                CredentialCapability::PartnerShopsWrite,
+                "partner-shops:write",
+            ),
+            (CredentialCapability::UsersRead, "users:read"),
+            (CredentialCapability::UsersWrite, "users:write"),
+            (CredentialCapability::AccessTokensRead, "access-tokens:read"),
+            (
+                CredentialCapability::AccessTokensWrite,
+                "access-tokens:write",
+            ),
+            (
+                CredentialCapability::SearchFiltersWrite,
+                "search-filters:write",
+            ),
+            (CredentialCapability::WatchlistWrite, "watchlist:write"),
+        ] {
+            assert_eq!(scope, capability.as_scope_str());
+            assert_eq!(scope, capability.to_string());
+        }
+    }
+
+    #[test]
     fn should_use_open_world_capabilities_for_first_party_user() {
         let principal = Principal::User(UserId::new());
 
@@ -324,9 +510,9 @@ mod tests {
         );
         assert_eq!(
             Err(CredentialAuthorizationError::InsufficientCapability {
-                capability: CredentialCapability::ShopsManage
+                capability: CredentialCapability::ShopsWrite
             }),
-            principal.require_credential_capability(CredentialCapability::ShopsManage)
+            principal.require_credential_capability(CredentialCapability::ShopsWrite)
         );
     }
 
@@ -384,6 +570,97 @@ mod tests {
         assert_eq!(
             Err(PrincipalAuthorizationError::Forbidden),
             other.require().user(&user_id).service_or_system().check()
+        );
+    }
+
+    #[test]
+    fn should_allow_operation_when_capability_and_principal_rules_pass() {
+        let user_id = UserId::new();
+        let context = OperationContext {
+            principal: Principal::DelegatedUser {
+                user_id,
+                capabilities: BTreeSet::from([CredentialCapability::PartnerShopsRead]),
+            },
+            request_id: RequestId::new("req"),
+            correlation_id: CorrelationId::new("corr"),
+        };
+
+        assert_eq!(
+            Ok(&context),
+            context
+                .require()
+                .credential_capability(CredentialCapability::PartnerShopsRead)
+                .user(&user_id)
+                .service_or_system()
+                .check()
+        );
+    }
+
+    #[test]
+    fn should_reject_operation_when_delegated_user_lacks_capability() {
+        let user_id = UserId::new();
+        let context = OperationContext {
+            principal: Principal::DelegatedUser {
+                user_id,
+                capabilities: BTreeSet::new(),
+            },
+            request_id: RequestId::new("req"),
+            correlation_id: CorrelationId::new("corr"),
+        };
+
+        assert_eq!(
+            Err(OperationAuthorizationError::InsufficientCapability {
+                capability: CredentialCapability::PartnerShopsRead
+            }),
+            context
+                .require()
+                .credential_capability(CredentialCapability::PartnerShopsRead)
+                .user(&user_id)
+                .check()
+        );
+    }
+
+    #[test]
+    fn should_reject_operation_when_user_rule_fails() {
+        let context = OperationContext {
+            principal: Principal::User(UserId::new()),
+            request_id: RequestId::new("req"),
+            correlation_id: CorrelationId::new("corr"),
+        };
+
+        assert_eq!(
+            Err(OperationAuthorizationError::Forbidden),
+            context.require().user(&UserId::new()).check()
+        );
+    }
+
+    #[test]
+    fn should_reject_operation_when_anonymous() {
+        let context = OperationContext {
+            principal: Principal::Anonymous,
+            request_id: RequestId::new("req"),
+            correlation_id: CorrelationId::new("corr"),
+        };
+
+        assert_eq!(
+            Err(OperationAuthorizationError::AuthenticationRequired(
+                AuthenticationRequired
+            )),
+            context.require().any_user().check()
+        );
+    }
+
+    #[test]
+    fn should_authorize_operation_as_unit_result() {
+        let context = OperationContext {
+            principal: Principal::Service("svc".to_owned()),
+            request_id: RequestId::new("req"),
+            correlation_id: CorrelationId::new("corr"),
+        };
+
+        assert_eq!(
+            Ok::<(), OperationAuthorizationError>(()),
+            context.require().service_or_system().authorize()
         );
     }
 

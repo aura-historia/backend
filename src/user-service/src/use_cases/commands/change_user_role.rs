@@ -1,6 +1,8 @@
 use crate::ports::{UserRepository, UserRepositoryError, UserRepositoryFactory};
 use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+};
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use user_core::{role::UserRole, user::User};
@@ -21,6 +23,8 @@ pub struct ChangeUserRoleResult {
 pub enum ChangeUserRoleError {
     #[error("authenticated actor required to change user role")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("user not found")]
     UserNotFound,
     #[error("concurrent user update")]
@@ -101,10 +105,7 @@ where
         context: &OperationContext,
         command: ChangeUserRoleCommand,
     ) -> Result<ChangeUserRoleResult, ChangeUserRoleError> {
-        context
-            .principal
-            .require_authenticated()
-            .map_err(|_| ChangeUserRoleError::AuthenticatedActorRequired)?;
+        require_users_write_credential(context)?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -115,23 +116,21 @@ where
             .begin()
             .await
             .map_err(|_| ChangeUserRoleError::BeginTransactionFailed)?;
+        let mut users = self.users.in_transaction(&mut tx);
+        require_admin_actor(context, &mut users).await?;
         let common::versioned::Versioned {
             value: mut user,
             version,
-        } = self
-            .users
-            .in_transaction(&mut tx)
+        } = users
             .find_by_id(command.user_id)
             .await?
             .ok_or(ChangeUserRoleError::UserNotFound)?;
 
         let outcome = user.change_role(command.role);
         if outcome.changed() {
-            self.users
-                .in_transaction(&mut tx)
-                .update(&user, version)
-                .await?;
+            users.update(&user, version).await?;
         }
+        drop(users);
 
         tx.commit()
             .await
@@ -156,6 +155,46 @@ impl From<&User> for ChangeUserRoleResult {
         Self {
             user_id: user.id(),
             role: user.account().role,
+        }
+    }
+}
+
+fn require_users_write_credential(context: &OperationContext) -> Result<(), ChangeUserRoleError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::UsersWrite)
+        .authorize::<ChangeUserRoleError>()
+}
+
+async fn require_admin_actor<R: UserRepository>(
+    context: &OperationContext,
+    users: &mut R,
+) -> Result<(), ChangeUserRoleError> {
+    match &context.principal {
+        Principal::Service(_) | Principal::System => Ok(()),
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => {
+            let actor = users
+                .find_by_id(*user_id)
+                .await?
+                .ok_or(ChangeUserRoleError::Forbidden)?;
+            if actor.value.account().role == UserRole::Admin {
+                Ok(())
+            } else {
+                Err(ChangeUserRoleError::Forbidden)
+            }
+        }
+        Principal::Anonymous => Err(ChangeUserRoleError::AuthenticatedActorRequired),
+    }
+}
+
+impl From<OperationAuthorizationError> for ChangeUserRoleError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
         }
     }
 }
@@ -197,6 +236,7 @@ mod tests {
     use common::transaction::{Transaction, TransactionError, UnitOfWork};
     use common::versioned::Versioned;
     use serde_email::Email;
+    use std::collections::BTreeSet;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::role::UserRole;
@@ -473,6 +513,74 @@ mod tests {
                 .await,
             |error| matches!(error, ChangeUserRoleError::CommitTransactionFailed),
         );
+    }
+
+    #[tokio::test]
+    async fn should_allow_admin_user_and_reject_non_admin_user_for_change_user_role() {
+        let user_id = UserId::new();
+        let uow = FakeUnitOfWork::default();
+        let repo = FakeUserRepositoryFactory::default();
+        lock(&repo.state).user = Some(versioned(user_with(
+            user_id,
+            "admin@example.com",
+            UserRole::Admin,
+            UserTier::Free,
+        )));
+
+        assert_ok(
+            ChangeUserRoleHandler::new(uow.clone(), repo.clone())
+                .execute(
+                    &ctx(Principal::User(user_id)),
+                    ChangeUserRoleCommand {
+                        user_id,
+                        role: UserRole::User,
+                    },
+                )
+                .await,
+        );
+
+        lock(&repo.state).user = Some(versioned(user_with(
+            user_id,
+            "user@example.com",
+            UserRole::User,
+            UserTier::Free,
+        )));
+        assert_error(
+            ChangeUserRoleHandler::new(uow, repo.clone())
+                .execute(
+                    &ctx(Principal::User(user_id)),
+                    ChangeUserRoleCommand {
+                        user_id,
+                        role: UserRole::Admin,
+                    },
+                )
+                .await,
+            |error| matches!(error, ChangeUserRoleError::Forbidden),
+        );
+    }
+
+    #[tokio::test]
+    async fn should_reject_delegated_user_without_users_write_before_tx_for_change_user_role() {
+        let user_id = UserId::new();
+        let uow = FakeUnitOfWork::default();
+        let repo = FakeUserRepositoryFactory::default();
+
+        assert_error(
+            ChangeUserRoleHandler::new(uow.clone(), repo)
+                .execute(
+                    &ctx(Principal::DelegatedUser {
+                        user_id,
+                        capabilities: BTreeSet::new(),
+                    }),
+                    ChangeUserRoleCommand {
+                        user_id,
+                        role: UserRole::Admin,
+                    },
+                )
+                .await,
+            |error| matches!(error, ChangeUserRoleError::Forbidden),
+        );
+        assert_eq!(0, lock(&uow.state).begins);
     }
 
     #[tokio::test]

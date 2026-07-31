@@ -7,7 +7,9 @@ use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
 use common::language::domain::Language;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::patch_field::PatchField;
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -74,6 +76,8 @@ pub struct UpdateShopResult {
 pub enum UpdateShopError {
     #[error("authenticated actor required to update shop")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("shop not found")]
     ShopNotFound,
     #[error("concurrent shop update")]
@@ -160,6 +164,10 @@ where
         context: &OperationContext,
         command: UpdateShopCommand,
     ) -> Result<UpdateShopResult, UpdateShopError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::ShopsWrite)
+            .authorize::<UpdateShopError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -216,6 +224,18 @@ impl From<&Shop> for UpdateShopResult {
             shop_id: shop.id(),
             shop_slug_id: shop.slug_id().clone(),
             name: shop.name().clone(),
+        }
+    }
+}
+
+impl From<OperationAuthorizationError> for UpdateShopError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
         }
     }
 }

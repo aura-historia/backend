@@ -13,8 +13,18 @@ use user_core::access_token::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ScopeRecord {
-    ShopsManage,
     ProductsWrite,
+    ShopsRead,
+    ShopsWrite,
+    PartnerShopApplicationsWrite,
+    PartnerShopsRead,
+    PartnerShopsWrite,
+    UsersRead,
+    UsersWrite,
+    AccessTokensRead,
+    AccessTokensWrite,
+    SearchFiltersWrite,
+    WatchlistWrite,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -40,8 +50,18 @@ pub enum AccessTokenRecordMappingError {
 impl From<Scope> for ScopeRecord {
     fn from(value: Scope) -> Self {
         match value {
-            Scope::ShopsManage => ScopeRecord::ShopsManage,
             Scope::ProductsWrite => ScopeRecord::ProductsWrite,
+            Scope::ShopsRead => ScopeRecord::ShopsRead,
+            Scope::ShopsWrite => ScopeRecord::ShopsWrite,
+            Scope::PartnerShopApplicationsWrite => ScopeRecord::PartnerShopApplicationsWrite,
+            Scope::PartnerShopsRead => ScopeRecord::PartnerShopsRead,
+            Scope::PartnerShopsWrite => ScopeRecord::PartnerShopsWrite,
+            Scope::UsersRead => ScopeRecord::UsersRead,
+            Scope::UsersWrite => ScopeRecord::UsersWrite,
+            Scope::AccessTokensRead => ScopeRecord::AccessTokensRead,
+            Scope::AccessTokensWrite => ScopeRecord::AccessTokensWrite,
+            Scope::SearchFiltersWrite => ScopeRecord::SearchFiltersWrite,
+            Scope::WatchlistWrite => ScopeRecord::WatchlistWrite,
         }
     }
 }
@@ -49,8 +69,18 @@ impl From<Scope> for ScopeRecord {
 impl From<ScopeRecord> for Scope {
     fn from(value: ScopeRecord) -> Self {
         match value {
-            ScopeRecord::ShopsManage => Scope::ShopsManage,
             ScopeRecord::ProductsWrite => Scope::ProductsWrite,
+            ScopeRecord::ShopsRead => Scope::ShopsRead,
+            ScopeRecord::ShopsWrite => Scope::ShopsWrite,
+            ScopeRecord::PartnerShopApplicationsWrite => Scope::PartnerShopApplicationsWrite,
+            ScopeRecord::PartnerShopsRead => Scope::PartnerShopsRead,
+            ScopeRecord::PartnerShopsWrite => Scope::PartnerShopsWrite,
+            ScopeRecord::UsersRead => Scope::UsersRead,
+            ScopeRecord::UsersWrite => Scope::UsersWrite,
+            ScopeRecord::AccessTokensRead => Scope::AccessTokensRead,
+            ScopeRecord::AccessTokensWrite => Scope::AccessTokensWrite,
+            ScopeRecord::SearchFiltersWrite => Scope::SearchFiltersWrite,
+            ScopeRecord::WatchlistWrite => Scope::WatchlistWrite,
         }
     }
 }
@@ -218,7 +248,7 @@ mod tests {
             hashed_token: raw.into(),
             user_id: UserId::new(),
             name: AccessTokenName::from("token"),
-            scopes: HashSet::from([Scope::ProductsWrite, Scope::ShopsManage]),
+            scopes: HashSet::from([Scope::ProductsWrite, Scope::ShopsWrite]),
             origin: AccessTokenOrigin::User,
             expires: Some(now + time::Duration::days(1)),
             created: now,
@@ -244,6 +274,30 @@ mod tests {
             format!("user#{}#access_token#{}", token.user_id, token.id),
             mk_gsi1_sk(&token.user_id, &token.id)
         );
+    }
+
+    #[test]
+    fn should_map_all_scope_records() {
+        for (scope, record) in [
+            (Scope::ProductsWrite, ScopeRecord::ProductsWrite),
+            (Scope::ShopsRead, ScopeRecord::ShopsRead),
+            (Scope::ShopsWrite, ScopeRecord::ShopsWrite),
+            (
+                Scope::PartnerShopApplicationsWrite,
+                ScopeRecord::PartnerShopApplicationsWrite,
+            ),
+            (Scope::PartnerShopsRead, ScopeRecord::PartnerShopsRead),
+            (Scope::PartnerShopsWrite, ScopeRecord::PartnerShopsWrite),
+            (Scope::UsersRead, ScopeRecord::UsersRead),
+            (Scope::UsersWrite, ScopeRecord::UsersWrite),
+            (Scope::AccessTokensRead, ScopeRecord::AccessTokensRead),
+            (Scope::AccessTokensWrite, ScopeRecord::AccessTokensWrite),
+            (Scope::SearchFiltersWrite, ScopeRecord::SearchFiltersWrite),
+            (Scope::WatchlistWrite, ScopeRecord::WatchlistWrite),
+        ] {
+            assert_eq!(record, ScopeRecord::from(scope));
+            assert_eq!(scope, Scope::from(record));
+        }
     }
 
     #[test]

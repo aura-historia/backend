@@ -5,7 +5,9 @@ use crate::ports::{
 use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::product_id::ProductId;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
@@ -47,6 +49,8 @@ pub struct CreateProductResult {
 pub enum CreateProductError {
     #[error("authenticated actor required to create product")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("product already exists for shop product key")]
     ProductKeyAlreadyExists,
     #[error("product slug already exists")]
@@ -156,6 +160,10 @@ where
         context: &OperationContext,
         command: CreateProductCommand,
     ) -> Result<CreateProductResult, CreateProductError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductsWrite)
+            .authorize::<CreateProductError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -238,6 +246,18 @@ impl TryFrom<&Product> for CreateProductResult {
 impl From<RehydrateProductError> for CreateProductError {
     fn from(_error: RehydrateProductError) -> Self {
         Self::InvalidProductState
+    }
+}
+
+impl From<OperationAuthorizationError> for CreateProductError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 

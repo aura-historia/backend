@@ -71,7 +71,17 @@ fn capabilities_from_scopes(scopes: &HashSet<Scope>) -> BTreeSet<CredentialCapab
 fn credential_capability(scope: Scope) -> CredentialCapability {
     match scope {
         Scope::ProductsWrite => CredentialCapability::ProductsWrite,
-        Scope::ShopsManage => CredentialCapability::ShopsManage,
+        Scope::ShopsRead => CredentialCapability::ShopsRead,
+        Scope::ShopsWrite => CredentialCapability::ShopsWrite,
+        Scope::PartnerShopApplicationsWrite => CredentialCapability::PartnerShopApplicationsWrite,
+        Scope::PartnerShopsRead => CredentialCapability::PartnerShopsRead,
+        Scope::PartnerShopsWrite => CredentialCapability::PartnerShopsWrite,
+        Scope::UsersRead => CredentialCapability::UsersRead,
+        Scope::UsersWrite => CredentialCapability::UsersWrite,
+        Scope::AccessTokensRead => CredentialCapability::AccessTokensRead,
+        Scope::AccessTokensWrite => CredentialCapability::AccessTokensWrite,
+        Scope::SearchFiltersWrite => CredentialCapability::SearchFiltersWrite,
+        Scope::WatchlistWrite => CredentialCapability::WatchlistWrite,
     }
 }
 
@@ -245,14 +255,49 @@ mod tests {
     }
 
     #[test]
-    fn should_map_token_scopes_to_credential_capabilities() {
-        assert_eq!(
-            BTreeSet::from([
-                CredentialCapability::ProductsWrite,
-                CredentialCapability::ShopsManage,
-            ]),
-            capabilities_from_scopes(&HashSet::from([Scope::ProductsWrite, Scope::ShopsManage]))
-        );
+    fn should_map_all_token_scopes_to_credential_capabilities() {
+        let cases = [
+            (Scope::ProductsWrite, CredentialCapability::ProductsWrite),
+            (Scope::ShopsRead, CredentialCapability::ShopsRead),
+            (Scope::ShopsWrite, CredentialCapability::ShopsWrite),
+            (
+                Scope::PartnerShopApplicationsWrite,
+                CredentialCapability::PartnerShopApplicationsWrite,
+            ),
+            (
+                Scope::PartnerShopsRead,
+                CredentialCapability::PartnerShopsRead,
+            ),
+            (
+                Scope::PartnerShopsWrite,
+                CredentialCapability::PartnerShopsWrite,
+            ),
+            (Scope::UsersRead, CredentialCapability::UsersRead),
+            (Scope::UsersWrite, CredentialCapability::UsersWrite),
+            (
+                Scope::AccessTokensRead,
+                CredentialCapability::AccessTokensRead,
+            ),
+            (
+                Scope::AccessTokensWrite,
+                CredentialCapability::AccessTokensWrite,
+            ),
+            (
+                Scope::SearchFiltersWrite,
+                CredentialCapability::SearchFiltersWrite,
+            ),
+            (Scope::WatchlistWrite, CredentialCapability::WatchlistWrite),
+        ];
+
+        for (scope, capability) in cases {
+            assert_eq!(capability, credential_capability(scope));
+        }
+        let scopes = cases.iter().map(|(scope, _)| *scope).collect();
+        let capabilities = cases
+            .iter()
+            .map(|(_, capability)| *capability)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(capabilities, capabilities_from_scopes(&scopes));
     }
 
     #[tokio::test]

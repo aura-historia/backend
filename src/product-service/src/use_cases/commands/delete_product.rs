@@ -3,7 +3,9 @@ use crate::ports::{
     ProductRepositoryError, ProductRepositoryFactory,
 };
 use common::event_id::EventId;
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::product_id::ProductId;
 use common::transaction::{Transaction, UnitOfWork};
 
@@ -22,6 +24,8 @@ pub struct DeleteProductResult {
 pub enum DeleteProductError {
     #[error("authenticated actor required to delete product")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("product not found")]
     ProductNotFound,
     #[error("product current event id did not match expected event id")]
@@ -128,6 +132,10 @@ where
         context: &OperationContext,
         command: DeleteProductCommand,
     ) -> Result<DeleteProductResult, DeleteProductError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductsWrite)
+            .authorize::<DeleteProductError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -180,6 +188,18 @@ where
             product_id: product.id(),
             event_id,
         })
+    }
+}
+
+impl From<OperationAuthorizationError> for DeleteProductError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 

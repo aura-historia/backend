@@ -2,7 +2,9 @@ use crate::ports::{
     UserPartnerShopsReadError, UserPartnerShopsReader, UserPartnerShopsReaderFactory,
 };
 use common::error::boxed::BoxError;
-use common::operation_context::{OperationContext, PrincipalAuthorizationError};
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId};
 
@@ -107,19 +109,20 @@ fn authorize_list(
     requested_user_id: UserId,
 ) -> Result<(), ListPartnerShopsError> {
     context
-        .principal
         .require()
+        .credential_capability(CredentialCapability::PartnerShopsRead)
         .user(&requested_user_id)
         .service_or_system()
-        .check()
-        .map(|_| ())
-        .map_err(map_principal_authorization_error)
+        .authorize::<ListPartnerShopsError>()
 }
 
-fn map_principal_authorization_error(error: PrincipalAuthorizationError) -> ListPartnerShopsError {
-    match error {
-        PrincipalAuthorizationError::AuthenticationRequired(_)
-        | PrincipalAuthorizationError::Forbidden => ListPartnerShopsError::Forbidden,
+impl From<OperationAuthorizationError> for ListPartnerShopsError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => Self::Forbidden,
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 
@@ -159,7 +162,7 @@ mod tests {
         let result = authorize_list(
             &context(Principal::DelegatedUser {
                 user_id,
-                capabilities: BTreeSet::from([CredentialCapability::ShopsManage]),
+                capabilities: BTreeSet::from([CredentialCapability::PartnerShopsRead]),
             }),
             user_id,
         );

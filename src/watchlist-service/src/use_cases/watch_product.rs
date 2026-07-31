@@ -1,5 +1,7 @@
 use crate::ports::{WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory};
-use common::operation_context::{OperationContext, Principal};
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
@@ -22,6 +24,8 @@ pub struct WatchProductResult {
 pub enum WatchProductError {
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("watchlist entry already exists")]
     AlreadyExists,
     #[error("temporary watchlist persistence failure")]
@@ -69,9 +73,7 @@ where
         context: &OperationContext,
         command: WatchProductCommand,
     ) -> Result<WatchProductResult, WatchProductError> {
-        if matches!(context.principal, Principal::Anonymous) {
-            return Err(WatchProductError::AuthenticatedActorRequired);
-        }
+        authorize_watch(context, command.user_id)?;
 
         let mut tx = self
             .unit_of_work
@@ -102,6 +104,27 @@ where
             .await
             .map_err(|_| WatchProductError::CommitTransactionFailed)?;
         Ok(WatchProductResult { entry })
+    }
+}
+
+fn authorize_watch(context: &OperationContext, user_id: UserId) -> Result<(), WatchProductError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::WatchlistWrite)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<WatchProductError>()
+}
+
+impl From<OperationAuthorizationError> for WatchProductError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 

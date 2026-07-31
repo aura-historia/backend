@@ -1,7 +1,9 @@
 use crate::ports::{UserRepository, UserRepositoryError, UserRepositoryFactory};
 use common::change_outcome::ChangeOutcome;
 use common::error::boxed::{BoxError, box_error};
-use common::operation_context::OperationContext;
+use common::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::patch_field::PatchField;
 use common::transaction::{Transaction, UnitOfWork};
 use common::{
@@ -56,6 +58,8 @@ pub struct UpdateUserResult {
 pub enum UpdateUserError {
     #[error("authenticated actor required to update user")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("user not found")]
     UserNotFound,
     #[error("concurrent user update")]
@@ -147,10 +151,7 @@ where
         context: &OperationContext,
         command: UpdateUserCommand,
     ) -> Result<UpdateUserResult, UpdateUserError> {
-        context
-            .principal
-            .require_authenticated()
-            .map_err(|_| UpdateUserError::AuthenticatedActorRequired)?;
+        authorize_user_write(context, command.user_id)?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -193,6 +194,18 @@ where
         );
 
         Ok(UpdateUserResult::from(&user))
+    }
+}
+
+impl From<OperationAuthorizationError> for UpdateUserError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 
@@ -283,6 +296,18 @@ impl From<RehydrateUserError> for UpdateUserError {
             source: box_error(error),
         }
     }
+}
+
+fn authorize_user_write(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), UpdateUserError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::UsersWrite)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<UpdateUserError>()
 }
 
 impl From<UserRepositoryError> for UpdateUserError {

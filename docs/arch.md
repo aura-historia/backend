@@ -2187,6 +2187,10 @@ Controllers map transport principals into service-owned types:
 pub enum Principal {
     Anonymous,
     User(UserId),
+    DelegatedUser {
+        user_id: UserId,
+        capabilities: BTreeSet<CredentialCapability>,
+    },
     Service(ServiceId),
     System(SystemActor),
 }
@@ -2273,7 +2277,32 @@ Authorization MUST use trusted identity from `OperationContext`, never a user id
 
 Domain methods MAY receive an already-resolved permission or policy value when authorization affects a domain invariant.
 
-### 15.6 Operational identity logging
+### 15.6 Credential scopes
+
+Scopes belong to delegated Aura Historia access tokens, not Cognito JWTs. Cognito-authenticated users, service principals, and system principals use an open-world assumption for credential capability checks; business constraints such as admin role, same-user access, partner-shop relation, or ownership still MUST be enforced separately by use cases or service policies.
+
+Aura Historia access tokens use a closed-world assumption: a delegated principal has only the scopes stored on the token. Use cases that protect a state change or private read MUST check the narrowest matching `CredentialCapability` before executing protected work.
+
+Scope names SHOULD use `resource:action` with plural resources and coarse, stable actions:
+
+```text
+products:write
+shops:read
+shops:write
+partner-shops:read
+partner-shops:write
+partner-shop-applications:write
+users:read
+users:write
+access-tokens:read
+access-tokens:write
+search-filters:write
+watchlist:write
+```
+
+Do not use vague scopes such as `shops:manage`. Prefer `read`, `write`, or an explicit non-role action. Roles are not scopes: admin-only use cases MUST check `UserRole::Admin` (or an equivalent service policy) after credential capability checks. Public queries SHOULD NOT require scopes unless authenticated state changes the returned private data or policy.
+
+### 15.7 Operational identity logging
 
 Every externally invoked use case SHOULD have a structured tracing span containing:
 

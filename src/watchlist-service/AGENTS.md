@@ -11,6 +11,7 @@
 - Write use cases own transactions.
 - Persistence hidden behind repository factory.
 - User/product list reads live in dedicated transaction-scoped reader port/factory, not repository.
+- Watchlist writes require `watchlist:write`.
 
 ## Ownership
 

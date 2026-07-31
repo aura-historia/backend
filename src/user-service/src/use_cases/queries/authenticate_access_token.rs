@@ -319,7 +319,7 @@ mod tests {
     #[tokio::test]
     async fn should_authenticate_access_token_when_valid() {
         let user_id = UserId::new();
-        let scopes = HashSet::from([Scope::ShopsManage]);
+        let scopes = HashSet::from([Scope::ShopsWrite]);
         let valid = token(
             user_id,
             scopes.clone(),
@@ -362,7 +362,7 @@ mod tests {
 
         let expired = token(
             user_id,
-            HashSet::from([Scope::ShopsManage]),
+            HashSet::from([Scope::ShopsWrite]),
             Some(OffsetDateTime::now_utc() - Duration::days(1)),
         );
         let hashed = expired.hashed_token.clone();

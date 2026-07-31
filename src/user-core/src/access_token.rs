@@ -12,8 +12,37 @@ string_newtype!(AccessTokenName, max_length(128));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Scope {
-    ShopsManage,
     ProductsWrite,
+    ShopsRead,
+    ShopsWrite,
+    PartnerShopApplicationsWrite,
+    PartnerShopsRead,
+    PartnerShopsWrite,
+    UsersRead,
+    UsersWrite,
+    AccessTokensRead,
+    AccessTokensWrite,
+    SearchFiltersWrite,
+    WatchlistWrite,
+}
+
+impl Scope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Scope::ProductsWrite => "products:write",
+            Scope::ShopsRead => "shops:read",
+            Scope::ShopsWrite => "shops:write",
+            Scope::PartnerShopApplicationsWrite => "partner-shop-applications:write",
+            Scope::PartnerShopsRead => "partner-shops:read",
+            Scope::PartnerShopsWrite => "partner-shops:write",
+            Scope::UsersRead => "users:read",
+            Scope::UsersWrite => "users:write",
+            Scope::AccessTokensRead => "access-tokens:read",
+            Scope::AccessTokensWrite => "access-tokens:write",
+            Scope::SearchFiltersWrite => "search-filters:write",
+            Scope::WatchlistWrite => "watchlist:write",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -464,11 +493,34 @@ mod access_token_state_tests {
     }
 
     #[test]
+    fn should_render_all_scope_strings() {
+        for (scope, value) in [
+            (Scope::ProductsWrite, "products:write"),
+            (Scope::ShopsRead, "shops:read"),
+            (Scope::ShopsWrite, "shops:write"),
+            (
+                Scope::PartnerShopApplicationsWrite,
+                "partner-shop-applications:write",
+            ),
+            (Scope::PartnerShopsRead, "partner-shops:read"),
+            (Scope::PartnerShopsWrite, "partner-shops:write"),
+            (Scope::UsersRead, "users:read"),
+            (Scope::UsersWrite, "users:write"),
+            (Scope::AccessTokensRead, "access-tokens:read"),
+            (Scope::AccessTokensWrite, "access-tokens:write"),
+            (Scope::SearchFiltersWrite, "search-filters:write"),
+            (Scope::WatchlistWrite, "watchlist:write"),
+        ] {
+            assert_eq!(value, scope.as_str());
+        }
+    }
+
+    #[test]
     fn should_report_scope_presence() {
         let token = access_token(None, HashSet::from([Scope::ProductsWrite]));
 
         assert!(token.has_scope(Scope::ProductsWrite));
-        assert!(!token.has_scope(Scope::ShopsManage));
+        assert!(!token.has_scope(Scope::ShopsWrite));
     }
 
     #[test]

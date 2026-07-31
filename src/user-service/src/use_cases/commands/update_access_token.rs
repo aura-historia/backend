@@ -1,6 +1,8 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
 use common::error::boxed::BoxError;
-use common::operation_context::{AuthenticationRequired, OperationContext};
+use common::operation_context::{
+    AuthenticationRequired, CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::patch_field::PatchField;
 use common::user_id::UserId;
 use std::collections::HashSet;
@@ -32,6 +34,8 @@ pub struct UpdateAccessTokenResult {
 pub enum UpdateAccessTokenError {
     #[error("authenticated actor required to update access token")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("access token not found")]
     AccessTokenNotFound,
     #[error("access token name is required")]
@@ -99,6 +103,7 @@ where
         context: &OperationContext,
         command: UpdateAccessTokenCommand,
     ) -> Result<UpdateAccessTokenResult, UpdateAccessTokenError> {
+        authorize_access_token_write(context, command.user_id)?;
         let principal = context.principal.require_authenticated()?.clone();
         tracing::Span::current().record("actor_id", tracing::field::display(principal.label()));
 
@@ -173,10 +178,34 @@ fn apply_update(
     Ok(changed)
 }
 
+impl From<OperationAuthorizationError> for UpdateAccessTokenError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
 impl From<AuthenticationRequired> for UpdateAccessTokenError {
     fn from(_: AuthenticationRequired) -> Self {
         Self::AuthenticatedActorRequired
     }
+}
+
+fn authorize_access_token_write(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), UpdateAccessTokenError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::AccessTokensWrite)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<UpdateAccessTokenError>()
 }
 
 impl From<AccessTokenStoreError> for UpdateAccessTokenError {
@@ -426,7 +455,7 @@ mod tests {
     async fn should_update_access_token_and_skip_replace_when_noop() {
         let user_id = UserId::new();
         let store = FakeAccessTokenStore::default();
-        let current = token(user_id, HashSet::from([Scope::ShopsManage]), None);
+        let current = token(user_id, HashSet::from([Scope::ShopsWrite]), None);
         lock(&store.state).token = Some(current.clone());
 
         assert_ok(
@@ -472,7 +501,7 @@ mod tests {
                 .execute(
                     &ctx(Principal::DelegatedUser {
                         user_id,
-                        capabilities: BTreeSet::from([CredentialCapability::ShopsManage]),
+                        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
                     }),
                     UpdateAccessTokenCommand {
                         user_id,

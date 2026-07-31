@@ -1,6 +1,8 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
 use common::error::boxed::BoxError;
-use common::operation_context::{AuthenticationRequired, OperationContext};
+use common::operation_context::{
+    AuthenticationRequired, CredentialCapability, OperationAuthorizationError, OperationContext,
+};
 use common::user_id::UserId;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -28,6 +30,8 @@ pub struct CreateAccessTokenResult {
 pub enum CreateAccessTokenError {
     #[error("authenticated actor required to create access token")]
     AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("access token already exists")]
     Conflict {
         #[source]
@@ -90,6 +94,7 @@ where
         context: &OperationContext,
         command: CreateAccessTokenCommand,
     ) -> Result<CreateAccessTokenResult, CreateAccessTokenError> {
+        authorize_access_token_write(context, command.user_id)?;
         let principal = context.principal.require_authenticated()?;
         tracing::Span::current().record("actor_id", tracing::field::display(principal.label()));
 
@@ -125,10 +130,34 @@ where
     }
 }
 
+impl From<OperationAuthorizationError> for CreateAccessTokenError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
 impl From<AuthenticationRequired> for CreateAccessTokenError {
     fn from(_: AuthenticationRequired) -> Self {
         Self::AuthenticatedActorRequired
     }
+}
+
+fn authorize_access_token_write(
+    context: &OperationContext,
+    user_id: UserId,
+) -> Result<(), CreateAccessTokenError> {
+    context
+        .require()
+        .credential_capability(CredentialCapability::AccessTokensWrite)
+        .user(&user_id)
+        .service_or_system()
+        .authorize::<CreateAccessTokenError>()
 }
 
 impl From<AccessTokenStoreError> for CreateAccessTokenError {
@@ -355,7 +384,7 @@ mod tests {
     async fn should_create_access_token_when_authenticated() {
         let user_id = UserId::new();
         let store = FakeAccessTokenStore::default();
-        let scopes = HashSet::from([Scope::ShopsManage]);
+        let scopes = HashSet::from([Scope::ShopsWrite]);
         let created = assert_ok(
             CreateAccessTokenHandler::new(store.clone())
                 .execute(
@@ -390,7 +419,7 @@ mod tests {
                 .execute(
                     &ctx(Principal::DelegatedUser {
                         user_id,
-                        capabilities: BTreeSet::from([CredentialCapability::ShopsManage]),
+                        capabilities: BTreeSet::from([CredentialCapability::AccessTokensWrite]),
                     }),
                     CreateAccessTokenCommand {
                         user_id,
