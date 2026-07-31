@@ -3,9 +3,16 @@ use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use shop_service::use_cases::commands::create_shop::CreateShopError;
+use shop_service::use_cases::commands::update_shop::UpdateShopError;
+use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopError;
 use shop_service::use_cases::queries::get_shop::GetShopError;
+use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsError;
+use shop_service::use_cases::queries::search_shops::SearchShopsError;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use user_service::use_cases::queries::check_user_admin::CheckUserAdminError;
+use user_service::use_cases::queries::get_user::GetUserError;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct ApiError {
@@ -28,11 +35,24 @@ pub(crate) const AUTH_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("AUTH_INTERNAL
 pub(crate) const AUTH_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("AUTH_TEMPORARILY_UNAVAILABLE");
 pub(crate) const INVALID_CREDENTIALS: ApiErrorCode = ApiErrorCode("INVALID_CREDENTIALS");
+pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
+pub(crate) const BAD_ORDER_VALUE: ApiErrorCode = ApiErrorCode("BAD_ORDER_VALUE");
+pub(crate) const BAD_QUERY_PARAMETER_VALUE: ApiErrorCode =
+    ApiErrorCode("BAD_QUERY_PARAMETER_VALUE");
+pub(crate) const BAD_SORT_VALUE: ApiErrorCode = ApiErrorCode("BAD_SORT_VALUE");
+pub(crate) const CONFLICT: ApiErrorCode = ApiErrorCode("CONFLICT");
+pub(crate) const FORBIDDEN: ApiErrorCode = ApiErrorCode("FORBIDDEN");
+pub(crate) const INVALID_DOMAIN: ApiErrorCode = ApiErrorCode("INVALID_DOMAIN");
 pub(crate) const INVALID_UUID: ApiErrorCode = ApiErrorCode("INVALID_UUID");
+pub(crate) const SHOP_EXISTS_ALREADY: ApiErrorCode = ApiErrorCode("SHOP_EXISTS_ALREADY");
 pub(crate) const SHOP_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("SHOP_INTERNAL_ERROR");
 pub(crate) const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub(crate) const SHOP_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("SHOP_TEMPORARILY_UNAVAILABLE");
+pub(crate) const USER_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("USER_INTERNAL_ERROR");
+pub(crate) const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
+pub(crate) const USER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("USER_TEMPORARILY_UNAVAILABLE");
 
 impl Display for ApiErrorCode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -52,6 +72,7 @@ pub(crate) struct ApiErrorSource {
 enum ApiErrorSourceType {
     Header,
     Path,
+    Query,
 }
 
 impl ApiError {
@@ -74,8 +95,16 @@ impl ApiError {
         Self::new(StatusCode::UNAUTHORIZED, "Unauthorized", error)
     }
 
+    pub(crate) fn forbidden(error: ApiErrorCode) -> Self {
+        Self::new(StatusCode::FORBIDDEN, "Forbidden", error)
+    }
+
     pub(crate) fn not_found(error: ApiErrorCode) -> Self {
         Self::new(StatusCode::NOT_FOUND, "Not Found", error)
+    }
+
+    pub(crate) fn conflict(error: ApiErrorCode) -> Self {
+        Self::new(StatusCode::CONFLICT, "Conflict", error)
     }
 
     pub(crate) fn internal_server_error(error: ApiErrorCode) -> Self {
@@ -98,6 +127,14 @@ impl ApiError {
         self.source = Some(ApiErrorSource {
             field,
             source_type: ApiErrorSourceType::Header,
+        });
+        self
+    }
+
+    pub(crate) fn with_query_field(mut self, field: &'static str) -> Self {
+        self.source = Some(ApiErrorSource {
+            field,
+            source_type: ApiErrorSourceType::Query,
         });
         self
     }
@@ -161,6 +198,49 @@ impl From<AuthError> for ApiError {
     }
 }
 
+impl From<CheckUserAdminError> for ApiError {
+    fn from(error: CheckUserAdminError) -> Self {
+        match error {
+            CheckUserAdminError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            CheckUserAdminError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CheckUserAdminError::TemporarilyUnavailable { .. }
+            | CheckUserAdminError::BeginTransactionFailed
+            | CheckUserAdminError::CommitTransactionFailed => {
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User details are temporarily unavailable.")
+            }
+            CheckUserAdminError::InvalidReadModel { .. } | CheckUserAdminError::Internal { .. } => {
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<GetUserError> for ApiError {
+    fn from(error: GetUserError) -> Self {
+        match error {
+            GetUserError::NotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            GetUserError::TemporarilyUnavailable { .. }
+            | GetUserError::BeginTransactionFailed
+            | GetUserError::CommitTransactionFailed => {
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User details are temporarily unavailable.")
+            }
+            GetUserError::InvalidReadModel { .. } | GetUserError::Internal { .. } => {
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User details failed internally.")
+            }
+        }
+    }
+}
+
 impl From<GetShopError> for ApiError {
     fn from(error: GetShopError) -> Self {
         match error {
@@ -176,6 +256,136 @@ impl From<GetShopError> for ApiError {
             GetShopError::InvalidReadModel { .. } | GetShopError::Internal { .. } => {
                 ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
                     .with_detail("Shop details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<SearchShopsError> for ApiError {
+    fn from(error: SearchShopsError) -> Self {
+        match error {
+            SearchShopsError::TemporarilyUnavailable { .. }
+            | SearchShopsError::BeginTransactionFailed
+            | SearchShopsError::CommitTransactionFailed => {
+                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Shop search is temporarily unavailable.")
+            }
+            SearchShopsError::InvalidReadModel { .. } | SearchShopsError::Internal { .. } => {
+                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                    .with_detail("Shop search failed internally.")
+            }
+        }
+    }
+}
+
+impl From<CreateShopError> for ApiError {
+    fn from(error: CreateShopError) -> Self {
+        match error {
+            CreateShopError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreateShopError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreateShopError::SlugConflict { .. } => {
+                ApiError::conflict(SHOP_EXISTS_ALREADY).with_detail("Shop exists already.")
+            }
+            CreateShopError::InvalidAddress => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Shop address is invalid.")
+            }
+            CreateShopError::TemporarilyUnavailable { .. }
+            | CreateShopError::BeginTransactionFailed
+            | CreateShopError::CommitTransactionFailed => {
+                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Shop could not be saved right now.")
+            }
+            CreateShopError::InvalidPersistedState { .. } | CreateShopError::Internal { .. } => {
+                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                    .with_detail("Shop creation failed internally.")
+            }
+        }
+    }
+}
+
+impl From<UpdateShopError> for ApiError {
+    fn from(error: UpdateShopError) -> Self {
+        match error {
+            UpdateShopError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateShopError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateShopError::ShopNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            }
+            UpdateShopError::ConcurrencyConflict => {
+                ApiError::conflict(CONFLICT).with_detail("Shop was changed concurrently.")
+            }
+            UpdateShopError::SlugConflict { .. } => {
+                ApiError::conflict(SHOP_EXISTS_ALREADY).with_detail("Shop exists already.")
+            }
+            UpdateShopError::ShopTypeRequired
+            | UpdateShopError::DomainsRequired
+            | UpdateShopError::ShopifyDomainRequired
+            | UpdateShopError::InvalidAddress => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Shop update is invalid.")
+            }
+            UpdateShopError::TemporarilyUnavailable { .. }
+            | UpdateShopError::BeginTransactionFailed
+            | UpdateShopError::CommitTransactionFailed => {
+                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Shop could not be updated right now.")
+            }
+            UpdateShopError::InvalidPersistedState { .. } | UpdateShopError::Internal { .. } => {
+                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                    .with_detail("Shop update failed internally.")
+            }
+        }
+    }
+}
+
+impl From<ListUserPartnerShopsError> for ApiError {
+    fn from(error: ListUserPartnerShopsError) -> Self {
+        match error {
+            ListUserPartnerShopsError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListUserPartnerShopsError::TemporarilyUnavailable { .. }
+            | ListUserPartnerShopsError::BeginTransactionFailed
+            | ListUserPartnerShopsError::CommitTransactionFailed => {
+                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partner shop details are temporarily unavailable.")
+            }
+            ListUserPartnerShopsError::InvalidReadModel { .. }
+            | ListUserPartnerShopsError::Internal { .. } => {
+                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                    .with_detail("Partner shop details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<CheckUserPartnerShopError> for ApiError {
+    fn from(error: CheckUserPartnerShopError) -> Self {
+        match error {
+            CheckUserPartnerShopError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CheckUserPartnerShopError::TemporarilyUnavailable { .. }
+            | CheckUserPartnerShopError::BeginTransactionFailed
+            | CheckUserPartnerShopError::CommitTransactionFailed => {
+                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partner shop details are temporarily unavailable.")
+            }
+            CheckUserPartnerShopError::InvalidReadModel { .. }
+            | CheckUserPartnerShopError::Internal { .. } => {
+                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                    .with_detail("Partner shop details failed internally.")
             }
         }
     }

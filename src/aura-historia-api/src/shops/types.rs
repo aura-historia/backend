@@ -1,8 +1,9 @@
-use serde::Serialize;
+use geo::data::continent_data::ContinentData;
+use serde::{Deserialize, Serialize};
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop_type::ShopType;
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum ShopTypeData {
     AuctionHouse,
@@ -22,7 +23,18 @@ impl From<ShopType> for ShopTypeData {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+impl From<ShopTypeData> for ShopType {
+    fn from(value: ShopTypeData) -> Self {
+        match value {
+            ShopTypeData::AuctionHouse => Self::AuctionHouse,
+            ShopTypeData::AuctionPlatform => Self::AuctionPlatform,
+            ShopTypeData::CommercialDealer => Self::CommercialDealer,
+            ShopTypeData::Marketplace => Self::Marketplace,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum ShopPartnerStatusData {
     Scraped,
@@ -37,3 +49,14 @@ impl From<ShopPartnerStatus> for ShopPartnerStatusData {
         }
     }
 }
+
+impl From<ShopPartnerStatusData> for ShopPartnerStatus {
+    fn from(value: ShopPartnerStatusData) -> Self {
+        match value {
+            ShopPartnerStatusData::Scraped => ShopPartnerStatus::Scraped,
+            ShopPartnerStatusData::Partnered => ShopPartnerStatus::Partnered,
+        }
+    }
+}
+
+pub(crate) type ShopContinentData = ContinentData;

@@ -254,6 +254,13 @@ mod tests {
                 }
             })
         }
+
+        async fn list_shop_ids_for_user(
+            &mut self,
+            _user_id: UserId,
+        ) -> Result<Vec<ShopId>, PartnerShopReadError> {
+            Ok(vec![])
+        }
     }
 
     #[tokio::test]

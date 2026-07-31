@@ -1,5 +1,7 @@
 use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
+use common::shop_id::ShopId;
+use common::user_id::UserId;
 use shop_service::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
 use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
 use sqlx::PgConnection;
@@ -47,6 +49,26 @@ impl PartnerShopReader for SqlxPartnerShopReader<'_> {
         .bind(uuid::Uuid::from(request.shop_id))
         .fetch_one(&mut *self.connection)
         .await
+        .map_err(PartnerShopReadSqlxError)
+        .map_err(Into::into)
+    }
+
+    async fn list_shop_ids_for_user(
+        &mut self,
+        user_id: UserId,
+    ) -> Result<Vec<ShopId>, PartnerShopReadError> {
+        sqlx::query_scalar::<_, uuid::Uuid>(
+            r#"
+            SELECT shop_id
+            FROM user_partner_shops
+            WHERE user_id = $1
+            ORDER BY created ASC, shop_id ASC
+            "#,
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .fetch_all(&mut *self.connection)
+        .await
+        .map(|rows| rows.into_iter().map(ShopId::from).collect())
         .map_err(PartnerShopReadSqlxError)
         .map_err(Into::into)
     }

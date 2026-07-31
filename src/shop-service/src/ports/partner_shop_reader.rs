@@ -2,6 +2,8 @@
 
 use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
 use common::error::boxed::BoxError;
+use common::shop_id::ShopId;
+use common::user_id::UserId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PartnerShopReadError {
@@ -28,6 +30,11 @@ pub trait PartnerShopReader: Send {
         &mut self,
         request: &CheckUserPartnerShopRequest,
     ) -> Result<bool, PartnerShopReadError>;
+
+    async fn list_shop_ids_for_user(
+        &mut self,
+        user_id: UserId,
+    ) -> Result<Vec<ShopId>, PartnerShopReadError>;
 }
 
 pub trait PartnerShopReaderFactory<Tx>: Send + Sync {

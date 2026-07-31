@@ -9,17 +9,28 @@ use crate::auth::{
 };
 use crate::state::{AppState, ShopsState};
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, post};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
-use shop_postgres::SqlxShopDetailsReaderFactory;
+use shop_postgres::{
+    SqlxPartnerShopReaderFactory, SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory,
+    SqlxShopSearchReaderFactory,
+};
+use shop_service::ports::{ShopGeocoder, ShopGeocoderError};
+use shop_service::use_cases::commands::create_shop::CreateShopHandler;
+use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
+use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopHandler;
 use shop_service::use_cases::queries::get_shop::GetShopHandler;
+use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsHandler;
+use shop_service::use_cases::queries::search_shops::SearchShopsHandler;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::info;
 use user_dynamodb::DynamoDbAccessTokenStore;
+use user_postgres::SqlxUserAdminReaderFactory;
 use user_service::use_cases::AuthenticateAccessTokenHandler;
+use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
 pub const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
@@ -70,7 +81,30 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
-        .route("/api/v1/shops/{shop_id}", get(shops::get_shop::get_shop))
+        .route(
+            "/api/v1/me/partner-shops",
+            get(shops::get_partner_shops::get_partner_shops),
+        )
+        .route(
+            "/api/v1/by-slug/shops/{shop_slug_id}",
+            get(shops::get_shop_by_slug::get_shop_by_slug),
+        )
+        .route(
+            "/api/v1/by-domain/shops/{shop_domain}",
+            get(shops::get_shop_by_domain::get_shop_by_domain),
+        )
+        .route(
+            "/api/v1/shops/search",
+            post(shops::search_shops::post_shop_search),
+        )
+        .route(
+            "/api/v1/shops",
+            get(shops::search_shops::get_shops).post(shops::create_shop::create_shop),
+        )
+        .route(
+            "/api/v1/shops/{shop_id}",
+            get(shops::get_shop::get_shop).patch(shops::update_shop::update_shop),
+        )
         .with_state(state.shops)
 }
 
@@ -84,10 +118,26 @@ async fn ready() -> &'static str {
 
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let pool = common::postgres::connect_from_env().await?;
-    let get_shop = GetShopHandler::new(
-        SqlxUnitOfWork::new(pool),
-        SqlxShopDetailsReaderFactory::new(),
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
+    let search_shops =
+        SearchShopsHandler::new(unit_of_work.clone(), SqlxShopSearchReaderFactory::new());
+    let create_shop = CreateShopHandler::new(
+        unit_of_work.clone(),
+        SqlxShopRepositoryFactory::new(),
+        UnavailableShopGeocoder,
     );
+    let update_shop = UpdateShopHandler::new(
+        unit_of_work.clone(),
+        SqlxShopRepositoryFactory::new(),
+        UnavailableShopGeocoder,
+    );
+    let check_user_admin =
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
+    let check_user_partner_shop =
+        CheckUserPartnerShopHandler::new(unit_of_work.clone(), SqlxPartnerShopReaderFactory::new());
+    let list_user_partner_shops =
+        ListUserPartnerShopsHandler::new(unit_of_work, SqlxPartnerShopReaderFactory::new());
 
     let aws_config = aws_config::defaults(aws_config::BehaviorVersion::v2026_01_12())
         .load()
@@ -105,10 +155,29 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         AuraAccessTokenAuthenticator::new(access_token_use_case),
     );
 
-    Ok(AppState::new(ShopsState::new(
+    Ok(AppState::new(ShopsState::with_all(
         Arc::new(get_shop),
+        Arc::new(search_shops),
+        Arc::new(create_shop),
+        Arc::new(update_shop),
+        Arc::new(check_user_admin),
+        Arc::new(check_user_partner_shop),
+        Arc::new(list_user_partner_shops),
         Arc::new(authenticator),
     )))
+}
+
+#[derive(Clone, Copy)]
+struct UnavailableShopGeocoder;
+
+#[async_trait::async_trait]
+impl ShopGeocoder for UnavailableShopGeocoder {
+    async fn geocode(
+        &self,
+        _address: &shop_core::address::StructuredAddress,
+    ) -> Result<shop_core::address::GeoAddress, ShopGeocoderError> {
+        Err(ShopGeocoderError::TemporarilyUnavailable)
+    }
 }
 
 struct JwtUnavailableAuthenticator;

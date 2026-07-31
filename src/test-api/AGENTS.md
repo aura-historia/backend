@@ -11,7 +11,8 @@
 - Child crates: `test-api-macros`.
 - Main neighbors: `aws-tests-common`, `common`, `test-api-macros`, `user`.
 - Test crate. Favor stable helpers and black-box assertions.
-- `#[aura_integration_test]` tests run serially against one process-local LocalStack and optional service containers like Postgres.
+- `#[aura_integration_test]` tests run serially inside one test process against process-local LocalStack and optional service containers like Postgres.
+- LocalStack and Postgres use process-id-scoped container names and host ports so separate test binaries/processes can run in parallel.
 
 ## Ownership
 

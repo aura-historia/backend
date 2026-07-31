@@ -15,7 +15,16 @@
 - Auth extractors only authenticate. Required capability checks belong in service/use-case code.
 - Request IDs are server-created by future axum middleware; clients may only provide correlation IDs if middleware accepts them.
 - No API Gateway adapter.
-- `shops/` owns shop REST controllers
+- `shops/` owns shop REST controllers for:
+  - `GET /api/v1/shops/{shopId}`
+  - `GET /api/v1/by-slug/shops/{shopSlugId}`
+  - `GET /api/v1/by-domain/shops/{shopDomain}`
+  - `GET /api/v1/shops`
+  - `POST /api/v1/shops/search`
+  - `POST /api/v1/shops`
+  - `PATCH /api/v1/shops/{shopId}`
+  - `GET /api/v1/me/partner-shops`
+- Runtime shop create/update geocoding is not wired yet; structured-address writes return temporary failure until a geocoder adapter is added.
 
 ## Ownership
 

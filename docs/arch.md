@@ -221,7 +221,7 @@ aura-historia-api/
         └── <endpoint>.rs    # one controller endpoint plus unit tests
 ```
 
-Each durable route unit SHOULD have its own module, for example `shops/`. Each endpoint SHOULD live in one file, for example `shops/get_shop.rs`. Unit tests for that endpoint SHOULD live in that endpoint file.
+Each durable route unit SHOULD have its own module, for example `shops/`. Each endpoint SHOULD live in one file, for example `shops/get_shop.rs`. Unit tests for that endpoint SHOULD live in that endpoint file. Shared public response payloads that are used by many endpoints MAY live in a focused file such as `shops/shop_data.rs`; keep shared enum/value DTOs in `shops/types.rs`.
 
 The runtime/composition-root crate constructs concrete adapters and injects them into service-owned handlers:
 
@@ -235,7 +235,7 @@ runtime/
 
 The composition root MAY depend on every crate required to assemble the process. It MUST NOT contain business behavior.
 
-In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients.
+In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients. Protected endpoints MAY call authorization use cases before the command/query use case; do not inline authorization SQL or role checks in controllers.
 
 ### 3.6 Dependency direction
 

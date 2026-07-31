@@ -2,17 +2,19 @@ use crate::IntegrationTestService;
 use async_trait::async_trait;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::{ConnectOptions, Executor, PgConnection, PgPool};
+use std::net::TcpListener;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::str::FromStr;
+use std::sync::OnceLock;
 use tokio::sync::OnceCell;
 use tracing::debug;
 
 const POSTGRES_USER: &str = "postgres";
 const POSTGRES_PASSWORD: &str = "postgres";
 const POSTGRES_DB: &str = "postgres";
-const POSTGRES_PORT: u16 = 5432;
-const POSTGRES_CONTAINER_NAME: &str = "aura-historia-aws-backend-postgres-test";
+const POSTGRES_CONTAINER_PORT: u16 = 5432;
+const POSTGRES_CONTAINER_NAME_PREFIX: &str = "aura-historia-aws-backend-postgres-test";
 const HOST_GATEWAY: &str = "host.docker.internal";
 
 /// Guards the one-time startup of the Postgres container.
@@ -20,6 +22,25 @@ const HOST_GATEWAY: &str = "host.docker.internal";
 /// [`tokio::sync::OnceCell`] is used so concurrent async callers all await the same
 /// initialisation future instead of racing to start duplicate containers.
 static POSTGRES_CONTAINER_STARTED: OnceCell<()> = OnceCell::const_new();
+static POSTGRES_HOST_PORT: OnceLock<u16> = OnceLock::new();
+
+fn postgres_container_name() -> String {
+    format!("{POSTGRES_CONTAINER_NAME_PREFIX}-{}", std::process::id())
+}
+
+fn postgres_host_port() -> u16 {
+    *POSTGRES_HOST_PORT
+        .get()
+        .expect("Postgres host port not initialized; call `ensure_container_started()` first")
+}
+
+fn find_free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .expect("shouldn't fail binding to a random port")
+        .local_addr()
+        .expect("shouldn't fail reading local address")
+        .port()
+}
 
 fn connection_string() -> String {
     postgres_connection_string("localhost", POSTGRES_DB)
@@ -32,7 +53,11 @@ pub fn get_postgres_host_gateway_connection_string(database: &str) -> String {
 fn postgres_connection_string(host: &str, database: &str) -> String {
     format!(
         "postgres://{}:{}@{}:{}/{}",
-        POSTGRES_USER, POSTGRES_PASSWORD, host, POSTGRES_PORT, database,
+        POSTGRES_USER,
+        POSTGRES_PASSWORD,
+        host,
+        postgres_host_port(),
+        database,
     )
 }
 
@@ -58,11 +83,14 @@ async fn ensure_container_started() {
     POSTGRES_CONTAINER_STARTED
         .get_or_init(|| async {
             install_cleanup();
-            // Remove any container left over from a previous aborted run.
-            let _ = Command::new("docker")
-                .args(["rm", "-f", POSTGRES_CONTAINER_NAME])
-                .stderr(Stdio::null())
-                .status();
+            let name = postgres_container_name();
+            let port = find_free_port();
+            POSTGRES_HOST_PORT
+                .set(port)
+                .expect("shouldn't fail setting Postgres host port");
+
+            // Remove any container left over from a previous aborted run of this process id.
+            let _ = Command::new("docker").args(["rm", "-f", &name]).status();
 
             use testcontainers::ImageExt;
             use testcontainers::core::IntoContainerPort;
@@ -75,8 +103,8 @@ async fn ensure_container_started() {
                 .with_db_name(POSTGRES_DB)
                 .with_tag("16-alpine")
                 .with_cmd(["-c", "fsync=off", "-c", "wal_level=logical"])
-                .with_container_name(POSTGRES_CONTAINER_NAME)
-                .with_mapped_port(POSTGRES_PORT, POSTGRES_PORT.tcp())
+                .with_container_name(name)
+                .with_mapped_port(port, POSTGRES_CONTAINER_PORT.tcp())
                 .start()
                 .await
                 .expect("shouldn't fail starting Postgres test container");
@@ -91,9 +119,8 @@ async fn ensure_container_started() {
 }
 
 extern "C" fn cleanup() {
-    let _ = Command::new("docker")
-        .args(["rm", "-f", POSTGRES_CONTAINER_NAME])
-        .status();
+    let name = postgres_container_name();
+    let _ = Command::new("docker").args(["rm", "-f", &name]).status();
 }
 
 /// Installs cleanup hooks so that the Postgres container is removed both on normal
