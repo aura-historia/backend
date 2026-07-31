@@ -329,5 +329,162 @@
       "auction_end": null,
       "seller_name": null
     }
+  },
+  {
+    "html": "tests/fixtures/html/wandel-antik_available.html",
+    "raw_state": "Sie m\u00f6chten diesen Artikel erwerben? Kontaktieren Sie uns:",
+    "state_record": "AVAILABLE",
+    "schema": {
+      "shops_product_id": {
+        "selector": ".elementor-repeater-item-57316fe .elementor-post-info__item--type-custom",
+        "type": "text"
+      },
+      "title": {
+        "selector": ".elementor-element-2b71f4d h1.elementor-heading-title",
+        "type": "text"
+      },
+      "description": {
+        "selector": ".elementor-element-5a5f73f .elementor-widget-container p",
+        "type": "text",
+        "cardinality": "all"
+      },
+      "price": {
+        "selector": ".elementor-repeater-item-a30c344 .elementor-post-info__item--type-custom",
+        "type": "text"
+      },
+      "state": {
+        "selector": ".elementor-element-eec5a29 h2.elementor-heading-title",
+        "type": "text"
+      },
+      "images": {
+        "selector": ".elementor-element-c9ea44e img",
+        "type": "image_url",
+        "cardinality": "all"
+      },
+      "default_currency": "EUR"
+    },
+    "raw": {
+      "shops_product_id": "Artikel-Nr:\u00a002092",
+      "title": "Franz. Art Deco Deckenlampe, signiert Degue",
+      "description": [
+        "Die franz\u00f6sische Art Deco Deckenlampe aus Gusseisen ist signiert mit Degue. Die Tulpen und die halbrunde Mittelschale aus gesandstrahltem Glas sind mit floralen Mustern geometrisch stilisiert und wirken sehr plastisch. Die Lampe leuchtet auch im Inneren. Leider ist eines der Au\u00dfengl\u00e4ser leicht besch\u00e4digt. Die \u00e4u\u00dferen Gl\u00e4ser sind durch eine separate Aufh\u00e4ngung befestigt, die Leuchte wurde neu verkabelt.",
+        "Ma\u00dfe: H60 x D65 cm"
+      ],
+      "price": "Preis:\u00a0\u20ac\u00a0680,00 inkl. MwSt.",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "Sie m\u00f6chten diesen Artikel erwerben? Kontaktieren Sie uns:",
+      "images": [
+        "https://wandel-antik.de/wp-content/uploads/2092_2092_-_Franzoesische__Art_Deco_Deckenlampe_aus_Gusseisen__signiert_Degue_zoom.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "artikel-nr-02092",
+      "title": "Franz. Art Deco Deckenlampe, signiert Degue",
+      "description": "Die franz\u00f6sische Art Deco Deckenlampe aus Gusseisen ist signiert mit Degue. Die Tulpen und die halbrunde Mittelschale aus gesandstrahltem Glas sind mit floralen Mustern geometrisch stilisiert und wirken sehr plastisch. Die Lampe leuchtet auch im Inneren. Leider ist eines der Au\u00dfengl\u00e4ser leicht besch\u00e4digt. Die \u00e4u\u00dferen Gl\u00e4ser sind durch eine separate Aufh\u00e4ngung befestigt, die Leuchte wurde neu verkabelt.\n\nMa\u00dfe: H60 x D65 cm",
+      "price": 68000,
+      "price_currency": "EUR",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "AVAILABLE",
+      "url": "https://wandel-antik.de/produkte/02092-franz-art-deco-deckenlampe-signiert-degue/?utm_source=aura_historia&utm_medium=referral",
+      "images": [
+        "https://wandel-antik.de/wp-content/uploads/2092_2092_-_Franzoesische__Art_Deco_Deckenlampe_aus_Gusseisen__signiert_Degue_zoom.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
+  },
+  {
+    "html": "tests/fixtures/html/nicholaswells_available.html",
+    "raw_state": "instock",
+    "state_record": "AVAILABLE",
+    "schema": {
+      "default_currency": "EUR",
+      "description": {
+        "cardinality": "first",
+        "selector": ".product-full-width .at-rte",
+        "type": "text"
+      },
+      "images": {
+        "cardinality": "all",
+        "selector": ".product-image-main img",
+        "type": "image_url"
+      },
+      "price": {
+        "cardinality": "first",
+        "selector": ".block-price__regular",
+        "type": "text"
+      },
+      "shops_product_id": {
+        "cardinality": "first",
+        "name": "data-product-id",
+        "selector": "variant-sku",
+        "type": "attribute"
+      },
+      "state": {
+        "cardinality": "first",
+        "name": "content",
+        "selector": "meta[property=\"product:availability\"]",
+        "type": "attribute"
+      },
+      "title": {
+        "cardinality": "first",
+        "selector": ".product-single__title",
+        "type": "text"
+      }
+    },
+    "raw": {
+      "shops_product_id": "10166479978833",
+      "title": "Borghese Vase",
+      "description": [
+        "This distinguished Borghese Vase, crafted in Italy during the early 19th century, stands as an exceptional example of Grand Tour artistry. Inspired by the celebrated antique vase now housed in the Louvre, this sculptural piece epitomises the elegance and sophistication sought by aristocratic travellers during the Regency period.\nOrigin: Italy, probably Rome\nDate: Circa 1800\nMaterial: Alabaster\nDimensions: Height: 39 cm (15.4 in); Diameter: 23 cm (9 in)\nCondition: Very fine, with a pleasing natural patina and only minor signs of age commensurate with its history.\nThe Borghese Vase remains one of the most iconic forms reproduced for the Grand Tour market. Collectors of 19th-century works of art prize such pieces for their fidelity to classical design and their tangible link to Italy\u2019s rich artistic heritage. Modeled after ancient originals, this vase mirrors the mythological grandeur revered by connoisseurs and is reminiscent of prominent examples found in museum collections. Its presence is both a statement in Regency taste and a testament to the enduring influence of classical antiquity.\nNotable Features:\n\nExquisite hand-carved decoration in alabaster, showcasing intricate mythological motifs inspired by the antique original.\nGraceful lines and harmonious proportions, reflecting the neoclassical ideals that dominated early 19th-century Italian design.\nRare and highly coveted as a Grand Tour souvenir, this Borghese Vase holds significant collecting value due to its quality, scale, and distinguished form.\nPerfectly sized for prominent display on a mantelpiece or entry hall plinth, it would serve as a focal point for interior decoration or as an esteemed addition to any collection of Regency-era vases.\n\nThe allure of this Borghese Vase goes beyond decorative beauty, offering both historic resonance and a touch of Italian grandeur to any setting. Its authentic Grand Tour provenance, coupled with exceptional craftsmanship, makes it a distinctive and desirable piece for collectors of 19th-century works of art."
+      ],
+      "price": "Regular price\n\n\n      \n         \n    \n\u20ac11.32795\n\u20ac11.327,95",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "instock",
+      "images": [
+        "//nicholaswells.com/cdn/shop/files/borghese-vase-grand-tour.webp?v=1749114429&width=1080",
+        "//nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-3.jpg?v=1749114429&width=1080",
+        "//nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-4.jpg?v=1749114430&width=1080",
+        "//nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-5.jpg?v=1749114430&width=1080",
+        "//nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-6.jpg?v=1749114429&width=1080",
+        "//nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-1.jpg?v=1749114429&width=1080"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "10166479978833",
+      "title": "Borghese Vase",
+      "description": "This distinguished Borghese Vase, crafted in Italy during the early 19th century, stands as an exceptional example of Grand Tour artistry. Inspired by the celebrated antique vase now housed in the Louvre, this sculptural piece epitomises the elegance and sophistication sought by aristocratic travellers during the Regency period.\nOrigin: Italy, probably Rome\nDate: Circa 1800\nMaterial: Alabaster\nDimensions: Height: 39 cm (15.4 in); Diameter: 23 cm (9 in)\nCondition: Very fine, with a pleasing natural patina and only minor signs of age commensurate with its history.\nThe Borghese Vase remains one of the most iconic forms reproduced for the Grand Tour market. Collectors of 19th-century works of art prize such pieces for their fidelity to classical design and their tangible link to Italy\u2019s rich artistic heritage. Modeled after ancient originals, this vase mirrors the mythological grandeur revered by connoisseurs and is reminiscent of prominent examples found in museum collections. Its presence is both a statement in Regency taste and a testament to the enduring influence of classical antiquity.\nNotable Features:\n\nExquisite hand-carved decoration in alabaster, showcasing intricate mythological motifs inspired by the antique original.\nGraceful lines and harmonious proportions, reflecting the neoclassical ideals that dominated early 19th-century Italian design.\nRare and highly coveted as a Grand Tour souvenir, this Borghese Vase holds significant collecting value due to its quality, scale, and distinguished form.\nPerfectly sized for prominent display on a mantelpiece or entry hall plinth, it would serve as a focal point for interior decoration or as an esteemed addition to any collection of Regency-era vases.\n\nThe allure of this Borghese Vase goes beyond decorative beauty, offering both historic resonance and a touch of Italian grandeur to any setting. Its authentic Grand Tour provenance, coupled with exceptional craftsmanship, makes it a distinctive and desirable piece for collectors of 19th-century works of art.",
+      "price": 1132795,
+      "price_currency": "EUR",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "AVAILABLE",
+      "url": "https://nicholaswells.com/products/borghese-vase",
+      "images": [
+        "https://nicholaswells.com/cdn/shop/files/borghese-vase-grand-tour.webp?v=1749114429&width=1080",
+        "https://nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-3.jpg?v=1749114429&width=1080",
+        "https://nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-4.jpg?v=1749114430&width=1080",
+        "https://nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-5.jpg?v=1749114430&width=1080",
+        "https://nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-6.jpg?v=1749114429&width=1080",
+        "https://nicholaswells.com/cdn/shop/files/Fine-Rare-Early-19th-Century-Grand-Tour-Carved-Alabaster-Model-Of-The-Borghese-Vase-1.jpg?v=1749114429&width=1080"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
   }
 ]

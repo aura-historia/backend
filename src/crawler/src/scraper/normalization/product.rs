@@ -3,6 +3,7 @@ use common::{
     product_state::domain::ProductState, shops_product_id::ShopsProductId,
 };
 use product::core::{description::Description, product_image::ProductImage, title::Title};
+use std::collections::BTreeMap;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -20,4 +21,5 @@ pub struct NormalizedProduct {
     pub images: Vec<ProductImage>,
     pub auction_start: Option<OffsetDateTime>,
     pub auction_end: Option<OffsetDateTime>,
+    pub raw_attributes: BTreeMap<String, Vec<String>>,
 }

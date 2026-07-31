@@ -254,7 +254,7 @@ serde_json = "1.0.150"
 serde_qs = "1.1.2"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "time", "json", "macros", "migrate"] }
 serde_fields = "0.1.0"
-serial_test = "3.5.0"
+serial_test = "4.0.1"
 sha2 = "0.11.0"
 aws-tests = { path = "src/aws-tests" }
 aws-tests-common = { path = "src/aws-tests/src/aws-tests-common" }
@@ -306,7 +306,7 @@ fxrate = { path = "src/fxrate" }
 fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
 crawler = { path = "src/crawler" }
-spider = { version = "=2.52.11", default-features = false, features = ["sync", "reqwest_rustls_tls", "auto_throttle", "robots_cache", "rate_limit"] }
+spider = { version = "=2.52.13", default-features = false, features = ["sync", "reqwest_rustls_tls", "auto_throttle", "robots_cache", "rate_limit"] }
 scraper = "0.27.0"
 schemars = "1.2.1"
 llm = { git = "https://github.com/bruderj15/llm", rev = "bc562d0f6547857c4af5171c8c5aea3671f2b771", default-features = false, features = ["rustls-tls"] }

@@ -13,12 +13,12 @@
         "test": "jest --runInBand"
     },
     "dependencies": {
-        "aws-cdk-lib": "2.262.0",
-        "constructs": "10.7.1"
+        "aws-cdk-lib": "2.262.2",
+        "constructs": "10.7.2"
     },
     "devDependencies": {
         "@types/jest": "30.0.0",
-        "@types/node": "26.1.1",
+        "@types/node": "26.1.2",
         "aws-cdk": "2.1133.0",
         "jest": "30.4.2",
         "ts-jest": "29.4.12",

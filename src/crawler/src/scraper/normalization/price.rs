@@ -74,13 +74,18 @@ pub(super) fn parse_price(
         .or(fallback_currency)
         .ok_or(PriceError::UnknownCurrency)?;
 
-    // Remove known currency symbols / codes so they don't confuse the number
-    // parser.
-    let stripped =
-        regex!(r"(?i)(EUR|USD|GBP|AUD|CAD|NZD|NZ\$|A\$|C\$|\$|£|€)").replace_all(raw, "");
+    let number = extract_price_number_candidate(raw, &currency)?;
+
+    let amount = parse_price_number(&number, &currency)?;
+
+    Ok((amount, currency))
+}
+
+fn parse_price_number(number: &str, currency: &Currency) -> Result<MonetaryAmount, PriceError> {
+    let exponent = minor_unit_exponent(currency);
 
     // Remove whitespace and apostrophes used as thousands separators.
-    let stripped = stripped.replace([' ', '\u{00a0}', '\'', '_'], "");
+    let stripped = number.replace([' ', '\u{00a0}', '\'', '_'], "");
 
     // Determine whether comma or dot is the decimal separator, then split.
     let (integer_part, fraction_part): (&str, &str) =
@@ -104,13 +109,12 @@ pub(super) fn parse_price(
         return Err(PriceError::ParseFailure);
     }
 
-    let exponent = minor_unit_exponent(&currency);
     let fraction_normalised = normalise_fraction(&fraction_clean, exponent);
 
     let amount_str = format!("{}{}", integer_clean, fraction_normalised);
     let amount: u64 = amount_str.parse().map_err(|_| PriceError::ParseFailure)?;
 
-    Ok((MonetaryAmount::from(amount), currency))
+    Ok(MonetaryAmount::from(amount))
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +190,198 @@ fn normalise_fraction(frac: &str, exponent: u32) -> String {
     } else {
         format!("{:0<width$}", frac, width = exp)
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct PriceNumberCandidate {
+    value: String,
+    start: usize,
+    end: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PriceNumberCandidateQuality {
+    Clean,
+    Malformed,
+}
+
+struct ParsedPriceNumberCandidate {
+    candidate: PriceNumberCandidate,
+    amount: MonetaryAmount,
+    quality: PriceNumberCandidateQuality,
+}
+
+fn extract_price_number_candidate(raw: &str, currency: &Currency) -> Result<String, PriceError> {
+    let candidates = price_like_number_candidates(raw);
+    let mut parsed = Vec::new();
+
+    for candidate in candidates {
+        parsed.push(ParsedPriceNumberCandidate {
+            amount: parse_price_number(&candidate.value, currency)?,
+            quality: price_number_candidate_quality(&candidate.value),
+            candidate,
+        });
+    }
+
+    match parsed.as_slice() {
+        [] => Err(PriceError::ParseFailure),
+        [single] => Ok(single.candidate.value.clone()),
+        _ => select_price_number_candidate(raw, parsed),
+    }
+}
+
+fn price_like_number_candidates(raw: &str) -> Vec<PriceNumberCandidate> {
+    let candidates = extract_price_number_candidates(raw);
+    let currency_markers = currency_marker_spans(raw);
+
+    if currency_markers.is_empty() {
+        return candidates;
+    }
+
+    let currency_bearing_candidates: Vec<_> = candidates
+        .iter()
+        .filter(|candidate| {
+            currency_markers.iter().any(|marker| {
+                distance_between_spans((candidate.start, candidate.end), *marker) <= 2
+            })
+        })
+        .cloned()
+        .collect();
+
+    if currency_bearing_candidates.is_empty() {
+        candidates
+    } else {
+        currency_bearing_candidates
+    }
+}
+
+fn select_price_number_candidate(
+    raw: &str,
+    candidates: Vec<ParsedPriceNumberCandidate>,
+) -> Result<String, PriceError> {
+    if candidates
+        .iter()
+        .all(|candidate| candidate.amount == candidates[0].amount)
+    {
+        return Ok(best_price_number_candidate(raw, &candidates)?.value.clone());
+    }
+
+    let clean_candidates: Vec<_> = candidates
+        .iter()
+        .filter(|candidate| candidate.quality == PriceNumberCandidateQuality::Clean)
+        .collect();
+    let has_malformed_candidate = candidates
+        .iter()
+        .any(|candidate| candidate.quality == PriceNumberCandidateQuality::Malformed);
+
+    if clean_candidates.len() == 1 && has_malformed_candidate {
+        return Ok(clean_candidates[0].candidate.value.clone());
+    }
+
+    if clean_candidates.len() > 1 {
+        return Err(PriceError::ParseFailure);
+    }
+
+    Ok(best_price_number_candidate(raw, &candidates)?.value.clone())
+}
+
+fn best_price_number_candidate<'a>(
+    raw: &str,
+    candidates: &'a [ParsedPriceNumberCandidate],
+) -> Result<&'a PriceNumberCandidate, PriceError> {
+    let currency_marker = first_currency_marker_span(raw);
+
+    let best = match currency_marker {
+        Some(marker) => candidates.iter().min_by_key(|candidate| {
+            distance_between_spans((candidate.candidate.start, candidate.candidate.end), marker)
+        }),
+        None => candidates.first(),
+    };
+
+    best.map(|candidate| &candidate.candidate)
+        .ok_or(PriceError::ParseFailure)
+}
+
+fn extract_price_number_candidates(raw: &str) -> Vec<PriceNumberCandidate> {
+    let mut candidates = Vec::new();
+    let mut start = None;
+    let mut last_digit_end = 0usize;
+
+    for (idx, ch) in raw.char_indices() {
+        if ch.is_ascii_digit() {
+            if start.is_none() {
+                start = Some(idx);
+            }
+            last_digit_end = idx + ch.len_utf8();
+        } else if start.is_some() && matches!(ch, '.' | ',' | '\'' | '_' | ' ' | '\u{00a0}') {
+            continue;
+        } else if let Some(s) = start.take() {
+            candidates.push(price_number_candidate(raw, s, last_digit_end));
+        }
+    }
+
+    if let Some(s) = start {
+        candidates.push(price_number_candidate(raw, s, last_digit_end));
+    }
+
+    candidates
+}
+
+fn price_number_candidate(raw: &str, start: usize, end: usize) -> PriceNumberCandidate {
+    let trimmed = raw[start..end].trim();
+    let leading_trimmed = raw[start..end].len() - raw[start..end].trim_start().len();
+    let trailing_trimmed = raw[start..end].len() - raw[start..end].trim_end().len();
+
+    PriceNumberCandidate {
+        value: trimmed.to_string(),
+        start: start + leading_trimmed,
+        end: end - trailing_trimmed,
+    }
+}
+
+fn price_number_candidate_quality(value: &str) -> PriceNumberCandidateQuality {
+    let stripped = value.replace([' ', '\u{00a0}', '\'', '_'], "");
+    let last_dot = stripped.rfind('.');
+    let last_comma = stripped.rfind(',');
+    let decimal_index = match (last_dot, last_comma) {
+        (Some(dot), Some(comma)) => Some(dot.max(comma)),
+        (Some(dot), None) => Some(dot),
+        (None, Some(comma)) => Some(comma),
+        (None, None) => None,
+    };
+
+    let Some(index) = decimal_index else {
+        return PriceNumberCandidateQuality::Clean;
+    };
+
+    let trailing_digits = stripped[index + 1..]
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .count();
+
+    if trailing_digits > 3 {
+        PriceNumberCandidateQuality::Malformed
+    } else {
+        PriceNumberCandidateQuality::Clean
+    }
+}
+
+fn first_currency_marker_span(raw: &str) -> Option<(usize, usize)> {
+    currency_marker_spans(raw).into_iter().next()
+}
+
+fn currency_marker_spans(raw: &str) -> Vec<(usize, usize)> {
+    regex!(r"(?i)(EUR|USD|GBP|AUD|CAD|NZD|NZ\$|A\$|C\$|\$|\x{00A3}|\x{20AC})")
+        .find_iter(raw)
+        .map(|m| (m.start(), m.end()))
+        .collect()
+}
+
+fn distance_between_spans(left: (usize, usize), right: (usize, usize)) -> usize {
+    right
+        .0
+        .saturating_sub(left.1)
+        .max(left.0.saturating_sub(right.1))
 }
 
 /// Returns `true` when the string slice is exactly 3 ASCII digits, which
@@ -290,8 +486,8 @@ mod tests {
     use common::currency::domain::Currency;
 
     use super::{
-        PriceError, detect_currency, is_price_on_request_marker, normalise_fraction, parse_price,
-        split_decimal,
+        PriceError, detect_currency, extract_price_number_candidate, is_price_on_request_marker,
+        normalise_fraction, parse_price, split_decimal,
     };
 
     // -----------------------------------------------------------------------
@@ -360,6 +556,19 @@ mod tests {
     #[case("$1,500", 150000, Currency::Usd)]
     #[case("$10,000", 1000000, Currency::Usd)]
     #[case("£1,800,000", 180000000, Currency::Gbp)]
+    #[case("Preis: \u{20ac} 680,00 inkl. MwSt.", 68000, Currency::Eur)]
+    #[case("\u{20ac} 680,00 inkl. MwSt.", 68000, Currency::Eur)]
+    #[case("Item 02092 Price: \u{20ac} 680,00", 68000, Currency::Eur)]
+    #[case("Item 02092 Price: $1,125", 112500, Currency::Usd)]
+    #[case("Art.-Nr. 02092 Preis 680,00 \u{20ac}", 68000, Currency::Eur)]
+    #[case("02092 / GBP 1,234.56", 123456, Currency::Gbp)]
+    #[case(
+        "Regular price \u{20ac}11.32795 \u{20ac}11.327,95",
+        1132795,
+        Currency::Eur
+    )]
+    #[case("\u{00a3}3,90000\u{00a3}3,900.00", 390000, Currency::Gbp)]
+    #[case("$3,900$3,900.00", 390000, Currency::Usd)]
     fn should_parse_price_when_valid_string_provided(
         #[case] raw: &str,
         #[case] expected_amount: u64,
@@ -380,6 +589,7 @@ mod tests {
 
     #[rstest]
     #[case("no numbers here USD")]
+    #[case("$100.00$80.00")]
     #[case("€")]
     fn should_return_parse_failure_when_price_has_currency_but_no_number(#[case] raw: &str) {
         assert!(
@@ -411,6 +621,7 @@ mod tests {
     #[case("1590", Currency::Eur, 159000u64)]
     #[case("1590", Currency::Gbp, 159000u64)]
     #[case("1.234,56", Currency::Eur, 123456u64)]
+    #[case("680,00 inkl. MwSt.", Currency::Eur, 68000u64)]
     fn should_parse_bare_price_when_fallback_currency_provided(
         #[case] raw: &str,
         #[case] fallback: Currency,
@@ -419,6 +630,36 @@ mod tests {
         let (amount, currency) = parse_price(raw, Some(fallback)).unwrap();
         assert_eq!(*amount, expected_amount, "amount mismatch for '{}'", raw);
         assert_eq!(currency, fallback, "currency mismatch for '{}'", raw);
+    }
+
+    #[rstest]
+    #[case("Preis:  680,00 inkl. MwSt.", Currency::Eur, Some("680,00"))]
+    #[case("  1 234.56 gross", Currency::Gbp, Some("1 234.56"))]
+    #[case("Item 02092 Price: \u{20ac} 680,00", Currency::Eur, Some("680,00"))]
+    #[case("Item 02092 Price: $1,125", Currency::Usd, Some("1,125"))]
+    #[case("Art.-Nr. 02092 Preis 680,00 \u{20ac}", Currency::Eur, Some("680,00"))]
+    #[case("02092 / GBP 1,234.56", Currency::Gbp, Some("1,234.56"))]
+    #[case(
+        "Regular price \u{20ac}11.32795 \u{20ac}11.327,95",
+        Currency::Eur,
+        Some("11.327,95")
+    )]
+    #[case("no numbers here", Currency::Eur, None)]
+    fn should_extract_price_number_candidate(
+        #[case] raw: &str,
+        #[case] currency: Currency,
+        #[case] expected: Option<&str>,
+    ) {
+        match expected {
+            Some(expected) => {
+                let actual = extract_price_number_candidate(raw, &currency).unwrap();
+                assert_eq!(actual, expected);
+            }
+            None => assert!(matches!(
+                extract_price_number_candidate(raw, &currency),
+                Err(PriceError::ParseFailure)
+            )),
+        }
     }
 
     // -----------------------------------------------------------------------

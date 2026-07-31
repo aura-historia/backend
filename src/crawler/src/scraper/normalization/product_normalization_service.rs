@@ -204,6 +204,7 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
                 images,
                 auction_start,
                 auction_end,
+                raw_attributes: raw.raw_attributes,
             },
             llm_calls_used,
         })
@@ -257,6 +258,7 @@ mod tests {
             images: vec![],
             auction_start: None,
             auction_end: None,
+            raw_attributes: Default::default(),
         }
     }
 
@@ -346,6 +348,21 @@ mod tests {
             ],
             auction_start: Some("2024-06-01T10:00:00Z".into()),
             auction_end: Some("2024-07-01T10:00:00Z".into()),
+            raw_attributes: [
+                (
+                    "rawMaterial".to_string(),
+                    vec!["Walnut and brass".to_string()],
+                ),
+                (
+                    "rawMeasurements".to_string(),
+                    vec!["H 90 cm x W 45 cm x D 50 cm".to_string()],
+                ),
+                (
+                    "rawOrigin".to_string(),
+                    vec!["Southern Germany".to_string()],
+                ),
+            ]
+            .into(),
         };
 
         let result = svc.normalize(raw, base_url(), None).await.unwrap().product;
@@ -384,6 +401,18 @@ mod tests {
         assert_eq!(
             result.auction_end.unwrap(),
             datetime!(2024-07-01 10:00:00 UTC)
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawMaterial"),
+            Some(&vec!["Walnut and brass".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawMeasurements"),
+            Some(&vec!["H 90 cm x W 45 cm x D 50 cm".to_string()])
+        );
+        assert_eq!(
+            result.raw_attributes.get("rawOrigin"),
+            Some(&vec!["Southern Germany".to_string()])
         );
     }
 
