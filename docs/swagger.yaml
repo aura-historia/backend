@@ -13044,8 +13044,6 @@ components:
         - shopType
         - domains
         - partnerStatus
-        - createdBy
-        - updatedBy
         - created
         - updated
       properties:
@@ -13157,12 +13155,7 @@ components:
           example: "contact@tech-store-premium.com"
         partnerStatus:
           $ref: "#/components/schemas/ShopPartnerStatusData"
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who created this shop record
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who last updated this shop record
+
         created:
           type: string
           format: date-time

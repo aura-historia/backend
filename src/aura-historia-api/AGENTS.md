@@ -2,18 +2,18 @@
 
 ## Purpose
 
-- Own bare-metal REST API runtime skeleton and transport auth service for #1341.
+- Own axum REST API runtime and transport auth service for #1341.
 
 ## Core Design
 
 - `main.rs` bootstraps logging, config, and graceful shutdown.
-- `lib.rs` owns runtime config, minimal router, health/readiness endpoints, and server loop.
+- `lib.rs` owns runtime config, axum router, health/readiness endpoints, server loop, and composition root wiring.
 - `auth/` owns bearer auth extraction, Cognito JWT verification via cached JWKS, Aura access-token auth, and mapping to `OperationContext`.
 - Auth accepts Cognito JWTs and Aura access tokens through one interface. Cognito maps to open-world first-party `Principal::User`; Aura access tokens map explicit scopes to closed-world delegated capabilities.
 - Auth extractors only authenticate. Required capability checks belong in service/use-case code.
 - Request IDs are server-created by future axum middleware; clients may only provide correlation IDs if middleware accepts them.
 - No API Gateway adapter.
-- Domain routes will be mounted here in later tasks.
+- `shops/` owns shop REST controllers
 
 ## Ownership
 
@@ -39,4 +39,4 @@
 
 ## Child DOX Index
 
-- None.
+- `shops/` — shop REST controllers.

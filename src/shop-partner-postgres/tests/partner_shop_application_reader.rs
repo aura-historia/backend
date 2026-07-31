@@ -18,7 +18,6 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_list_all_and_by_user_partner_shop_applications_in_created_order() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

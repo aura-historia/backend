@@ -13,7 +13,6 @@ use watchlist_service::ports::{
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_insert_find_update_read_and_delete_watchlist_entry() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -72,7 +71,6 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_return_already_exists_when_watchlist_entry_exists() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());

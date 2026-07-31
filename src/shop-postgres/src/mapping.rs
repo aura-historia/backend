@@ -155,6 +155,7 @@ impl TryFrom<ShopRow> for ShopDetailsView {
         let address = structured_address_from_row(&row)?;
         let contact = contact_from_row(&row)?;
         let shopify = shopify_from_row(&row)?;
+        let woocommerce = woocommerce_from_row(&row)?;
 
         Ok(Self {
             shop_id: ShopId::from(row.shop_id),
@@ -166,6 +167,8 @@ impl TryFrom<ShopRow> for ShopDetailsView {
             shopify_domain: shopify.as_ref().map(|value| value.domain.clone()),
             shopify_currency: shopify.as_ref().and_then(|value| value.currency),
             shopify_language: shopify.as_ref().and_then(|value| value.language),
+            woocommerce_currency: woocommerce.as_ref().and_then(|value| value.currency),
+            woocommerce_language: woocommerce.as_ref().and_then(|value| value.language),
             url,
             view_url,
             image: parse_optional_url(row.image.as_deref(), ShopRowMappingError::InvalidImageUrl)?,

@@ -5,20 +5,36 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-common = { workspace = true }
+axum = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
+common = { workspace = true, features = ["postgres"] }
+geo = { workspace = true, features = ["data"] }
 http = { workspace = true }
+httpdate = { workspace = true }
 jsonwebtokens = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
+serde-email = { workspace = true }
 serde_json = { workspace = true }
+shop-core = { workspace = true }
+shop-postgres = { workspace = true }
+shop-service = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true, features = ["formatting"] }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
 tracing = { workspace = true }
+url = { workspace = true, features = ["serde"] }
 user-core = { workspace = true }
+user-dynamodb = { workspace = true }
 user-service = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 base64 = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] }
 rstest = { workspace = true }
+serial_test = { workspace = true }
+test-api = { workspace = true, features = ["dynamodb", "postgres"] }
 time = { workspace = true }
+tower = { workspace = true, features = ["util"] }

@@ -31,7 +31,6 @@ use url::Url;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_insert_append_find_update_and_find_product_by_key_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -144,7 +143,6 @@ async fn should_insert_append_find_update_and_find_product_by_key_in_postgres() 
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_return_none_when_product_is_missing_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -176,7 +174,6 @@ async fn should_return_none_when_product_is_missing_in_postgres() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_product_insert_conflict_when_shop_product_key_or_slug_duplicate() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -203,7 +200,6 @@ async fn should_report_product_insert_conflict_when_shop_product_key_or_slug_dup
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_product_update_conflict_when_product_row_is_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -227,7 +223,6 @@ async fn should_report_product_update_conflict_when_product_row_is_missing() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_product_update_conflict_when_event_id_is_stale() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -255,7 +250,6 @@ async fn should_report_product_update_conflict_when_event_id_is_stale() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_key_conflict_when_update_would_duplicate_shop_product_key() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -293,7 +287,6 @@ async fn should_report_key_conflict_when_update_would_duplicate_shop_product_key
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_slug_conflict_when_update_would_duplicate_product_slug() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -331,7 +324,6 @@ async fn should_report_slug_conflict_when_update_would_duplicate_product_slug() 
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_roll_back_product_and_event_when_transaction_is_not_committed() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

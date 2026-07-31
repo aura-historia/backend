@@ -152,6 +152,7 @@ aura-historia-worker = { path = "src/aura-historia-worker" }
 async-stream = "0.3.6"
 base64 = "0.23.0"
 async-trait = "0.1.89"
+axum = "0.8.7"
 aws-config = "1.8.18"
 aws-sdk-account = "1.106.0"
 aws-sdk-autoscaling = "1.115.0"
@@ -269,6 +270,7 @@ testcontainers-modules = "0.12.1"
 thiserror = "2.0.18"
 time = "0.3.47"
 tokio = { version = "1.52.3", default-features = false }
+tower = "0.5.2"
 tracing = "0.1.44"
 tracing-cloudwatch = { version = "=0.4.1", features = ["awssdk", "ordered_logs"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

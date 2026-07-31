@@ -18,7 +18,6 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 use url::Url;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_persist_shop_without_persisting_view_url_and_derive_details_view_url() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -67,7 +66,6 @@ async fn should_persist_shop_without_persisting_view_url_and_derive_details_view
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_find_shop_by_slug() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -94,7 +92,6 @@ async fn should_find_shop_by_slug() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_update_shop_with_optimistic_concurrency() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -134,7 +131,6 @@ async fn should_update_shop_with_optimistic_concurrency() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_return_none_when_shop_row_is_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -155,7 +151,6 @@ async fn should_return_none_when_shop_row_is_missing() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_slug_conflict_when_inserting_duplicate_slug() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -177,7 +172,6 @@ async fn should_report_slug_conflict_when_inserting_duplicate_slug() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_roll_back_shop_when_transaction_is_not_committed() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -202,7 +196,6 @@ async fn should_roll_back_shop_when_transaction_is_not_committed() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_update_conflict_when_shop_row_is_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);

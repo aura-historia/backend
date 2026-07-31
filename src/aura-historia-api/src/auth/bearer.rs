@@ -1,11 +1,11 @@
 use crate::auth::core::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
 use http::{HeaderMap, header::AUTHORIZATION};
 
-pub struct OptionalAuthExtractor<'a, A> {
+pub struct OptionalAuthExtractor<'a, A: ?Sized> {
     authenticator: &'a A,
 }
 
-impl<'a, A> OptionalAuthExtractor<'a, A> {
+impl<'a, A: ?Sized> OptionalAuthExtractor<'a, A> {
     pub fn new(authenticator: &'a A) -> Self {
         Self { authenticator }
     }
@@ -13,7 +13,7 @@ impl<'a, A> OptionalAuthExtractor<'a, A> {
 
 impl<A> OptionalAuthExtractor<'_, A>
 where
-    A: TokenAuthenticator,
+    A: TokenAuthenticator + ?Sized,
 {
     pub async fn extract(
         &self,
@@ -27,11 +27,11 @@ where
     }
 }
 
-pub struct ProtectedAuthExtractor<'a, A> {
+pub struct ProtectedAuthExtractor<'a, A: ?Sized> {
     authenticator: &'a A,
 }
 
-impl<'a, A> ProtectedAuthExtractor<'a, A> {
+impl<'a, A: ?Sized> ProtectedAuthExtractor<'a, A> {
     pub fn new(authenticator: &'a A) -> Self {
         Self { authenticator }
     }
@@ -39,7 +39,7 @@ impl<'a, A> ProtectedAuthExtractor<'a, A> {
 
 impl<A> ProtectedAuthExtractor<'_, A>
 where
-    A: TokenAuthenticator,
+    A: TokenAuthenticator + ?Sized,
 {
     pub async fn extract(
         &self,

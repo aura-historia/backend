@@ -26,7 +26,6 @@ use time::{Duration, OffsetDateTime};
 use url::Url;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_search_shops_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -67,7 +66,6 @@ async fn should_search_shops_in_postgres() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_page_shop_search_with_shop_id_cursor() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -133,7 +131,6 @@ async fn should_page_shop_search_with_shop_id_cursor() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_return_empty_search_when_no_shop_matches() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -162,7 +159,6 @@ async fn should_return_empty_search_when_no_shop_matches() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_filter_search_by_type_partner_country_continent_and_dates() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -250,7 +246,6 @@ async fn should_filter_search_by_type_partner_country_continent_and_dates() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_sort_search_by_created_desc() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

@@ -1,14 +1,27 @@
 pub mod auth;
+pub mod shops;
 
+use crate::auth::{
+    ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
+    TransportPrincipal,
+};
+use crate::shops::ShopsState;
+use axum::Router;
+use axum::routing::get;
+use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
+use shop_postgres::SqlxShopDetailsReaderFactory;
+use shop_service::use_cases::queries::get_shop::GetShopHandler;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tracing::{debug, error, info};
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tracing::info;
+use user_dynamodb::DynamoDbAccessTokenStore;
+use user_service::use_cases::AuthenticateAccessTokenHandler;
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
+pub const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
-const REQUEST_BUFFER_BYTES: usize = 8192;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiConfig {
@@ -51,113 +64,116 @@ pub enum ApiConfigError {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HealthResponse {
-    pub status_code: u16,
-    pub body: &'static str,
+#[derive(Clone)]
+pub struct AppState {
+    shops: ShopsState,
 }
 
-pub fn route(method: &str, path: &str) -> HealthResponse {
-    match (method, path) {
-        ("GET", "/health") => HealthResponse {
-            status_code: 200,
-            body: "ok\n",
-        },
-        ("GET", "/ready") => HealthResponse {
-            status_code: 200,
-            body: "ready\n",
-        },
-        _ => HealthResponse {
-            status_code: 404,
-            body: "not found\n",
-        },
+impl AppState {
+    pub fn new(shops: ShopsState) -> Self {
+        Self { shops }
     }
+}
+
+pub fn app(state: AppState) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/ready", get(ready))
+        .route("/api/v1/shops/{shop_id}", get(shops::get_shop::get_shop))
+        .with_state(state.shops)
+}
+
+async fn health() -> &'static str {
+    "ok\n"
+}
+
+async fn ready() -> &'static str {
+    "ready\n"
+}
+
+pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
+    let pool = common::postgres::connect_from_env().await?;
+    let get_shop = GetShopHandler::new(
+        SqlxUnitOfWork::new(pool),
+        SqlxShopDetailsReaderFactory::new(),
+    );
+
+    let aws_config = aws_config::defaults(aws_config::BehaviorVersion::v2026_01_12())
+        .load()
+        .await;
+    let dynamodb_client = Box::leak(Box::new(aws_sdk_dynamodb::Client::new(&aws_config)));
+    let table_name =
+        std::env::var(DYNAMODB_TABLE_NAME_ENV).map_err(|_| ApiStateError::MissingEnv {
+            name: DYNAMODB_TABLE_NAME_ENV,
+        })?;
+    let table_name = Box::leak(table_name.into_boxed_str());
+    let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name);
+    let access_token_use_case = AuthenticateAccessTokenHandler::new(access_token_store);
+    let authenticator = ApiAuthService::new(
+        JwtUnavailableAuthenticator,
+        AuraAccessTokenAuthenticator::new(access_token_use_case),
+    );
+
+    Ok(AppState::new(ShopsState::new(
+        Arc::new(get_shop),
+        Arc::new(authenticator),
+    )))
+}
+
+struct JwtUnavailableAuthenticator;
+
+#[async_trait::async_trait]
+impl TokenAuthenticator for JwtUnavailableAuthenticator {
+    async fn authenticate(
+        &self,
+        _bearer_token: &str,
+        _metadata: &RequestMetadata,
+    ) -> Result<TransportPrincipal, AuthError> {
+        Err(AuthError::TemporarilyUnavailable)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ApiStateError {
+    #[error(transparent)]
+    Postgres(#[from] PostgresConnectError),
+    #[error("missing required environment variable {name}")]
+    MissingEnv { name: &'static str },
 }
 
 pub async fn run_until_shutdown<S>(config: ApiConfig, shutdown: S) -> Result<(), ApiRunError>
 where
-    S: Future<Output = ()>,
+    S: Future<Output = ()> + Send + 'static,
 {
+    let state = app_state_from_env().await.map_err(ApiRunError::State)?;
     let listener = TcpListener::bind(config.bind_addr())
         .await
         .map_err(ApiRunError::Bind)?;
-    serve(listener, shutdown).await
+    serve(listener, app(state), shutdown).await
 }
 
-pub async fn serve<S>(listener: TcpListener, shutdown: S) -> Result<(), ApiRunError>
+pub async fn serve<S>(listener: TcpListener, app: Router, shutdown: S) -> Result<(), ApiRunError>
 where
-    S: Future<Output = ()>,
+    S: Future<Output = ()> + Send + 'static,
 {
     let local_addr = listener.local_addr().map_err(ApiRunError::LocalAddr)?;
     info!(bind_addr = %local_addr, "aura-historia-api listening");
-    tokio::pin!(shutdown);
-
-    loop {
-        tokio::select! {
-            accept_result = listener.accept() => {
-                let (stream, peer_addr) = accept_result.map_err(ApiRunError::Accept)?;
-                debug!(%peer_addr, "accepted API connection");
-                tokio::spawn(async move {
-                    if let Err(error) = handle_connection(stream).await {
-                        error!(%error, "API connection failed");
-                    }
-                });
-            }
-            () = &mut shutdown => {
-                info!("aura-historia-api shutdown requested");
-                return Ok(());
-            }
-        }
-    }
-}
-
-async fn handle_connection(mut stream: TcpStream) -> Result<(), std::io::Error> {
-    let mut buffer = [0_u8; REQUEST_BUFFER_BYTES];
-    let bytes_read = stream.read(&mut buffer).await?;
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let (method, path) = parse_request_line(&request).unwrap_or(("", ""));
-    let response = route(method, path);
-    write_response(&mut stream, response).await
-}
-
-fn parse_request_line(request: &str) -> Option<(&str, &str)> {
-    let line = request.lines().next()?;
-    let mut parts = line.split_whitespace();
-    let method = parts.next()?;
-    let path = parts.next()?;
-    Some((method, path))
-}
-
-async fn write_response(
-    stream: &mut TcpStream,
-    response: HealthResponse,
-) -> Result<(), std::io::Error> {
-    let status = match response.status_code {
-        200 => "200 OK",
-        404 => "404 Not Found",
-        _ => "500 Internal Server Error",
-    };
-    let bytes = response.body.as_bytes();
-    stream
-        .write_all(
-            format!(
-                "HTTP/1.1 {status}\r\ncontent-length: {}\r\ncontent-type: text/plain\r\nconnection: close\r\n\r\n{}",
-                bytes.len(),
-                response.body
-            )
-            .as_bytes(),
-        )
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
         .await
+        .map_err(ApiRunError::Serve)
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum ApiRunError {
+    #[error("failed to build API state")]
+    State(#[source] ApiStateError),
     #[error("failed to bind API listener")]
     Bind(#[source] std::io::Error),
     #[error("failed to read API listener local address")]
     LocalAddr(#[source] std::io::Error),
-    #[error("failed to accept API connection")]
-    Accept(#[source] std::io::Error),
+    #[error("failed to serve API")]
+    Serve(#[source] std::io::Error),
 }
 
 #[cfg(test)]
@@ -165,7 +181,12 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use rstest::rstest;
+    use crate::auth::{AuthMethod, TransportPrincipal};
+    use common::operation_context::CredentialCapability;
+    use common::user_id::UserId;
+    use http::StatusCode;
+
+    use std::collections::BTreeSet;
     use tokio::sync::oneshot;
 
     fn env(values: &[(&'static str, &str)]) -> HashMap<&'static str, String> {
@@ -207,20 +228,21 @@ mod tests {
         ));
     }
 
-    #[rstest]
-    #[case("GET", "/health", 200, "ok\n")]
-    #[case("GET", "/ready", 200, "ready\n")]
-    #[case("POST", "/health", 404, "not found\n")]
-    fn should_route_health_endpoints(
-        #[case] method: &str,
-        #[case] path: &str,
-        #[case] status_code: u16,
-        #[case] body: &'static str,
-    ) {
-        let response = route(method, path);
+    #[tokio::test]
+    async fn should_route_health_endpoints() -> Result<(), Box<dyn std::error::Error>> {
+        for (path, status_code, body) in [
+            ("/health", StatusCode::OK, "ok\n"),
+            ("/ready", StatusCode::OK, "ready\n"),
+        ] {
+            let response = app(test_state())
+                .oneshot(http::Request::get(path).body(axum::body::Body::empty())?)
+                .await?;
 
-        assert_eq!(status_code, response.status_code);
-        assert_eq!(body, response.body);
+            assert_eq!(status_code, response.status());
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+            assert_eq!(body.as_bytes(), bytes.as_ref());
+        }
+        Ok(())
     }
 
     #[tokio::test]
@@ -229,21 +251,58 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = tokio::spawn(serve(listener, async move {
+        let server = tokio::spawn(serve(listener, app(test_state()), async move {
             let _ = shutdown_rx.await;
         }));
 
-        let mut stream = TcpStream::connect(addr).await?;
-        stream
-            .write_all(b"GET /health HTTP/1.1\r\nhost: localhost\r\n\r\n")
-            .await?;
-        let mut response = String::new();
-        stream.read_to_string(&mut response).await?;
+        let response = reqwest::get(format!("http://{addr}/health")).await?;
         let _send_result = shutdown_tx.send(());
         server.await??;
 
-        assert!(response.starts_with("HTTP/1.1 200 OK"));
-        assert!(response.ends_with("ok\n"));
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!("ok\n", response.text().await?);
         Ok(())
     }
+
+    fn test_state() -> AppState {
+        AppState::new(ShopsState::new(
+            Arc::new(RejectGetShopUseCase),
+            Arc::new(StaticAuthenticator),
+        ))
+    }
+
+    struct RejectGetShopUseCase;
+
+    #[async_trait::async_trait]
+    impl shop_service::use_cases::queries::get_shop::GetShopUseCase for RejectGetShopUseCase {
+        async fn execute(
+            &self,
+            _context: &common::operation_context::OperationContext,
+            _request: shop_service::use_cases::queries::get_shop::GetShopRequest,
+        ) -> Result<
+            shop_service::use_cases::queries::get_shop::ShopDetailsView,
+            shop_service::use_cases::queries::get_shop::GetShopError,
+        > {
+            Err(shop_service::use_cases::queries::get_shop::GetShopError::NotFound)
+        }
+    }
+
+    struct StaticAuthenticator;
+
+    #[async_trait::async_trait]
+    impl TokenAuthenticator for StaticAuthenticator {
+        async fn authenticate(
+            &self,
+            _bearer_token: &str,
+            _metadata: &RequestMetadata,
+        ) -> Result<TransportPrincipal, AuthError> {
+            Ok(TransportPrincipal::User {
+                user_id: UserId::new(),
+                auth_method: AuthMethod::AuraAccessToken,
+                capabilities: BTreeSet::from([CredentialCapability::ShopsRead]),
+            })
+        }
+    }
+
+    use tower::ServiceExt;
 }

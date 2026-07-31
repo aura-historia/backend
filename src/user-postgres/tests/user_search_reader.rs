@@ -31,7 +31,6 @@ use user_service::use_cases::queries::search_users::{SearchUsersRequest, UserSum
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_search_users_with_filters_and_sorting_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -84,7 +83,6 @@ async fn should_search_users_with_filters_and_sorting_in_postgres() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_search_users_by_remaining_filters_dates_sorts_and_cursor_size() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -199,7 +197,6 @@ async fn should_search_users_by_remaining_filters_dates_sorts_and_cursor_size() 
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_sort_users_by_each_user_sort_field() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

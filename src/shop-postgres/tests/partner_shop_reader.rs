@@ -19,7 +19,6 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 use url::Url;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_read_granted_partner_shop() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -60,7 +59,6 @@ async fn should_read_granted_partner_shop() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_return_false_when_partner_shop_row_is_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
