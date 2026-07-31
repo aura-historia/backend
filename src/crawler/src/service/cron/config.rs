@@ -1,6 +1,7 @@
 use crate::scraper::scraper_service::{
     DEFAULT_MAX_LLM_CALLS_PER_SHOP, DEFAULT_SCHEMA_SEED_PAGES, ScraperAutoThrottleConfig,
 };
+use crate::spider::discovery::website_spider::CrawlerConfig as SpiderCrawlerConfig;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
@@ -18,6 +19,8 @@ pub struct CrawlerCronConfig {
     /// Number of scraped products to accumulate before flush.
     pub push_batch_size: usize,
     pub spider_concurrency: usize,
+    /// Per-site in-flight crawl limit for spider::Website.
+    pub spider_site_concurrency_limit: usize,
     pub scraper_concurrency: usize,
     pub spider_classify_threshold: usize,
     /// Number of pages used to seed first-time schema generation per shop.
@@ -48,6 +51,7 @@ impl Default for CrawlerCronConfig {
             scraper_urls_per_domain: 100,
             push_batch_size: 25,
             spider_concurrency: 3,
+            spider_site_concurrency_limit: 8,
             scraper_concurrency: 10,
             spider_classify_threshold: 200,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
@@ -65,6 +69,13 @@ impl CrawlerCronConfig {
     pub fn effective_db_max_connections(&self) -> u32 {
         self.db_max_connections
             .unwrap_or_else(|| (self.spider_concurrency + self.scraper_concurrency + 10) as u32)
+    }
+
+    pub fn spider_website_config(&self) -> SpiderCrawlerConfig {
+        SpiderCrawlerConfig {
+            concurrency_limit: self.spider_site_concurrency_limit,
+            ..SpiderCrawlerConfig::default()
+        }
     }
 
     pub fn scraper_auto_throttle_config(&self) -> ScraperAutoThrottleConfig {

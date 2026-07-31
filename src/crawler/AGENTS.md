@@ -65,6 +65,7 @@
 - Schema repair should grow cache carefully. Bad generated schema should die fast, not poison shop cache.
 - State mapping should prefer exact or regex reuse before LLM fallback.
 - Price normalization de-dupes repeated visible/accessibility price text only when candidates agree or one clean decimal form beats malformed visual cents.
+- Keep spider per-site concurrency bounded. `spider::Website` default concurrency can explode HTTP/2 stream churn; crawler pins a conservative per-site limit and scraper-owned reqwest clients stay HTTP/1-only.
 - Filter non-actionable `html5ever::tree_builder` warnings at crawler entrypoints.
 - Avoid code duplication between `demo` and `server` when shared builder or service can hold it.
 - Testcontainers tests be preferred proof for DB behavior. Keep fixtures focused and stable.
