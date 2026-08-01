@@ -31,7 +31,7 @@ async fn should_read_granted_partner_shop() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     match partner_shops
@@ -39,7 +39,7 @@ async fn should_read_granted_partner_shop() {
         .grant(user_id, shop.id())
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to grant partner shop: {error:?}"),
     }
     let is_partner = match partner_reader

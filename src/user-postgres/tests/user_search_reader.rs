@@ -46,7 +46,7 @@ async fn should_search_users_with_filters_and_sorting_in_postgres() {
     let mut tx = begin(&unit_of_work).await;
     for user in [&matching, &other] {
         match users.in_transaction(&mut tx).insert(user).await {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to insert search user: {error:?}"),
         }
     }
@@ -115,7 +115,7 @@ async fn should_search_users_by_remaining_filters_dates_sorts_and_cursor_size() 
     let mut tx = begin(&unit_of_work).await;
     for user in [&admin, &ultimate, &free] {
         match users.in_transaction(&mut tx).insert(user).await {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to insert search user: {error:?}"),
         }
     }
@@ -227,7 +227,7 @@ async fn should_sort_users_by_each_user_sort_field() {
     let mut tx = begin(&unit_of_work).await;
     for user in [&b, &c, &a] {
         match users.in_transaction(&mut tx).insert(user).await {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to insert sort user: {error:?}"),
         }
     }

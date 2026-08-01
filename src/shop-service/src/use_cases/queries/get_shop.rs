@@ -1,4 +1,6 @@
-use crate::ports::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory};
+use crate::ports::{
+    PersistedShop, ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory,
+};
 use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::BoxError;
@@ -47,6 +49,35 @@ pub struct ShopDetailsView {
     pub affiliate_configuration: Option<AffiliateConfiguration>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+}
+
+impl From<PersistedShop> for ShopDetailsView {
+    fn from(persisted: PersistedShop) -> Self {
+        let shop = persisted.shop;
+        Self {
+            shop_id: shop.id(),
+            shop_slug_id: shop.slug_id().clone(),
+            name: shop.name().clone(),
+            shop_type: shop.shop_type(),
+            domains: shop.domains().clone(),
+            shopify_domain: shop.shopify().map(|value| value.domain.clone()),
+            shopify_currency: shop.shopify().and_then(|value| value.currency),
+            shopify_language: shop.shopify().and_then(|value| value.language),
+            woocommerce_currency: shop.woocommerce().and_then(|value| value.currency),
+            woocommerce_language: shop.woocommerce().and_then(|value| value.language),
+            url: shop.presentation().url.clone(),
+            view_url: shop.view_url(),
+            image: shop.presentation().image.clone(),
+            structured_address: shop.address().map(|value| value.structured.clone()),
+            geo_address: shop.address().and_then(|value| value.geo),
+            phone: shop.contact().phone.clone(),
+            email: shop.contact().email.clone(),
+            partner_status: shop.partner_status(),
+            affiliate_configuration: shop.affiliate_configuration().cloned(),
+            created: persisted.created,
+            updated: persisted.updated,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

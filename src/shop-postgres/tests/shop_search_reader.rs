@@ -37,7 +37,7 @@ async fn should_search_shops_in_postgres() {
     let mut tx = begin(&unit_of_work).await;
     for shop in [&matching, &other] {
         match shops.in_transaction(&mut tx).insert(shop).await {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to insert shop: {error:?}"),
         }
     }
@@ -77,7 +77,7 @@ async fn should_page_shop_search_with_shop_id_cursor() {
     let mut tx = begin(&unit_of_work).await;
     for shop in [&first, &second] {
         match shops.in_transaction(&mut tx).insert(shop).await {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to insert shop: {error:?}"),
         }
     }
@@ -193,7 +193,7 @@ async fn should_filter_search_by_type_partner_country_continent_and_dates() {
     let mut tx = begin(&unit_of_work).await;
     for shop in [&matching, &wrong_type, &wrong_status, &wrong_country] {
         match shops.in_transaction(&mut tx).insert(shop).await {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to insert search filter shop: {error:?}"),
         }
     }
@@ -258,7 +258,7 @@ async fn should_sort_search_by_created_desc() {
     let mut tx = begin(&unit_of_work).await;
     for shop in [&older, &newer] {
         match shops.in_transaction(&mut tx).insert(shop).await {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to insert created sort shop: {error:?}"),
         }
     }

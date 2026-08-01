@@ -47,11 +47,11 @@ async fn should_insert_append_find_update_and_find_product_by_key_in_postgres() 
         .insert(&product, created_event.event_id)
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert product: {error:?}"),
     }
     match events.in_transaction(&mut tx).append(&created_event).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to append product event: {error:?}"),
     }
     commit(tx).await;
@@ -107,11 +107,11 @@ async fn should_insert_append_find_update_and_find_product_by_key_in_postgres() 
         .update(&updated, version, update_event.event_id)
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to update product: {error:?}"),
     }
     match events.in_transaction(&mut tx).append(&update_event).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to append update event: {error:?}"),
     }
     commit(tx).await;
@@ -341,11 +341,11 @@ async fn should_roll_back_product_and_event_when_transaction_is_not_committed() 
             .insert(&product, event.event_id)
             .await
         {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to insert product before rollback: {error:?}"),
         }
         match events.in_transaction(&mut tx).append(&event).await {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to append event before rollback: {error:?}"),
         }
     }
@@ -396,11 +396,11 @@ async fn insert_product_with_event(
         .insert(product, event.event_id)
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert product: {error:?}"),
     }
     match events.in_transaction(&mut tx).append(&event).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to append product event: {error:?}"),
     }
     commit(tx).await;

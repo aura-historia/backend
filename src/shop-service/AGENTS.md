@@ -11,7 +11,8 @@
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
 - Ports are public because adapter/runtime crates implement them.
-- Shop write use cases own authorization policy through `ShopWritePolicy`; controllers must not enforce admin/partner rules.
+- Shop write use cases own admin/partner authorization checks inline; controllers must not enforce those rules.
+- Repository writes return persisted storage-neutral state; write use cases must not read after write to build responses.
 - Query use cases return read-optimized payloads for their API use case and avoid controller-side N+1 hydration.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
 - No SQLx, DynamoDB, OpenSearch, transport, or legacy `shop` dependency.

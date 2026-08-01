@@ -182,7 +182,8 @@ where
             .await
             .map_err(|_| CreateProductError::BeginTransactionFailed)?;
 
-        self.products
+        let persisted_product = self
+            .products
             .in_transaction(&mut tx)
             .insert(&product, event_id)
             .await?;
@@ -203,7 +204,7 @@ where
             outcome = "success",
         );
 
-        CreateProductResult::try_from(&product)
+        CreateProductResult::try_from(&persisted_product.value)
     }
 }
 
@@ -345,7 +346,8 @@ mod tests {
         commit_error: bool,
         begin_count: usize,
         commit_count: usize,
-        insert_result: Option<Result<(), ProductRepositoryError>>,
+        insert_result:
+            Option<Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>>,
         append_result: Option<Result<(), ProductEventStoreError>>,
         insert_count: usize,
         append_count: usize,
@@ -467,24 +469,32 @@ mod tests {
 
         async fn insert(
             &mut self,
-            _product: &Product,
-            _current_event_id: EventId,
-        ) -> Result<(), ProductRepositoryError> {
+            product: &Product,
+            current_event_id: EventId,
+        ) -> Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>
+        {
             let mut state = lock_state(&self.state);
             state.insert_count += 1;
             match state.insert_result.take() {
                 Some(result) => result,
-                None => Ok(()),
+                None => Ok(common::versioned::Versioned::new(
+                    product.clone(),
+                    current_event_id,
+                )),
             }
         }
 
         async fn update(
             &mut self,
-            _product: &Product,
+            product: &Product,
             _expected_event_id: EventId,
-            _new_event_id: EventId,
-        ) -> Result<(), ProductRepositoryError> {
-            Ok(())
+            new_event_id: EventId,
+        ) -> Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>
+        {
+            Ok(common::versioned::Versioned::new(
+                product.clone(),
+                new_event_id,
+            ))
         }
     }
 

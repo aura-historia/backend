@@ -112,8 +112,8 @@ pub fn aura_integration_test(attr: TokenStream, item: TokenStream) -> TokenStrea
     let fn_block = &input_fn.block;
 
     let expanded = quote! {
-        #[test_api::serial]
         #[tokio::test]
+        #[test_api::serial]
         async fn #fn_name() {
             use std::collections::HashSet;
 

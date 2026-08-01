@@ -1,6 +1,5 @@
 pub mod auth;
 pub mod error;
-pub mod shop_write_policy;
 pub mod shops;
 pub mod state;
 
@@ -8,7 +7,6 @@ use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
 };
-use crate::shop_write_policy::ShopWritePolicyAdapter;
 use crate::state::{AppState, ShopsState};
 use axum::Router;
 use axum::routing::get;
@@ -120,20 +118,18 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
     let check_user_partner_shop =
         CheckUserPartnerShopHandler::new(unit_of_work.clone(), SqlxPartnerShopReaderFactory::new());
-    let write_policy = ShopWritePolicyAdapter::new(check_user_admin, check_user_partner_shop);
     let create_shop = CreateShopHandler::new(
         unit_of_work.clone(),
         SqlxShopRepositoryFactory::new(),
-        SqlxShopDetailsReaderFactory::new(),
         UnavailableShopGeocoder,
-        write_policy.clone(),
+        check_user_admin,
     );
     let update_shop = UpdateShopHandler::new(
         unit_of_work.clone(),
         SqlxShopRepositoryFactory::new(),
-        SqlxShopDetailsReaderFactory::new(),
         UnavailableShopGeocoder,
-        write_policy,
+        CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
+        check_user_partner_shop,
     );
     let list_user_partner_shops =
         ListUserPartnerShopsHandler::new(unit_of_work, SqlxPartnerShopReaderFactory::new());

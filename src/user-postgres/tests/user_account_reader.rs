@@ -31,7 +31,7 @@ async fn should_read_user_account_from_postgres() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
 

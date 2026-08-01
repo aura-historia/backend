@@ -121,12 +121,16 @@ impl<'a> NotificationDynamoDbRepository<'a> {
 
 #[async_trait::async_trait]
 impl NotificationRepository for NotificationDynamoDbRepository<'_> {
-    async fn insert(&self, notification: &Notification) -> Result<(), NotificationRepositoryError> {
+    async fn insert(
+        &self,
+        notification: &Notification,
+    ) -> Result<Notification, NotificationRepositoryError> {
         self.insert_record(NotificationRecord::from_notification(notification))
             .await
             .map_err(|source| NotificationRepositoryError::OperationFailed {
                 source: box_error(source),
-            })
+            })?;
+        Ok(notification.clone())
     }
 
     async fn find_by_origin_event_id(

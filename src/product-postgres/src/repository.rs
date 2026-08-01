@@ -167,7 +167,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
         &mut self,
         product: &Product,
         current_event_id: EventId,
-    ) -> Result<(), ProductRepositoryError> {
+    ) -> Result<Versioned<Product, EventId>, ProductRepositoryError> {
         let address = product.address();
         let pricing = product.pricing();
         let auction = product.auction();
@@ -226,7 +226,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
         .await
         .map_err(ProductInsertSqlxError)?;
 
-        Ok(())
+        Ok(Versioned::new(product.clone(), current_event_id))
     }
 
     async fn update(
@@ -234,7 +234,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
         product: &Product,
         expected_event_id: EventId,
         new_event_id: EventId,
-    ) -> Result<(), ProductRepositoryError> {
+    ) -> Result<Versioned<Product, EventId>, ProductRepositoryError> {
         let address = product.address();
         let pricing = product.pricing();
         let auction = product.auction();
@@ -372,7 +372,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
             return Err(ProductRepositoryError::ProductCurrentEventIdConflict);
         }
 
-        Ok(())
+        Ok(Versioned::new(product.clone(), new_event_id))
     }
 }
 

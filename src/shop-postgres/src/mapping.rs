@@ -17,7 +17,7 @@ use shop_core::shop::{
 };
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
-use shop_service::ports::{ShopStorageVersion, VersionedShop};
+use shop_service::ports::{PersistedShop, ShopStorageVersion, VersionedShop};
 use shop_service::use_cases::queries::get_shop::ShopDetailsView;
 use shop_service::use_cases::queries::search_shops::ShopSummary;
 use std::collections::HashSet;
@@ -137,11 +137,23 @@ impl TryFrom<ShopRow> for VersionedShop {
     type Error = ShopRowMappingError;
 
     fn try_from(row: ShopRow) -> Result<Self, Self::Error> {
-        let shop = row.to_shop()?;
+        let persisted = PersistedShop::try_from(row)?;
+        Ok(Versioned::new(persisted.shop, persisted.version))
+    }
+}
+
+impl TryFrom<ShopRow> for PersistedShop {
+    type Error = ShopRowMappingError;
+
+    fn try_from(row: ShopRow) -> Result<Self, Self::Error> {
         let version = ShopStorageVersion::try_from(row.version)
             .map_err(|_| ShopRowMappingError::InvalidVersion)?;
-
-        Ok(Versioned::new(shop, version))
+        Ok(Self {
+            shop: row.to_shop()?,
+            version,
+            created: row.created,
+            updated: row.updated,
+        })
     }
 }
 

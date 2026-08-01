@@ -793,17 +793,19 @@ pub trait RecordRepository: Send {
     async fn insert(
         &mut self,
         record: &Record,
-    ) -> Result<(), RecordRepositoryError>;
+    ) -> Result<VersionedRecord, RecordRepositoryError>;
 
     async fn update(
         &mut self,
         record: &Record,
         expected_version: RecordStorageVersion,
-    ) -> Result<(), RecordRepositoryError>;
+    ) -> Result<VersionedRecord, RecordRepositoryError>;
 }
 ```
 
 The repository port is public because a separate adapter crate implements it.
+
+Repository `insert` and `update` methods MUST return the persisted aggregate state, not `()`. When storage-generated metadata such as `created`, `updated`, or version is needed by the use case result, return a storage-neutral persisted model that contains the aggregate plus that metadata. SQL/Dynamo row types MUST still stay private to the adapter.
 
 A repository MAY contain additional aggregate-relevant lookup methods when they are needed to reconstruct or enforce the aggregate boundary.
 
@@ -864,9 +866,9 @@ async fn get_by_id(
 ) -> Result<Record, GetRecordError>;
 ```
 
-`insert` means the aggregate MUST be new.
+`insert` means the aggregate MUST be new and MUST return the inserted aggregate state.
 
-`update` means the aggregate MUST exist and MUST enforce optimistic concurrency through an internal loaded storage version.
+`update` means the aggregate MUST exist, MUST enforce optimistic concurrency through an internal loaded storage version, and MUST return the updated aggregate state.
 
 A generic `save` SHOULD NOT be used unless new/existing semantics and storage-version handling are explicit.
 
@@ -1551,21 +1553,23 @@ where
 
         let outcome = record.rename(new_title)?;
 
-        if outcome.changed() {
+        let persisted = if outcome.changed() {
             self.records
                 .in_transaction(&mut tx)
                 .update(
                     &record,
                     loaded_version,
                 )
-                .await?;
-        }
+                .await?
+        } else {
+            Versioned::new(record, loaded_version)
+        };
 
         tx.commit().await?;
 
         Ok(RenameRecordResult {
-            record_id: record.id(),
-            title: record.title().to_string(),
+            record_id: persisted.value.id(),
+            title: persisted.value.title().to_string(),
         })
     }
 }
@@ -1574,6 +1578,8 @@ where
 The handler is datastore-independent and lives in `record-service`.
 
 A successful transaction MUST end in explicit `commit().await`.
+
+A write use case MUST NOT read after write just to build its response. The repository write result is the source for the returned command view/result. If the API needs a richer write response, make the repository return a storage-neutral persisted model with the needed metadata, or make the use-case result less rich.
 
 An uncommitted concrete transaction that leaves scope is expected to roll back. Dropping or “closing” a transaction MUST NOT be treated as commit.
 
@@ -2453,6 +2459,8 @@ HTTP request
 For read endpoints with cache behavior, cache headers are REST contract and belong in the controller. If the cache policy depends on anonymous vs authenticated access, derive it from `OperationContext.principal`, not from raw headers.
 
 Query use cases SHOULD be read-optimized for their public result shape. If an API needs a summary list, the query use case should return summary read models directly instead of returning IDs for controller-side hydration. Controllers MUST NOT introduce N+1 reads to assemble response payloads.
+
+Command use cases SHOULD return the public command result/view directly from their write model. Controllers MUST NOT perform a follow-up read after `create`, `update`, or similar writes to assemble the response.
 
 ---
 

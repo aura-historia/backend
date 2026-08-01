@@ -169,9 +169,9 @@ mod tests {
     impl NotificationRepository for FakeGateway {
         async fn insert(
             &self,
-            _notification: &Notification,
-        ) -> Result<(), NotificationRepositoryError> {
-            Ok(())
+            notification: &Notification,
+        ) -> Result<Notification, NotificationRepositoryError> {
+            Ok(notification.clone())
         }
 
         async fn find_by_origin_event_id(
@@ -287,7 +287,7 @@ mod tests {
         async fn insert(
             &self,
             notification: &Notification,
-        ) -> Result<(), NotificationRepositoryError> {
+        ) -> Result<Notification, NotificationRepositoryError> {
             self.0.insert(notification).await
         }
         async fn find_by_origin_event_id(

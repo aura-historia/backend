@@ -10,6 +10,7 @@
 - Depends on `watchlist-core` and common ports only.
 - Write use cases own transactions.
 - Persistence hidden behind repository factory.
+- Repository writes return persisted watchlist state.
 - User/product list reads live in dedicated transaction-scoped reader port/factory, not repository.
 - Watchlist writes require `watchlist:write`.
 

@@ -26,7 +26,7 @@ async fn should_read_shop_details_by_slug_and_shopify_domain() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     let by_slug = match details

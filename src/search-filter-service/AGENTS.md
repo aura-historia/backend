@@ -10,6 +10,7 @@
 - Depends on `search-filter-core` and common ports only.
 - Write use cases own transactions.
 - Postgres and OpenSearch hidden behind ports.
+- Repository writes return persisted search-filter state.
 - User list reads live in dedicated reader port, not repository.
 - Search filter timestamps live on reader/index views, not aggregates.
 

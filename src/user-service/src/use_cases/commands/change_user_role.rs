@@ -129,7 +129,7 @@ where
 
         let outcome = user.change_role(command.role);
         if outcome.changed() {
-            users.update(&user, version).await?;
+            user = users.update(&user, version).await?.value;
         }
         drop(users);
 
@@ -410,14 +410,15 @@ mod tests {
             Ok(None)
         }
 
-        async fn insert(&mut self, user: &User) -> Result<(), UserRepositoryError> {
+        async fn insert(&mut self, user: &User) -> Result<VersionedUser, UserRepositoryError> {
             let mut state = lock(&self.state);
             state.insert_calls += 1;
             if let Some(kind) = state.insert_error {
                 Err(repo_error(kind))
             } else {
-                state.user = Some(versioned(user.clone()));
-                Ok(())
+                let user = versioned(user.clone());
+                state.user = Some(user.clone());
+                Ok(user)
             }
         }
 
@@ -425,14 +426,15 @@ mod tests {
             &mut self,
             user: &User,
             _expected_version: UserStorageVersion,
-        ) -> Result<(), UserRepositoryError> {
+        ) -> Result<VersionedUser, UserRepositoryError> {
             let mut state = lock(&self.state);
             state.update_calls += 1;
             if let Some(kind) = state.update_error {
                 Err(repo_error(kind))
             } else {
-                state.user = Some(versioned(user.clone()));
-                Ok(())
+                let user = versioned(user.clone());
+                state.user = Some(user.clone());
+                Ok(user)
             }
         }
     }

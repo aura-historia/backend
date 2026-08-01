@@ -203,7 +203,7 @@ impl From<PartnerShopRepositoryError> for GrantPartnerShopError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::{ShopStorageVersion, VersionedShop};
+    use crate::ports::{PersistedShop, ShopStorageVersion, VersionedShop};
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::shop_name::ShopName;
@@ -329,16 +329,16 @@ mod tests {
             Ok(None)
         }
 
-        async fn insert(&mut self, _shop: &Shop) -> Result<(), ShopRepositoryError> {
-            Ok(())
+        async fn insert(&mut self, shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
+            Ok(persisted_shop(shop.clone()))
         }
 
         async fn update(
             &mut self,
-            _shop: &Shop,
+            shop: &Shop,
             _expected_version: ShopStorageVersion,
-        ) -> Result<(), ShopRepositoryError> {
-            Ok(())
+        ) -> Result<PersistedShop, ShopRepositoryError> {
+            Ok(persisted_shop(shop.clone()))
         }
     }
 
@@ -593,6 +593,16 @@ mod tests {
 
     fn versioned_shop(shop: Shop) -> VersionedShop {
         Versioned::new(shop, ShopStorageVersion::INITIAL)
+    }
+
+    fn persisted_shop(shop: Shop) -> PersistedShop {
+        let now = time::OffsetDateTime::now_utc();
+        PersistedShop {
+            shop,
+            version: ShopStorageVersion::INITIAL,
+            created: now,
+            updated: now,
+        }
     }
 
     fn system_context() -> OperationContext {

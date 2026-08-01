@@ -34,7 +34,7 @@ async fn should_list_partner_shops_for_user_in_name_order() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
     commit(tx).await;

@@ -94,7 +94,7 @@ where
             search: command.search,
             embedding: command.embedding,
         });
-        self.filters.in_transaction(&mut tx).insert(&filter).await?;
+        let filter = self.filters.in_transaction(&mut tx).insert(&filter).await?;
         tx.commit()
             .await
             .map_err(|_| CreateSearchFilterError::CommitTransactionFailed)?;

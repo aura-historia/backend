@@ -40,7 +40,10 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
         row.map(FilterRow::into_domain).transpose()
     }
 
-    async fn insert(&mut self, filter: &SearchFilter) -> Result<(), SearchFilterRepositoryError> {
+    async fn insert(
+        &mut self,
+        filter: &SearchFilter,
+    ) -> Result<SearchFilter, SearchFilterRepositoryError> {
         let now = OffsetDateTime::now_utc();
         sqlx::query(
             "INSERT INTO search_filters \
@@ -62,10 +65,13 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
         .execute(self.tx.connection())
         .await
         .map_err(map_filter_insert_error)?;
-        Ok(())
+        Ok(filter.clone())
     }
 
-    async fn update(&mut self, filter: &SearchFilter) -> Result<(), SearchFilterRepositoryError> {
+    async fn update(
+        &mut self,
+        filter: &SearchFilter,
+    ) -> Result<SearchFilter, SearchFilterRepositoryError> {
         sqlx::query(
             "UPDATE search_filters SET name=$2, notifications=$3, state=$4, search=$5, enhanced_search_description=$6, embedding=$7, language=$8, currency=$9, updated=$10 \
              WHERE user_search_filter_id=$1",
@@ -83,7 +89,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
         .execute(self.tx.connection())
         .await
         .map_err(|_| SearchFilterRepositoryError::UpdateFailed)?;
-        Ok(())
+        Ok(filter.clone())
     }
 
     async fn delete(&mut self, id: UserSearchFilterId) -> Result<(), SearchFilterRepositoryError> {

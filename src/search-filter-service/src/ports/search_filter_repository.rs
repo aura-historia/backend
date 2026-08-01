@@ -24,8 +24,14 @@ pub trait SearchFilterRepository: Send {
         &mut self,
         id: UserSearchFilterId,
     ) -> Result<Option<SearchFilter>, SearchFilterRepositoryError>;
-    async fn insert(&mut self, filter: &SearchFilter) -> Result<(), SearchFilterRepositoryError>;
-    async fn update(&mut self, filter: &SearchFilter) -> Result<(), SearchFilterRepositoryError>;
+    async fn insert(
+        &mut self,
+        filter: &SearchFilter,
+    ) -> Result<SearchFilter, SearchFilterRepositoryError>;
+    async fn update(
+        &mut self,
+        filter: &SearchFilter,
+    ) -> Result<SearchFilter, SearchFilterRepositoryError>;
     async fn delete(&mut self, id: UserSearchFilterId) -> Result<(), SearchFilterRepositoryError>;
 }
 
@@ -55,11 +61,11 @@ pub trait SearchFilterMatchRepository: Send {
     async fn insert(
         &mut self,
         product_match: &SearchFilterProductMatch,
-    ) -> Result<(), SearchFilterMatchRepositoryError>;
+    ) -> Result<SearchFilterProductMatch, SearchFilterMatchRepositoryError>;
     async fn update(
         &mut self,
         product_match: &SearchFilterProductMatch,
-    ) -> Result<(), SearchFilterMatchRepositoryError>;
+    ) -> Result<SearchFilterProductMatch, SearchFilterMatchRepositoryError>;
 }
 
 pub trait SearchFilterMatchRepositoryFactory<Tx>: Send + Sync {

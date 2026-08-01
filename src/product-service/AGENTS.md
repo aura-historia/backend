@@ -10,6 +10,7 @@
 - Depends on `product-core` and shared `common` app contracts.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - Write handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/event-store factories.
+- Repository writes return persisted product state; handlers must not read after write for responses.
 - OpenSearch-backed search is an ordinary reader. Do not model it as transactional.
 - Ports are public because adapter crates implement them.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.

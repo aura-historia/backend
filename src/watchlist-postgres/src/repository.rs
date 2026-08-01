@@ -44,7 +44,10 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         row.map(WatchlistRow::into_domain).transpose()
     }
 
-    async fn insert(&mut self, entry: &WatchlistProduct) -> Result<(), WatchlistRepositoryError> {
+    async fn insert(
+        &mut self,
+        entry: &WatchlistProduct,
+    ) -> Result<WatchlistProduct, WatchlistRepositoryError> {
         let now = OffsetDateTime::now_utc();
         sqlx::query(
             "INSERT INTO product_watchlist \
@@ -59,10 +62,13 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         .execute(self.tx.connection())
         .await
         .map_err(map_insert_error)?;
-        Ok(())
+        Ok(entry.clone())
     }
 
-    async fn update(&mut self, entry: &WatchlistProduct) -> Result<(), WatchlistRepositoryError> {
+    async fn update(
+        &mut self,
+        entry: &WatchlistProduct,
+    ) -> Result<WatchlistProduct, WatchlistRepositoryError> {
         sqlx::query(
             "UPDATE product_watchlist SET notifications = $3, state = $4, updated = $5 \
              WHERE user_id = $1 AND product_id = $2",
@@ -75,7 +81,7 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         .execute(self.tx.connection())
         .await
         .map_err(|_| WatchlistRepositoryError::UpdateFailed)?;
-        Ok(())
+        Ok(entry.clone())
     }
 
     async fn delete(

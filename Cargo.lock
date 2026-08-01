@@ -7768,6 +7768,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "user-service",
 ]
 
 [[package]]

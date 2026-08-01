@@ -28,7 +28,7 @@ async fn should_report_missing_user_when_granting_partner_shop() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     let result = partner_shops
@@ -75,7 +75,7 @@ async fn should_grant_partner_shop_idempotently() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     for _ in 0..2 {
@@ -84,7 +84,7 @@ async fn should_grant_partner_shop_idempotently() {
             .grant(user_id, shop.id())
             .await
         {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to grant partner shop idempotently: {error:?}"),
         }
     }

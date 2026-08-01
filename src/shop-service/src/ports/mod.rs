@@ -4,7 +4,6 @@ pub mod shop_details_reader;
 pub mod shop_geocoder;
 pub mod shop_repository;
 pub mod shop_search_reader;
-pub mod shop_write_policy;
 
 pub use partner_shop_reader::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
 pub use partner_shop_repository::{
@@ -13,7 +12,7 @@ pub use partner_shop_repository::{
 pub use shop_details_reader::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory};
 pub use shop_geocoder::{ShopGeocoder, ShopGeocoderError};
 pub use shop_repository::{
-    ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, VersionedShop,
+    PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion,
+    VersionedShop,
 };
 pub use shop_search_reader::{ShopSearchReadError, ShopSearchReader, ShopSearchReaderFactory};
-pub use shop_write_policy::{ShopWritePolicy, ShopWritePolicyError};

@@ -2,7 +2,6 @@ use aura_historia_api::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
 };
-use aura_historia_api::shop_write_policy::ShopWritePolicyAdapter;
 use aura_historia_api::state::ShopsState;
 use aura_historia_api::{app, state::AppState};
 use common::domain::Domain;
@@ -242,6 +241,332 @@ async fn should_get_partner_shops_with_aura_access_token() {
     assert_eq!(serde_json::json!(shop.id().to_string()), body[0]["shopId"]);
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_invalid_and_missing_shop_reads() {
+    let client = reqwest::Client::new();
+
+    let bad_uuid = client
+        .get(format!("{}/api/v1/shops/not-a-uuid", AURA_API.base_url()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body) = json_response(bad_uuid).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "INVALID_UUID",
+    );
+
+    let missing = client
+        .get(format!(
+            "{}/api/v1/shops/{}",
+            AURA_API.base_url(),
+            ShopId::new()
+        ))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body) = json_response(missing).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "SHOP_NOT_FOUND",
+    );
+
+    let invalid_token = client
+        .get(format!(
+            "{}/api/v1/shops/{}",
+            AURA_API.base_url(),
+            ShopId::new()
+        ))
+        .bearer_auth("invalid-token")
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body) = json_response(invalid_token).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_validate_shop_search_query() {
+    let client = reqwest::Client::new();
+
+    for (query, expected) in [
+        ("searchAfter=bad", "INVALID_UUID"),
+        ("sort=bad&order=asc", "BAD_SORT_VALUE"),
+        ("sort=name&order=sideways", "BAD_ORDER_VALUE"),
+    ] {
+        let response = client
+            .get(format!("{}/api/v1/shops?{query}", AURA_API.base_url()))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+        let (status, body) = json_response(response).await;
+        assert_problem(status, &body, reqwest::StatusCode::BAD_REQUEST, expected);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_create_shop_when_auth_body_or_policy_invalid() {
+    let client = reqwest::Client::new();
+    let body = create_shop_body("Rejected API Shop", "rejected-api-shop.example");
+
+    let missing_token = client
+        .post(format!("{}/api/v1/shops", AURA_API.base_url()))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(missing_token).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+
+    let user_id = seed_user("USER").await;
+    let user_token = seed_access_token_for(user_id, HashSet::from([Scope::ShopsWrite])).await;
+    let forbidden = client
+        .post(format!("{}/api/v1/shops", AURA_API.base_url()))
+        .bearer_auth(String::from(user_token))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(forbidden).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::FORBIDDEN,
+        "FORBIDDEN",
+    );
+
+    let admin_id = seed_user("ADMIN").await;
+    let admin_token = seed_access_token_for(admin_id, HashSet::from([Scope::ShopsWrite])).await;
+    let empty_body = client
+        .post(format!("{}/api/v1/shops", AURA_API.base_url()))
+        .bearer_auth(String::from(admin_token))
+        .body("")
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(empty_body).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_duplicate_shop_create() {
+    let client = reqwest::Client::new();
+    let user_id = seed_user("ADMIN").await;
+    let token = seed_access_token_for(user_id, HashSet::from([Scope::ShopsWrite])).await;
+    let name = format!("Duplicate API Shop {}", UserId::new());
+    let domain = format!("{}.example", UserId::new());
+    let body = create_shop_body(&name, &domain);
+
+    let created = client
+        .post(format!("{}/api/v1/shops", AURA_API.base_url()))
+        .bearer_auth(String::from(token.clone()))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    assert_eq!(reqwest::StatusCode::CREATED, created.status());
+
+    let duplicate = client
+        .post(format!("{}/api/v1/shops", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(duplicate).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::CONFLICT,
+        "SHOP_EXISTS_ALREADY",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_invalid_update_shop_requests() {
+    let client = reqwest::Client::new();
+    let shop = seed_shop().await;
+    let body = serde_json::json!({"url": "https://forbidden-update.example/"});
+
+    let missing_token = client
+        .patch(format!(
+            "{}/api/v1/shops/{}",
+            AURA_API.base_url(),
+            shop.id()
+        ))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(missing_token).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+
+    let bad_uuid = client
+        .patch(format!("{}/api/v1/shops/bad", AURA_API.base_url()))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(bad_uuid).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::BAD_REQUEST,
+        "INVALID_UUID",
+    );
+
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        HashSet::from([Scope::ShopsWrite, Scope::PartnerShopsRead]),
+    )
+    .await;
+    let forbidden = client
+        .patch(format!(
+            "{}/api/v1/shops/{}",
+            AURA_API.base_url(),
+            shop.id()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(forbidden).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::FORBIDDEN,
+        "FORBIDDEN",
+    );
+
+    let admin_id = seed_user("ADMIN").await;
+    let admin_token = seed_access_token_for(admin_id, HashSet::from([Scope::ShopsWrite])).await;
+    let missing_shop = client
+        .patch(format!(
+            "{}/api/v1/shops/{}",
+            AURA_API.base_url(),
+            ShopId::new()
+        ))
+        .bearer_auth(String::from(admin_token.clone()))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(missing_shop).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::NOT_FOUND,
+        "SHOP_NOT_FOUND",
+    );
+
+    let empty_body = client
+        .patch(format!(
+            "{}/api/v1/shops/{}",
+            AURA_API.base_url(),
+            shop.id()
+        ))
+        .bearer_auth(String::from(admin_token))
+        .body("")
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(empty_body).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_require_auth_and_return_empty_partner_shops() {
+    let client = reqwest::Client::new();
+
+    let missing_token = client
+        .get(format!("{}/api/v1/me/partner-shops", AURA_API.base_url()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body_json) = json_response(missing_token).await;
+    assert_problem(
+        status,
+        &body_json,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(user_id, HashSet::from([Scope::PartnerShopsRead])).await;
+    let empty = client
+        .get(format!("{}/api/v1/me/partner-shops", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to call shop API: {error}"));
+    let (status, body) = json_response(empty).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(serde_json::json!([]), body);
+}
+
+async fn json_response(response: reqwest::Response) -> (reqwest::StatusCode, serde_json::Value) {
+    let status = response.status();
+    let body = response
+        .json::<serde_json::Value>()
+        .await
+        .unwrap_or_else(|error| panic!("failed to decode shop API response: {error}"));
+    (status, body)
+}
+
+fn assert_problem(
+    status: reqwest::StatusCode,
+    body: &serde_json::Value,
+    expected_status: reqwest::StatusCode,
+    expected_error: &str,
+) {
+    assert_eq!(expected_status, status);
+    assert_eq!(
+        serde_json::json!(u16::from(expected_status)),
+        body["status"]
+    );
+    assert_eq!(serde_json::json!(expected_error), body["error"]);
+}
+
+fn create_shop_body(name: &str, domain: &str) -> serde_json::Value {
+    serde_json::json!({
+        "name": name,
+        "shopType": "COMMERCIAL_DEALER",
+        "domains": [domain],
+        "url": format!("https://{domain}/")
+    })
+}
+
 async fn seed_shop() -> Shop {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -378,20 +703,21 @@ async fn test_state() -> AppState {
         unit_of_work.clone(),
         shop_postgres::SqlxPartnerShopReaderFactory::new(),
     );
-    let write_policy = ShopWritePolicyAdapter::new(check_user_admin, check_user_partner_shop);
     let create_shop = CreateShopHandler::new(
         unit_of_work.clone(),
         SqlxShopRepositoryFactory::new(),
-        shop_postgres::SqlxShopDetailsReaderFactory::new(),
         RejectGeocoder,
-        write_policy.clone(),
+        check_user_admin,
     );
     let update_shop = UpdateShopHandler::new(
         unit_of_work.clone(),
         SqlxShopRepositoryFactory::new(),
-        shop_postgres::SqlxShopDetailsReaderFactory::new(),
         RejectGeocoder,
-        write_policy,
+        CheckUserAdminHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        ),
+        check_user_partner_shop,
     );
     let list_user_partner_shops = ListUserPartnerShopsHandler::new(
         unit_of_work,

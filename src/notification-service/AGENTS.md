@@ -14,6 +14,7 @@
   - `ports` — one file per outbound port; port-local errors/read models live in that port file.
 - No compatibility re-export modules.
 - No noop adapter in this crate.
+- Repository writes return persisted notification state; handlers must not read after write for responses.
 - Keep runtime and HTTP glue outside.
 
 ## Ownership

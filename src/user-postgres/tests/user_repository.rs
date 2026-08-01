@@ -28,7 +28,7 @@ async fn should_insert_find_update_user_in_postgres() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
     let loaded_by_id = match users.in_transaction(&mut tx).find_by_id(user.id()).await {
@@ -68,7 +68,7 @@ async fn should_insert_find_update_user_in_postgres() {
         .update(&user, loaded_by_id.version)
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to update user: {error:?}"),
     }
     commit(tx).await;
@@ -107,7 +107,7 @@ async fn should_report_user_repository_conflicts_and_missing_rows() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
     let missing = match users
@@ -148,7 +148,7 @@ async fn should_report_user_update_concurrency_conflict() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
     let loaded = match users.in_transaction(&mut tx).find_by_id(user.id()).await {
@@ -162,7 +162,7 @@ async fn should_report_user_update_concurrency_conflict() {
         .update(&user, loaded.version)
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed first update: {error:?}"),
     }
     let stale = users
@@ -185,7 +185,7 @@ async fn should_rollback_insert_when_transaction_drops() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert rollback user: {error:?}"),
     }
     drop(tx);

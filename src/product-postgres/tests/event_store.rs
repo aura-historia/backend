@@ -41,11 +41,11 @@ async fn should_report_duplicate_event_and_missing_current_event_in_product_post
         .insert(&product, event.event_id)
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert product: {error:?}"),
     }
     match events.in_transaction(&mut tx).append(&event).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to append first event: {error:?}"),
     }
     commit(tx).await;

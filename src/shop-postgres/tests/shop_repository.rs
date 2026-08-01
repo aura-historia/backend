@@ -27,7 +27,7 @@ async fn should_persist_shop_without_persisting_view_url_and_derive_details_view
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     commit(tx).await;
@@ -74,7 +74,7 @@ async fn should_find_shop_by_slug() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     let loaded = match shops
@@ -100,7 +100,7 @@ async fn should_update_shop_with_optimistic_concurrency() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     commit(tx).await;
@@ -116,7 +116,7 @@ async fn should_update_shop_with_optimistic_concurrency() {
     };
     loaded.change_partner_status(ShopPartnerStatus::Partnered);
     match shops.in_transaction(&mut tx).update(&loaded, version).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to update shop: {error:?}"),
     }
     commit(tx).await;
@@ -160,7 +160,7 @@ async fn should_report_slug_conflict_when_inserting_duplicate_slug() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&first).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert first shop: {error:?}"),
     }
     let result = shops.in_transaction(&mut tx).insert(&second).await;
@@ -180,7 +180,7 @@ async fn should_roll_back_shop_when_transaction_is_not_committed() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert rollback shop: {error:?}"),
     }
     drop(tx);

@@ -98,7 +98,7 @@ mod tests {
         async fn insert(
             &self,
             notification: &Notification,
-        ) -> Result<(), NotificationRepositoryError> {
+        ) -> Result<Notification, NotificationRepositoryError> {
             if self.fail {
                 return Err(NotificationRepositoryError::OperationFailed { source: boxed() });
             }
@@ -106,7 +106,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(notification.clone());
-            Ok(())
+            Ok(notification.clone())
         }
 
         async fn find_by_origin_event_id(

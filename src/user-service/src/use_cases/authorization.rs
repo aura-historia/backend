@@ -57,6 +57,8 @@ impl From<OperationAuthorizationError> for RequireAdminActorError {
 
 #[cfg(test)]
 mod tests {
+    use crate::ports::{UserStorageVersion, VersionedUser};
+
     use super::*;
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, RequestId};
@@ -141,16 +143,16 @@ mod tests {
             Ok(None)
         }
 
-        async fn insert(&mut self, _user: &User) -> Result<(), UserRepositoryError> {
-            Ok(())
+        async fn insert(&mut self, user: &User) -> Result<VersionedUser, UserRepositoryError> {
+            Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
         }
 
         async fn update(
             &mut self,
-            _user: &User,
-            _expected_version: crate::ports::UserStorageVersion,
-        ) -> Result<(), UserRepositoryError> {
-            Ok(())
+            user: &User,
+            _expected_version: UserStorageVersion,
+        ) -> Result<VersionedUser, UserRepositoryError> {
+            Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
         }
     }
 

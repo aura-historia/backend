@@ -1,21 +1,23 @@
 use crate::ports::{
-    ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory, ShopGeocoder,
-    ShopGeocoderError, ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopWritePolicy,
-    ShopWritePolicyError,
+    ShopGeocoder, ShopGeocoderError, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
 };
 use crate::use_cases::commands::create_shop::woocommerce_integration;
-use crate::use_cases::queries::get_shop::{GetShopRequest, ShopDetailsView};
+use crate::use_cases::queries::check_user_partner_shop::{
+    CheckUserPartnerShopError, CheckUserPartnerShopRequest, CheckUserPartnerShopUseCase,
+};
+use crate::use_cases::queries::get_shop::ShopDetailsView;
 use common::change_outcome::ChangeOutcome;
 use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
 use common::language::domain::Language;
 use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::patch_field::PatchField;
 use common::shop_id::ShopId;
 use common::transaction::{Transaction, UnitOfWork};
+use common::user_id::UserId;
 use serde_email::Email;
 use shop_core::{
     address::StructuredAddress,
@@ -29,6 +31,9 @@ use shop_core::{
 };
 use std::collections::HashSet;
 use url::Url;
+use user_service::use_cases::queries::check_user_admin::{
+    CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
+};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateShopCommand {
@@ -123,34 +128,40 @@ pub trait UpdateShopUseCase: Send + Sync {
     ) -> Result<UpdateShopResult, UpdateShopError>;
 }
 
-pub struct UpdateShopHandler<U, R, D, G, P> {
+pub struct UpdateShopHandler<U, R, G, A, P> {
     unit_of_work: U,
     shops: R,
-    details: D,
     geocoder: G,
-    policy: P,
+    check_user_admin: A,
+    check_user_partner_shop: P,
 }
 
-impl<U, R, D, G, P> UpdateShopHandler<U, R, D, G, P> {
-    pub fn new(unit_of_work: U, shops: R, details: D, geocoder: G, policy: P) -> Self {
+impl<U, R, G, A, P> UpdateShopHandler<U, R, G, A, P> {
+    pub fn new(
+        unit_of_work: U,
+        shops: R,
+        geocoder: G,
+        check_user_admin: A,
+        check_user_partner_shop: P,
+    ) -> Self {
         Self {
             unit_of_work,
             shops,
-            details,
             geocoder,
-            policy,
+            check_user_admin,
+            check_user_partner_shop,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, D, G, P> UpdateShopUseCase for UpdateShopHandler<U, R, D, G, P>
+impl<U, R, G, A, P> UpdateShopUseCase for UpdateShopHandler<U, R, G, A, P>
 where
     U: UnitOfWork,
     R: ShopRepositoryFactory<U::Tx>,
-    D: ShopDetailsReaderFactory<U::Tx>,
     G: ShopGeocoder,
-    P: ShopWritePolicy,
+    A: CheckUserAdminUseCase,
+    P: CheckUserPartnerShopUseCase,
 {
     #[tracing::instrument(
         name = "update_shop",
@@ -172,9 +183,13 @@ where
             .require()
             .credential_capability(CredentialCapability::ShopsWrite)
             .authorize::<UpdateShopError>()?;
-        self.policy
-            .ensure_can_update_shop(context, command.shop_id)
-            .await?;
+        ensure_can_update_shop(
+            context,
+            command.shop_id,
+            &self.check_user_admin,
+            &self.check_user_partner_shop,
+        )
+        .await?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -200,21 +215,21 @@ where
 
         let outcome = apply_update(&mut shop, command)?;
 
-        if outcome.changed() {
+        let view = if outcome.changed() {
             self.shops
                 .in_transaction(&mut tx)
                 .update(&shop, version)
-                .await?;
-        }
-
-        let view = self
-            .details
-            .in_transaction(&mut tx)
-            .find_details(&GetShopRequest::ById(shop.id()))
-            .await?
-            .ok_or(UpdateShopError::InvalidPersistedState {
-                source: static_error("updated shop details not found"),
-            })?;
+                .await?
+                .into()
+        } else {
+            crate::ports::PersistedShop {
+                shop: shop.clone(),
+                version,
+                created: time::OffsetDateTime::now_utc(),
+                updated: time::OffsetDateTime::now_utc(),
+            }
+            .into()
+        };
 
         tx.commit()
             .await
@@ -262,28 +277,90 @@ impl From<ShopRepositoryError> for UpdateShopError {
     }
 }
 
-impl From<ShopWritePolicyError> for UpdateShopError {
-    fn from(error: ShopWritePolicyError) -> Self {
-        match error {
-            ShopWritePolicyError::Forbidden => Self::Forbidden,
-            ShopWritePolicyError::TemporarilyUnavailable { source } => {
-                Self::TemporarilyUnavailable { source }
-            }
-            ShopWritePolicyError::Internal { source } => Self::Internal { source },
+async fn ensure_can_update_shop<A, P>(
+    context: &OperationContext,
+    shop_id: ShopId,
+    check_user_admin: &A,
+    check_user_partner_shop: &P,
+) -> Result<(), UpdateShopError>
+where
+    A: CheckUserAdminUseCase,
+    P: CheckUserPartnerShopUseCase,
+{
+    let Some(user_id) = actor_user_id(context)? else {
+        return Ok(());
+    };
+
+    match check_user_admin
+        .execute(context, CheckUserAdminRequest { user_id })
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(CheckUserAdminError::Forbidden) => {
+            ensure_user_partner_shop(context, user_id, shop_id, check_user_partner_shop).await
         }
+        Err(error) => Err(map_admin_error(error)),
     }
 }
 
-impl From<ShopDetailsReadError> for UpdateShopError {
-    fn from(error: ShopDetailsReadError) -> Self {
-        match error {
-            ShopDetailsReadError::TemporarilyUnavailable { source } => {
-                Self::TemporarilyUnavailable { source }
+async fn ensure_user_partner_shop<P>(
+    context: &OperationContext,
+    user_id: UserId,
+    shop_id: ShopId,
+    check_user_partner_shop: &P,
+) -> Result<(), UpdateShopError>
+where
+    P: CheckUserPartnerShopUseCase,
+{
+    let result = check_user_partner_shop
+        .execute(context, CheckUserPartnerShopRequest { user_id, shop_id })
+        .await
+        .map_err(map_partner_error)?;
+    if result.is_partner {
+        Ok(())
+    } else {
+        Err(UpdateShopError::Forbidden)
+    }
+}
+
+fn actor_user_id(context: &OperationContext) -> Result<Option<UserId>, UpdateShopError> {
+    match context.principal {
+        Principal::Anonymous => Err(UpdateShopError::AuthenticatedActorRequired),
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Ok(Some(user_id)),
+        Principal::Service(_) | Principal::System => Ok(None),
+    }
+}
+
+fn map_admin_error(error: CheckUserAdminError) -> UpdateShopError {
+    match error {
+        CheckUserAdminError::Forbidden | CheckUserAdminError::UserNotFound => {
+            UpdateShopError::Forbidden
+        }
+        CheckUserAdminError::TemporarilyUnavailable { source } => {
+            UpdateShopError::TemporarilyUnavailable { source }
+        }
+        CheckUserAdminError::InvalidReadModel { source }
+        | CheckUserAdminError::Internal { source } => UpdateShopError::Internal { source },
+        CheckUserAdminError::BeginTransactionFailed
+        | CheckUserAdminError::CommitTransactionFailed => UpdateShopError::TemporarilyUnavailable {
+            source: static_error("check user admin transaction failed"),
+        },
+    }
+}
+
+fn map_partner_error(error: CheckUserPartnerShopError) -> UpdateShopError {
+    match error {
+        CheckUserPartnerShopError::Forbidden => UpdateShopError::Forbidden,
+        CheckUserPartnerShopError::TemporarilyUnavailable { source } => {
+            UpdateShopError::TemporarilyUnavailable { source }
+        }
+        CheckUserPartnerShopError::InvalidReadModel { source }
+        | CheckUserPartnerShopError::Internal { source } => UpdateShopError::Internal { source },
+        CheckUserPartnerShopError::BeginTransactionFailed
+        | CheckUserPartnerShopError::CommitTransactionFailed => {
+            UpdateShopError::TemporarilyUnavailable {
+                source: static_error("check user partner shop transaction failed"),
             }
-            ShopDetailsReadError::InvalidReadModel { source } => {
-                Self::InvalidPersistedState { source }
-            }
-            ShopDetailsReadError::Internal { source } => Self::Internal { source },
         }
     }
 }
@@ -532,9 +609,10 @@ fn apply_optional_patch<T>(current: Option<T>, patch: PatchField<T>) -> Option<T
 mod tests {
     use super::*;
     use crate::ports::{
-        ShopDetailsReader, ShopDetailsReaderFactory, ShopRepository, ShopRepositoryError,
-        ShopRepositoryFactory, ShopStorageVersion, ShopWritePolicyError, VersionedShop,
+        PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
+        ShopStorageVersion, VersionedShop,
     };
+    use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopResult;
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::shop_name::ShopName;
@@ -545,7 +623,9 @@ mod tests {
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop::NewShop;
     use std::sync::{Arc, Mutex};
-    use time::OffsetDateTime;
+    use user_service::use_cases::queries::check_user_admin::{
+        CheckUserAdminRequest, CheckUserAdminResult,
+    };
 
     #[derive(Clone, Copy)]
     enum RepoErrorKind {
@@ -585,11 +665,6 @@ mod tests {
     }
 
     #[derive(Clone, Default)]
-    struct FakeDetailsReaderFactory {
-        state: Arc<Mutex<State>>,
-    }
-
-    #[derive(Clone, Default)]
     struct FakeGeocoder {
         state: Arc<Mutex<State>>,
     }
@@ -599,10 +674,6 @@ mod tests {
     }
 
     struct FakeShopRepository {
-        state: Arc<Mutex<State>>,
-    }
-
-    struct FakeDetailsReader {
         state: Arc<Mutex<State>>,
     }
 
@@ -651,14 +722,6 @@ mod tests {
         }
     }
 
-    impl ShopDetailsReaderFactory<FakeTx> for FakeDetailsReaderFactory {
-        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ShopDetailsReader + 'tx {
-            FakeDetailsReader {
-                state: Arc::clone(&self.state),
-            }
-        }
-    }
-
     #[async_trait::async_trait]
     impl ShopRepository for FakeShopRepository {
         async fn find_by_id(
@@ -681,22 +744,22 @@ mod tests {
             Ok(None)
         }
 
-        async fn insert(&mut self, _shop: &Shop) -> Result<(), ShopRepositoryError> {
-            Ok(())
+        async fn insert(&mut self, _shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
+            Ok(persisted_shop(_shop.clone()))
         }
 
         async fn update(
             &mut self,
             shop: &Shop,
             _expected_version: ShopStorageVersion,
-        ) -> Result<(), ShopRepositoryError> {
+        ) -> Result<PersistedShop, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.update += 1;
                 match state.update_error {
                     Some(kind) => Err(shop_repo_error(kind)),
                     None => {
                         state.updated = Some(shop.clone());
-                        Ok(())
+                        Ok(persisted_shop(shop.clone()))
                     }
                 }
             })
@@ -704,36 +767,30 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ShopDetailsReader for FakeDetailsReader {
-        async fn find_details(
-            &mut self,
-            _request: &GetShopRequest,
-        ) -> Result<Option<ShopDetailsView>, ShopDetailsReadError> {
-            Ok(with_state(&self.state, |state| {
-                state
-                    .updated
-                    .as_ref()
-                    .or_else(|| state.shop_by_id.as_ref().map(|versioned| &versioned.value))
-                    .map(details_from_shop)
-            }))
+    impl CheckUserAdminUseCase for AllowPolicy {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            request: CheckUserAdminRequest,
+        ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
+            Ok(CheckUserAdminResult {
+                user_id: request.user_id,
+            })
         }
     }
 
     #[async_trait::async_trait]
-    impl ShopWritePolicy for AllowPolicy {
-        async fn ensure_can_create_shop(
+    impl CheckUserPartnerShopUseCase for AllowPolicy {
+        async fn execute(
             &self,
             _context: &OperationContext,
-        ) -> Result<(), ShopWritePolicyError> {
-            Ok(())
-        }
-
-        async fn ensure_can_update_shop(
-            &self,
-            _context: &OperationContext,
-            _shop_id: ShopId,
-        ) -> Result<(), ShopWritePolicyError> {
-            Ok(())
+            request: CheckUserPartnerShopRequest,
+        ) -> Result<CheckUserPartnerShopResult, CheckUserPartnerShopError> {
+            Ok(CheckUserPartnerShopResult {
+                user_id: request.user_id,
+                shop_id: request.shop_id,
+                is_partner: true,
+            })
         }
     }
 
@@ -1065,20 +1122,14 @@ mod tests {
         UpdateShopHandler::new(
             uow(state),
             shop_repo(state),
-            details_reader(state),
             geocoder(state),
+            AllowPolicy,
             AllowPolicy,
         )
     }
 
     fn shop_repo(state: &Arc<Mutex<State>>) -> FakeShopRepositoryFactory {
         FakeShopRepositoryFactory {
-            state: Arc::clone(state),
-        }
-    }
-
-    fn details_reader(state: &Arc<Mutex<State>>) -> FakeDetailsReaderFactory {
-        FakeDetailsReaderFactory {
             state: Arc::clone(state),
         }
     }
@@ -1128,28 +1179,11 @@ mod tests {
         Versioned::new(shop, ShopStorageVersion::INITIAL)
     }
 
-    fn details_from_shop(shop: &Shop) -> ShopDetailsView {
-        let now = OffsetDateTime::now_utc();
-        ShopDetailsView {
-            shop_id: shop.id(),
-            shop_slug_id: shop.slug_id().clone(),
-            name: shop.name().clone(),
-            shop_type: shop.shop_type(),
-            domains: shop.domains().clone(),
-            shopify_domain: shop.shopify().map(|value| value.domain.clone()),
-            shopify_currency: shop.shopify().and_then(|value| value.currency),
-            shopify_language: shop.shopify().and_then(|value| value.language),
-            woocommerce_currency: shop.woocommerce().and_then(|value| value.currency),
-            woocommerce_language: shop.woocommerce().and_then(|value| value.language),
-            url: shop.presentation().url.clone(),
-            view_url: shop.view_url(),
-            image: shop.presentation().image.clone(),
-            structured_address: shop.address().map(|value| value.structured.clone()),
-            geo_address: shop.address().and_then(|value| value.geo),
-            phone: shop.contact().phone.clone(),
-            email: shop.contact().email.clone(),
-            partner_status: shop.partner_status(),
-            affiliate_configuration: shop.affiliate_configuration().cloned(),
+    fn persisted_shop(shop: Shop) -> PersistedShop {
+        let now = time::OffsetDateTime::now_utc();
+        PersistedShop {
+            shop,
+            version: ShopStorageVersion::INITIAL,
             created: now,
             updated: now,
         }
