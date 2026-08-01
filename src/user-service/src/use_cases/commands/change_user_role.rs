@@ -437,6 +437,10 @@ mod tests {
                 Ok(user)
             }
         }
+
+        async fn delete_by_id(&mut self, _id: UserId) -> Result<bool, UserRepositoryError> {
+            Ok(true)
+        }
     }
 
     impl UserRepositoryFactory<FakeTx> for FakeUserRepositoryFactory {

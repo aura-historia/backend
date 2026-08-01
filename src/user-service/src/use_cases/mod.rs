@@ -21,6 +21,9 @@ pub use commands::delete_access_token::{
     DeleteAccessTokenCommand, DeleteAccessTokenError, DeleteAccessTokenHandler,
     DeleteAccessTokenResult, DeleteAccessTokenUseCase,
 };
+pub use commands::delete_user::{
+    DeleteUserCommand, DeleteUserError, DeleteUserHandler, DeleteUserResult, DeleteUserUseCase,
+};
 
 pub use commands::update_access_token::{
     UpdateAccessTokenCommand, UpdateAccessTokenError, UpdateAccessTokenHandler,

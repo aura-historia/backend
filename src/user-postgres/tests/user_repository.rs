@@ -219,6 +219,39 @@ async fn should_report_concurrency_conflict_when_updating_missing_user() {
     ));
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_delete_user_in_postgres() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let users = SqlxUserRepositoryFactory::new();
+    let user = sample_user("postgres-delete", UserRole::User, None);
+
+    let mut tx = begin(&unit_of_work).await;
+    match users.in_transaction(&mut tx).insert(&user).await {
+        Ok(_) => {}
+        Err(error) => panic!("failed to insert user: {error:?}"),
+    }
+    match users.in_transaction(&mut tx).delete_by_id(user.id()).await {
+        Ok(deleted) => assert!(deleted),
+        Err(error) => panic!("failed to delete user: {error:?}"),
+    }
+    let missing = match users.in_transaction(&mut tx).find_by_id(user.id()).await {
+        Ok(value) => value,
+        Err(error) => panic!("failed deleted lookup: {error:?}"),
+    };
+    let missing_delete = match users
+        .in_transaction(&mut tx)
+        .delete_by_id(UserId::new())
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => panic!("failed missing delete: {error:?}"),
+    };
+
+    assert!(missing.is_none());
+    assert!(!missing_delete);
+}
+
 fn sample_user(slug: &str, role: UserRole, stripe_customer_id: Option<&str>) -> User {
     match User::create(NewUser {
         id: UserId::new(),

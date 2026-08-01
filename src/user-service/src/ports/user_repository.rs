@@ -65,6 +65,8 @@ pub trait UserRepository: Send {
         user: &User,
         expected_version: UserStorageVersion,
     ) -> Result<VersionedUser, UserRepositoryError>;
+
+    async fn delete_by_id(&mut self, id: UserId) -> Result<bool, UserRepositoryError>;
 }
 
 pub trait UserRepositoryFactory<Tx>: Send + Sync {

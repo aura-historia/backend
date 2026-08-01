@@ -3,6 +3,13 @@ use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use shop_partner_service::use_cases::{
+    AdminDecidePartnerShopApplicationError, AdminGetPartnerShopApplicationError,
+    AdminListPartnerShopApplicationsError, AdminUpdatePartnerShopApplicationError,
+    CreatePartnerShopApplicationError, DeletePartnerShopApplicationError,
+    GetPartnerShopApplicationError, ListPartnerShopApplicationsError,
+    UpdatePartnerShopApplicationError,
+};
 use shop_service::use_cases::commands::create_shop::CreateShopError;
 use shop_service::use_cases::commands::update_shop::UpdateShopError;
 use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopError;
@@ -11,8 +18,19 @@ use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerSh
 use shop_service::use_cases::queries::search_shops::SearchShopsError;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use user_service::use_cases::commands::create_access_token::CreateAccessTokenError;
+use user_service::use_cases::commands::delete_access_token::DeleteAccessTokenError;
+use user_service::use_cases::commands::delete_user::DeleteUserError;
+use user_service::use_cases::commands::update_access_token::UpdateAccessTokenError;
+use user_service::use_cases::commands::update_user::UpdateUserError;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminError;
+use user_service::use_cases::queries::get_access_token::GetAccessTokenError;
 use user_service::use_cases::queries::get_user::GetUserError;
+use user_service::use_cases::queries::list_access_tokens::ListAccessTokensError;
+use user_service::use_cases::queries::search_users::SearchUsersError;
+use watchlist_service::use_cases::{
+    DeleteWatchlistProductError, ListWatchlistError, UpdateWatchlistProductError, WatchProductError,
+};
 
 #[derive(Debug, Serialize)]
 pub(crate) struct ApiError {
@@ -34,6 +52,11 @@ pub(crate) struct ApiErrorCode(&'static str);
 pub(crate) const AUTH_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("AUTH_INTERNAL_ERROR");
 pub(crate) const AUTH_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("AUTH_TEMPORARILY_UNAVAILABLE");
+pub(crate) const ACCESS_TOKEN_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("ACCESS_TOKEN_INTERNAL_ERROR");
+pub(crate) const ACCESS_TOKEN_NOT_FOUND: ApiErrorCode = ApiErrorCode("ACCESS_TOKEN_NOT_FOUND");
+pub(crate) const ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE");
 pub(crate) const INVALID_CREDENTIALS: ApiErrorCode = ApiErrorCode("INVALID_CREDENTIALS");
 pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
 pub(crate) const BAD_ORDER_VALUE: ApiErrorCode = ApiErrorCode("BAD_ORDER_VALUE");
@@ -52,6 +75,17 @@ pub(crate) const USER_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("USER_INTERNAL
 pub(crate) const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
 pub(crate) const USER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("USER_TEMPORARILY_UNAVAILABLE");
+pub(crate) const WATCHLIST_ENTRY_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("WATCHLIST_ENTRY_NOT_FOUND");
+pub(crate) const WATCHLIST_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("WATCHLIST_INTERNAL_ERROR");
+pub(crate) const WATCHLIST_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("WATCHLIST_TEMPORARILY_UNAVAILABLE");
+pub(crate) const PARTNER_SHOP_APPLICATION_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("PARTNER_SHOP_APPLICATION_NOT_FOUND");
+pub(crate) const PARTNER_SHOP_APPLICATION_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("PARTNER_SHOP_APPLICATION_INTERNAL_ERROR");
+pub(crate) const PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE");
 
 impl Display for ApiErrorCode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -239,6 +273,443 @@ impl From<GetUserError> for ApiError {
         }
     }
 }
+
+impl From<SearchUsersError> for ApiError {
+    fn from(error: SearchUsersError) -> Self {
+        match error {
+            SearchUsersError::TemporarilyUnavailable { .. }
+            | SearchUsersError::BeginTransactionFailed
+            | SearchUsersError::CommitTransactionFailed => {
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User search is temporarily unavailable.")
+            }
+            SearchUsersError::InvalidReadModel { .. } | SearchUsersError::Internal { .. } => {
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User search failed internally.")
+            }
+        }
+    }
+}
+
+impl From<UpdateUserError> for ApiError {
+    fn from(error: UpdateUserError) -> Self {
+        match error {
+            UpdateUserError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateUserError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateUserError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            UpdateUserError::ConcurrencyConflict
+            | UpdateUserError::EmailConflict { .. }
+            | UpdateUserError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
+                .with_detail("User update conflicts with current state."),
+            UpdateUserError::EmailRequired
+            | UpdateUserError::TierRequired
+            | UpdateUserError::RoleRequired
+            | UpdateUserError::InvalidUserState { .. } => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("User update is invalid.")
+            }
+            UpdateUserError::TemporarilyUnavailable { .. }
+            | UpdateUserError::BeginTransactionFailed
+            | UpdateUserError::CommitTransactionFailed => {
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User could not be updated right now.")
+            }
+            UpdateUserError::InvalidPersistedState { .. } | UpdateUserError::Internal { .. } => {
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User update failed internally.")
+            }
+        }
+    }
+}
+
+impl From<DeleteUserError> for ApiError {
+    fn from(error: DeleteUserError) -> Self {
+        match error {
+            DeleteUserError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            DeleteUserError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            DeleteUserError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            DeleteUserError::ConcurrencyConflict
+            | DeleteUserError::EmailConflict { .. }
+            | DeleteUserError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
+                .with_detail("User delete conflicts with current state."),
+            DeleteUserError::TemporarilyUnavailable { .. }
+            | DeleteUserError::BeginTransactionFailed
+            | DeleteUserError::CommitTransactionFailed => {
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User could not be deleted right now.")
+            }
+            DeleteUserError::InvalidPersistedState { .. } | DeleteUserError::Internal { .. } => {
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User delete failed internally.")
+            }
+        }
+    }
+}
+
+impl From<CreateAccessTokenError> for ApiError {
+    fn from(error: CreateAccessTokenError) -> Self {
+        match error {
+            CreateAccessTokenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreateAccessTokenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreateAccessTokenError::Conflict { .. } => {
+                ApiError::conflict(CONFLICT).with_detail("Access token already exists.")
+            }
+            CreateAccessTokenError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Access token store is temporarily unavailable.")
+            }
+            CreateAccessTokenError::InvalidPersistedState { .. }
+            | CreateAccessTokenError::Internal { .. } => {
+                ApiError::internal_server_error(ACCESS_TOKEN_INTERNAL_ERROR)
+                    .with_detail("Access token operation failed internally.")
+            }
+        }
+    }
+}
+impl From<ListAccessTokensError> for ApiError {
+    fn from(error: ListAccessTokensError) -> Self {
+        match error {
+            ListAccessTokensError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListAccessTokensError::Conflict { .. } => {
+                ApiError::conflict(CONFLICT).with_detail("Access token conflict.")
+            }
+            ListAccessTokensError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Access token store is temporarily unavailable.")
+            }
+            ListAccessTokensError::InvalidPersistedState { .. }
+            | ListAccessTokensError::Internal { .. } => {
+                ApiError::internal_server_error(ACCESS_TOKEN_INTERNAL_ERROR)
+                    .with_detail("Access token operation failed internally.")
+            }
+        }
+    }
+}
+impl From<GetAccessTokenError> for ApiError {
+    fn from(error: GetAccessTokenError) -> Self {
+        match error {
+            GetAccessTokenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GetAccessTokenError::NotFound => ApiError::not_found(ACCESS_TOKEN_NOT_FOUND)
+                .with_detail("Access token was not found."),
+            GetAccessTokenError::Conflict { .. } => {
+                ApiError::conflict(CONFLICT).with_detail("Access token conflict.")
+            }
+            GetAccessTokenError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Access token store is temporarily unavailable.")
+            }
+            GetAccessTokenError::InvalidPersistedState { .. }
+            | GetAccessTokenError::Internal { .. } => {
+                ApiError::internal_server_error(ACCESS_TOKEN_INTERNAL_ERROR)
+                    .with_detail("Access token operation failed internally.")
+            }
+        }
+    }
+}
+impl From<UpdateAccessTokenError> for ApiError {
+    fn from(error: UpdateAccessTokenError) -> Self {
+        match error {
+            UpdateAccessTokenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateAccessTokenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateAccessTokenError::AccessTokenNotFound => {
+                ApiError::not_found(ACCESS_TOKEN_NOT_FOUND)
+                    .with_detail("Access token was not found.")
+            }
+            UpdateAccessTokenError::NameRequired => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Access token name is required.")
+            }
+            UpdateAccessTokenError::Conflict { .. } => {
+                ApiError::conflict(CONFLICT).with_detail("Access token conflict.")
+            }
+            UpdateAccessTokenError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Access token store is temporarily unavailable.")
+            }
+            UpdateAccessTokenError::InvalidPersistedState { .. }
+            | UpdateAccessTokenError::Internal { .. } => {
+                ApiError::internal_server_error(ACCESS_TOKEN_INTERNAL_ERROR)
+                    .with_detail("Access token operation failed internally.")
+            }
+        }
+    }
+}
+impl From<DeleteAccessTokenError> for ApiError {
+    fn from(error: DeleteAccessTokenError) -> Self {
+        match error {
+            DeleteAccessTokenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            DeleteAccessTokenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            DeleteAccessTokenError::Conflict { .. } => {
+                ApiError::conflict(CONFLICT).with_detail("Access token conflict.")
+            }
+            DeleteAccessTokenError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Access token store is temporarily unavailable.")
+            }
+            DeleteAccessTokenError::InvalidPersistedState { .. }
+            | DeleteAccessTokenError::Internal { .. } => {
+                ApiError::internal_server_error(ACCESS_TOKEN_INTERNAL_ERROR)
+                    .with_detail("Access token operation failed internally.")
+            }
+        }
+    }
+}
+
+impl From<ListWatchlistError> for ApiError {
+    fn from(error: ListWatchlistError) -> Self {
+        match error {
+            ListWatchlistError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            ListWatchlistError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListWatchlistError::TemporarilyUnavailable
+            | ListWatchlistError::BeginTransactionFailed
+            | ListWatchlistError::CommitTransactionFailed => {
+                ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Watchlist is temporarily unavailable.")
+            }
+            ListWatchlistError::InvalidPersistedState => {
+                ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
+                    .with_detail("Watchlist failed internally.")
+            }
+        }
+    }
+}
+impl From<WatchProductError> for ApiError {
+    fn from(error: WatchProductError) -> Self {
+        match error {
+            WatchProductError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            WatchProductError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            WatchProductError::AlreadyExists => {
+                ApiError::conflict(CONFLICT).with_detail("Watchlist entry already exists.")
+            }
+            WatchProductError::TemporarilyUnavailable
+            | WatchProductError::BeginTransactionFailed
+            | WatchProductError::CommitTransactionFailed => {
+                ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Watchlist is temporarily unavailable.")
+            }
+            WatchProductError::InvalidPersistedState => {
+                ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
+                    .with_detail("Watchlist failed internally.")
+            }
+        }
+    }
+}
+impl From<UpdateWatchlistProductError> for ApiError {
+    fn from(error: UpdateWatchlistProductError) -> Self {
+        match error {
+            UpdateWatchlistProductError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateWatchlistProductError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateWatchlistProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
+                .with_detail("Watchlist entry was not found."),
+            UpdateWatchlistProductError::TemporarilyUnavailable
+            | UpdateWatchlistProductError::BeginTransactionFailed
+            | UpdateWatchlistProductError::CommitTransactionFailed => {
+                ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Watchlist is temporarily unavailable.")
+            }
+            UpdateWatchlistProductError::InvalidPersistedState => {
+                ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
+                    .with_detail("Watchlist failed internally.")
+            }
+        }
+    }
+}
+impl From<DeleteWatchlistProductError> for ApiError {
+    fn from(error: DeleteWatchlistProductError) -> Self {
+        match error {
+            DeleteWatchlistProductError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            DeleteWatchlistProductError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            DeleteWatchlistProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
+                .with_detail("Watchlist entry was not found."),
+            DeleteWatchlistProductError::TemporarilyUnavailable
+            | DeleteWatchlistProductError::BeginTransactionFailed
+            | DeleteWatchlistProductError::CommitTransactionFailed => {
+                ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Watchlist is temporarily unavailable.")
+            }
+            DeleteWatchlistProductError::InvalidPersistedState => {
+                ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
+                    .with_detail("Watchlist failed internally.")
+            }
+        }
+    }
+}
+
+impl From<CreatePartnerShopApplicationError> for ApiError {
+    fn from(error: CreatePartnerShopApplicationError) -> Self {
+        match error {
+            CreatePartnerShopApplicationError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreatePartnerShopApplicationError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreatePartnerShopApplicationError::ShopNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            }
+            CreatePartnerShopApplicationError::SlugConflict { .. } => {
+                ApiError::conflict(SHOP_EXISTS_ALREADY).with_detail("Shop exists already.")
+            }
+            CreatePartnerShopApplicationError::InvalidAddress => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Shop address is invalid.")
+            }
+            CreatePartnerShopApplicationError::TemporarilyUnavailable { .. }
+            | CreatePartnerShopApplicationError::BeginTransactionFailed
+            | CreatePartnerShopApplicationError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partner shop application is temporarily unavailable.")
+            }
+            CreatePartnerShopApplicationError::InvalidPersistedState { .. }
+            | CreatePartnerShopApplicationError::Internal { .. } => {
+                ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
+                    .with_detail("Partner shop application failed internally.")
+            }
+        }
+    }
+}
+macro_rules! impl_partner_shop_application_error {
+    ($error:ident, $not_found:ident, $conflict:ident) => {
+        impl From<$error> for ApiError {
+            fn from(error: $error) -> Self {
+                match error {
+                    $error::Forbidden => {
+                        ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+                    }
+                    $error::$not_found => ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND)
+                        .with_detail("Partner shop application was not found."),
+                    $error::$conflict => ApiError::conflict(CONFLICT)
+                        .with_detail("Partner shop application was changed concurrently."),
+                    $error::TemporarilyUnavailable { .. }
+                    | $error::BeginTransactionFailed
+                    | $error::CommitTransactionFailed => ApiError::service_unavailable(
+                        PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE,
+                    )
+                    .with_detail("Partner shop application is temporarily unavailable."),
+                    $error::InvalidPersistedState { .. } | $error::Internal { .. } => {
+                        ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
+                            .with_detail("Partner shop application failed internally.")
+                    }
+                }
+            }
+        }
+    };
+    ($error:ident) => {
+        impl From<$error> for ApiError {
+            fn from(error: $error) -> Self {
+                match error {
+                    $error::Forbidden => {
+                        ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+                    }
+                    $error::TemporarilyUnavailable { .. }
+                    | $error::BeginTransactionFailed
+                    | $error::CommitTransactionFailed => ApiError::service_unavailable(
+                        PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE,
+                    )
+                    .with_detail("Partner shop application is temporarily unavailable."),
+                    $error::InvalidPersistedState { .. } | $error::Internal { .. } => {
+                        ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
+                            .with_detail("Partner shop application failed internally.")
+                    }
+                }
+            }
+        }
+    };
+}
+
+impl_partner_shop_application_error!(ListPartnerShopApplicationsError);
+impl_partner_shop_application_error!(AdminListPartnerShopApplicationsError);
+impl_partner_shop_application_error!(
+    GetPartnerShopApplicationError,
+    NotFound,
+    ConcurrencyConflict
+);
+impl_partner_shop_application_error!(
+    UpdatePartnerShopApplicationError,
+    NotFound,
+    ConcurrencyConflict
+);
+impl_partner_shop_application_error!(
+    DeletePartnerShopApplicationError,
+    NotFound,
+    ConcurrencyConflict
+);
+impl_partner_shop_application_error!(
+    AdminGetPartnerShopApplicationError,
+    NotFound,
+    ConcurrencyConflict
+);
+impl_partner_shop_application_error!(
+    AdminUpdatePartnerShopApplicationError,
+    NotFound,
+    ConcurrencyConflict
+);
+impl_partner_shop_application_error!(
+    AdminDecidePartnerShopApplicationError,
+    NotFound,
+    ConcurrencyConflict
+);
 
 impl From<GetShopError> for ApiError {
     fn from(error: GetShopError) -> Self {

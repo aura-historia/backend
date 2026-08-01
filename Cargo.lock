@@ -238,6 +238,9 @@ dependencies = [
  "serde_qs",
  "serial_test",
  "shop-core",
+ "shop-partner-core",
+ "shop-partner-postgres",
+ "shop-partner-service",
  "shop-postgres",
  "shop-service",
  "sqlx",
@@ -253,6 +256,9 @@ dependencies = [
  "user-postgres",
  "user-service",
  "uuid",
+ "watchlist-core",
+ "watchlist-postgres",
+ "watchlist-service",
 ]
 
 [[package]]
@@ -9687,6 +9693,7 @@ dependencies = [
  "product-core",
  "thiserror 2.0.19",
  "time",
+ "tokio",
  "tracing",
  "watchlist-core",
 ]

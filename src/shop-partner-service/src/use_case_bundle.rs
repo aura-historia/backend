@@ -1,14 +1,36 @@
-use crate::use_cases::{CreatePartnerShopApplicationUseCase, ListPartnerShopsUseCase};
+use crate::use_cases::{
+    AdminDecidePartnerShopApplicationUseCase, AdminGetPartnerShopApplicationUseCase,
+    AdminListPartnerShopApplicationsUseCase, AdminUpdatePartnerShopApplicationUseCase,
+    CreatePartnerShopApplicationUseCase, DeletePartnerShopApplicationUseCase,
+    GetPartnerShopApplicationUseCase, ListPartnerShopApplicationsUseCase, ListPartnerShopsUseCase,
+    UpdatePartnerShopApplicationUseCase,
+};
 use std::sync::Arc;
 
 pub struct ShopPartnerUseCases {
     pub create_application: Arc<dyn CreatePartnerShopApplicationUseCase>,
     pub list_partner_shops: Arc<dyn ListPartnerShopsUseCase>,
+    pub list_applications: Arc<dyn ListPartnerShopApplicationsUseCase>,
+    pub get_application: Arc<dyn GetPartnerShopApplicationUseCase>,
+    pub update_application: Arc<dyn UpdatePartnerShopApplicationUseCase>,
+    pub delete_application: Arc<dyn DeletePartnerShopApplicationUseCase>,
+    pub admin_list_applications: Arc<dyn AdminListPartnerShopApplicationsUseCase>,
+    pub admin_get_application: Arc<dyn AdminGetPartnerShopApplicationUseCase>,
+    pub admin_update_application: Arc<dyn AdminUpdatePartnerShopApplicationUseCase>,
+    pub admin_decide_application: Arc<dyn AdminDecidePartnerShopApplicationUseCase>,
 }
 
 pub struct ShopPartnerUseCasesInput {
     pub create_application: Arc<dyn CreatePartnerShopApplicationUseCase>,
     pub list_partner_shops: Arc<dyn ListPartnerShopsUseCase>,
+    pub list_applications: Arc<dyn ListPartnerShopApplicationsUseCase>,
+    pub get_application: Arc<dyn GetPartnerShopApplicationUseCase>,
+    pub update_application: Arc<dyn UpdatePartnerShopApplicationUseCase>,
+    pub delete_application: Arc<dyn DeletePartnerShopApplicationUseCase>,
+    pub admin_list_applications: Arc<dyn AdminListPartnerShopApplicationsUseCase>,
+    pub admin_get_application: Arc<dyn AdminGetPartnerShopApplicationUseCase>,
+    pub admin_update_application: Arc<dyn AdminUpdatePartnerShopApplicationUseCase>,
+    pub admin_decide_application: Arc<dyn AdminDecidePartnerShopApplicationUseCase>,
 }
 
 impl ShopPartnerUseCases {
@@ -16,6 +38,14 @@ impl ShopPartnerUseCases {
         Self {
             create_application: input.create_application,
             list_partner_shops: input.list_partner_shops,
+            list_applications: input.list_applications,
+            get_application: input.get_application,
+            update_application: input.update_application,
+            delete_application: input.delete_application,
+            admin_list_applications: input.admin_list_applications,
+            admin_get_application: input.admin_get_application,
+            admin_update_application: input.admin_update_application,
+            admin_decide_application: input.admin_decide_application,
         }
     }
 }

@@ -154,6 +154,10 @@ mod tests {
         ) -> Result<VersionedUser, UserRepositoryError> {
             Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
         }
+
+        async fn delete_by_id(&mut self, _id: UserId) -> Result<bool, UserRepositoryError> {
+            Ok(true)
+        }
     }
 
     fn repository(user: Option<User>) -> FakeUserRepository {

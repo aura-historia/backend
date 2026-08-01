@@ -6,20 +6,49 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## 2026-07-31 - Migrate Shop API
+## 2026-07-31 - Migrate REST APIs to `aura-historia-api` (`backend#1341`)
 
 ### Changed
 
-- **Shop API routes** now have `aura-historia-api` implementations backed by canonical Postgres shop use cases:
-  - `GET /api/v1/shops/{shopId}`
-  - `GET /api/v1/by-slug/shops/{shopSlugId}`
-  - `GET /api/v1/shops`
-  - `POST /api/v1/shops`
-  - `PATCH /api/v1/shops/{shopId}`
-  - `GET /api/v1/me/partner-shops`
+- **REST API migration epic** now has `aura-historia-api` route implementations backed by canonical service use cases and Postgres/DynamoDB adapters for:
+  - Shop routes:
+    - `GET /api/v1/shops/{shopId}`
+    - `GET /api/v1/by-slug/shops/{shopSlugId}`
+    - `GET /api/v1/shops`
+    - `POST /api/v1/shops`
+    - `PATCH /api/v1/shops/{shopId}`
+    - `GET /api/v1/me/partner-shops`
+  - User routes:
+    - `GET /api/v1/me/account`
+    - `PATCH /api/v1/me/account`
+    - `DELETE /api/v1/me`
+    - `GET /api/v1/users`
+    - `GET /api/v1/users/{userId}`
+    - `PATCH /api/v1/users/{userId}`
+    - `DELETE /api/v1/users/{userId}`
+    - `POST /api/v1/me/access-tokens`
+    - `GET /api/v1/me/access-tokens`
+    - `GET /api/v1/me/access-tokens/{accessTokenId}`
+    - `PATCH /api/v1/me/access-tokens`
+    - `DELETE /api/v1/me/access-tokens/{accessTokenId}`
+  - Watchlist routes:
+    - `GET /api/v1/me/watchlist`
+    - `POST /api/v1/me/watchlist`
+    - `PATCH /api/v1/me/watchlist/{productId}`
+    - `DELETE /api/v1/me/watchlist/{productId}`
+  - Partner shop application routes:
+    - `GET /api/v1/me/partner-applications`
+    - `POST /api/v1/me/partner-applications`
+    - `GET /api/v1/me/partner-applications/{partnerApplicationId}`
+    - `PATCH /api/v1/me/partner-applications/{partnerApplicationId}`
+    - `DELETE /api/v1/me/partner-applications/{partnerApplicationId}`
+    - `GET /api/v1/partner-applications`
+    - `GET /api/v1/partner-applications/{partnerApplicationId}`
+    - `PATCH /api/v1/partner-applications/{partnerApplicationId}`
+    - `POST /api/v1/partner-applications/{partnerApplicationId}/decision`
 - Optional Aura Historia access tokens are accepted on public read routes; invalid supplied bearer tokens return `401`.
 - `GetShopData` no longer includes `createdBy` or `updatedBy` because canonical shop storage has no audit actor columns.
-- Shop API errors use `application/problem+json` and stable `ApiErrorCode` constants.
+- Migrated API errors use `application/problem+json` and stable `ApiErrorCode` constants.
 
 ## 2026-07-15 - Add User Measurement Unit Preference
 

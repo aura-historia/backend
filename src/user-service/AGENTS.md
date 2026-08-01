@@ -11,6 +11,7 @@
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - `use_cases::authorization` owns shared service-layer admin actor policy helpers.
 - Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
+- User delete use case authorizes self, service/system, or admin actor in service layer.
 - Repository writes return persisted user state; handlers must not read after write for responses.
 - Ports are public because adapter crates implement them.
 - `AuthenticateAccessTokenUseCase` only validates token existence/expiry and returns token scopes; protected use cases enforce credential capability via `OperationContext`.

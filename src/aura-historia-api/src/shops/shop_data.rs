@@ -1,7 +1,6 @@
-use crate::auth::RequestMetadata;
 use crate::shops::types::{ShopPartnerStatusData, ShopTypeData};
 use axum::Json;
-use axum::http::{HeaderMap, HeaderValue, header};
+use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
@@ -142,15 +141,4 @@ pub(crate) fn cache_control(principal: &Principal) -> &'static str {
         | Principal::Service(_)
         | Principal::System => "no-store",
     }
-}
-
-pub(crate) fn request_metadata(headers: &HeaderMap) -> RequestMetadata {
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let correlation_id = headers
-        .get("x-correlation-id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| request_id.clone());
-    RequestMetadata::new(request_id, correlation_id)
 }

@@ -15,14 +15,11 @@
 - Auth extractors only authenticate. Required capability and business policy checks belong in service/use-case code, not controllers.
 - Request IDs are server-created by future axum middleware; clients may only provide correlation IDs if middleware accepts them.
 - No API Gateway adapter.
-- `shops/` owns shop REST controllers for:
-  - `GET /api/v1/shops/{shopId}`
-  - `GET /api/v1/by-slug/shops/{shopSlugId}`
-  - `GET /api/v1/shops`
-  - `POST /api/v1/shops`
-  - `PATCH /api/v1/shops/{shopId}`
-  - `GET /api/v1/me/partner-shops`
-- Runtime shop create/update geocoding is not wired yet; structured-address writes return temporary failure until a geocoder adapter is added.
+- `shops/` owns shop REST controllers.
+- `users/` owns account, admin user, and access-token REST controllers.
+- `watchlist/` owns watchlist REST controllers. Product watchlist paths now use `{productId}` only.
+- `partner_applications/` owns own/admin partner-shop application REST controllers.
+- Runtime shop and partner-shop create/update geocoding is not wired yet; structured-address writes return temporary failure until a geocoder adapter is added.
 
 ## Ownership
 
@@ -49,3 +46,6 @@
 ## Child DOX Index
 
 - `shops/` — shop REST controllers.
+- `users/` — user account, admin, and access-token REST controllers.
+- `watchlist/` — watchlist REST controllers.
+- `partner_applications/` — partner-shop application REST controllers.

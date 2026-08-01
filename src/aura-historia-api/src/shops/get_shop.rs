@@ -1,6 +1,6 @@
-use crate::auth::OptionalAuthExtractor;
+use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, INVALID_UUID};
-use crate::shops::shop_data::{cache_control, request_metadata, shop_response};
+use crate::shops::shop_data::{cache_control, shop_response};
 use crate::state::ShopsState;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;

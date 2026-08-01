@@ -1,5 +1,5 @@
+use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
-use crate::shops::authz::protected_context;
 use crate::shops::shop_data::shop_response;
 use crate::shops::types::ShopTypeData;
 use crate::state::ShopsState;
@@ -66,7 +66,7 @@ pub async fn update_shop(
                 .into_response();
         }
     };
-    let (context, _) = match protected_context(&state, &headers).await {
+    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return response,
     };

@@ -726,17 +726,17 @@ async fn test_state() -> AppState {
     let client = get_dynamodb_client().await;
     let store = DynamoDbAccessTokenStore::new(client, "table_1");
     let access_token = AuthenticateAccessTokenHandler::new(store);
-    let authenticator = ApiAuthService::new(
+    let authenticator = std::sync::Arc::new(ApiAuthService::new(
         RejectJwtAuthenticator,
         AuraAccessTokenAuthenticator::new(access_token),
-    );
-    AppState::new(ShopsState::new(
+    ));
+    AppState::with_shops_only(ShopsState::new(
         std::sync::Arc::new(get_shop),
         std::sync::Arc::new(search_shops),
         std::sync::Arc::new(create_shop),
         std::sync::Arc::new(update_shop),
         std::sync::Arc::new(list_user_partner_shops),
-        std::sync::Arc::new(authenticator),
+        authenticator,
     ))
 }
 

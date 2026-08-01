@@ -3912,7 +3912,7 @@ paths:
               schema:
                 type: string
                 format: uri
-              example: "https://api.aura-historia.com/api/v1/me/watchlist/550e8400-e29b-41d4-a716-446655440000/6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+              example: "https://api.aura-historia.com/api/v1/me/watchlist/550e8400-e29b-41d4-a716-446655440000"
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -5708,7 +5708,7 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
-  /api/v1/me/watchlist/{shopId}/{shopsProductId}:
+  /api/v1/me/watchlist/{productId}:
     delete:
       summary: Remove product from watchlist
       description: |
@@ -5719,21 +5719,14 @@ paths:
       tags:
         - Watchlist
       parameters:
-        - name: shopId
+        - name: productId
           in: path
           required: true
-          description: Unique identifier of the shop
+          description: Unique identifier of the product
           schema:
             type: string
             format: uuid
           example: "550e8400-e29b-41d4-a716-446655440000"
-        - name: shopsProductId
-          in: path
-          required: true
-          description: Shop's unique identifier for the product
-          schema:
-            type: string
-          example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
       security:
         - BearerAuth: []
       responses:
@@ -5752,32 +5745,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                missing_shop_id:
-                  summary: Missing shop ID
+                missing_product_id:
+                  summary: Missing product ID
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "BAD_PATH_PARAMETER_VALUE"
                     source:
-                      field: "shopId"
-                      sourceType: "path"
-                missing_shops_product_id:
-                  summary: Missing shop's product ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "shopsProductId"
+                      field: "productId"
                       sourceType: "path"
                 invalid_uuid:
-                  summary: Invalid shop ID format
+                  summary: Invalid product ID format
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "INVALID_UUID"
                     source:
-                      field: "shopId"
+                      field: "productId"
                       sourceType: "path"
                     detail: "Invalid UUID format"
         "401":
@@ -5821,21 +5805,14 @@ paths:
       tags:
         - Watchlist
       parameters:
-        - name: shopId
+        - name: productId
           in: path
           required: true
-          description: Unique identifier of the shop
+          description: Unique identifier of the product
           schema:
             type: string
             format: uuid
           example: "550e8400-e29b-41d4-a716-446655440000"
-        - name: shopsProductId
-          in: path
-          required: true
-          description: Shop's unique identifier for the product
-          schema:
-            type: string
-          example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
         - name: language
           in: query
           required: false
@@ -5938,32 +5915,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                missing_shop_id:
-                  summary: Missing shop ID
+                missing_product_id:
+                  summary: Missing product ID
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "BAD_PATH_PARAMETER_VALUE"
                     source:
-                      field: "shopId"
-                      sourceType: "path"
-                missing_shops_product_id:
-                  summary: Missing shop's product ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "shopsProductId"
+                      field: "productId"
                       sourceType: "path"
                 invalid_uuid:
-                  summary: Invalid shop ID format
+                  summary: Invalid product ID format
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "INVALID_UUID"
                     source:
-                      field: "shopId"
+                      field: "productId"
                       sourceType: "path"
                     detail: "Invalid UUID format"
                 missing_body:
