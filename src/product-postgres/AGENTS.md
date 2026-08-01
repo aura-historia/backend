@@ -11,6 +11,7 @@
 - Exports public SQLx repository/event-store factories only.
 - Keeps SQL rows, SQL, mapping, repositories, and event-store internals private.
 - Product row and `product_events` append bind to caller-owned transactions through service factory ports.
+- Product repository writes return storage-neutral persisted product state.
 - Real Postgres integration tests live under `tests/` by implementation file, with helpers inline per file.
 
 ## Ownership

@@ -98,14 +98,14 @@ impl UserRepository for SqlxUserRepository<'_> {
             })
     }
 
-    async fn insert(&mut self, user: &User) -> Result<(), UserRepositoryError> {
+    async fn insert(&mut self, user: &User) -> Result<VersionedUser, UserRepositoryError> {
         let profile = user.profile();
         let preferences = user.preferences();
         let account = user.account();
         let structured_address = profile.structured_address.as_ref();
         let geo_address = profile.geo_address;
 
-        sqlx::query(
+        let sql = format!(
             r#"
             INSERT INTO users (
                 user_id, email, first_name, last_name, language, currency, measurement_unit,
@@ -120,46 +120,52 @@ impl UserRepository for SqlxUserRepository<'_> {
                 $12, $13, $14, $15, $16, $17,
                 $18, $19
             )
+            RETURNING {}
             "#,
-        )
-        .bind(uuid::Uuid::from(user.id()))
-        .bind::<&str>(user.email().as_ref())
-        .bind(profile.first_name.as_ref().map(AsRef::as_ref))
-        .bind(profile.last_name.as_ref().map(AsRef::as_ref))
-        .bind(bind_language(preferences.language))
-        .bind(bind_currency(preferences.currency))
-        .bind(bind_measurement_unit(preferences.measurement_unit))
-        .bind(preferences.prohibited_content_consent)
-        .bind(bind_tier(account.tier))
-        .bind(bind_role(account.role))
-        .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
-        .bind(structured_address.and_then(|value| value.addressline.as_deref()))
-        .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
-        .bind(structured_address.and_then(|value| value.locality.as_deref()))
-        .bind(structured_address.and_then(|value| value.region.as_deref()))
-        .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
-        .bind(bind_country(structured_address))
-        .bind(geo_address.map(|value| value.lat))
-        .bind(geo_address.map(|value| value.lon))
-        .execute(&mut *self.connection)
-        .await
-        .map_err(map_write_error)?;
+            user_columns()
+        );
 
-        Ok(())
+        let row = sqlx::query_as::<_, UserRow>(&sql)
+            .bind(uuid::Uuid::from(user.id()))
+            .bind::<&str>(user.email().as_ref())
+            .bind(profile.first_name.as_ref().map(AsRef::as_ref))
+            .bind(profile.last_name.as_ref().map(AsRef::as_ref))
+            .bind(bind_language(preferences.language))
+            .bind(bind_currency(preferences.currency))
+            .bind(bind_measurement_unit(preferences.measurement_unit))
+            .bind(preferences.prohibited_content_consent)
+            .bind(bind_tier(account.tier))
+            .bind(bind_role(account.role))
+            .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
+            .bind(structured_address.and_then(|value| value.addressline.as_deref()))
+            .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
+            .bind(structured_address.and_then(|value| value.locality.as_deref()))
+            .bind(structured_address.and_then(|value| value.region.as_deref()))
+            .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
+            .bind(bind_country(structured_address))
+            .bind(geo_address.map(|value| value.lat))
+            .bind(geo_address.map(|value| value.lon))
+            .fetch_one(&mut *self.connection)
+            .await
+            .map_err(map_write_error)?;
+
+        VersionedUser::try_from(row).map_err(|source| UserRepositoryError::InvalidPersistedState {
+            source: box_error(source),
+        })
     }
 
     async fn update(
         &mut self,
         user: &User,
         expected_version: UserStorageVersion,
-    ) -> Result<(), UserRepositoryError> {
+    ) -> Result<VersionedUser, UserRepositoryError> {
         let profile = user.profile();
         let preferences = user.preferences();
         let account = user.account();
         let structured_address = profile.structured_address.as_ref();
         let geo_address = profile.geo_address;
 
-        let result = sqlx::query(
+        let sql = format!(
             r#"
             UPDATE users SET
                 email = $2,
@@ -183,37 +189,40 @@ impl UserRepository for SqlxUserRepository<'_> {
                 version = version + 1,
                 updated = now()
             WHERE user_id = $1 AND version = $20
+            RETURNING {}
             "#,
-        )
-        .bind(uuid::Uuid::from(user.id()))
-        .bind::<&str>(user.email().as_ref())
-        .bind(profile.first_name.as_ref().map(AsRef::as_ref))
-        .bind(profile.last_name.as_ref().map(AsRef::as_ref))
-        .bind(bind_language(preferences.language))
-        .bind(bind_currency(preferences.currency))
-        .bind(bind_measurement_unit(preferences.measurement_unit))
-        .bind(preferences.prohibited_content_consent)
-        .bind(bind_tier(account.tier))
-        .bind(bind_role(account.role))
-        .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
-        .bind(structured_address.and_then(|value| value.addressline.as_deref()))
-        .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
-        .bind(structured_address.and_then(|value| value.locality.as_deref()))
-        .bind(structured_address.and_then(|value| value.region.as_deref()))
-        .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
-        .bind(bind_country(structured_address))
-        .bind(geo_address.map(|value| value.lat))
-        .bind(geo_address.map(|value| value.lon))
-        .bind(version_to_i64(expected_version))
-        .execute(&mut *self.connection)
-        .await
-        .map_err(map_write_error)?;
+            user_columns()
+        );
 
-        if result.rows_affected() == 0 {
-            return Err(UserRepositoryError::ConcurrencyConflict);
-        }
+        let row = sqlx::query_as::<_, UserRow>(&sql)
+            .bind(uuid::Uuid::from(user.id()))
+            .bind::<&str>(user.email().as_ref())
+            .bind(profile.first_name.as_ref().map(AsRef::as_ref))
+            .bind(profile.last_name.as_ref().map(AsRef::as_ref))
+            .bind(bind_language(preferences.language))
+            .bind(bind_currency(preferences.currency))
+            .bind(bind_measurement_unit(preferences.measurement_unit))
+            .bind(preferences.prohibited_content_consent)
+            .bind(bind_tier(account.tier))
+            .bind(bind_role(account.role))
+            .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
+            .bind(structured_address.and_then(|value| value.addressline.as_deref()))
+            .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
+            .bind(structured_address.and_then(|value| value.locality.as_deref()))
+            .bind(structured_address.and_then(|value| value.region.as_deref()))
+            .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
+            .bind(bind_country(structured_address))
+            .bind(geo_address.map(|value| value.lat))
+            .bind(geo_address.map(|value| value.lon))
+            .bind(version_to_i64(expected_version))
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_write_error)?
+            .ok_or(UserRepositoryError::ConcurrencyConflict)?;
 
-        Ok(())
+        VersionedUser::try_from(row).map_err(|source| UserRepositoryError::InvalidPersistedState {
+            source: box_error(source),
+        })
     }
 }
 

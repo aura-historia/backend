@@ -96,7 +96,8 @@ where
             notifications: command.notifications,
             state: ResourceState::Active,
         });
-        self.watchlist
+        let entry = self
+            .watchlist
             .in_transaction(&mut tx)
             .insert(&entry)
             .await?;

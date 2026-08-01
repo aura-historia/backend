@@ -58,13 +58,13 @@ pub trait UserRepository: Send {
         stripe_customer_id: &StripeCustomerId,
     ) -> Result<Option<VersionedUser>, UserRepositoryError>;
 
-    async fn insert(&mut self, user: &User) -> Result<(), UserRepositoryError>;
+    async fn insert(&mut self, user: &User) -> Result<VersionedUser, UserRepositoryError>;
 
     async fn update(
         &mut self,
         user: &User,
         expected_version: UserStorageVersion,
-    ) -> Result<(), UserRepositoryError>;
+    ) -> Result<VersionedUser, UserRepositoryError>;
 }
 
 pub trait UserRepositoryFactory<Tx>: Send + Sync {

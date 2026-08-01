@@ -48,7 +48,7 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
     async fn insert(
         &mut self,
         product_match: &SearchFilterProductMatch,
-    ) -> Result<(), SearchFilterMatchRepositoryError> {
+    ) -> Result<SearchFilterProductMatch, SearchFilterMatchRepositoryError> {
         sqlx::query(
             "INSERT INTO search_filter_matches \
              (user_id, user_search_filter_id, product_id, origin_event_id, user_search_filter_name, enhanced_match_reason, feedback, created, updated) \
@@ -66,13 +66,13 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
         .execute(self.tx.connection())
         .await
         .map_err(|_| SearchFilterMatchRepositoryError::InsertFailed)?;
-        Ok(())
+        Ok(product_match.clone())
     }
 
     async fn update(
         &mut self,
         product_match: &SearchFilterProductMatch,
-    ) -> Result<(), SearchFilterMatchRepositoryError> {
+    ) -> Result<SearchFilterProductMatch, SearchFilterMatchRepositoryError> {
         sqlx::query(
             "UPDATE search_filter_matches SET user_search_filter_name=$3, enhanced_match_reason=$4, feedback=$5, updated=$6 \
              WHERE user_search_filter_id=$1 AND product_id=$2",
@@ -86,6 +86,6 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
         .execute(self.tx.connection())
         .await
         .map_err(|_| SearchFilterMatchRepositoryError::UpdateFailed)?;
-        Ok(())
+        Ok(product_match.clone())
     }
 }

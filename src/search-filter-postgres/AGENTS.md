@@ -10,6 +10,7 @@
 - Implements `search-filter-service` repositories for `SqlxTransaction`.
 - Implements ordinary `SqlxSearchFilterReader` for read models.
 - Maps `search_filters` and `search_filter_matches` rows.
+- Repository writes return storage-neutral persisted search-filter state.
 - Product id is enough for product references.
 
 ## Ownership

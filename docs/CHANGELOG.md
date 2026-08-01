@@ -6,6 +6,21 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-07-31 - Migrate Shop API
+
+### Changed
+
+- **Shop API routes** now have `aura-historia-api` implementations backed by canonical Postgres shop use cases:
+  - `GET /api/v1/shops/{shopId}`
+  - `GET /api/v1/by-slug/shops/{shopSlugId}`
+  - `GET /api/v1/shops`
+  - `POST /api/v1/shops`
+  - `PATCH /api/v1/shops/{shopId}`
+  - `GET /api/v1/me/partner-shops`
+- Optional Aura Historia access tokens are accepted on public read routes; invalid supplied bearer tokens return `401`.
+- `GetShopData` no longer includes `createdBy` or `updatedBy` because canonical shop storage has no audit actor columns.
+- Shop API errors use `application/problem+json` and stable `ApiErrorCode` constants.
+
 ## 2026-07-15 - Add User Measurement Unit Preference
 
 ### Added

@@ -18,7 +18,10 @@ pub enum NotificationRepositoryError {
 #[async_trait::async_trait]
 #[cfg_attr(feature = "mock", mockall::automock)]
 pub trait NotificationRepository: Send + Sync {
-    async fn insert(&self, notification: &Notification) -> Result<(), NotificationRepositoryError>;
+    async fn insert(
+        &self,
+        notification: &Notification,
+    ) -> Result<Notification, NotificationRepositoryError>;
 
     async fn find_by_origin_event_id(
         &self,

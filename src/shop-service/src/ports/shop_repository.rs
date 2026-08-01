@@ -4,10 +4,19 @@ use common::error::boxed::BoxError;
 use common::versioned::Versioned;
 use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
 use shop_core::shop::Shop;
+use time::OffsetDateTime;
 
 common::version_newtype!(ShopStorageVersion);
 
 pub type VersionedShop = Versioned<Shop, ShopStorageVersion>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedShop {
+    pub shop: Shop,
+    pub version: ShopStorageVersion,
+    pub created: OffsetDateTime,
+    pub updated: OffsetDateTime,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopRepositoryError {
@@ -47,13 +56,13 @@ pub trait ShopRepository: Send {
         slug_id: &ShopSlugId,
     ) -> Result<Option<VersionedShop>, ShopRepositoryError>;
 
-    async fn insert(&mut self, shop: &Shop) -> Result<(), ShopRepositoryError>;
+    async fn insert(&mut self, shop: &Shop) -> Result<PersistedShop, ShopRepositoryError>;
 
     async fn update(
         &mut self,
         shop: &Shop,
         expected_version: ShopStorageVersion,
-    ) -> Result<(), ShopRepositoryError>;
+    ) -> Result<PersistedShop, ShopRepositoryError>;
 }
 
 pub trait ShopRepositoryFactory<Tx>: Send + Sync {

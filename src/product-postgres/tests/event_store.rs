@@ -25,7 +25,6 @@ use url::Url;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_duplicate_event_and_missing_current_event_in_product_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -42,11 +41,11 @@ async fn should_report_duplicate_event_and_missing_current_event_in_product_post
         .insert(&product, event.event_id)
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert product: {error:?}"),
     }
     match events.in_transaction(&mut tx).append(&event).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to append first event: {error:?}"),
     }
     commit(tx).await;

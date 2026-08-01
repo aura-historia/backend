@@ -205,18 +205,23 @@ Technology-specific names are appropriate for adapter crates because they descri
 
 ### 3.5 Transport and composition root
 
-REST code lives in the API crate:
+REST code lives in the API crate. The current canonical REST runtime is `aura-historia-api`, an axum process without API Gateway adapters:
 
 ```text
-api/
+aura-historia-api/
 └── src/
-    ├── record/
-    │   ├── controller.rs
-    │   ├── request_dto.rs
-    │   ├── response_dto.rs
-    │   └── mapping.rs
-    └── router.rs
+    ├── main.rs              # logging, config, shutdown
+    ├── lib.rs               # router, server, composition root
+    ├── state.rs             # axum application state
+    ├── error.rs             # problem+json API errors
+    ├── auth/                # transport authentication
+    └── <unit>/
+        ├── mod.rs           # unit module exports
+        ├── types.rs         # shared REST enum/value DTOs for this unit only
+        └── <endpoint>.rs    # one controller endpoint plus unit tests
 ```
+
+Each durable route unit SHOULD have its own module, for example `shops/`. Each endpoint SHOULD live in one file, for example `shops/get_shop.rs`. Unit tests for that endpoint SHOULD live in that endpoint file. Shared public response payloads that are used by many endpoints MAY live in a focused file such as `shops/shop_data.rs`; keep shared enum/value DTOs in `shops/types.rs`.
 
 The runtime/composition-root crate constructs concrete adapters and injects them into service-owned handlers:
 
@@ -229,6 +234,8 @@ runtime/
 ```
 
 The composition root MAY depend on every crate required to assemble the process. It MUST NOT contain business behavior.
+
+In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients. Route files authenticate and map only; protected endpoint authorization policies MUST live inside service use cases or service-owned policies, not in controllers.
 
 ### 3.6 Dependency direction
 
@@ -786,17 +793,19 @@ pub trait RecordRepository: Send {
     async fn insert(
         &mut self,
         record: &Record,
-    ) -> Result<(), RecordRepositoryError>;
+    ) -> Result<VersionedRecord, RecordRepositoryError>;
 
     async fn update(
         &mut self,
         record: &Record,
         expected_version: RecordStorageVersion,
-    ) -> Result<(), RecordRepositoryError>;
+    ) -> Result<VersionedRecord, RecordRepositoryError>;
 }
 ```
 
 The repository port is public because a separate adapter crate implements it.
+
+Repository `insert` and `update` methods MUST return the persisted aggregate state, not `()`. When storage-generated metadata such as `created`, `updated`, or version is needed by the use case result, return a storage-neutral persisted model that contains the aggregate plus that metadata. SQL/Dynamo row types MUST still stay private to the adapter.
 
 A repository MAY contain additional aggregate-relevant lookup methods when they are needed to reconstruct or enforce the aggregate boundary.
 
@@ -857,9 +866,9 @@ async fn get_by_id(
 ) -> Result<Record, GetRecordError>;
 ```
 
-`insert` means the aggregate MUST be new.
+`insert` means the aggregate MUST be new and MUST return the inserted aggregate state.
 
-`update` means the aggregate MUST exist and MUST enforce optimistic concurrency through an internal loaded storage version.
+`update` means the aggregate MUST exist, MUST enforce optimistic concurrency through an internal loaded storage version, and MUST return the updated aggregate state.
 
 A generic `save` SHOULD NOT be used unless new/existing semantics and storage-version handling are explicit.
 
@@ -1120,6 +1129,8 @@ api/record/mapping.rs
 ```
 
 Small mappings used by only one controller MAY live in the controller file.
+
+REST enum/value DTOs shared by multiple endpoints in the same unit SHOULD live in that unit's `types.rs`, for example `shops/types.rs`. Do not put endpoint-specific request or response DTOs there. Keep endpoint payload DTOs beside the endpoint unless they are genuinely shared public REST shapes.
 
 The service MUST NOT know REST DTOs or HTTP status codes.
 
@@ -1542,21 +1553,23 @@ where
 
         let outcome = record.rename(new_title)?;
 
-        if outcome.changed() {
+        let persisted = if outcome.changed() {
             self.records
                 .in_transaction(&mut tx)
                 .update(
                     &record,
                     loaded_version,
                 )
-                .await?;
-        }
+                .await?
+        } else {
+            Versioned::new(record, loaded_version)
+        };
 
         tx.commit().await?;
 
         Ok(RenameRecordResult {
-            record_id: record.id(),
-            title: record.title().to_string(),
+            record_id: persisted.value.id(),
+            title: persisted.value.title().to_string(),
         })
     }
 }
@@ -1565,6 +1578,8 @@ where
 The handler is datastore-independent and lives in `record-service`.
 
 A successful transaction MUST end in explicit `commit().await`.
+
+A write use case MUST NOT read after write just to build its response. The repository write result is the source for the returned command view/result. If the API needs a richer write response, make the repository return a storage-neutral persisted model with the needed metadata, or make the use-case result less rich.
 
 An uncommitted concrete transaction that leaves scope is expected to roll back. Dropping or “closing” a transaction MUST NOT be treated as commit.
 
@@ -2004,6 +2019,14 @@ Controllers map service errors to HTTP status and response DTOs.
 
 The service MUST NOT return HTTP status codes.
 
+In `aura-historia-api`, HTTP failures MUST use the crate-local `ApiError` in `error.rs`. It serializes `application/problem+json` with stable public fields such as `status`, `title`, `error`, optional `source`, and optional `detail`. Its fields SHOULD stay private; construct errors through focused constructors and builder methods.
+
+Mappings from transport/service errors to `ApiError` MUST be implemented as `From<ErrorType> for ApiError` in `error.rs` or a unit error-mapping module re-exported by `error.rs`. Do not keep endpoint-local `api_error_from_*` functions once the mapping is reusable for the route unit.
+
+Controllers MAY create `ApiError` directly only for transport-owned validation, such as malformed path parameters, missing headers, or invalid query syntax. Service/use-case errors MUST flow through `From` mappings.
+
+Problem JSON error codes are public API. They MUST be stable, documented by tests, and updated in `docs/swagger.yaml` / `docs/CHANGELOG.md` when behavior changes. In `aura-historia-api`, error codes MUST be declared as dedicated `ApiErrorCode` constants in `error.rs`; controllers and tests MUST use those constants instead of inline string literals such as `"INVALID_UUID"`.
+
 ### Logging errors
 
 Avoid logging the same failure at every layer.
@@ -2153,6 +2176,8 @@ REST authentication is performed by middleware or extractors.
 
 The transport layer validates JWTs or other access tokens and maps validated credentials into a transport principal. Service and core code MUST NOT parse tokens, inspect authorization headers, or depend on JWT/framework types.
 
+`aura-historia-api/auth/` owns this boundary for the axum runtime. It accepts Cognito JWTs and Aura Historia access tokens through one authenticator interface. Aura Historia access tokens identify delegated users and map persisted token scopes to `CredentialCapability` values.
+
 Protected endpoints SHOULD use an extractor that guarantees an authenticated principal:
 
 ```rust
@@ -2179,6 +2204,8 @@ Rules for public endpoints:
 
 The same principle applies to service credentials and system jobs.
 
+Public axum controllers SHOULD use optional authentication. Missing `Authorization` becomes `Principal::Anonymous`; invalid supplied `Authorization` becomes an HTTP authentication error. This rule is part of the transport contract and MUST be unit-tested for every public endpoint that accepts optional auth.
+
 ### 15.2 Service-owned principal model
 
 Controllers map transport principals into service-owned types:
@@ -2203,6 +2230,8 @@ pub struct OperationContext {
 ```
 
 Framework-specific authentication objects MUST NOT cross the transport boundary.
+
+`aura-historia-api` creates server-side request IDs and accepts correlation IDs only from the configured transport metadata source. Controllers map the transport principal plus request metadata into `OperationContext` before invoking a use case.
 
 Externally invoked use cases SHOULD receive `&OperationContext` separately from their command or query request:
 
@@ -2394,7 +2423,8 @@ A controller owns:
 - request-to-use-case mapping;
 - use-case invocation;
 - use-case-result-to-response mapping;
-- service-error-to-HTTP mapping.
+- cache and representation headers owned by the public REST contract;
+- service-error-to-HTTP mapping through crate error mappings.
 
 A controller MUST NOT:
 
@@ -2402,6 +2432,8 @@ A controller MUST NOT:
 - call a repository;
 - build SQL or search DSL;
 - compose multiple data sources;
+- construct concrete adapters;
+- enforce business authorization policy such as admin role, ownership, or partner-shop relation;
 - enforce domain invariants;
 - mutate aggregates;
 - return storage types;
@@ -2411,13 +2443,24 @@ Canonical flow:
 
 ```text
 HTTP request
-    -> REST request DTO
+    -> axum extractor
+    -> transport auth principal
+    -> OperationContext
+    -> REST request DTO/path/query values
     -> service command/request
-    -> use-case trait
+    -> use-case trait from AppState
     -> service result/view
     -> REST response DTO
-    -> HTTP response
+    -> HTTP response or ApiError problem JSON
 ```
+
+`aura-historia-api/state.rs` owns axum state structs. State SHOULD contain inbound use-case trait objects and authenticator trait objects, not repositories. Route modules SHOULD take state through axum `State<T>` and remain thin.
+
+For read endpoints with cache behavior, cache headers are REST contract and belong in the controller. If the cache policy depends on anonymous vs authenticated access, derive it from `OperationContext.principal`, not from raw headers.
+
+Query use cases SHOULD be read-optimized for their public result shape. If an API needs a summary list, the query use case should return summary read models directly instead of returning IDs for controller-side hydration. Controllers MUST NOT introduce N+1 reads to assemble response payloads.
+
+Command use cases SHOULD return the public command result/view directly from their write model. Controllers MUST NOT perform a follow-up read after `create`, `update`, or similar writes to assemble the response.
 
 ---
 
@@ -2579,6 +2622,8 @@ Controller tests SHOULD verify:
 
 They SHOULD mock only the inbound use-case trait, not repositories.
 
+For axum API controllers, tests SHOULD exercise the `Router` with fake inbound use-case traits and fake authenticators. Cover success, request validation, auth rejection, service-error mapping, response DTO shape, and contract headers.
+
 ### 20.8 Acceptance tests
 
 Acceptance tests SHOULD:
@@ -2587,6 +2632,29 @@ Acceptance tests SHOULD:
 - work only against the exposed REST API;
 - be written as theses about system behavior;
 - live in the API/runtime black-box `tests/` suite.
+
+For `aura-historia-api`, black-box API tests SHOULD use `test-api::AuraHistoriaApi` as a process-lived test service. Declare the API once near the top of the test file and pass `&AURA_API` to `#[aura_integration_test]`; do not start and stop the HTTP server inside each test body.
+
+```rust
+const POSTGRES: test_api::Postgres = test_api::Postgres::new("migrations");
+const DYNAMODB: test_api::DynamoDB = test_api::DynamoDB();
+static AURA_API: test_api::AuraHistoriaApi = test_api::AuraHistoriaApi::new(aura_api_app);
+
+#[test_api::aura_integration_test(services = [POSTGRES, DYNAMODB, &AURA_API])]
+async fn should_get_shop_by_id_with_aura_access_token() {
+    let response = match reqwest::Client::new()
+        .get(format!("{}/api/v1/shops/{shop_id}", AURA_API.base_url()))
+        .bearer_auth(token)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => panic!("failed to call API: {error}"),
+    };
+}
+```
+
+Acceptance tests for authenticated routes SHOULD use Aura Historia access tokens when the public contract supports them. Seed credentials through the same storage adapter used by the runtime, then call the real HTTP endpoint with a bearer token. Keep one test file per API unit, for example `tests/shop_api.rs`.
 
 ## 21. Naming conventions
 

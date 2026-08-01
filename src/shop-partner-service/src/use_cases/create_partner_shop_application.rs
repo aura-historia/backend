@@ -179,7 +179,7 @@ where
                         source: static_error("shop slug already exists"),
                     });
                 }
-                self.shops.in_transaction(&mut tx).insert(&shop).await?;
+                let shop = self.shops.in_transaction(&mut tx).insert(&shop).await?.shop;
                 PartnerShopApplicationPayload::New { shop_id: shop.id() }
             }
         };
@@ -189,10 +189,12 @@ where
             applicant_user_id: command.applicant_user_id,
             payload,
         });
-        self.applications
+        let application = self
+            .applications
             .in_transaction(&mut tx)
             .insert(&application)
-            .await?;
+            .await?
+            .value;
 
         tx.commit()
             .await

@@ -2,18 +2,27 @@
 
 ## Purpose
 
-- Own bare-metal REST API runtime skeleton and transport auth service for #1341.
+- Own axum REST API runtime and transport auth service for #1341.
 
 ## Core Design
 
 - `main.rs` bootstraps logging, config, and graceful shutdown.
-- `lib.rs` owns runtime config, minimal router, health/readiness endpoints, and server loop.
+- `lib.rs` owns runtime config, axum router, health/readiness endpoints, server loop, and composition root wiring.
+- `state.rs` owns axum application state shared by route modules.
+- `error.rs` owns API problem JSON errors.
 - `auth/` owns bearer auth extraction, Cognito JWT verification via cached JWKS, Aura access-token auth, and mapping to `OperationContext`.
 - Auth accepts Cognito JWTs and Aura access tokens through one interface. Cognito maps to open-world first-party `Principal::User`; Aura access tokens map explicit scopes to closed-world delegated capabilities.
-- Auth extractors only authenticate. Required capability checks belong in service/use-case code.
+- Auth extractors only authenticate. Required capability and business policy checks belong in service/use-case code, not controllers.
 - Request IDs are server-created by future axum middleware; clients may only provide correlation IDs if middleware accepts them.
 - No API Gateway adapter.
-- Domain routes will be mounted here in later tasks.
+- `shops/` owns shop REST controllers for:
+  - `GET /api/v1/shops/{shopId}`
+  - `GET /api/v1/by-slug/shops/{shopSlugId}`
+  - `GET /api/v1/shops`
+  - `POST /api/v1/shops`
+  - `PATCH /api/v1/shops/{shopId}`
+  - `GET /api/v1/me/partner-shops`
+- Runtime shop create/update geocoding is not wired yet; structured-address writes return temporary failure until a geocoder adapter is added.
 
 ## Ownership
 
@@ -39,4 +48,4 @@
 
 ## Child DOX Index
 
-- None.
+- `shops/` — shop REST controllers.

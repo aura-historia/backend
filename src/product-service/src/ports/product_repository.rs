@@ -69,14 +69,14 @@ pub trait ProductRepository: Send {
         &mut self,
         product: &Product,
         current_event_id: EventId,
-    ) -> Result<(), ProductRepositoryError>;
+    ) -> Result<Versioned<Product, EventId>, ProductRepositoryError>;
 
     async fn update(
         &mut self,
         product: &Product,
         expected_event_id: EventId,
         new_event_id: EventId,
-    ) -> Result<(), ProductRepositoryError>;
+    ) -> Result<Versioned<Product, EventId>, ProductRepositoryError>;
 }
 
 pub trait ProductRepositoryFactory<Tx>: Send + Sync {

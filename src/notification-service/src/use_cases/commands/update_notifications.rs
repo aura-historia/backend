@@ -152,9 +152,9 @@ mod tests {
     impl NotificationRepository for FakeReaderWriter {
         async fn insert(
             &self,
-            _notification: &Notification,
-        ) -> Result<(), NotificationRepositoryError> {
-            Ok(())
+            notification: &Notification,
+        ) -> Result<Notification, NotificationRepositoryError> {
+            Ok(notification.clone())
         }
 
         async fn find_by_origin_event_id(

@@ -47,13 +47,13 @@ pub trait PartnerShopApplicationRepository: Send {
     async fn insert(
         &mut self,
         application: &PartnerShopApplication,
-    ) -> Result<(), PartnerShopApplicationRepositoryError>;
+    ) -> Result<VersionedPartnerShopApplication, PartnerShopApplicationRepositoryError>;
 
     async fn update(
         &mut self,
         application: &PartnerShopApplication,
         expected_version: PartnerShopApplicationStorageVersion,
-    ) -> Result<(), PartnerShopApplicationRepositoryError>;
+    ) -> Result<VersionedPartnerShopApplication, PartnerShopApplicationRepositoryError>;
 
     async fn delete(
         &mut self,

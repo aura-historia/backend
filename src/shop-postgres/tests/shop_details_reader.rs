@@ -16,7 +16,6 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 use url::Url;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_read_shop_details_by_slug_and_shopify_domain() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -27,7 +26,7 @@ async fn should_read_shop_details_by_slug_and_shopify_domain() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     let by_slug = match details
@@ -55,7 +54,6 @@ async fn should_read_shop_details_by_slug_and_shopify_domain() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_return_none_when_shop_details_rows_are_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);

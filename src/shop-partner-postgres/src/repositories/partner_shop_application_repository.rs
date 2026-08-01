@@ -92,34 +92,42 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
     async fn insert(
         &mut self,
         application: &PartnerShopApplication,
-    ) -> Result<(), PartnerShopApplicationRepositoryError> {
-        sqlx::query(
+    ) -> Result<VersionedPartnerShopApplication, PartnerShopApplicationRepositoryError> {
+        let sql = format!(
             r#"
             INSERT INTO partner_shop_applications (
                 partner_shop_application_id, applicant_user_id, business_state, execution_state,
                 payload_type, shop_id, task_token
             ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+            RETURNING {}
             "#,
-        )
-        .bind(application.id().to_string())
-        .bind(uuid::Uuid::from(application.applicant_user_id()))
-        .bind(bind_business_state(application.business_state()))
-        .bind(bind_execution_state(application.execution_state()))
-        .bind(bind_payload_type(application.payload()))
-        .bind(uuid::Uuid::from(application.shop_id()))
-        .bind(application.task_token())
-        .execute(&mut *self.connection)
-        .await
-        .map_err(PartnerShopApplicationWriteSqlxError)?;
-        Ok(())
+            APPLICATION_COLUMNS
+        );
+
+        let row = sqlx::query_as::<_, PartnerShopApplicationRow>(&sql)
+            .bind(application.id().to_string())
+            .bind(uuid::Uuid::from(application.applicant_user_id()))
+            .bind(bind_business_state(application.business_state()))
+            .bind(bind_execution_state(application.execution_state()))
+            .bind(bind_payload_type(application.payload()))
+            .bind(uuid::Uuid::from(application.shop_id()))
+            .bind(application.task_token())
+            .fetch_one(&mut *self.connection)
+            .await
+            .map_err(PartnerShopApplicationWriteSqlxError)?;
+        VersionedPartnerShopApplication::try_from(row).map_err(|source| {
+            PartnerShopApplicationRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            }
+        })
     }
 
     async fn update(
         &mut self,
         application: &PartnerShopApplication,
         expected_version: PartnerShopApplicationStorageVersion,
-    ) -> Result<(), PartnerShopApplicationRepositoryError> {
-        let result = sqlx::query(
+    ) -> Result<VersionedPartnerShopApplication, PartnerShopApplicationRepositoryError> {
+        let sql = format!(
             r#"
             UPDATE partner_shop_applications
             SET business_state = $1,
@@ -130,22 +138,28 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
                 version = version + 1,
                 updated = now()
             WHERE partner_shop_application_id = $6::uuid AND version = $7
+            RETURNING {}
             "#,
-        )
-        .bind(bind_business_state(application.business_state()))
-        .bind(bind_execution_state(application.execution_state()))
-        .bind(bind_payload_type(application.payload()))
-        .bind(uuid::Uuid::from(application.shop_id()))
-        .bind(application.task_token())
-        .bind(application.id().to_string())
-        .bind(version_to_i64(expected_version))
-        .execute(&mut *self.connection)
-        .await
-        .map_err(PartnerShopApplicationWriteSqlxError)?;
-        if result.rows_affected() == 0 {
-            return Err(PartnerShopApplicationRepositoryError::ConcurrencyConflict);
-        }
-        Ok(())
+            APPLICATION_COLUMNS
+        );
+
+        let row = sqlx::query_as::<_, PartnerShopApplicationRow>(&sql)
+            .bind(bind_business_state(application.business_state()))
+            .bind(bind_execution_state(application.execution_state()))
+            .bind(bind_payload_type(application.payload()))
+            .bind(uuid::Uuid::from(application.shop_id()))
+            .bind(application.task_token())
+            .bind(application.id().to_string())
+            .bind(version_to_i64(expected_version))
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(PartnerShopApplicationWriteSqlxError)?
+            .ok_or(PartnerShopApplicationRepositoryError::ConcurrencyConflict)?;
+        VersionedPartnerShopApplication::try_from(row).map_err(|source| {
+            PartnerShopApplicationRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            }
+        })
     }
 
     async fn delete(

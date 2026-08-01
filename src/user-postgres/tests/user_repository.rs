@@ -20,7 +20,6 @@ use user_service::ports::{UserRepository, UserRepositoryError, UserRepositoryFac
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_insert_find_update_user_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -29,7 +28,7 @@ async fn should_insert_find_update_user_in_postgres() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
     let loaded_by_id = match users.in_transaction(&mut tx).find_by_id(user.id()).await {
@@ -69,7 +68,7 @@ async fn should_insert_find_update_user_in_postgres() {
         .update(&user, loaded_by_id.version)
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to update user: {error:?}"),
     }
     commit(tx).await;
@@ -90,7 +89,6 @@ async fn should_insert_find_update_user_in_postgres() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_user_repository_conflicts_and_missing_rows() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -109,7 +107,7 @@ async fn should_report_user_repository_conflicts_and_missing_rows() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
     let missing = match users
@@ -142,7 +140,6 @@ async fn should_report_user_repository_conflicts_and_missing_rows() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_user_update_concurrency_conflict() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -151,7 +148,7 @@ async fn should_report_user_update_concurrency_conflict() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
     let loaded = match users.in_transaction(&mut tx).find_by_id(user.id()).await {
@@ -165,7 +162,7 @@ async fn should_report_user_update_concurrency_conflict() {
         .update(&user, loaded.version)
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed first update: {error:?}"),
     }
     let stale = users
@@ -180,7 +177,6 @@ async fn should_report_user_update_concurrency_conflict() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_rollback_insert_when_transaction_drops() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -189,7 +185,7 @@ async fn should_rollback_insert_when_transaction_drops() {
 
     let mut tx = begin(&unit_of_work).await;
     match users.in_transaction(&mut tx).insert(&user).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert rollback user: {error:?}"),
     }
     drop(tx);
@@ -205,7 +201,6 @@ async fn should_rollback_insert_when_transaction_drops() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_concurrency_conflict_when_updating_missing_user() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);

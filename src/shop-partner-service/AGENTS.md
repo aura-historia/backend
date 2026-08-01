@@ -11,6 +11,7 @@
 - Root modules: `ports`, `use_cases`, `use_case_bundle`.
 - Handlers use `UnitOfWork` and transaction-scoped repository/reader factories.
 - New shop application creates a draft shop first, then the application row.
+- Repository writes return persisted partner-shop application state.
 
 ## Ownership
 

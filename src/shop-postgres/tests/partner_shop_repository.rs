@@ -19,7 +19,6 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 use url::Url;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_missing_user_when_granting_partner_shop() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -29,7 +28,7 @@ async fn should_report_missing_user_when_granting_partner_shop() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     let result = partner_shops
@@ -44,7 +43,6 @@ async fn should_report_missing_user_when_granting_partner_shop() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_report_missing_shop_when_granting_partner_shop() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -65,7 +63,6 @@ async fn should_report_missing_shop_when_granting_partner_shop() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_grant_partner_shop_idempotently() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -78,7 +75,7 @@ async fn should_grant_partner_shop_idempotently() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     for _ in 0..2 {
@@ -87,7 +84,7 @@ async fn should_grant_partner_shop_idempotently() {
             .grant(user_id, shop.id())
             .await
         {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(error) => panic!("failed to grant partner shop idempotently: {error:?}"),
         }
     }

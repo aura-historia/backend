@@ -219,21 +219,40 @@ name = "aura-historia-api"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
+ "axum",
  "base64 0.23.0",
  "common",
+ "geo",
  "http 1.5.0",
+ "httpdate",
+ "isocountry",
  "jsonwebtokens",
  "openssl",
  "reqwest 0.12.28",
  "rstest",
  "serde",
+ "serde-email",
  "serde_json",
+ "serde_qs",
+ "serial_test",
+ "shop-core",
+ "shop-postgres",
+ "shop-service",
+ "sqlx",
+ "test-api",
  "thiserror 2.0.19",
  "time",
  "tokio",
+ "tower",
  "tracing",
+ "url",
  "user-core",
+ "user-dynamodb",
+ "user-postgres",
  "user-service",
+ "uuid",
 ]
 
 [[package]]
@@ -1172,6 +1191,58 @@ dependencies = [
  "serde_dynamo",
  "serde_json",
  "serde_with",
+]
+
+[[package]]
+name = "axum"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
+dependencies = [
+ "axum-core",
+ "bytes",
+ "form_urlencoded",
+ "futures-util",
+ "http 1.5.0",
+ "http-body 1.1.0",
+ "http-body-util",
+ "hyper 1.11.0",
+ "hyper-util",
+ "itoa 1.0.18",
+ "matchit",
+ "memchr",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "serde_core",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_urlencoded",
+ "sync_wrapper 1.0.2",
+ "tokio",
+ "tower",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "axum-core"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "http 1.5.0",
+ "http-body 1.1.0",
+ "http-body-util",
+ "mime",
+ "pin-project-lite",
+ "sync_wrapper 1.0.2",
+ "tower-layer",
+ "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -4321,6 +4392,12 @@ name = "matches"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2532096657941c2fea9c289d370a250971c689d4f143798ff67113ec042024a5"
+
+[[package]]
+name = "matchit"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "md-5"
@@ -7691,6 +7768,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "user-service",
 ]
 
 [[package]]
@@ -8532,6 +8610,7 @@ dependencies = [
  "aws-sdk-sqs",
  "aws-tests-common",
  "aws_lambda_events",
+ "axum",
  "base64 0.23.0",
  "common",
  "ctrlc",

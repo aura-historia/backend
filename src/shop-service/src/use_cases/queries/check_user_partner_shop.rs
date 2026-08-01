@@ -254,6 +254,14 @@ mod tests {
                 }
             })
         }
+
+        async fn list_summaries_for_user(
+            &mut self,
+            _user_id: UserId,
+        ) -> Result<Vec<crate::use_cases::queries::search_shops::ShopSummary>, PartnerShopReadError>
+        {
+            Ok(vec![])
+        }
     }
 
     #[tokio::test]

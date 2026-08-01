@@ -2,17 +2,22 @@ use crate::ports::{
     ShopGeocoder, ShopGeocoderError, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
 };
 use crate::use_cases::commands::create_shop::woocommerce_integration;
+use crate::use_cases::queries::check_user_partner_shop::{
+    CheckUserPartnerShopError, CheckUserPartnerShopRequest, CheckUserPartnerShopUseCase,
+};
+use crate::use_cases::queries::get_shop::ShopDetailsView;
 use common::change_outcome::ChangeOutcome;
 use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
 use common::language::domain::Language;
 use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::patch_field::PatchField;
+use common::shop_id::ShopId;
 use common::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use common::user_id::UserId;
 use serde_email::Email;
 use shop_core::{
     address::StructuredAddress,
@@ -26,6 +31,9 @@ use shop_core::{
 };
 use std::collections::HashSet;
 use url::Url;
+use user_service::use_cases::queries::check_user_admin::{
+    CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
+};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateShopCommand {
@@ -65,12 +73,7 @@ impl UpdateShopCommand {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct UpdateShopResult {
-    pub shop_id: ShopId,
-    pub shop_slug_id: ShopSlugId,
-    pub name: ShopName,
-}
+pub type UpdateShopResult = ShopDetailsView;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateShopError {
@@ -125,28 +128,40 @@ pub trait UpdateShopUseCase: Send + Sync {
     ) -> Result<UpdateShopResult, UpdateShopError>;
 }
 
-pub struct UpdateShopHandler<U, R, G> {
+pub struct UpdateShopHandler<U, R, G, A, P> {
     unit_of_work: U,
     shops: R,
     geocoder: G,
+    check_user_admin: A,
+    check_user_partner_shop: P,
 }
 
-impl<U, R, G> UpdateShopHandler<U, R, G> {
-    pub fn new(unit_of_work: U, shops: R, geocoder: G) -> Self {
+impl<U, R, G, A, P> UpdateShopHandler<U, R, G, A, P> {
+    pub fn new(
+        unit_of_work: U,
+        shops: R,
+        geocoder: G,
+        check_user_admin: A,
+        check_user_partner_shop: P,
+    ) -> Self {
         Self {
             unit_of_work,
             shops,
             geocoder,
+            check_user_admin,
+            check_user_partner_shop,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, G> UpdateShopUseCase for UpdateShopHandler<U, R, G>
+impl<U, R, G, A, P> UpdateShopUseCase for UpdateShopHandler<U, R, G, A, P>
 where
     U: UnitOfWork,
     R: ShopRepositoryFactory<U::Tx>,
     G: ShopGeocoder,
+    A: CheckUserAdminUseCase,
+    P: CheckUserPartnerShopUseCase,
 {
     #[tracing::instrument(
         name = "update_shop",
@@ -168,6 +183,13 @@ where
             .require()
             .credential_capability(CredentialCapability::ShopsWrite)
             .authorize::<UpdateShopError>()?;
+        ensure_can_update_shop(
+            context,
+            command.shop_id,
+            &self.check_user_admin,
+            &self.check_user_partner_shop,
+        )
+        .await?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -193,12 +215,21 @@ where
 
         let outcome = apply_update(&mut shop, command)?;
 
-        if outcome.changed() {
+        let view = if outcome.changed() {
             self.shops
                 .in_transaction(&mut tx)
                 .update(&shop, version)
-                .await?;
-        }
+                .await?
+                .into()
+        } else {
+            crate::ports::PersistedShop {
+                shop: shop.clone(),
+                version,
+                created: time::OffsetDateTime::now_utc(),
+                updated: time::OffsetDateTime::now_utc(),
+            }
+            .into()
+        };
 
         tx.commit()
             .await
@@ -214,17 +245,7 @@ where
             outcome = "success",
         );
 
-        Ok(UpdateShopResult::from(&shop))
-    }
-}
-
-impl From<&Shop> for UpdateShopResult {
-    fn from(shop: &Shop) -> Self {
-        Self {
-            shop_id: shop.id(),
-            shop_slug_id: shop.slug_id().clone(),
-            name: shop.name().clone(),
-        }
+        Ok(view)
     }
 }
 
@@ -252,6 +273,94 @@ impl From<ShopRepositoryError> for UpdateShopError {
                 Self::InvalidPersistedState { source }
             }
             ShopRepositoryError::Internal { source } => Self::Internal { source },
+        }
+    }
+}
+
+async fn ensure_can_update_shop<A, P>(
+    context: &OperationContext,
+    shop_id: ShopId,
+    check_user_admin: &A,
+    check_user_partner_shop: &P,
+) -> Result<(), UpdateShopError>
+where
+    A: CheckUserAdminUseCase,
+    P: CheckUserPartnerShopUseCase,
+{
+    let Some(user_id) = actor_user_id(context)? else {
+        return Ok(());
+    };
+
+    match check_user_admin
+        .execute(context, CheckUserAdminRequest { user_id })
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(CheckUserAdminError::Forbidden) => {
+            ensure_user_partner_shop(context, user_id, shop_id, check_user_partner_shop).await
+        }
+        Err(error) => Err(map_admin_error(error)),
+    }
+}
+
+async fn ensure_user_partner_shop<P>(
+    context: &OperationContext,
+    user_id: UserId,
+    shop_id: ShopId,
+    check_user_partner_shop: &P,
+) -> Result<(), UpdateShopError>
+where
+    P: CheckUserPartnerShopUseCase,
+{
+    let result = check_user_partner_shop
+        .execute(context, CheckUserPartnerShopRequest { user_id, shop_id })
+        .await
+        .map_err(map_partner_error)?;
+    if result.is_partner {
+        Ok(())
+    } else {
+        Err(UpdateShopError::Forbidden)
+    }
+}
+
+fn actor_user_id(context: &OperationContext) -> Result<Option<UserId>, UpdateShopError> {
+    match context.principal {
+        Principal::Anonymous => Err(UpdateShopError::AuthenticatedActorRequired),
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Ok(Some(user_id)),
+        Principal::Service(_) | Principal::System => Ok(None),
+    }
+}
+
+fn map_admin_error(error: CheckUserAdminError) -> UpdateShopError {
+    match error {
+        CheckUserAdminError::Forbidden | CheckUserAdminError::UserNotFound => {
+            UpdateShopError::Forbidden
+        }
+        CheckUserAdminError::TemporarilyUnavailable { source } => {
+            UpdateShopError::TemporarilyUnavailable { source }
+        }
+        CheckUserAdminError::InvalidReadModel { source }
+        | CheckUserAdminError::Internal { source } => UpdateShopError::Internal { source },
+        CheckUserAdminError::BeginTransactionFailed
+        | CheckUserAdminError::CommitTransactionFailed => UpdateShopError::TemporarilyUnavailable {
+            source: static_error("check user admin transaction failed"),
+        },
+    }
+}
+
+fn map_partner_error(error: CheckUserPartnerShopError) -> UpdateShopError {
+    match error {
+        CheckUserPartnerShopError::Forbidden => UpdateShopError::Forbidden,
+        CheckUserPartnerShopError::TemporarilyUnavailable { source } => {
+            UpdateShopError::TemporarilyUnavailable { source }
+        }
+        CheckUserPartnerShopError::InvalidReadModel { source }
+        | CheckUserPartnerShopError::Internal { source } => UpdateShopError::Internal { source },
+        CheckUserPartnerShopError::BeginTransactionFailed
+        | CheckUserPartnerShopError::CommitTransactionFailed => {
+            UpdateShopError::TemporarilyUnavailable {
+                source: static_error("check user partner shop transaction failed"),
+            }
         }
     }
 }
@@ -500,17 +609,23 @@ fn apply_optional_patch<T>(current: Option<T>, patch: PatchField<T>) -> Option<T
 mod tests {
     use super::*;
     use crate::ports::{
-        ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion,
-        VersionedShop,
+        PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
+        ShopStorageVersion, VersionedShop,
     };
+    use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopResult;
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::shop_name::ShopName;
+    use common::shop_slug_id::ShopSlugId;
     use common::transaction::{TransactionError, UnitOfWork};
     use common::versioned::Versioned;
     use shop_core::address::GeoAddress;
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop::NewShop;
     use std::sync::{Arc, Mutex};
+    use user_service::use_cases::queries::check_user_admin::{
+        CheckUserAdminRequest, CheckUserAdminResult,
+    };
 
     #[derive(Clone, Copy)]
     enum RepoErrorKind {
@@ -561,6 +676,9 @@ mod tests {
     struct FakeShopRepository {
         state: Arc<Mutex<State>>,
     }
+
+    #[derive(Clone, Copy)]
+    struct AllowPolicy;
 
     #[async_trait::async_trait]
     impl UnitOfWork for FakeUnitOfWork {
@@ -626,24 +744,52 @@ mod tests {
             Ok(None)
         }
 
-        async fn insert(&mut self, _shop: &Shop) -> Result<(), ShopRepositoryError> {
-            Ok(())
+        async fn insert(&mut self, _shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
+            Ok(persisted_shop(_shop.clone()))
         }
 
         async fn update(
             &mut self,
             shop: &Shop,
             _expected_version: ShopStorageVersion,
-        ) -> Result<(), ShopRepositoryError> {
+        ) -> Result<PersistedShop, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.update += 1;
                 match state.update_error {
                     Some(kind) => Err(shop_repo_error(kind)),
                     None => {
                         state.updated = Some(shop.clone());
-                        Ok(())
+                        Ok(persisted_shop(shop.clone()))
                     }
                 }
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CheckUserAdminUseCase for AllowPolicy {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            request: CheckUserAdminRequest,
+        ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
+            Ok(CheckUserAdminResult {
+                user_id: request.user_id,
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CheckUserPartnerShopUseCase for AllowPolicy {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            request: CheckUserPartnerShopRequest,
+        ) -> Result<CheckUserPartnerShopResult, CheckUserPartnerShopError> {
+            Ok(CheckUserPartnerShopResult {
+                user_id: request.user_id,
+                shop_id: request.shop_id,
+                is_partner: true,
             })
         }
     }
@@ -724,7 +870,7 @@ mod tests {
         with_state(&state, |state| {
             state.shop_by_id = Some(versioned_shop(existing))
         });
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
         let mut domains = HashSet::new();
         domains.insert(Domain::try_from("example.org")?);
         let command = UpdateShopCommand {
@@ -768,7 +914,7 @@ mod tests {
         with_state(&state, |state| {
             state.shop_by_id = Some(versioned_shop(existing))
         });
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
 
         let result = handler
             .execute(
@@ -795,7 +941,7 @@ mod tests {
         with_state(&state, |state| {
             state.shop_by_id = Some(versioned_shop(existing))
         });
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
 
         let result = handler
             .execute(
@@ -815,7 +961,7 @@ mod tests {
     #[tokio::test]
     async fn should_cover_update_not_found_repo_geocoder_and_transaction_errors() {
         let state = shared_state();
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
 
         let not_found = handler
             .execute(
@@ -833,7 +979,7 @@ mod tests {
 
         let state = shared_state();
         with_state(&state, |state| state.begin_error = true);
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
         let begin = handler
             .execute(&system_context(), UpdateShopCommand::default())
             .await;
@@ -849,7 +995,7 @@ mod tests {
             state.shop_by_id = Some(versioned_shop(existing));
             state.commit_error = true;
         });
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
         let commit = handler
             .execute(
                 &system_context(),
@@ -869,7 +1015,7 @@ mod tests {
         with_state(&state, |state| {
             state.find_by_id_error = Some(RepoErrorKind::ConcurrencyConflict)
         });
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
         let repo = handler
             .execute(
                 &system_context(),
@@ -886,7 +1032,7 @@ mod tests {
         with_state(&state, |state| {
             state.geocoder_error = Some(ShopGeocoderError::Internal)
         });
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
         let geo = handler
             .execute(
                 &system_context(),
@@ -909,7 +1055,7 @@ mod tests {
         with_state(&state, |state| {
             state.shop_by_id = Some(versioned_shop(existing))
         });
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
 
         let domains = handler
             .execute(
@@ -929,7 +1075,7 @@ mod tests {
         with_state(&state, |state| {
             state.shop_by_id = Some(versioned_shop(existing))
         });
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
         let shopify = handler
             .execute(
                 &system_context(),
@@ -955,7 +1101,7 @@ mod tests {
             state.shop_by_id = Some(versioned_shop(existing));
             state.update_error = Some(RepoErrorKind::SlugConflict);
         });
-        let handler = UpdateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
 
         let result = handler
             .execute(
@@ -970,6 +1116,16 @@ mod tests {
 
         assert!(matches!(result, Err(UpdateShopError::SlugConflict { .. })));
         assert_counts(&state, |counts| assert_eq!(0, counts.commit));
+    }
+
+    fn build_handler(state: &Arc<Mutex<State>>) -> impl UpdateShopUseCase {
+        UpdateShopHandler::new(
+            uow(state),
+            shop_repo(state),
+            geocoder(state),
+            AllowPolicy,
+            AllowPolicy,
+        )
     }
 
     fn shop_repo(state: &Arc<Mutex<State>>) -> FakeShopRepositoryFactory {
@@ -1021,6 +1177,16 @@ mod tests {
 
     fn versioned_shop(shop: Shop) -> VersionedShop {
         Versioned::new(shop, ShopStorageVersion::INITIAL)
+    }
+
+    fn persisted_shop(shop: Shop) -> PersistedShop {
+        let now = time::OffsetDateTime::now_utc();
+        PersistedShop {
+            shop,
+            version: ShopStorageVersion::INITIAL,
+            created: now,
+            updated: now,
+        }
     }
 
     fn address() -> StructuredAddress {

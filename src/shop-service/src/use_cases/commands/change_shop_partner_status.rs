@@ -125,10 +125,12 @@ where
 
         let outcome = shop.change_partner_status(command.partner_status);
         if outcome.changed() {
-            self.shops
+            shop = self
+                .shops
                 .in_transaction(&mut tx)
                 .update(&shop, version)
-                .await?;
+                .await?
+                .shop;
         }
 
         tx.commit()
@@ -191,6 +193,7 @@ impl From<ShopRepositoryError> for ChangeShopPartnerStatusError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::PersistedShop;
     use crate::ports::{ShopRepository, ShopRepositoryFactory, ShopStorageVersion, VersionedShop};
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
@@ -307,20 +310,20 @@ mod tests {
             Ok(None)
         }
 
-        async fn insert(&mut self, _shop: &Shop) -> Result<(), ShopRepositoryError> {
-            Ok(())
+        async fn insert(&mut self, shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
+            Ok(persisted_shop(shop.clone()))
         }
 
         async fn update(
             &mut self,
-            _shop: &Shop,
+            shop: &Shop,
             _expected_version: ShopStorageVersion,
-        ) -> Result<(), ShopRepositoryError> {
+        ) -> Result<PersistedShop, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.update += 1;
                 match state.update_error {
                     Some(kind) => Err(shop_repo_error(kind)),
-                    None => Ok(()),
+                    None => Ok(persisted_shop(shop.clone())),
                 }
             })
         }
@@ -546,6 +549,16 @@ mod tests {
 
     fn versioned_shop(shop: Shop) -> VersionedShop {
         Versioned::new(shop, ShopStorageVersion::INITIAL)
+    }
+
+    fn persisted_shop(shop: Shop) -> PersistedShop {
+        let now = time::OffsetDateTime::now_utc();
+        PersistedShop {
+            shop,
+            version: ShopStorageVersion::INITIAL,
+            created: now,
+            updated: now,
+        }
     }
 
     fn system_context() -> OperationContext {

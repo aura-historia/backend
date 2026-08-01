@@ -7,11 +7,12 @@
 ## Core Design
 
 - LocalStack and AWS integration test harness.
-- Root modules: `api_gateway`, `cloudformation`, `cognito`, `dynamodb`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `sequin`, `ses`, `signal`, `sqs`.
+- Root modules: `api_gateway`, `aura_historia_api`, `cloudformation`, `cognito`, `dynamodb`, `eventbridge`, `localstack`, `opensearch`, `postgres`, `s3`, `sequin`, `ses`, `signal`, `sqs`.
 - Child crates: `test-api-macros`.
 - Main neighbors: `aws-tests-common`, `common`, `test-api-macros`, `user`.
 - Test crate. Favor stable helpers and black-box assertions.
-- `#[aura_integration_test]` tests run serially against one process-local LocalStack and optional service containers like Postgres.
+- `#[aura_integration_test]` tests run serially inside one test process against process-local LocalStack and optional service containers like Postgres.
+- LocalStack and Postgres use process-id-scoped container names and host ports so separate test binaries/processes can run in parallel.
 
 ## Ownership
 
@@ -32,6 +33,7 @@
 - Tests prove behavior, not implementation trivia.
 - Share helpers before copy-paste fixtures.
 - Prefer `Postgres`/`OperationalBackendPostgres` and `postgres` feature over legacy `Rds`/`rds` in new tests.
+- Use process-lived `AuraHistoriaApi` helper for local black-box tests against `aura-historia-api`.
 - Use `Postgres::new("migrations")` for the shared business schema.
 - Use `Sequin::worker_webhook()` in `#[aura_integration_test]` plus `get_sequin_worker_webhook_bind_addr()` when a test must verify real Sequin webhook delivery to a local worker endpoint.
 

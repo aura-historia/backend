@@ -8,7 +8,8 @@ use common::postgres::SqlxTransaction;
 use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
 use shop_core::shop::Shop;
 use shop_service::ports::{
-    ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, VersionedShop,
+    PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion,
+    VersionedShop,
 };
 use sqlx::PgConnection;
 
@@ -74,7 +75,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
             })
     }
 
-    async fn insert(&mut self, shop: &Shop) -> Result<(), ShopRepositoryError> {
+    async fn insert(&mut self, shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
         let address = shop.address();
         let structured_address = address.map(|value| &value.structured);
         let contact = shop.contact();
@@ -82,7 +83,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
         let woocommerce = shop.woocommerce();
         let presentation = shop.presentation();
 
-        sqlx::query(
+        let sql = format!(
             r#"
             INSERT INTO shops (
                 shop_id, shop_slug_id, name, shop_type, partner_status, lifecycle, shop_domains,
@@ -101,46 +102,52 @@ impl ShopRepository for SqlxShopRepository<'_> {
                 $16, $17, $18, $19, $20, $21,
                 $22, $23, $24, $25, $26
             )
+            RETURNING {}
             "#,
-        )
-        .bind(uuid::Uuid::from(shop.id()))
-        .bind(shop.slug_id().as_ref())
-        .bind(shop.name().as_ref())
-        .bind(bind_shop_type(shop.shop_type()))
-        .bind(bind_partner_status(shop.partner_status()))
-        .bind(bind_lifecycle(shop.lifecycle()))
-        .bind(bind_domains(shop))
-        .bind(shopify.map(|value| value.domain.as_str()))
-        .bind(bind_currency(shopify.and_then(|value| value.currency)))
-        .bind(bind_language(shopify.and_then(|value| value.language)))
-        .bind(woocommerce.and_then(|value| value.webhook_secret.as_ref().map(AsRef::as_ref)))
-        .bind(bind_currency(woocommerce.and_then(|value| value.currency)))
-        .bind(bind_language(woocommerce.and_then(|value| value.language)))
-        .bind(presentation.url.as_ref().map(ToString::to_string))
-        .bind(presentation.image.as_ref().map(ToString::to_string))
-        .bind(structured_address.and_then(|value| value.addressline.as_deref()))
-        .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
-        .bind(structured_address.and_then(|value| value.locality.as_deref()))
-        .bind(structured_address.and_then(|value| value.region.as_deref()))
-        .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
-        .bind(bind_country(address))
-        .bind(address.and_then(|value| value.geo.map(|geo| geo.lat)))
-        .bind(address.and_then(|value| value.geo.map(|geo| geo.lon)))
-        .bind(contact.phone.as_deref())
-        .bind(contact.email.as_ref().map(ToString::to_string))
-        .bind(bind_affiliate_configuration(shop.affiliate_configuration()))
-        .execute(&mut *self.connection)
-        .await
-        .map_err(ShopWriteSqlxError)?;
+            shop_columns()
+        );
 
-        Ok(())
+        let row = sqlx::query_as::<_, ShopRow>(&sql)
+            .bind(uuid::Uuid::from(shop.id()))
+            .bind(shop.slug_id().as_ref())
+            .bind(shop.name().as_ref())
+            .bind(bind_shop_type(shop.shop_type()))
+            .bind(bind_partner_status(shop.partner_status()))
+            .bind(bind_lifecycle(shop.lifecycle()))
+            .bind(bind_domains(shop))
+            .bind(shopify.map(|value| value.domain.as_str()))
+            .bind(bind_currency(shopify.and_then(|value| value.currency)))
+            .bind(bind_language(shopify.and_then(|value| value.language)))
+            .bind(woocommerce.and_then(|value| value.webhook_secret.as_ref().map(AsRef::as_ref)))
+            .bind(bind_currency(woocommerce.and_then(|value| value.currency)))
+            .bind(bind_language(woocommerce.and_then(|value| value.language)))
+            .bind(presentation.url.as_ref().map(ToString::to_string))
+            .bind(presentation.image.as_ref().map(ToString::to_string))
+            .bind(structured_address.and_then(|value| value.addressline.as_deref()))
+            .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
+            .bind(structured_address.and_then(|value| value.locality.as_deref()))
+            .bind(structured_address.and_then(|value| value.region.as_deref()))
+            .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
+            .bind(bind_country(address))
+            .bind(address.and_then(|value| value.geo.map(|geo| geo.lat)))
+            .bind(address.and_then(|value| value.geo.map(|geo| geo.lon)))
+            .bind(contact.phone.as_deref())
+            .bind(contact.email.as_ref().map(ToString::to_string))
+            .bind(bind_affiliate_configuration(shop.affiliate_configuration()))
+            .fetch_one(&mut *self.connection)
+            .await
+            .map_err(ShopWriteSqlxError)?;
+
+        PersistedShop::try_from(row).map_err(|source| ShopRepositoryError::InvalidPersistedState {
+            source: box_error(source),
+        })
     }
 
     async fn update(
         &mut self,
         shop: &Shop,
         expected_version: ShopStorageVersion,
-    ) -> Result<(), ShopRepositoryError> {
+    ) -> Result<PersistedShop, ShopRepositoryError> {
         let address = shop.address();
         let structured_address = address.map(|value| &value.structured);
         let contact = shop.contact();
@@ -148,7 +155,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
         let woocommerce = shop.woocommerce();
         let presentation = shop.presentation();
 
-        let result = sqlx::query(
+        let sql = format!(
             r#"
             UPDATE shops
             SET
@@ -180,44 +187,47 @@ impl ShopRepository for SqlxShopRepository<'_> {
                 version = version + 1,
                 updated = now()
             WHERE shop_id = $26 AND version = $27
+            RETURNING {}
             "#,
-        )
-        .bind(shop.slug_id().as_ref())
-        .bind(shop.name().as_ref())
-        .bind(bind_shop_type(shop.shop_type()))
-        .bind(bind_partner_status(shop.partner_status()))
-        .bind(bind_lifecycle(shop.lifecycle()))
-        .bind(bind_domains(shop))
-        .bind(shopify.map(|value| value.domain.as_str()))
-        .bind(bind_currency(shopify.and_then(|value| value.currency)))
-        .bind(bind_language(shopify.and_then(|value| value.language)))
-        .bind(woocommerce.and_then(|value| value.webhook_secret.as_ref().map(AsRef::as_ref)))
-        .bind(bind_currency(woocommerce.and_then(|value| value.currency)))
-        .bind(bind_language(woocommerce.and_then(|value| value.language)))
-        .bind(presentation.url.as_ref().map(ToString::to_string))
-        .bind(presentation.image.as_ref().map(ToString::to_string))
-        .bind(structured_address.and_then(|value| value.addressline.as_deref()))
-        .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
-        .bind(structured_address.and_then(|value| value.locality.as_deref()))
-        .bind(structured_address.and_then(|value| value.region.as_deref()))
-        .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
-        .bind(bind_country(address))
-        .bind(address.and_then(|value| value.geo.map(|geo| geo.lat)))
-        .bind(address.and_then(|value| value.geo.map(|geo| geo.lon)))
-        .bind(contact.phone.as_deref())
-        .bind(contact.email.as_ref().map(ToString::to_string))
-        .bind(bind_affiliate_configuration(shop.affiliate_configuration()))
-        .bind(uuid::Uuid::from(shop.id()))
-        .bind(version_to_i64(expected_version))
-        .execute(&mut *self.connection)
-        .await
-        .map_err(ShopWriteSqlxError)?;
+            shop_columns()
+        );
 
-        if result.rows_affected() == 0 {
-            return Err(ShopRepositoryError::ConcurrencyConflict);
-        }
+        let row = sqlx::query_as::<_, ShopRow>(&sql)
+            .bind(shop.slug_id().as_ref())
+            .bind(shop.name().as_ref())
+            .bind(bind_shop_type(shop.shop_type()))
+            .bind(bind_partner_status(shop.partner_status()))
+            .bind(bind_lifecycle(shop.lifecycle()))
+            .bind(bind_domains(shop))
+            .bind(shopify.map(|value| value.domain.as_str()))
+            .bind(bind_currency(shopify.and_then(|value| value.currency)))
+            .bind(bind_language(shopify.and_then(|value| value.language)))
+            .bind(woocommerce.and_then(|value| value.webhook_secret.as_ref().map(AsRef::as_ref)))
+            .bind(bind_currency(woocommerce.and_then(|value| value.currency)))
+            .bind(bind_language(woocommerce.and_then(|value| value.language)))
+            .bind(presentation.url.as_ref().map(ToString::to_string))
+            .bind(presentation.image.as_ref().map(ToString::to_string))
+            .bind(structured_address.and_then(|value| value.addressline.as_deref()))
+            .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
+            .bind(structured_address.and_then(|value| value.locality.as_deref()))
+            .bind(structured_address.and_then(|value| value.region.as_deref()))
+            .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
+            .bind(bind_country(address))
+            .bind(address.and_then(|value| value.geo.map(|geo| geo.lat)))
+            .bind(address.and_then(|value| value.geo.map(|geo| geo.lon)))
+            .bind(contact.phone.as_deref())
+            .bind(contact.email.as_ref().map(ToString::to_string))
+            .bind(bind_affiliate_configuration(shop.affiliate_configuration()))
+            .bind(uuid::Uuid::from(shop.id()))
+            .bind(version_to_i64(expected_version))
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(ShopWriteSqlxError)?
+            .ok_or(ShopRepositoryError::ConcurrencyConflict)?;
 
-        Ok(())
+        PersistedShop::try_from(row).map_err(|source| ShopRepositoryError::InvalidPersistedState {
+            source: box_error(source),
+        })
     }
 }
 

@@ -19,7 +19,6 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 use url::Url;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_read_granted_partner_shop() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -32,7 +31,7 @@ async fn should_read_granted_partner_shop() {
 
     let mut tx = begin(&unit_of_work).await;
     match shops.in_transaction(&mut tx).insert(&shop).await {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to insert shop: {error:?}"),
     }
     match partner_shops
@@ -40,7 +39,7 @@ async fn should_read_granted_partner_shop() {
         .grant(user_id, shop.id())
         .await
     {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(error) => panic!("failed to grant partner shop: {error:?}"),
     }
     let is_partner = match partner_reader
@@ -54,13 +53,23 @@ async fn should_read_granted_partner_shop() {
         Ok(is_partner) => is_partner,
         Err(error) => panic!("failed to read partner shop: {error:?}"),
     };
+    let summaries = match partner_reader
+        .in_transaction(&mut tx)
+        .list_summaries_for_user(user_id)
+        .await
+    {
+        Ok(summaries) => summaries,
+        Err(error) => panic!("failed to list partner shops: {error:?}"),
+    };
     commit(tx).await;
 
     assert!(is_partner);
+    assert_eq!(1, summaries.len());
+    assert_eq!(shop.id(), summaries[0].shop_id);
+    assert_eq!(shop.name(), &summaries[0].name);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-#[serial_test::serial]
 async fn should_return_false_when_partner_shop_row_is_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);

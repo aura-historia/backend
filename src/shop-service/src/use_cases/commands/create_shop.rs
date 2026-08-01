@@ -1,15 +1,16 @@
 use crate::ports::{
     ShopGeocoder, ShopGeocoderError, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
 };
+use crate::use_cases::queries::get_shop::ShopDetailsView;
 use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
 use common::language::domain::Language;
 use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId};
 use serde_email::Email;
 use shop_core::{
     address::{GeoAddress, StructuredAddress},
@@ -24,6 +25,9 @@ use shop_core::{
 };
 use std::collections::HashSet;
 use url::Url;
+use user_service::use_cases::queries::check_user_admin::{
+    CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateShopCommand {
@@ -44,12 +48,7 @@ pub struct CreateShopCommand {
     pub affiliate_configuration: Option<AffiliateConfiguration>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct CreateShopResult {
-    pub shop_id: ShopId,
-    pub shop_slug_id: ShopSlugId,
-    pub name: ShopName,
-}
+pub type CreateShopResult = ShopDetailsView;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateShopError {
@@ -94,28 +93,31 @@ pub trait CreateShopUseCase: Send + Sync {
     ) -> Result<CreateShopResult, CreateShopError>;
 }
 
-pub struct CreateShopHandler<U, R, G> {
+pub struct CreateShopHandler<U, R, G, A> {
     unit_of_work: U,
     shops: R,
     geocoder: G,
+    check_user_admin: A,
 }
 
-impl<U, R, G> CreateShopHandler<U, R, G> {
-    pub fn new(unit_of_work: U, shops: R, geocoder: G) -> Self {
+impl<U, R, G, A> CreateShopHandler<U, R, G, A> {
+    pub fn new(unit_of_work: U, shops: R, geocoder: G, check_user_admin: A) -> Self {
         Self {
             unit_of_work,
             shops,
             geocoder,
+            check_user_admin,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, G> CreateShopUseCase for CreateShopHandler<U, R, G>
+impl<U, R, G, A> CreateShopUseCase for CreateShopHandler<U, R, G, A>
 where
     U: UnitOfWork,
     R: ShopRepositoryFactory<U::Tx>,
     G: ShopGeocoder,
+    A: CheckUserAdminUseCase,
 {
     #[tracing::instrument(
         name = "create_shop",
@@ -137,6 +139,7 @@ where
             .require()
             .credential_capability(CredentialCapability::ShopsWrite)
             .authorize::<CreateShopError>()?;
+        ensure_can_create_shop(context, &self.check_user_admin).await?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -164,7 +167,12 @@ where
             });
         }
 
-        self.shops.in_transaction(&mut tx).insert(&shop).await?;
+        let view = self
+            .shops
+            .in_transaction(&mut tx)
+            .insert(&shop)
+            .await?
+            .into();
 
         tx.commit()
             .await
@@ -179,7 +187,7 @@ where
             outcome = "success",
         );
 
-        Ok(CreateShopResult::from(&shop))
+        Ok(view)
     }
 }
 
@@ -215,16 +223,6 @@ impl CreateShopCommand {
     }
 }
 
-impl From<&Shop> for CreateShopResult {
-    fn from(shop: &Shop) -> Self {
-        Self {
-            shop_id: shop.id(),
-            shop_slug_id: shop.slug_id().clone(),
-            name: shop.name().clone(),
-        }
-    }
-}
-
 impl From<OperationAuthorizationError> for CreateShopError {
     fn from(error: OperationAuthorizationError) -> Self {
         match error {
@@ -252,6 +250,49 @@ impl From<ShopRepositoryError> for CreateShopError {
             },
             ShopRepositoryError::Internal { source } => Self::Internal { source },
         }
+    }
+}
+
+async fn ensure_can_create_shop<A>(
+    context: &OperationContext,
+    check_user_admin: &A,
+) -> Result<(), CreateShopError>
+where
+    A: CheckUserAdminUseCase,
+{
+    let Some(user_id) = actor_user_id(context)? else {
+        return Ok(());
+    };
+
+    check_user_admin
+        .execute(context, CheckUserAdminRequest { user_id })
+        .await
+        .map(drop)
+        .map_err(map_admin_error)
+}
+
+fn actor_user_id(context: &OperationContext) -> Result<Option<UserId>, CreateShopError> {
+    match context.principal {
+        Principal::Anonymous => Err(CreateShopError::AuthenticatedActorRequired),
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Ok(Some(user_id)),
+        Principal::Service(_) | Principal::System => Ok(None),
+    }
+}
+
+fn map_admin_error(error: CheckUserAdminError) -> CreateShopError {
+    match error {
+        CheckUserAdminError::Forbidden | CheckUserAdminError::UserNotFound => {
+            CreateShopError::Forbidden
+        }
+        CheckUserAdminError::TemporarilyUnavailable { source } => {
+            CreateShopError::TemporarilyUnavailable { source }
+        }
+        CheckUserAdminError::InvalidReadModel { source }
+        | CheckUserAdminError::Internal { source } => CreateShopError::Internal { source },
+        CheckUserAdminError::BeginTransactionFailed
+        | CheckUserAdminError::CommitTransactionFailed => CreateShopError::TemporarilyUnavailable {
+            source: static_error("check user admin transaction failed"),
+        },
     }
 }
 
@@ -314,8 +355,8 @@ pub(crate) fn woocommerce_integration(
 mod tests {
     use super::*;
     use crate::ports::{
-        ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion,
-        VersionedShop,
+        PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
+        ShopStorageVersion, VersionedShop,
     };
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
@@ -323,6 +364,9 @@ mod tests {
     use common::versioned::Versioned;
     use shop_core::shop::{NewShop, ShopContact, ShopPresentation};
     use std::sync::{Arc, Mutex};
+    use user_service::use_cases::queries::check_user_admin::{
+        CheckUserAdminRequest, CheckUserAdminResult,
+    };
 
     #[derive(Clone, Copy)]
     enum RepoErrorKind {
@@ -373,6 +417,9 @@ mod tests {
     struct FakeShopRepository {
         state: Arc<Mutex<State>>,
     }
+
+    #[derive(Clone, Copy)]
+    struct AllowPolicy;
 
     #[async_trait::async_trait]
     impl UnitOfWork for FakeUnitOfWork {
@@ -438,14 +485,14 @@ mod tests {
             })
         }
 
-        async fn insert(&mut self, shop: &Shop) -> Result<(), ShopRepositoryError> {
+        async fn insert(&mut self, shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.insert += 1;
                 match state.insert_error {
                     Some(kind) => Err(shop_repo_error(kind)),
                     None => {
                         state.inserted = Some(shop.clone());
-                        Ok(())
+                        Ok(persisted_shop(shop.clone()))
                     }
                 }
             })
@@ -455,8 +502,21 @@ mod tests {
             &mut self,
             _shop: &Shop,
             _expected_version: ShopStorageVersion,
-        ) -> Result<(), ShopRepositoryError> {
-            Ok(())
+        ) -> Result<PersistedShop, ShopRepositoryError> {
+            Ok(persisted_shop(_shop.clone()))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CheckUserAdminUseCase for AllowPolicy {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            request: CheckUserAdminRequest,
+        ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
+            Ok(CheckUserAdminResult {
+                user_id: request.user_id,
+            })
         }
     }
 
@@ -483,7 +543,7 @@ mod tests {
     #[tokio::test]
     async fn should_create_shop_when_slug_free() {
         let state = shared_state();
-        let handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
 
         let result = handler
             .execute(&system_context(), create_command("Antik Markt"))
@@ -505,7 +565,7 @@ mod tests {
         with_state(&state, |state| {
             state.geocoder_error = Some(ShopGeocoderError::NotFound)
         });
-        let handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
 
         let result = handler
             .execute(
@@ -526,8 +586,7 @@ mod tests {
     async fn should_map_create_begin_and_commit_failures() {
         let state = shared_state();
         with_state(&state, |state| state.begin_error = true);
-        let begin_handler =
-            CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let begin_handler = build_handler(&state);
 
         let begin_result = begin_handler
             .execute(&system_context(), create_command("Begin Fail"))
@@ -540,8 +599,7 @@ mod tests {
 
         let state = shared_state();
         with_state(&state, |state| state.commit_error = true);
-        let commit_handler =
-            CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let commit_handler = build_handler(&state);
 
         let commit_result = commit_handler
             .execute(&system_context(), create_command("Commit Fail"))
@@ -560,7 +618,7 @@ mod tests {
         with_state(&state, |state| {
             state.shop_by_slug = Some(versioned_shop(shop("Antik Markt")))
         });
-        let slug_handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let slug_handler = build_handler(&state);
 
         let slug_result = slug_handler
             .execute(&system_context(), create_command("Antik Markt"))
@@ -579,8 +637,7 @@ mod tests {
         with_state(&state, |state| {
             state.insert_error = Some(RepoErrorKind::TemporarilyUnavailable)
         });
-        let insert_handler =
-            CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let insert_handler = build_handler(&state);
 
         let insert_result = insert_handler
             .execute(&system_context(), create_command("Repo Fail"))
@@ -599,7 +656,7 @@ mod tests {
         with_state(&state, |state| {
             state.find_by_slug_error = Some(RepoErrorKind::InvalidPersistedState)
         });
-        let handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
 
         let repo_result = handler
             .execute(&system_context(), create_command("Bad Read"))
@@ -614,7 +671,7 @@ mod tests {
         with_state(&state, |state| {
             state.geocoder_error = Some(ShopGeocoderError::TemporarilyUnavailable)
         });
-        let handler = CreateShopHandler::new(uow(&state), shop_repo(&state), geocoder(&state));
+        let handler = build_handler(&state);
 
         let geo_result = handler
             .execute(&system_context(), create_command_with_address("Bad Geo"))
@@ -624,6 +681,10 @@ mod tests {
             geo_result,
             Err(CreateShopError::TemporarilyUnavailable { .. })
         ));
+    }
+
+    fn build_handler(state: &Arc<Mutex<State>>) -> impl CreateShopUseCase {
+        CreateShopHandler::new(uow(state), shop_repo(state), geocoder(state), AllowPolicy)
     }
 
     fn shop_repo(state: &Arc<Mutex<State>>) -> FakeShopRepositoryFactory {
@@ -704,6 +765,16 @@ mod tests {
 
     fn versioned_shop(shop: Shop) -> VersionedShop {
         Versioned::new(shop, ShopStorageVersion::INITIAL)
+    }
+
+    fn persisted_shop(shop: Shop) -> PersistedShop {
+        let now = time::OffsetDateTime::now_utc();
+        PersistedShop {
+            shop,
+            version: ShopStorageVersion::INITIAL,
+            created: now,
+            updated: now,
+        }
     }
 
     fn address() -> StructuredAddress {

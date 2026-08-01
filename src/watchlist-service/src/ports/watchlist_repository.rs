@@ -26,9 +26,15 @@ pub trait WatchlistRepository: Send {
         product_id: ProductId,
     ) -> Result<Option<WatchlistProduct>, WatchlistRepositoryError>;
 
-    async fn insert(&mut self, entry: &WatchlistProduct) -> Result<(), WatchlistRepositoryError>;
+    async fn insert(
+        &mut self,
+        entry: &WatchlistProduct,
+    ) -> Result<WatchlistProduct, WatchlistRepositoryError>;
 
-    async fn update(&mut self, entry: &WatchlistProduct) -> Result<(), WatchlistRepositoryError>;
+    async fn update(
+        &mut self,
+        entry: &WatchlistProduct,
+    ) -> Result<WatchlistProduct, WatchlistRepositoryError>;
 
     async fn delete(
         &mut self,

@@ -162,10 +162,12 @@ where
             .unwrap_or(expected_event_id);
 
         if !events.is_empty() {
-            self.products
+            product = self
+                .products
                 .in_transaction(&mut tx)
                 .update(&product, expected_event_id, event_id)
-                .await?;
+                .await?
+                .value;
             for event in &events {
                 self.events.in_transaction(&mut tx).append(event).await?;
             }
@@ -426,23 +428,23 @@ mod tests {
 
         async fn insert(
             &mut self,
-            _product: &Product,
-            _current_event_id: EventId,
-        ) -> Result<(), ProductRepositoryError> {
-            Ok(())
+            product: &Product,
+            current_event_id: EventId,
+        ) -> Result<Versioned<Product, EventId>, ProductRepositoryError> {
+            Ok(Versioned::new(product.clone(), current_event_id))
         }
 
         async fn update(
             &mut self,
-            _product: &Product,
+            product: &Product,
             _expected_event_id: EventId,
-            _new_event_id: EventId,
-        ) -> Result<(), ProductRepositoryError> {
+            new_event_id: EventId,
+        ) -> Result<Versioned<Product, EventId>, ProductRepositoryError> {
             let mut state = lock_state(&self.state);
             state.update_count += 1;
             match state.update_result.take() {
-                Some(result) => result,
-                None => Ok(()),
+                Some(Err(error)) => Err(error),
+                Some(Ok(())) | None => Ok(Versioned::new(product.clone(), new_event_id)),
             }
         }
     }

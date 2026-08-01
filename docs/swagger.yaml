@@ -6810,8 +6810,7 @@ paths:
     get:
       summary: Simple shop search via query parameters
       description: |
-        Performs shop search using query parameters instead of a JSON request body.
-        This is the cache-friendly equivalent of `POST /api/v1/shops/search`.
+        Performs shop search using query parameters and returns read-optimized shop summary payloads.
 
         Authentication is optional on this endpoint:
         - unauthenticated requests return cacheable shared responses
@@ -7446,313 +7445,6 @@ paths:
                 status: 404
                 title: "Not Found"
                 error: "SHOP_NOT_FOUND"
-        "500":
-          description: Internal server error
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
-
-  /api/v1/by-domain/shops/{shopDomain}:
-    get:
-      summary: Get shop details by domain
-      description: |
-        Retrieves detailed information about a specific shop by one of its configured domains.
-        Returns complete shop metadata including name, domains, image, address/contact metadata, and timestamps.
-
-        Authentication is optional on this endpoint:
-        - unauthenticated requests return cacheable shared responses
-        - authenticated Cognito JWT or Aura Historia access-token requests return `Cache-Control: no-store`
-      operationId: getShopByDomain
-      tags:
-        - Shops
-      security:
-        - {}
-        - BearerAuth: []
-        - AccessTokenAuth: []
-      parameters:
-        - name: shopDomain
-          in: path
-          required: true
-          description: Configured shop domain
-          schema:
-            type: string
-          examples:
-            primary:
-              value: "tech-store-premium.com"
-              summary: "Primary shop domain"
-            subdomain:
-              value: "apple.tech-store-premium.com"
-              summary: "Shop subdomain"
-      responses:
-        "200":
-          description: Shop found and returned successfully
-          headers:
-            Last-Modified:
-              description: When the shop was last updated
-              schema:
-                type: string
-                format: http-date
-              example: "Wed, 01 Jan 2024 12:00:00 GMT"
-            Cache-Control:
-              description: "`public, max-age=600, s-maxage=3600` for unauthenticated requests, `no-store` for authenticated requests."
-              schema:
-                type: string
-              example: "public, max-age=600, s-maxage=3600"
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GetShopData"
-              example:
-                shopId: "550e8400-e29b-41d4-a716-446655440000"
-                shopSlugId: "tech-store-premium"
-                name: "Tech Store Premium"
-                shopType: "COMMERCIAL_DEALER"
-                domains:
-                  [
-                    "tech-store-premium.com",
-                    "tech-store-premium.de",
-                    "apple.tech-store-premium.com",
-                  ]
-                shopifyDomain: "tech-store-premium.myshopify.com"
-                shopifyCurrency: "EUR"
-                shopifyLanguage: "en"
-                woocommerceCurrency: "EUR"
-                woocommerceLanguage: "de"
-                url: "https://tech-store-premium.com/"
-                viewUrl: "https://tech-store-premium.com/?utm_source=aura_historia&utm_medium=referral"
-                image: "https://tech-store-premium.com/logo.svg"
-                structuredAddress:
-                  addressline: "Pariser Platz 1"
-                  addresslineExtra: "2. Etage"
-                  postalCode: "10117"
-                  locality: "Berlin"
-                  country: "DE"
-                  continent: "EUROPE"
-                geoAddress:
-                  lat: 52.516275
-                  lon: 13.377704
-                phone: "+49 30 123456"
-                email: "contact@tech-store-premium.com"
-                partnerStatus: "PARTNERED"
-                created: "2024-01-01T10:00:00Z"
-                updated: "2024-01-01T12:00:00Z"
-        "400":
-          description: Bad request - invalid or missing shop domain
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_shop_domain:
-                  summary: Missing shop domain
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "shopDomain"
-                      sourceType: "path"
-                    detail: "Missing field 'shopDomain'."
-        "404":
-          description: Shop not found
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 404
-                title: "Not Found"
-                error: "SHOP_NOT_FOUND"
-        "500":
-          description: Internal server error
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
-
-  /api/v1/shops/search:
-    post:
-      summary: Search shops
-      description: |
-        Performs an advanced search for shops using comprehensive filtering criteria.
-        This endpoint accepts a ShopSearchData object in the request body,
-        allowing for complex filtering by shop name, shop type, partner status,
-        countries, continents, and creation/update date ranges.
-        Returns a paginated collection of shops matching the search criteria.
-      operationId: searchShops
-      tags:
-        - Shops
-      parameters:
-        - name: sort
-          in: query
-          required: false
-          description: Field to sort results by
-          schema:
-            $ref: "#/components/schemas/SortShopFieldData"
-          example: name
-        - name: order
-          in: query
-          required: false
-          description: Sort order (only valid when sort is specified)
-          schema:
-            type: string
-            enum: [asc, desc]
-            default: asc
-          example: desc
-        - name: searchAfter
-          in: query
-          required: false
-          description: |
-            Cursor value for keyset pagination (search-after pattern).
-            This is a JSON array value returned as `searchAfter` in the previous response.
-            Use this to fetch the next page of results.
-            In general you do not have to worry about determining this key. It's given with the `searchAfter` field in the preceding response if more entries are present.
-            The array contains the sort field value and the shop ID as a tie-breaker: `[sortValue, shopId]`.
-          schema:
-            type: array
-            items: {}
-          example: '["Tech Store Premium", "550e8400-e29b-41d4-a716-446655440000"]'
-        - name: size
-          in: query
-          required: false
-          description: Number of shops to return per page
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 21
-          example: 21
-      requestBody:
-        required: true
-        description: |
-          Shop search filter configuration with all filtering criteria.
-          Allows filtering by shop name, shop type, partner status,
-          countries, continents, and creation/update date ranges.
-          If you do not want to restrict the search, supply an empty JSON-Object '{}' as body.
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ShopSearchData"
-            example:
-              shopNameQuery: "tech store"
-              shopType: ["COMMERCIAL_DEALER"]
-              partnerStatus: ["PARTNERED"]
-              countries: ["DE"]
-              continents: ["EUROPE"]
-              created:
-                min: "2024-01-01T00:00:00Z"
-                max: "2024-12-31T23:59:59Z"
-              updated:
-                min: "2024-06-01T00:00:00Z"
-      responses:
-        "200":
-          description: Shop search results returned successfully
-          headers:
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ShopSearchResultData"
-              example:
-                items:
-                  - shopId: "550e8400-e29b-41d4-a716-446655440000"
-                    shopSlugId: "tech-store-premium"
-                    name: "Tech Store Premium"
-                    shopType: "COMMERCIAL_DEALER"
-                    domains: ["tech-store-premium.com"]
-                    shopifyDomain: "tech-store-premium.myshopify.com"
-                    shopifyCurrency: "EUR"
-                    shopifyLanguage: "en"
-                    woocommerceCurrency: "EUR"
-                    woocommerceLanguage: "de"
-                    url: "https://tech-store-premium.com/"
-                    viewUrl: "https://tech-store-premium.com/?utm_source=aura_historia&utm_medium=referral"
-                    image: "https://tech-store-premium.com/logo.svg"
-                    structuredAddress:
-                      addressline: "Pariser Platz 1"
-                      addresslineExtra: "2. Etage"
-                      postalCode: "10117"
-                      locality: "Berlin"
-                      country: "DE"
-                      continent: "EUROPE"
-                    geoAddress:
-                      lat: 52.516275
-                      lon: 13.377704
-                    phone: "+49 30 123456"
-                    email: "contact@tech-store-premium.com"
-                    partnerStatus: "PARTNERED"
-                    created: "2024-01-15T10:00:00Z"
-                    updated: "2024-06-15T12:00:00Z"
-                  - shopId: "660f9500-f39c-42e5-b827-556766550001"
-                    shopSlugId: "tech-store-basic"
-                    name: "Tech Store Basic"
-                    shopType: "COMMERCIAL_DEALER"
-                    domains: ["tech-store-basic.com"]
-                    partnerStatus: "SCRAPED"
-                    created: "2024-02-01T08:30:00Z"
-                    updated: "2024-07-01T14:20:00Z"
-                size: 2
-                total: 42
-                searchAfter: '["Tech Store Basic", "660f9500-f39c-42e5-b827-556766550001"]'
-        "400":
-          description: Bad request - invalid parameters or body
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_body:
-                  summary: Missing request body
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Body cannot be empty"
-                invalid_json:
-                  summary: Invalid JSON format
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Invalid JSON format"
-                invalid_sort_field:
-                  summary: Invalid sort field
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "sort"
-                      sourceType: "query"
-                    detail: "Expected any of: 'score', 'name', 'updated', 'created'. Got: 'invalid'"
-                invalid_order:
-                  summary: Invalid sort order
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "order"
-                      sourceType: "query"
-                    detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
         "500":
           description: Internal server error
           content:
@@ -8491,8 +8183,8 @@ paths:
     get:
       summary: List the authenticated user's partner shops
       description: |
-        Returns all shops currently linked to the authenticated user's `partnerShops` set.
-        Requires a valid Cognito JWT and always resolves shops for the current user only.
+        Returns shop summaries currently linked to the authenticated user's partner shops.
+        Requires a valid Cognito JWT or Aura Historia access token and always resolves shops for the current user only.
 
         Returns an empty array when the authenticated user currently has no linked partner shops.
       operationId: getMyPartnerShops
@@ -8500,6 +8192,7 @@ paths:
         - Shops
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Partner shops retrieved successfully
@@ -8514,7 +8207,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/GetShopData"
+                  $ref: "#/components/schemas/ShopSummaryData"
               examples:
                 one_partner_shop:
                   summary: One linked partner shop
@@ -8524,13 +8217,6 @@ paths:
                       name: "Tech Store Premium"
                       shopType: "COMMERCIAL_DEALER"
                       domains: ["tech-store-premium.com"]
-                      shopifyDomain: "tech-store-premium.myshopify.com"
-                      shopifyCurrency: "EUR"
-                      shopifyLanguage: "en"
-                      woocommerceCurrency: "EUR"
-                      woocommerceLanguage: "de"
-                      url: "https://tech-store-premium.com/"
-                      viewUrl: "https://tech-store-premium.com/?utm_source=aura_historia&utm_medium=referral"
                       image: "https://tech-store-premium.com/logo.svg"
                       partnerStatus: "PARTNERED"
                       created: "2024-01-15T10:00:00Z"
@@ -8539,7 +8225,7 @@ paths:
                   summary: Authenticated user has no linked partner shops
                   value: []
         "401":
-          description: Unauthorized – invalid or missing JWT token.
+          description: Unauthorized – invalid or missing bearer token.
           content:
             application/problem+json:
               schema:
@@ -13044,8 +12730,6 @@ components:
         - shopType
         - domains
         - partnerStatus
-        - createdBy
-        - updatedBy
         - created
         - updated
       properties:
@@ -13157,12 +12841,7 @@ components:
           example: "contact@tech-store-premium.com"
         partnerStatus:
           $ref: "#/components/schemas/ShopPartnerStatusData"
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who created this shop record
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who last updated this shop record
+
         created:
           type: string
           format: date-time
@@ -13873,9 +13552,64 @@ components:
       default: score
       example: name
 
+    ShopSummaryData:
+      type: object
+      description: Read-optimized shop summary payload
+      required:
+        - shopId
+        - shopSlugId
+        - name
+        - shopType
+        - domains
+        - partnerStatus
+        - created
+        - updated
+      properties:
+        shopId:
+          type: string
+          format: uuid
+          description: Unique identifier of the shop
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        shopSlugId:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          description: Human-readable slug identifier of the shop.
+          example: "tech-store-premium"
+        name:
+          type: string
+          description: Display name of the shop
+          maxLength: 255
+          example: "Tech Store Premium"
+        shopType:
+          $ref: "#/components/schemas/ShopTypeData"
+        domains:
+          type: array
+          items:
+            type: string
+          description: All known normalized domains associated with the shop.
+          example: ["tech-store-premium.com"]
+        image:
+          type: string
+          format: uri
+          nullable: true
+          description: Optional URL to the shop's logo or image
+          example: "https://tech-store-premium.com/logo.svg"
+        partnerStatus:
+          $ref: "#/components/schemas/ShopPartnerStatusData"
+        created:
+          type: string
+          format: date-time
+          description: When the shop was first created (RFC3339 format)
+          example: "2024-01-01T10:00:00Z"
+        updated:
+          type: string
+          format: date-time
+          description: When the shop was last updated (RFC3339 format)
+          example: "2024-01-01T12:00:00Z"
+
     ShopSearchResultData:
       type: object
-      description: Cursor-paginated collection of shops using keyset pagination
+      description: Cursor-paginated collection of shop summaries using keyset pagination
       required:
         - items
         - size
@@ -13883,12 +13617,12 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/GetShopData"
-          description: Array of shops in the current page
+            $ref: "#/components/schemas/ShopSummaryData"
+          description: Array of shop summaries in the current page
         size:
           type: integer
           minimum: 0
-          description: Number of products in the current page
+          description: Number of shops in the current page
           example: 21
         searchAfter:
           type: array
@@ -13903,7 +13637,7 @@ components:
         total:
           type: integer
           minimum: 0
-          description: Total number of products matching the query
+          description: Total number of shops matching the query
           nullable: true
           example: 127
 
