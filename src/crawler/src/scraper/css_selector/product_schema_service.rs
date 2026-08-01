@@ -1031,6 +1031,26 @@ mod tests {
         assert_raw_attribute_instruction(&instruction);
     }
 
+    fn assert_state_selector_instruction(instruction: &str) {
+        assert!(instruction.contains("state selector"));
+        assert!(instruction.contains("cart or buy action"));
+        assert!(instruction.contains("exclude price"));
+        assert!(instruction.contains("not a container that combines action text with price"));
+    }
+
+    #[test]
+    fn should_include_state_selector_guidance_in_schema_generation_prompts() {
+        let create_instruction = build_create_schemas_instruction(&[
+            "<html><body><button>Jetzt kaufen · 235 €</button></body></html>".to_string(),
+        ]);
+        let append_instruction = build_append_schema_instruction(
+            "<html><body><button>Jetzt kaufen · 235 €</button></html>",
+        );
+
+        assert_state_selector_instruction(&create_instruction);
+        assert_state_selector_instruction(&append_instruction);
+    }
+
     #[test]
     fn should_build_schema_prompt_dsl_with_generic_tree_nodes() {
         let html = r#"

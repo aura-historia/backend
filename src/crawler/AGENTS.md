@@ -25,7 +25,7 @@
 - LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair page classification, schema evaluation, state mapping fallback.
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
-- Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors.
+- Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors. State selector prompt must choose only availability/cart action nodes and exclude price text.
 - Schema prompt DSL strips script/style and layout noise, including header/footer/nav custom elements.
 - Product schemas may generate configured raw attribute selectors for review/demo/file inspection only. Missing raw attribute selector matches are skipped; extracted raw values are not DB or product-command data. New raw attribute keys need schema regeneration for existing cached shop schemas.
 - Initial schema generation accepts product schema responses only. Append repair accepts product, removed, and not-product classifications.
