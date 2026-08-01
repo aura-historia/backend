@@ -1,6 +1,10 @@
-use crate::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
+use crate::ports::{
+    UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserAdminReadError,
+    UserAdminReaderFactory,
+};
+use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
 use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
+use common::operation_context::{OperationContext, Principal};
 use common::transaction::{Transaction, UnitOfWork};
 use common::{
     currency::domain::Currency, language::domain::Language,
@@ -15,6 +19,7 @@ use user_core::{first_name::FirstName, last_name::LastName, role::UserRole, tier
 pub enum GetUserRequest {
     ById(UserId),
     ByEmail(Email),
+    AdminById(UserId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +41,10 @@ pub struct UserDetailsView {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetUserError {
+    #[error("authenticated actor required to get user")]
+    AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("user not found")]
     NotFound,
     #[error("temporary user account read failure")]
@@ -68,25 +77,28 @@ pub trait GetUserUseCase: Send + Sync {
     ) -> Result<UserDetailsView, GetUserError>;
 }
 
-pub struct GetUserHandler<U, R> {
+pub struct GetUserHandler<U, R, A> {
     unit_of_work: U,
     reader: R,
+    admin_reader: A,
 }
 
-impl<U, R> GetUserHandler<U, R> {
-    pub fn new(unit_of_work: U, reader: R) -> Self {
+impl<U, R, A> GetUserHandler<U, R, A> {
+    pub fn new(unit_of_work: U, reader: R, admin_reader: A) -> Self {
         Self {
             unit_of_work,
             reader,
+            admin_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> GetUserUseCase for GetUserHandler<U, R>
+impl<U, R, A> GetUserUseCase for GetUserHandler<U, R, A>
 where
     U: UnitOfWork,
     R: UserAccountReaderFactory<U::Tx>,
+    A: UserAdminReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "get_user",
@@ -107,6 +119,7 @@ where
             .begin()
             .await
             .map_err(|_| GetUserError::BeginTransactionFailed)?;
+        authorize_get_user(context, &request, &mut tx, &self.admin_reader).await?;
         let result = self
             .reader
             .in_transaction(&mut tx)
@@ -118,6 +131,57 @@ where
             .map_err(|_| GetUserError::CommitTransactionFailed)?;
 
         Ok(result)
+    }
+}
+
+async fn authorize_get_user<Tx, A>(
+    context: &OperationContext,
+    request: &GetUserRequest,
+    tx: &mut Tx,
+    admin_reader: &A,
+) -> Result<(), GetUserError>
+where
+    Tx: Transaction,
+    A: UserAdminReaderFactory<Tx>,
+{
+    match (&context.principal, request) {
+        (Principal::Service(_) | Principal::System, _) => Ok(()),
+        (Principal::User(actor_id), GetUserRequest::ById(user_id))
+        | (
+            Principal::DelegatedUser {
+                user_id: actor_id, ..
+            },
+            GetUserRequest::ById(user_id),
+        ) if actor_id == user_id => Ok(()),
+        (Principal::User(_) | Principal::DelegatedUser { .. }, _) => {
+            let mut reader = admin_reader.in_transaction(tx);
+            require_admin_actor(context, &mut reader)
+                .await
+                .map_err(GetUserError::from)
+        }
+        (Principal::Anonymous, _) => Err(GetUserError::AuthenticatedActorRequired),
+    }
+}
+
+impl From<RequireAdminActorError> for GetUserError {
+    fn from(error: RequireAdminActorError) -> Self {
+        match error {
+            RequireAdminActorError::AuthenticationRequired => Self::AuthenticatedActorRequired,
+            RequireAdminActorError::Forbidden => Self::Forbidden,
+            RequireAdminActorError::UserAdminRead(error) => error.into(),
+        }
+    }
+}
+
+impl From<UserAdminReadError> for GetUserError {
+    fn from(error: UserAdminReadError) -> Self {
+        match error {
+            UserAdminReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            UserAdminReadError::InvalidReadModel { source } => Self::InvalidReadModel { source },
+            UserAdminReadError::Internal { source } => Self::Internal { source },
+        }
     }
 }
 
@@ -137,7 +201,10 @@ impl From<UserAccountReadError> for GetUserError {
 mod tests {
     #![allow(dead_code, unused_imports)]
     use super::{GetUserError, GetUserHandler, GetUserRequest, GetUserUseCase, UserDetailsView};
-    use crate::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
+    use crate::ports::{
+        UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserAdminReader,
+        UserAdminReaderFactory,
+    };
     use common::user_id::UserId;
     use serde_email::Email;
     use user_core::role::UserRole;
@@ -257,6 +324,11 @@ mod tests {
         state: Arc<Mutex<ReadState>>,
     }
 
+    #[derive(Clone, Default)]
+    struct FakeUserAdminReaderFactory;
+
+    struct FakeUserAdminReader;
+
     fn email(value: &str) -> Email {
         match Email::try_from(value) {
             Ok(email) => email,
@@ -313,6 +385,26 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl UserAdminReader for FakeUserAdminReader {
+        async fn find_admin_view(
+            &mut self,
+            _request: &GetUserRequest,
+        ) -> Result<Option<UserDetailsView>, crate::ports::UserAdminReadError> {
+            Ok(None)
+        }
+    }
+
+    impl UserAdminReaderFactory<FakeTx> for FakeUserAdminReaderFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl UserAdminReader + 'tx {
+            FakeUserAdminReader
+        }
+    }
+
+    fn no_admin_reader() -> FakeUserAdminReaderFactory {
+        FakeUserAdminReaderFactory
+    }
+
     #[tokio::test]
     async fn should_get_user_when_found() {
         let user_id = UserId::new();
@@ -323,9 +415,9 @@ mod tests {
         assert_eq!(
             user_id,
             assert_ok(
-                GetUserHandler::new(uow.clone(), reads)
+                GetUserHandler::new(uow.clone(), reads, no_admin_reader())
                     .execute(
-                        &ctx(Principal::Anonymous),
+                        &ctx(Principal::System),
                         GetUserRequest::ByEmail(email("ada@example.com"))
                     )
                     .await,
@@ -338,9 +430,13 @@ mod tests {
     #[tokio::test]
     async fn should_return_not_found_when_user_missing() {
         assert_error(
-            GetUserHandler::new(FakeUnitOfWork::default(), FakeReadFactory::default())
-                .execute(&ctx(Principal::System), GetUserRequest::ById(UserId::new()))
-                .await,
+            GetUserHandler::new(
+                FakeUnitOfWork::default(),
+                FakeReadFactory::default(),
+                no_admin_reader(),
+            )
+            .execute(&ctx(Principal::System), GetUserRequest::ById(UserId::new()))
+            .await,
             |error| matches!(error, GetUserError::NotFound),
         );
     }
@@ -351,7 +447,7 @@ mod tests {
         let begin_uow = FakeUnitOfWork::default();
         lock(&begin_uow.state).begin_error = true;
         assert_error(
-            GetUserHandler::new(begin_uow, FakeReadFactory::default())
+            GetUserHandler::new(begin_uow, FakeReadFactory::default(), no_admin_reader())
                 .execute(&ctx(Principal::System), GetUserRequest::ById(user_id))
                 .await,
             |error| matches!(error, GetUserError::BeginTransactionFailed),
@@ -362,7 +458,7 @@ mod tests {
         let reads = FakeReadFactory::default();
         lock(&reads.state).user = Some(user_view(user_id, UserRole::Admin));
         assert_error(
-            GetUserHandler::new(commit_uow, reads)
+            GetUserHandler::new(commit_uow, reads, no_admin_reader())
                 .execute(&ctx(Principal::System), GetUserRequest::ById(user_id))
                 .await,
             |error| matches!(error, GetUserError::CommitTransactionFailed),
@@ -380,7 +476,7 @@ mod tests {
             let reads = FakeReadFactory::default();
             lock(&reads.state).error = Some(kind);
             assert_error(
-                GetUserHandler::new(uow.clone(), reads)
+                GetUserHandler::new(uow.clone(), reads, no_admin_reader())
                     .execute(&ctx(Principal::System), GetUserRequest::ById(UserId::new()))
                     .await,
                 |error| {

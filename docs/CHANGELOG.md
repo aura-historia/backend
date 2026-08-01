@@ -47,6 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
     - `PATCH /api/v1/partner-applications/{partnerApplicationId}`
     - `POST /api/v1/partner-applications/{partnerApplicationId}/decision`
 - Optional Aura Historia access tokens are accepted on public read routes; invalid supplied bearer tokens return `401`.
+- Admin partner-application routes now accept Cognito JWTs and Aura Historia access tokens. User callers must have stored `ADMIN` role; Aura access tokens also need `partner-shop-applications:write`.
 - `GetShopData` no longer includes `createdBy` or `updatedBy` because canonical shop storage has no audit actor columns.
 - Migrated API errors use `application/problem+json` and stable `ApiErrorCode` constants.
 

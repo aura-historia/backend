@@ -256,6 +256,12 @@ impl From<CheckUserAdminError> for ApiError {
 impl From<GetUserError> for ApiError {
     fn from(error: GetUserError) -> Self {
         match error {
+            GetUserError::AuthenticatedActorRequired => ApiError::unauthorized(INVALID_CREDENTIALS)
+                .with_header_field("Authorization")
+                .with_detail("Bearer token is required."),
+            GetUserError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
             GetUserError::NotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
@@ -276,6 +282,14 @@ impl From<GetUserError> for ApiError {
 impl From<SearchUsersError> for ApiError {
     fn from(error: SearchUsersError) -> Self {
         match error {
+            SearchUsersError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            SearchUsersError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
             SearchUsersError::TemporarilyUnavailable { .. }
             | SearchUsersError::BeginTransactionFailed
             | SearchUsersError::CommitTransactionFailed => {

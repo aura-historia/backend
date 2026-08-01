@@ -12,7 +12,6 @@ use common::pagination::cursor::Cursor;
 use std::collections::HashMap;
 use user_core::user_search::UserSearch;
 use user_service::use_cases::commands::delete_user::DeleteUserCommand;
-use user_service::use_cases::queries::check_user_admin::CheckUserAdminRequest;
 use user_service::use_cases::queries::get_user::GetUserRequest;
 use user_service::use_cases::queries::search_users::SearchUsersRequest;
 
@@ -21,17 +20,10 @@ pub async fn search_users(
     headers: HeaderMap,
     Query(_query): Query<HashMap<String, String>>,
 ) -> Response {
-    let (ctx, actor) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return r,
     };
-    if let Err(error) = state
-        .check_user_admin
-        .execute(&ctx, CheckUserAdminRequest { user_id: actor })
-        .await
-    {
-        return ApiError::from(error).into_response();
-    }
     let request = SearchUsersRequest {
         search: UserSearch::default(),
         sort: None,
@@ -63,24 +55,17 @@ pub async fn get_user(
     headers: HeaderMap,
     Path(raw_user_id): Path<String>,
 ) -> Response {
-    let (ctx, actor) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return r,
     };
-    if let Err(error) = state
-        .check_user_admin
-        .execute(&ctx, CheckUserAdminRequest { user_id: actor })
-        .await
-    {
-        return ApiError::from(error).into_response();
-    }
     let user_id = match parse_user_id(&raw_user_id, "userId") {
         Ok(v) => v,
         Err(r) => return r,
     };
     match state
         .get_user
-        .execute(&ctx, GetUserRequest::ById(user_id))
+        .execute(&ctx, GetUserRequest::AdminById(user_id))
         .await
     {
         Ok(view) => no_store(Json(UserData::from(view)).into_response()),
@@ -94,17 +79,10 @@ pub async fn patch_admin_user(
     Path(raw_user_id): Path<String>,
     body: String,
 ) -> Response {
-    let (ctx, actor) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return r,
     };
-    if let Err(error) = state
-        .check_user_admin
-        .execute(&ctx, CheckUserAdminRequest { user_id: actor })
-        .await
-    {
-        return ApiError::from(error).into_response();
-    }
     let user_id = match parse_user_id(&raw_user_id, "userId") {
         Ok(v) => v,
         Err(r) => return r,
@@ -117,17 +95,10 @@ pub async fn delete_admin_user(
     headers: HeaderMap,
     Path(raw_user_id): Path<String>,
 ) -> Response {
-    let (ctx, actor) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return r,
     };
-    if let Err(error) = state
-        .check_user_admin
-        .execute(&ctx, CheckUserAdminRequest { user_id: actor })
-        .await
-    {
-        return ApiError::from(error).into_response();
-    }
     let user_id = match parse_user_id(&raw_user_id, "userId") {
         Ok(v) => v,
         Err(r) => return r,

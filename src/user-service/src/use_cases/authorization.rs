@@ -1,4 +1,5 @@
-use crate::ports::{UserRepository, UserRepositoryError};
+use crate::ports::{UserAdminReadError, UserAdminReader};
+use crate::use_cases::queries::get_user::GetUserRequest;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
@@ -11,7 +12,7 @@ pub(crate) enum RequireAdminActorError {
     #[error("operation not permitted")]
     Forbidden,
     #[error(transparent)]
-    UserRepository(#[from] UserRepositoryError),
+    UserAdminRead(#[from] UserAdminReadError),
 }
 
 pub(crate) fn require_admin_actor_credential(
@@ -24,18 +25,18 @@ pub(crate) fn require_admin_actor_credential(
         .authorize::<RequireAdminActorError>()
 }
 
-pub(crate) async fn require_admin_actor<R: UserRepository>(
+pub(crate) async fn require_admin_actor<R: UserAdminReader>(
     context: &OperationContext,
-    users: &mut R,
+    reader: &mut R,
 ) -> Result<(), RequireAdminActorError> {
     match &context.principal {
         Principal::Service(_) | Principal::System => Ok(()),
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => {
-            let actor = users
-                .find_by_id(*user_id)
+            let actor = reader
+                .find_admin_view(&GetUserRequest::ById(*user_id))
                 .await?
                 .ok_or(RequireAdminActorError::Forbidden)?;
-            if actor.value.account().role == UserRole::Admin {
+            if actor.role == UserRole::Admin {
                 Ok(())
             } else {
                 Err(RequireAdminActorError::Forbidden)
@@ -57,7 +58,11 @@ impl From<OperationAuthorizationError> for RequireAdminActorError {
 
 #[cfg(test)]
 mod tests {
-    use crate::ports::{UserStorageVersion, VersionedUser};
+    use crate::ports::{
+        UserAdminReadError, UserAdminReader, UserRepository, UserRepositoryError,
+        UserStorageVersion, VersionedUser,
+    };
+    use crate::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
 
     use super::*;
     use common::error::boxed::{BoxError, box_error};
@@ -110,6 +115,52 @@ mod tests {
 
     fn boxed() -> BoxError {
         box_error(std::io::Error::other("boom"))
+    }
+
+    fn user_details(user: User) -> UserDetailsView {
+        UserDetailsView {
+            user_id: user.id(),
+            email: user.email().clone(),
+            first_name: user.profile().first_name.clone(),
+            last_name: user.profile().last_name.clone(),
+            language: user.preferences().language,
+            currency: user.preferences().currency,
+            measurement_unit: user.preferences().measurement_unit,
+            prohibited_content_consent: user.preferences().prohibited_content_consent,
+            tier: user.account().tier,
+            role: user.account().role,
+            stripe_customer_id: user.account().stripe_customer_id.clone(),
+            structured_address: user.profile().structured_address.clone(),
+            geo_address: user.profile().geo_address,
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UserAdminReader for FakeUserRepository {
+        async fn find_admin_view(
+            &mut self,
+            _request: &GetUserRequest,
+        ) -> Result<Option<UserDetailsView>, UserAdminReadError> {
+            self.find_by_id_calls += 1;
+            if let Some(error) = self.error.take() {
+                match error {
+                    UserRepositoryError::TemporarilyUnavailable { source } => {
+                        Err(UserAdminReadError::TemporarilyUnavailable { source })
+                    }
+                    UserRepositoryError::InvalidPersistedState { source } => {
+                        Err(UserAdminReadError::InvalidReadModel { source })
+                    }
+                    UserRepositoryError::Internal { source } => {
+                        Err(UserAdminReadError::Internal { source })
+                    }
+                    _ => Err(UserAdminReadError::Internal {
+                        source: "unexpected repository error".into(),
+                    }),
+                }
+            } else {
+                Ok(self.user.clone().map(user_details))
+            }
+        }
     }
 
     #[async_trait::async_trait]
@@ -292,7 +343,7 @@ mod tests {
 
         assert_error(
             require_admin_actor(&context(Principal::User(user_id)), &mut repo).await,
-            |error| matches!(error, RequireAdminActorError::UserRepository(_)),
+            |error| matches!(error, RequireAdminActorError::UserAdminRead(_)),
         );
     }
 }

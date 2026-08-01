@@ -10,7 +10,7 @@ use axum::response::{IntoResponse, Response};
 use shop_partner_service::use_cases::{
     CreatePartnerShopApplicationCommand, CreatePartnerShopApplicationPayload,
     DeletePartnerShopApplicationCommand, GetPartnerShopApplicationRequest,
-    ListPartnerShopApplicationsRequest,
+    ListPartnerShopApplicationsRequest, NewPartnerShopCommand,
 };
 
 pub async fn list_me(
@@ -82,9 +82,40 @@ pub async fn post_me(
         Err(r) => return r,
     };
     let payload = match data.payload {
-        PostPayloadData::Existing { shop_id } | PostPayloadData::New { shop_id } => {
+        PostPayloadData::Existing { shop_id } => {
             CreatePartnerShopApplicationPayload::Existing { shop_id }
         }
+        PostPayloadData::New {
+            shop_name,
+            shop_type,
+            shop_domains,
+            shopify_domain,
+            shopify_currency,
+            shopify_language,
+            woocommerce_webhook_secret,
+            woocommerce_currency,
+            woocommerce_language,
+            shop_url,
+            shop_image,
+            shop_structured_address,
+            shop_phone,
+            shop_email,
+        } => CreatePartnerShopApplicationPayload::New(NewPartnerShopCommand {
+            name: shop_name,
+            shop_type: shop_type.into(),
+            domains: shop_domains,
+            shopify_domain,
+            shopify_currency: shopify_currency.map(Into::into),
+            shopify_language: shopify_language.map(Into::into),
+            woocommerce_webhook_secret,
+            woocommerce_currency: woocommerce_currency.map(Into::into),
+            woocommerce_language: woocommerce_language.map(Into::into),
+            url: shop_url,
+            image: shop_image,
+            structured_address: shop_structured_address.map(Into::into),
+            phone: shop_phone,
+            email: shop_email,
+        }),
     };
     match state
         .create

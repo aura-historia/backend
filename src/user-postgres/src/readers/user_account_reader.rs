@@ -43,7 +43,7 @@ pub(crate) async fn find_user_details(
     request: &GetUserRequest,
 ) -> Result<Option<UserDetailsView>, UserAccountReadError> {
     let sql = match request {
-        GetUserRequest::ById(_) => {
+        GetUserRequest::ById(_) | GetUserRequest::AdminById(_) => {
             format!("SELECT {} FROM users WHERE user_id = $1", user_columns())
         }
         GetUserRequest::ByEmail(_) => {
@@ -53,7 +53,9 @@ pub(crate) async fn find_user_details(
 
     let mut query = sqlx::query_as::<_, UserRow>(&sql);
     query = match request {
-        GetUserRequest::ById(user_id) => query.bind(uuid::Uuid::from(*user_id)),
+        GetUserRequest::ById(user_id) | GetUserRequest::AdminById(user_id) => {
+            query.bind(uuid::Uuid::from(*user_id))
+        }
         GetUserRequest::ByEmail(email) => query.bind::<&str>(email.as_ref()),
     };
 

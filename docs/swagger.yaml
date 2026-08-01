@@ -8829,13 +8829,16 @@ paths:
       summary: List all partner shop applications
       description: |
         Retrieves all partner shop applications across all users.
-        This endpoint is restricted to authenticated users with the `ADMIN` role.
+        This endpoint accepts Cognito JWTs and Aura Historia access tokens.
+        User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
+        the `partner-shop-applications:write` scope.
         Returns an empty array when no applications exist.
       operationId: adminGetPartnerApplications
       tags:
         - Partner Applications
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Partner shop applications retrieved successfully.
@@ -8931,7 +8934,9 @@ paths:
       summary: Get a specific partner shop application as admin
       description: |
         Retrieves a single partner shop application by its ID across all users.
-        This endpoint is restricted to authenticated users with the `ADMIN` role.
+        This endpoint accepts Cognito JWTs and Aura Historia access tokens.
+        User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
+        the `partner-shop-applications:write` scope.
       operationId: adminGetPartnerApplication
       tags:
         - Partner Applications
@@ -8946,6 +8951,7 @@ paths:
           example: "550e8400-e29b-41d4-a716-446655440000"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Partner shop application found and returned successfully.
@@ -9067,7 +9073,9 @@ paths:
       summary: Update a partner shop application as admin
       description: |
         Updates a specific partner shop application by ID across all users.
-        This endpoint is restricted to authenticated users with the `ADMIN` role.
+        This endpoint accepts Cognito JWTs and Aura Historia access tokens.
+        User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
+        the `partner-shop-applications:write` scope.
         Admins can update payload fields, but review decisions must be submitted through
         `POST /api/v1/partner-applications/{partnerApplicationId}/decision`.
         The request body is required and must not be empty.
@@ -9085,6 +9093,7 @@ paths:
           example: "550e8400-e29b-41d4-a716-446655440000"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: |
@@ -9247,7 +9256,9 @@ paths:
       summary: Submit a partner shop application decision as admin
       description: |
         Submits an `APPROVE` or `REJECT` decision for a specific partner shop application across all users.
-        This endpoint is restricted to authenticated users with the `ADMIN` role.
+        This endpoint accepts Cognito JWTs and Aura Historia access tokens.
+        User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
+        the `partner-shop-applications:write` scope.
         The targeted application must currently have `businessState` `IN_REVIEW`; otherwise the request fails with `409 Conflict`.
         On success, the workflow resumes asynchronously and the returned application has `executionState` `PROCESSING`
         while the decision is being applied.
@@ -9265,6 +9276,7 @@ paths:
           example: "550e8400-e29b-41d4-a716-446655440000"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: Decision payload indicating whether the application should be approved or rejected.

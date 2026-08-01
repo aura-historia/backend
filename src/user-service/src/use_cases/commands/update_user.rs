@@ -1,8 +1,12 @@
-use crate::ports::{UserRepository, UserRepositoryError, UserRepositoryFactory};
+use crate::ports::{
+    UserAdminReadError, UserAdminReaderFactory, UserRepository, UserRepositoryError,
+    UserRepositoryFactory,
+};
+use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
 use common::change_outcome::ChangeOutcome;
 use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::patch_field::PatchField;
 use common::transaction::{Transaction, UnitOfWork};
@@ -115,25 +119,28 @@ pub trait UpdateUserUseCase: Send + Sync {
     ) -> Result<UpdateUserResult, UpdateUserError>;
 }
 
-pub struct UpdateUserHandler<U, R> {
+pub struct UpdateUserHandler<U, R, A> {
     unit_of_work: U,
     users: R,
+    admin_reader: A,
 }
 
-impl<U, R> UpdateUserHandler<U, R> {
-    pub fn new(unit_of_work: U, users: R) -> Self {
+impl<U, R, A> UpdateUserHandler<U, R, A> {
+    pub fn new(unit_of_work: U, users: R, admin_reader: A) -> Self {
         Self {
             unit_of_work,
             users,
+            admin_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> UpdateUserUseCase for UpdateUserHandler<U, R>
+impl<U, R, A> UpdateUserUseCase for UpdateUserHandler<U, R, A>
 where
     U: UnitOfWork,
     R: UserRepositoryFactory<U::Tx>,
+    A: UserAdminReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "update_user",
@@ -151,7 +158,10 @@ where
         context: &OperationContext,
         command: UpdateUserCommand,
     ) -> Result<UpdateUserResult, UpdateUserError> {
-        authorize_user_write(context, command.user_id)?;
+        context
+            .require()
+            .credential_capability(CredentialCapability::UsersWrite)
+            .authorize::<UpdateUserError>()?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -162,25 +172,21 @@ where
             .begin()
             .await
             .map_err(|_| UpdateUserError::BeginTransactionFailed)?;
+        authorize_user_write(context, command.user_id, &mut tx, &self.admin_reader).await?;
+        let mut users = self.users.in_transaction(&mut tx);
         let common::versioned::Versioned {
             value: mut user,
             version,
-        } = self
-            .users
-            .in_transaction(&mut tx)
+        } = users
             .find_by_id(command.user_id)
             .await?
             .ok_or(UpdateUserError::UserNotFound)?;
 
         let outcome = apply_update(&mut user, command)?;
         if outcome.changed() {
-            user = self
-                .users
-                .in_transaction(&mut tx)
-                .update(&user, version)
-                .await?
-                .value;
+            user = users.update(&user, version).await?.value;
         }
+        drop(users);
 
         tx.commit()
             .await
@@ -300,16 +306,54 @@ impl From<RehydrateUserError> for UpdateUserError {
     }
 }
 
-fn authorize_user_write(
+async fn authorize_user_write<Tx, A>(
     context: &OperationContext,
     user_id: UserId,
-) -> Result<(), UpdateUserError> {
-    context
-        .require()
-        .credential_capability(CredentialCapability::UsersWrite)
-        .user(&user_id)
-        .service_or_system()
-        .authorize::<UpdateUserError>()
+    tx: &mut Tx,
+    admin_reader: &A,
+) -> Result<(), UpdateUserError>
+where
+    Tx: Transaction,
+    A: UserAdminReaderFactory<Tx>,
+{
+    match &context.principal {
+        Principal::Service(_) | Principal::System => Ok(()),
+        Principal::User(actor_id)
+        | Principal::DelegatedUser {
+            user_id: actor_id, ..
+        } if *actor_id == user_id => Ok(()),
+        Principal::User(_) | Principal::DelegatedUser { .. } => {
+            let mut reader = admin_reader.in_transaction(tx);
+            require_admin_actor(context, &mut reader)
+                .await
+                .map_err(UpdateUserError::from)
+        }
+        Principal::Anonymous => Err(UpdateUserError::AuthenticatedActorRequired),
+    }
+}
+
+impl From<RequireAdminActorError> for UpdateUserError {
+    fn from(error: RequireAdminActorError) -> Self {
+        match error {
+            RequireAdminActorError::AuthenticationRequired => Self::AuthenticatedActorRequired,
+            RequireAdminActorError::Forbidden => Self::Forbidden,
+            RequireAdminActorError::UserAdminRead(error) => error.into(),
+        }
+    }
+}
+
+impl From<UserAdminReadError> for UpdateUserError {
+    fn from(error: UserAdminReadError) -> Self {
+        match error {
+            UserAdminReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            UserAdminReadError::InvalidReadModel { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            UserAdminReadError::Internal { source } => Self::Internal { source },
+        }
+    }
 }
 
 impl From<UserRepositoryError> for UpdateUserError {
@@ -339,9 +383,10 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{
-        UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion,
-        VersionedUser,
+        UserAdminReader, UserAdminReaderFactory, UserRepository, UserRepositoryError,
+        UserRepositoryFactory, UserStorageVersion, VersionedUser,
     };
+    use crate::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::stripe_customer_id::StripeCustomerId;
@@ -400,6 +445,11 @@ mod tests {
     struct FakeUserRepository {
         state: Arc<Mutex<RepoState>>,
     }
+
+    #[derive(Clone, Default)]
+    struct FakeUserAdminReaderFactory;
+
+    struct FakeUserAdminReader;
 
     fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         match mutex.lock() {
@@ -591,6 +641,26 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl UserAdminReader for FakeUserAdminReader {
+        async fn find_admin_view(
+            &mut self,
+            _request: &GetUserRequest,
+        ) -> Result<Option<UserDetailsView>, crate::ports::UserAdminReadError> {
+            Ok(None)
+        }
+    }
+
+    impl UserAdminReaderFactory<FakeTx> for FakeUserAdminReaderFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl UserAdminReader + 'tx {
+            FakeUserAdminReader
+        }
+    }
+
+    fn no_admin_reader() -> FakeUserAdminReaderFactory {
+        FakeUserAdminReaderFactory
+    }
+
     fn changed_user_command(user_id: UserId) -> UpdateUserCommand {
         UpdateUserCommand {
             user_id,
@@ -646,7 +716,7 @@ mod tests {
             UserRole::User,
             UserTier::Free,
         )));
-        let handler = UpdateUserHandler::new(uow.clone(), repo.clone());
+        let handler = UpdateUserHandler::new(uow.clone(), repo.clone(), no_admin_reader());
 
         let changed = assert_ok(
             handler
@@ -674,7 +744,7 @@ mod tests {
         let user_id = UserId::new();
         let uow = FakeUnitOfWork::default();
         let repo = FakeUserRepositoryFactory::default();
-        let handler = UpdateUserHandler::new(uow.clone(), repo.clone());
+        let handler = UpdateUserHandler::new(uow.clone(), repo.clone(), no_admin_reader());
         assert_error(
             handler
                 .execute(
@@ -741,15 +811,19 @@ mod tests {
         let begin_uow = FakeUnitOfWork::default();
         lock(&begin_uow.state).begin_error = true;
         assert_error(
-            UpdateUserHandler::new(begin_uow, FakeUserRepositoryFactory::default())
-                .execute(
-                    &ctx(Principal::System),
-                    UpdateUserCommand {
-                        user_id,
-                        ..Default::default()
-                    },
-                )
-                .await,
+            UpdateUserHandler::new(
+                begin_uow,
+                FakeUserRepositoryFactory::default(),
+                no_admin_reader(),
+            )
+            .execute(
+                &ctx(Principal::System),
+                UpdateUserCommand {
+                    user_id,
+                    ..Default::default()
+                },
+            )
+            .await,
             |error| matches!(error, UpdateUserError::BeginTransactionFailed),
         );
 
@@ -763,7 +837,7 @@ mod tests {
             UserTier::Free,
         )));
         assert_error(
-            UpdateUserHandler::new(commit_uow, repo)
+            UpdateUserHandler::new(commit_uow, repo, no_admin_reader())
                 .execute(
                     &ctx(Principal::System),
                     UpdateUserCommand {

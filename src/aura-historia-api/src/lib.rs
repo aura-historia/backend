@@ -242,13 +242,26 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     );
     let list_user_partner_shops =
         ListUserPartnerShopsHandler::new(unit_of_work.clone(), SqlxPartnerShopReaderFactory::new());
-    let get_user = GetUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
-    let search_users =
-        SearchUsersHandler::new(unit_of_work.clone(), SqlxUserSearchReaderFactory::new());
-    let update_user =
-        UpdateUserHandler::new(unit_of_work.clone(), SqlxUserRepositoryFactory::new());
-    let delete_user =
-        DeleteUserHandler::new(unit_of_work.clone(), SqlxUserRepositoryFactory::new());
+    let get_user = GetUserHandler::new(
+        unit_of_work.clone(),
+        SqlxUserAccountReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let search_users = SearchUsersHandler::new(
+        unit_of_work.clone(),
+        SqlxUserSearchReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let update_user = UpdateUserHandler::new(
+        unit_of_work.clone(),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let delete_user = DeleteUserHandler::new(
+        unit_of_work.clone(),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
     let list_watchlist =
         ListWatchlistHandler::new(unit_of_work.clone(), SqlxWatchlistReaderFactory);
     let watch_product =
@@ -278,18 +291,22 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let admin_list_partner_applications = AdminListPartnerShopApplicationsHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
     );
     let admin_get_partner_application = AdminGetPartnerShopApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
     );
     let admin_update_partner_application = AdminUpdatePartnerShopApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
     );
     let admin_decide_partner_application = AdminDecidePartnerShopApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
     );
 
     let aws_config = aws_config::defaults(aws_config::BehaviorVersion::v2026_01_12())
@@ -312,10 +329,6 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         search_users: Arc::new(search_users),
         update_user: Arc::new(update_user),
         delete_user: Arc::new(delete_user),
-        check_user_admin: Arc::new(CheckUserAdminHandler::new(
-            unit_of_work.clone(),
-            SqlxUserAdminReaderFactory::new(),
-        )),
         create_access_token: Arc::new(CreateAccessTokenHandler::new(access_token_store.clone())),
         list_access_tokens: Arc::new(ListAccessTokensHandler::new(access_token_store.clone())),
         get_access_token: Arc::new(GetAccessTokenHandler::new(access_token_store.clone())),
@@ -530,7 +543,6 @@ mod tests {
                 search_users: Arc::new(UnusedUseCase),
                 update_user: Arc::new(UnusedUseCase),
                 delete_user: Arc::new(UnusedUseCase),
-                check_user_admin: Arc::new(UnusedUseCase),
                 create_access_token: Arc::new(UnusedUseCase),
                 list_access_tokens: Arc::new(UnusedUseCase),
                 get_access_token: Arc::new(UnusedUseCase),

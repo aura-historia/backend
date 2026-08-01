@@ -1,14 +1,14 @@
+use crate::admin_authorization::{AdminAuthorizationError, authorize_admin_actor};
 use crate::ports::{
     PartnerShopApplicationReader, PartnerShopApplicationReaderFactory,
     PartnerShopApplicationRepositoryError,
 };
 use common::error::boxed::BoxError;
-use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
-};
+use common::operation_context::{OperationAuthorizationError, OperationContext};
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use shop_partner_core::partner_shop_application::PartnerShopApplication;
+use user_service::ports::UserAdminReaderFactory;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AdminListPartnerShopApplicationsRequest {
@@ -54,24 +54,28 @@ pub trait AdminListPartnerShopApplicationsUseCase: Send + Sync {
     ) -> Result<AdminListPartnerShopApplicationsResult, AdminListPartnerShopApplicationsError>;
 }
 
-pub struct AdminListPartnerShopApplicationsHandler<U, R> {
+pub struct AdminListPartnerShopApplicationsHandler<U, R, A> {
     unit_of_work: U,
     reader: R,
+    admin_reader: A,
 }
-impl<U, R> AdminListPartnerShopApplicationsHandler<U, R> {
-    pub fn new(unit_of_work: U, reader: R) -> Self {
+impl<U, R, A> AdminListPartnerShopApplicationsHandler<U, R, A> {
+    pub fn new(unit_of_work: U, reader: R, admin_reader: A) -> Self {
         Self {
             unit_of_work,
             reader,
+            admin_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> AdminListPartnerShopApplicationsUseCase for AdminListPartnerShopApplicationsHandler<U, R>
+impl<U, R, A> AdminListPartnerShopApplicationsUseCase
+    for AdminListPartnerShopApplicationsHandler<U, R, A>
 where
     U: UnitOfWork,
     R: PartnerShopApplicationReaderFactory<U::Tx>,
+    A: UserAdminReaderFactory<U::Tx>,
 {
     #[tracing::instrument(name = "admin_list_partner_shop_applications", skip_all, fields(principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -79,16 +83,12 @@ where
         context: &OperationContext,
         request: AdminListPartnerShopApplicationsRequest,
     ) -> Result<AdminListPartnerShopApplicationsResult, AdminListPartnerShopApplicationsError> {
-        context
-            .require()
-            .credential_capability(CredentialCapability::PartnerShopApplicationsWrite)
-            .service_or_system()
-            .authorize::<AdminListPartnerShopApplicationsError>()?;
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|_| AdminListPartnerShopApplicationsError::BeginTransactionFailed)?;
+        authorize_admin_actor(context, &mut tx, &self.admin_reader).await?;
         let items = match request.user_id {
             Some(user_id) => {
                 self.reader
@@ -105,6 +105,27 @@ where
             .await
             .map_err(|_| AdminListPartnerShopApplicationsError::CommitTransactionFailed)?;
         Ok(AdminListPartnerShopApplicationsResult { items })
+    }
+}
+impl From<AdminAuthorizationError> for AdminListPartnerShopApplicationsError {
+    fn from(error: AdminAuthorizationError) -> Self {
+        match error {
+            AdminAuthorizationError::Forbidden
+            | AdminAuthorizationError::Operation(
+                OperationAuthorizationError::AuthenticationRequired(_),
+            )
+            | AdminAuthorizationError::Operation(OperationAuthorizationError::Forbidden)
+            | AdminAuthorizationError::Operation(
+                OperationAuthorizationError::InsufficientCapability { .. },
+            ) => Self::Forbidden,
+            AdminAuthorizationError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            AdminAuthorizationError::InvalidReadModel { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            AdminAuthorizationError::Internal { source } => Self::Internal { source },
+        }
     }
 }
 impl From<OperationAuthorizationError> for AdminListPartnerShopApplicationsError {
@@ -144,6 +165,8 @@ mod tests {
         NewPartnerShopApplication, PartnerShopApplicationPayload,
     };
     use std::sync::{Arc, Mutex};
+    use user_service::ports::{UserAdminReadError, UserAdminReader, UserAdminReaderFactory};
+    use user_service::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
     #[derive(Clone, Default)]
     struct TestUnitOfWork {
         state: SharedState,
@@ -163,6 +186,9 @@ mod tests {
     struct TestApplicationPort {
         state: SharedState,
     }
+    #[derive(Clone, Default)]
+    struct TestAdminFactory;
+    struct TestAdminReader;
     impl SharedState {
         fn with_application(application: PartnerShopApplication) -> Self {
             let state = Self::default();
@@ -210,6 +236,20 @@ mod tests {
             }
         }
     }
+    impl<Tx> UserAdminReaderFactory<Tx> for TestAdminFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl UserAdminReader + 'tx {
+            TestAdminReader
+        }
+    }
+    #[async_trait::async_trait]
+    impl UserAdminReader for TestAdminReader {
+        async fn find_admin_view(
+            &mut self,
+            _request: &GetUserRequest,
+        ) -> Result<Option<UserDetailsView>, UserAdminReadError> {
+            Ok(None)
+        }
+    }
     #[async_trait::async_trait]
     impl PartnerShopApplicationReader for TestApplicationPort {
         async fn list_all(
@@ -255,6 +295,7 @@ mod tests {
             TestApplicationFactory {
                 state: state.clone(),
             },
+            TestAdminFactory,
         )
         .execute(
             &context(Principal::System),
@@ -277,6 +318,7 @@ mod tests {
                 state: state.clone(),
             },
             TestApplicationFactory { state },
+            TestAdminFactory,
         )
         .execute(
             &context(Principal::System),
@@ -298,6 +340,7 @@ mod tests {
                 state: state.clone(),
             },
             TestApplicationFactory { state },
+            TestAdminFactory,
         )
         .execute(
             &context(Principal::User(UserId::new())),

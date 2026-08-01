@@ -1,4 +1,7 @@
-use crate::ports::{UserRepository, UserRepositoryError, UserRepositoryFactory};
+use crate::ports::{
+    UserAdminReadError, UserAdminReaderFactory, UserRepository, UserRepositoryError,
+    UserRepositoryFactory,
+};
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
 use common::error::boxed::BoxError;
 use common::operation_context::{
@@ -67,25 +70,28 @@ pub trait DeleteUserUseCase: Send + Sync {
     ) -> Result<DeleteUserResult, DeleteUserError>;
 }
 
-pub struct DeleteUserHandler<U, R> {
+pub struct DeleteUserHandler<U, R, A> {
     unit_of_work: U,
     users: R,
+    admin_reader: A,
 }
 
-impl<U, R> DeleteUserHandler<U, R> {
-    pub fn new(unit_of_work: U, users: R) -> Self {
+impl<U, R, A> DeleteUserHandler<U, R, A> {
+    pub fn new(unit_of_work: U, users: R, admin_reader: A) -> Self {
         Self {
             unit_of_work,
             users,
+            admin_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> DeleteUserUseCase for DeleteUserHandler<U, R>
+impl<U, R, A> DeleteUserUseCase for DeleteUserHandler<U, R, A>
 where
     U: UnitOfWork,
     R: UserRepositoryFactory<U::Tx>,
+    A: UserAdminReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "delete_user",
@@ -117,8 +123,8 @@ where
             .begin()
             .await
             .map_err(|_| DeleteUserError::BeginTransactionFailed)?;
+        authorize_delete_user(context, command.user_id, &mut tx, &self.admin_reader).await?;
         let mut users = self.users.in_transaction(&mut tx);
-        authorize_delete_user(context, command.user_id, &mut users).await?;
         let deleted = users.delete_by_id(command.user_id).await?;
         drop(users);
 
@@ -144,20 +150,28 @@ where
     }
 }
 
-async fn authorize_delete_user<R: UserRepository>(
+async fn authorize_delete_user<Tx, A>(
     context: &OperationContext,
     user_id: UserId,
-    users: &mut R,
-) -> Result<(), DeleteUserError> {
+    tx: &mut Tx,
+    admin_reader: &A,
+) -> Result<(), DeleteUserError>
+where
+    Tx: Transaction,
+    A: UserAdminReaderFactory<Tx>,
+{
     match &context.principal {
         Principal::Service(_) | Principal::System => Ok(()),
         Principal::User(actor_id)
         | Principal::DelegatedUser {
             user_id: actor_id, ..
         } if *actor_id == user_id => Ok(()),
-        Principal::User(_) | Principal::DelegatedUser { .. } => require_admin_actor(context, users)
-            .await
-            .map_err(DeleteUserError::from),
+        Principal::User(_) | Principal::DelegatedUser { .. } => {
+            let mut reader = admin_reader.in_transaction(tx);
+            require_admin_actor(context, &mut reader)
+                .await
+                .map_err(DeleteUserError::from)
+        }
         Principal::Anonymous => Err(DeleteUserError::AuthenticatedActorRequired),
     }
 }
@@ -179,7 +193,21 @@ impl From<RequireAdminActorError> for DeleteUserError {
         match error {
             RequireAdminActorError::AuthenticationRequired => Self::AuthenticatedActorRequired,
             RequireAdminActorError::Forbidden => Self::Forbidden,
-            RequireAdminActorError::UserRepository(error) => error.into(),
+            RequireAdminActorError::UserAdminRead(error) => error.into(),
+        }
+    }
+}
+
+impl From<UserAdminReadError> for DeleteUserError {
+    fn from(error: UserAdminReadError) -> Self {
+        match error {
+            UserAdminReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            UserAdminReadError::InvalidReadModel { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            UserAdminReadError::Internal { source } => Self::Internal { source },
         }
     }
 }
@@ -206,7 +234,10 @@ impl From<UserRepositoryError> for DeleteUserError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::{UserStorageVersion, VersionedUser};
+    use crate::ports::{
+        UserAdminReader, UserAdminReaderFactory, UserStorageVersion, VersionedUser,
+    };
+    use crate::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, RequestId};
     use common::stripe_customer_id::StripeCustomerId;
@@ -254,6 +285,21 @@ mod tests {
         state: Arc<Mutex<RepoState>>,
     }
 
+    #[derive(Clone, Default)]
+    struct FakeUserAdminReaderFactory {
+        state: Arc<Mutex<AdminReadState>>,
+    }
+
+    #[derive(Default)]
+    struct AdminReadState {
+        user: Option<UserDetailsView>,
+        calls: usize,
+    }
+
+    struct FakeUserAdminReader {
+        state: Arc<Mutex<AdminReadState>>,
+    }
+
     fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         match mutex.lock() {
             Ok(guard) => guard,
@@ -295,6 +341,34 @@ mod tests {
 
     fn boxed() -> BoxError {
         box_error(std::io::Error::other("boom"))
+    }
+
+    fn user_details(user_id: UserId, role: UserRole) -> UserDetailsView {
+        UserDetailsView {
+            user_id,
+            email: email("actor@example.com"),
+            first_name: None,
+            last_name: None,
+            language: None,
+            currency: None,
+            measurement_unit: None,
+            prohibited_content_consent: false,
+            tier: UserTier::Free,
+            role,
+            stripe_customer_id: None,
+            structured_address: None,
+            geo_address: None,
+        }
+    }
+
+    fn admin_reader(user_id: UserId, role: UserRole) -> FakeUserAdminReaderFactory {
+        let reader = FakeUserAdminReaderFactory::default();
+        lock(&reader.state).user = Some(user_details(user_id, role));
+        reader
+    }
+
+    fn no_admin_reader() -> FakeUserAdminReaderFactory {
+        FakeUserAdminReaderFactory::default()
     }
 
     fn assert_error<T, F>(result: Result<T, DeleteUserError>, predicate: F)
@@ -400,13 +474,34 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl UserAdminReader for FakeUserAdminReader {
+        async fn find_admin_view(
+            &mut self,
+            _request: &GetUserRequest,
+        ) -> Result<Option<UserDetailsView>, UserAdminReadError> {
+            let mut state = lock(&self.state);
+            state.calls += 1;
+            Ok(state.user.clone())
+        }
+    }
+
+    impl UserAdminReaderFactory<FakeTx> for FakeUserAdminReaderFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl UserAdminReader + 'tx {
+            FakeUserAdminReader {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
     #[tokio::test]
     async fn should_delete_own_user_without_admin_lookup() {
         let user_id = UserId::new();
         let unit_of_work = FakeUnitOfWork::default();
         let users = FakeUserRepositoryFactory::default();
         lock(&users.state).delete_result = true;
-        let handler = DeleteUserHandler::new(unit_of_work.clone(), users.clone());
+        let handler =
+            DeleteUserHandler::new(unit_of_work.clone(), users.clone(), no_admin_reader());
 
         let result = handler
             .execute(
@@ -435,7 +530,8 @@ mod tests {
             state.user = Some(user_with(admin_id, UserRole::Admin));
             state.delete_result = true;
         }
-        let handler = DeleteUserHandler::new(unit_of_work, users.clone());
+        let admin_reader = admin_reader(admin_id, UserRole::Admin);
+        let handler = DeleteUserHandler::new(unit_of_work, users.clone(), admin_reader.clone());
 
         let result = handler
             .execute(
@@ -448,7 +544,8 @@ mod tests {
             Ok(result) => assert_eq!(target_id, result.user_id),
             Err(error) => panic!("delete failed: {error:?}"),
         }
-        assert_eq!(1, lock(&users.state).find_by_id_calls);
+        assert_eq!(1, lock(&admin_reader.state).calls);
+        assert_eq!(0, lock(&users.state).find_by_id_calls);
         assert_eq!(1, lock(&users.state).delete_calls);
     }
 
@@ -459,6 +556,7 @@ mod tests {
         let handler = DeleteUserHandler::new(
             FakeUnitOfWork::default(),
             FakeUserRepositoryFactory::default(),
+            no_admin_reader(),
         );
 
         assert_error(
@@ -489,7 +587,11 @@ mod tests {
             state.user = Some(user_with(actor_id, UserRole::User));
             state.delete_result = true;
         }
-        let handler = DeleteUserHandler::new(FakeUnitOfWork::default(), users);
+        let handler = DeleteUserHandler::new(
+            FakeUnitOfWork::default(),
+            users,
+            admin_reader(actor_id, UserRole::User),
+        );
         assert_error(
             handler
                 .execute(
@@ -505,7 +607,8 @@ mod tests {
     async fn should_map_not_found_repo_begin_and_commit_errors() {
         let user_id = UserId::new();
         let users = FakeUserRepositoryFactory::default();
-        let handler = DeleteUserHandler::new(FakeUnitOfWork::default(), users.clone());
+        let handler =
+            DeleteUserHandler::new(FakeUnitOfWork::default(), users.clone(), no_admin_reader());
         assert_error(
             handler
                 .execute(
@@ -530,7 +633,11 @@ mod tests {
 
         let begin_uow = FakeUnitOfWork::default();
         lock(&begin_uow.state).begin_error = true;
-        let handler = DeleteUserHandler::new(begin_uow, FakeUserRepositoryFactory::default());
+        let handler = DeleteUserHandler::new(
+            begin_uow,
+            FakeUserRepositoryFactory::default(),
+            no_admin_reader(),
+        );
         assert_error(
             handler
                 .execute(
@@ -545,7 +652,7 @@ mod tests {
         lock(&commit_uow.state).commit_error = true;
         let users = FakeUserRepositoryFactory::default();
         lock(&users.state).delete_result = true;
-        let handler = DeleteUserHandler::new(commit_uow, users);
+        let handler = DeleteUserHandler::new(commit_uow, users, no_admin_reader());
         assert_error(
             handler
                 .execute(

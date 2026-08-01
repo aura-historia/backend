@@ -1,6 +1,10 @@
-use crate::ports::{UserSearchReadError, UserSearchReader, UserSearchReaderFactory};
+use crate::ports::{
+    UserAdminReadError, UserAdminReaderFactory, UserSearchReadError, UserSearchReader,
+    UserSearchReaderFactory,
+};
+use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
 use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
+use common::operation_context::{OperationContext, Principal};
 use common::pagination::cursor::Cursor;
 use common::sort::Sort;
 use common::transaction::{Transaction, UnitOfWork};
@@ -36,6 +40,10 @@ pub struct SearchUsersResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SearchUsersError {
+    #[error("authenticated actor required to search users")]
+    AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("temporary user search failure")]
     TemporarilyUnavailable {
         #[source]
@@ -66,25 +74,28 @@ pub trait SearchUsersUseCase: Send + Sync {
     ) -> Result<SearchUsersResult, SearchUsersError>;
 }
 
-pub struct SearchUsersHandler<U, R> {
+pub struct SearchUsersHandler<U, R, A> {
     unit_of_work: U,
     reader: R,
+    admin_reader: A,
 }
 
-impl<U, R> SearchUsersHandler<U, R> {
-    pub fn new(unit_of_work: U, reader: R) -> Self {
+impl<U, R, A> SearchUsersHandler<U, R, A> {
+    pub fn new(unit_of_work: U, reader: R, admin_reader: A) -> Self {
         Self {
             unit_of_work,
             reader,
+            admin_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> SearchUsersUseCase for SearchUsersHandler<U, R>
+impl<U, R, A> SearchUsersUseCase for SearchUsersHandler<U, R, A>
 where
     U: UnitOfWork,
     R: UserSearchReaderFactory<U::Tx>,
+    A: UserAdminReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "search_users",
@@ -105,12 +116,56 @@ where
             .begin()
             .await
             .map_err(|_| SearchUsersError::BeginTransactionFailed)?;
+        authorize_search_users(context, &mut tx, &self.admin_reader).await?;
         let result = self.reader.in_transaction(&mut tx).search(&request).await?;
         tx.commit()
             .await
             .map_err(|_| SearchUsersError::CommitTransactionFailed)?;
 
         Ok(result)
+    }
+}
+
+async fn authorize_search_users<Tx, A>(
+    context: &OperationContext,
+    tx: &mut Tx,
+    admin_reader: &A,
+) -> Result<(), SearchUsersError>
+where
+    Tx: Transaction,
+    A: UserAdminReaderFactory<Tx>,
+{
+    match &context.principal {
+        Principal::Service(_) | Principal::System => Ok(()),
+        Principal::User(_) | Principal::DelegatedUser { .. } => {
+            let mut reader = admin_reader.in_transaction(tx);
+            require_admin_actor(context, &mut reader)
+                .await
+                .map_err(SearchUsersError::from)
+        }
+        Principal::Anonymous => Err(SearchUsersError::AuthenticatedActorRequired),
+    }
+}
+
+impl From<RequireAdminActorError> for SearchUsersError {
+    fn from(error: RequireAdminActorError) -> Self {
+        match error {
+            RequireAdminActorError::AuthenticationRequired => Self::AuthenticatedActorRequired,
+            RequireAdminActorError::Forbidden => Self::Forbidden,
+            RequireAdminActorError::UserAdminRead(error) => error.into(),
+        }
+    }
+}
+
+impl From<UserAdminReadError> for SearchUsersError {
+    fn from(error: UserAdminReadError) -> Self {
+        match error {
+            UserAdminReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            UserAdminReadError::InvalidReadModel { source } => Self::InvalidReadModel { source },
+            UserAdminReadError::Internal { source } => Self::Internal { source },
+        }
     }
 }
 
@@ -133,7 +188,11 @@ mod tests {
         SearchUsersError, SearchUsersHandler, SearchUsersRequest, SearchUsersResult,
         SearchUsersUseCase,
     };
-    use crate::ports::{UserSearchReadError, UserSearchReader, UserSearchReaderFactory};
+    use crate::ports::{
+        UserAdminReader, UserAdminReaderFactory, UserSearchReadError, UserSearchReader,
+        UserSearchReaderFactory,
+    };
+    use crate::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
     use common::pagination::cursor::Cursor;
     use common::user_id::UserId;
     use serde_json::Value;
@@ -251,6 +310,11 @@ mod tests {
         state: Arc<Mutex<ReadState>>,
     }
 
+    #[derive(Clone, Default)]
+    struct FakeUserAdminReaderFactory;
+
+    struct FakeUserAdminReader;
+
     #[async_trait::async_trait]
     impl UserSearchReader for FakeReader {
         async fn search(
@@ -288,6 +352,26 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl UserAdminReader for FakeUserAdminReader {
+        async fn find_admin_view(
+            &mut self,
+            _request: &GetUserRequest,
+        ) -> Result<Option<UserDetailsView>, crate::ports::UserAdminReadError> {
+            Ok(None)
+        }
+    }
+
+    impl UserAdminReaderFactory<FakeTx> for FakeUserAdminReaderFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl UserAdminReader + 'tx {
+            FakeUserAdminReader
+        }
+    }
+
+    fn no_admin_reader() -> FakeUserAdminReaderFactory {
+        FakeUserAdminReaderFactory
+    }
+
     fn request() -> SearchUsersRequest {
         SearchUsersRequest {
             search: UserSearch::default(),
@@ -307,7 +391,7 @@ mod tests {
         assert_eq!(
             0,
             assert_ok(
-                SearchUsersHandler::new(FakeUnitOfWork::default(), reads)
+                SearchUsersHandler::new(FakeUnitOfWork::default(), reads, no_admin_reader())
                     .execute(&ctx(Principal::System), request())
                     .await,
             )
@@ -321,7 +405,7 @@ mod tests {
         let begin_uow = FakeUnitOfWork::default();
         lock(&begin_uow.state).begin_error = true;
         assert_error(
-            SearchUsersHandler::new(begin_uow, FakeReadFactory::default())
+            SearchUsersHandler::new(begin_uow, FakeReadFactory::default(), no_admin_reader())
                 .execute(&ctx(Principal::System), request())
                 .await,
             |error| matches!(error, SearchUsersError::BeginTransactionFailed),
@@ -329,7 +413,7 @@ mod tests {
         let commit_uow = FakeUnitOfWork::default();
         lock(&commit_uow.state).commit_error = true;
         assert_error(
-            SearchUsersHandler::new(commit_uow, FakeReadFactory::default())
+            SearchUsersHandler::new(commit_uow, FakeReadFactory::default(), no_admin_reader())
                 .execute(&ctx(Principal::System), request())
                 .await,
             |error| matches!(error, SearchUsersError::CommitTransactionFailed),
@@ -347,7 +431,7 @@ mod tests {
             let reads = FakeReadFactory::default();
             lock(&reads.state).error = Some(kind);
             assert_error(
-                SearchUsersHandler::new(uow.clone(), reads)
+                SearchUsersHandler::new(uow.clone(), reads, no_admin_reader())
                     .execute(&ctx(Principal::System), request())
                     .await,
                 |error| {
