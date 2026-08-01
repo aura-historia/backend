@@ -15,6 +15,7 @@
 - Spider and scraper cron use global slot schedulers. Refill only schedulable work; scraper fetch picks random eligible domains, takes up to 100 due URLs per domain by default, and excludes domains already seen in the pass.
 - Shop sync load active shops and domains from upstream shop search into local Postgres.
 - Spider crawl shop domains, discover URLs, infer or refresh shop product regex, and batch-upsert URL metadata.
+- Spider HTTP asks for `gzip, br, deflate` only; avoid zstd decode noise from bad origins.
 - Scraper consume product URLs, fetch HTML, detect stored soft-404 removed templates, reuse or grow CSS selector schemas, normalize products, and push results onward.
 - Scraper description text without own language signal inherits title language only when language was detected from the title itself.
 - `review` own human-review rail and optional LLM-judge rail for URL patterns and schemas.
