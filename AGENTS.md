@@ -7,7 +7,7 @@
 ## Purpose
 
 - Own repo DOX rail.
-- Own root files: `Cargo.toml`, `Cargo.lock`, `README.md`, `LICENSE`, `.cargo/`, repo config.
+- Own root files: `Cargo.toml`, `Cargo.lock`, `README.md`, `LICENSE`, `.cargo/`, `depgraph-rules.toml`, repo config.
 
 ## Core Design
 
@@ -42,6 +42,7 @@
 ## Verification
 
 - Rust all: `cargo check --workspace`
+- Rust dep graph: `cargo depgraph-check check`
 - Rust tests: `cargo test --workspace --lib --all-features`
 - Infra test: `npm --prefix infra test`
 - Infra synth: `npm --prefix infra run synth:all`
