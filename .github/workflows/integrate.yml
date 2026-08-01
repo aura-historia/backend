@@ -7,6 +7,7 @@ on:
       - ".github/workflows/integrate.yml"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "depgraph-rules.toml"
       - "sonar-project.properties"
       - "src/**"
       - "infra/**"
@@ -16,6 +17,7 @@ on:
       - ".github/workflows/integrate.yml"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "depgraph-rules.toml"
       - "sonar-project.properties"
       - "src/**"
       - "infra/**"
@@ -75,6 +77,12 @@ jobs:
 
       - name: Format check
         run: cargo fmt --all -- --check
+
+      - name: Install dependency graph checker
+        run: cargo install cargo-depgraph-check --version 0.1.0 --locked
+
+      - name: Check dependency graph rules
+        run: cargo depgraph-check check
 
       - name: Clippy lint
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -D clippy::result-large-err
