@@ -231,7 +231,7 @@ jobs:
   sonar:
     name: SonarQube-Cloud Analysis
     needs: [test]
-    if: always() && !cancelled()
+    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[] && !cancelled()
     permissions:
       contents: read
       pull-requests: read
