@@ -7,6 +7,7 @@ on:
       - ".github/workflows/integrate.yml"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "sonar-project.properties"
       - "src/**"
       - "infra/**"
       - "mjml/**"
@@ -15,6 +16,7 @@ on:
       - ".github/workflows/integrate.yml"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "sonar-project.properties"
       - "src/**"
       - "infra/**"
       - "opensearch/**"
@@ -129,12 +131,47 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
-        run: cargo test --locked --all-features -- --nocapture
+        env:
+          CARGO_PROFILE_TEST_DEBUG: 1
+          RUSTFLAGS: "-C instrument-coverage"
+          LLVM_PROFILE_FILE: "${{ github.workspace }}/coverage-profraw/${{ strategy.job-index }}-%p-%m.profraw"
+        run: |
+          mkdir -p "${{ github.workspace }}/coverage-profraw"
+          cargo test --locked --all-features -- --nocapture
+
+      - name: Add Cargo bin to PATH
+        if: always()
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install grcov
+        if: always()
+        run: cargo install grcov
+
+      - name: Generate coverage for ${{ matrix.crate }}
+        if: always()
+        run: |
+          mkdir -p coverage-lcov
+          if find coverage-profraw -name "*.profraw" -type f | grep -q .; then
+            grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o "coverage-lcov/${{ strategy.job-index }}.lcov"
+          else
+            touch "coverage-lcov/${{ strategy.job-index }}.lcov"
+          fi
+
+      - name: Upload coverage for ${{ matrix.crate }}
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ strategy.job-index }}
+          path: coverage-lcov/${{ strategy.job-index }}.lcov
+          if-no-files-found: warn
+          retention-days: 1
 
       - name: Prune Docker volumes
         run: docker volume prune -f
@@ -190,3 +227,44 @@ jobs:
 
       - name: Prune Docker volumes
         run: docker volume prune -f
+
+  sonar:
+    name: SonarQube-Cloud Analysis
+    needs: [test]
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: coverage-*
+          path: coverage-artifacts
+          merge-multiple: true
+
+      - name: Merge coverage reports
+        run: |
+          mkdir -p coverage-artifacts
+          find coverage-artifacts -name "*.lcov" -type f | sort > coverage-files.txt
+          if [ -s coverage-files.txt ]; then
+            xargs cat < coverage-files.txt > coverage.lcov
+          else
+            touch coverage.lcov
+          fi
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Clean coverage artifacts
+        if: always()
+        run: |
+          rm -rf coverage-artifacts coverage-files.txt coverage.lcov

@@ -6,7 +6,8 @@
 
 ## Core Design
 
-- `workflows/` drive integrate, deploy, sonar, and repo automation.
+- `workflows/` drive integrate, deploy, and repo automation.
+- Integrate workflow runs Rust crate tests with coverage and uploads merged LCOV to SonarCloud.
 - Deploy workflow deploys split CDK stacks from one stage prefix and merges stack outputs for smoke tests.
 - Workflow change can change CI gate, deploy path, or DOX contract for many crates.
 
