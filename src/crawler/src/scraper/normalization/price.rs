@@ -60,6 +60,7 @@ pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
 ///   - `"1,234.56 USD"` (Anglo: comma-thousands, dot-decimal)
 ///   - `"£8,800"`       (Anglo: comma-thousands, no decimal)
 ///   - `"£1 234.56"`    (space-thousands)
+///   - `"6 900 €"`      (narrow no-break space-thousands)
 ///   - `"1234.5"`       (single decimal digit)
 ///   - `"1'234.56"`     (apostrophe-thousands)
 ///
@@ -85,7 +86,7 @@ fn parse_price_number(number: &str, currency: &Currency) -> Result<MonetaryAmoun
     let exponent = minor_unit_exponent(currency);
 
     // Remove whitespace and apostrophes used as thousands separators.
-    let stripped = number.replace([' ', '\u{00a0}', '\'', '_'], "");
+    let stripped = number.replace([' ', '\u{00a0}', '\u{202f}', '\'', '_'], "");
 
     // Determine whether comma or dot is the decimal separator, then split.
     let (integer_part, fraction_part): (&str, &str) =
@@ -313,7 +314,9 @@ fn extract_price_number_candidates(raw: &str) -> Vec<PriceNumberCandidate> {
                 start = Some(idx);
             }
             last_digit_end = idx + ch.len_utf8();
-        } else if start.is_some() && matches!(ch, '.' | ',' | '\'' | '_' | ' ' | '\u{00a0}') {
+        } else if start.is_some()
+            && matches!(ch, '.' | ',' | '\'' | '_' | ' ' | '\u{00a0}' | '\u{202f}')
+        {
             continue;
         } else if let Some(s) = start.take() {
             candidates.push(price_number_candidate(raw, s, last_digit_end));
@@ -340,7 +343,7 @@ fn price_number_candidate(raw: &str, start: usize, end: usize) -> PriceNumberCan
 }
 
 fn price_number_candidate_quality(value: &str) -> PriceNumberCandidateQuality {
-    let stripped = value.replace([' ', '\u{00a0}', '\'', '_'], "");
+    let stripped = value.replace([' ', '\u{00a0}', '\u{202f}', '\'', '_'], "");
     let last_dot = stripped.rfind('.');
     let last_comma = stripped.rfind(',');
     let decimal_index = match (last_dot, last_comma) {
@@ -540,6 +543,7 @@ mod tests {
     #[case("1.234,56 €", 123456, Currency::Eur)]
     #[case("1,234.56 USD", 123456, Currency::Usd)]
     #[case("£1 234.56", 123456, Currency::Gbp)]
+    #[case("6\u{202f}900\u{00a0}€", 690000, Currency::Eur)]
     #[case("100 EUR", 10000, Currency::Eur)]
     #[case("€ 50,00", 5000, Currency::Eur)]
     #[case("$9.99", 999, Currency::Usd)]
@@ -635,6 +639,7 @@ mod tests {
     #[rstest]
     #[case("Preis:  680,00 inkl. MwSt.", Currency::Eur, Some("680,00"))]
     #[case("  1 234.56 gross", Currency::Gbp, Some("1 234.56"))]
+    #[case("6\u{202f}900\u{00a0}€", Currency::Eur, Some("6\u{202f}900"))]
     #[case("Item 02092 Price: \u{20ac} 680,00", Currency::Eur, Some("680,00"))]
     #[case("Item 02092 Price: $1,125", Currency::Usd, Some("1,125"))]
     #[case("Art.-Nr. 02092 Preis 680,00 \u{20ac}", Currency::Eur, Some("680,00"))]
