@@ -8,6 +8,7 @@ use std::process::Command;
 /// Integration test crates that run on ubuntu-latest with LocalStack.
 /// These paths are relative to the workspace root.
 const INTEGRATION_TEST_CRATES: &[&str] = &[
+    "src/aura-historia-api",
     "src/common",
     "src/product-core",
     "src/product-opensearch",
