@@ -8,7 +8,6 @@ use shop_partner_service::use_cases::{
     AdminListPartnerShopApplicationsError, AdminUpdatePartnerShopApplicationError,
     CreatePartnerShopApplicationError, DeletePartnerShopApplicationError,
     GetPartnerShopApplicationError, ListPartnerShopApplicationsError,
-    UpdatePartnerShopApplicationError,
 };
 use shop_service::use_cases::commands::create_shop::CreateShopError;
 use shop_service::use_cases::commands::update_shop::UpdateShopError;
@@ -682,11 +681,6 @@ impl_partner_shop_application_error!(ListPartnerShopApplicationsError);
 impl_partner_shop_application_error!(AdminListPartnerShopApplicationsError);
 impl_partner_shop_application_error!(
     GetPartnerShopApplicationError,
-    NotFound,
-    ConcurrencyConflict
-);
-impl_partner_shop_application_error!(
-    UpdatePartnerShopApplicationError,
     NotFound,
     ConcurrencyConflict
 );

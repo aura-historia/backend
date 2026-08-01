@@ -1,9 +1,7 @@
-use super::types::{
-    PartnerApplicationData, PatchApplicationData, PostApplicationData, PostPayloadData,
-};
+use super::types::{PartnerApplicationData, PostApplicationData, PostPayloadData};
 use super::util::{no_store, parse_id, parse_json};
 use crate::auth::protected_context;
-use crate::error::{ApiError, BAD_BODY_VALUE};
+use crate::error::ApiError;
 use crate::state::PartnerApplicationsState;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -12,7 +10,7 @@ use axum::response::{IntoResponse, Response};
 use shop_partner_service::use_cases::{
     CreatePartnerShopApplicationCommand, CreatePartnerShopApplicationPayload,
     DeletePartnerShopApplicationCommand, GetPartnerShopApplicationRequest,
-    ListPartnerShopApplicationsRequest, MarkPartnerShopApplicationInReviewCommand,
+    ListPartnerShopApplicationsRequest,
 };
 
 pub async fn list_me(
@@ -40,6 +38,7 @@ pub async fn list_me(
         Err(e) => ApiError::from(e).into_response(),
     }
 }
+
 pub async fn get_me(
     State(state): State<PartnerApplicationsState>,
     headers: HeaderMap,
@@ -68,6 +67,7 @@ pub async fn get_me(
         Err(e) => ApiError::from(e).into_response(),
     }
 }
+
 pub async fn post_me(
     State(state): State<PartnerApplicationsState>,
     headers: HeaderMap,
@@ -105,45 +105,7 @@ pub async fn post_me(
         Err(e) => ApiError::from(e).into_response(),
     }
 }
-pub async fn patch_me(
-    State(state): State<PartnerApplicationsState>,
-    headers: HeaderMap,
-    Path(raw_id): Path<String>,
-    body: String,
-) -> Response {
-    let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let application_id = match parse_id(&raw_id) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let data: PatchApplicationData = match parse_json(&body) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let Some(task_token) = data.task_token else {
-        return ApiError::bad_request(BAD_BODY_VALUE)
-            .with_detail("Field 'taskToken' is required.")
-            .into_response();
-    };
-    match state
-        .update
-        .mark_in_review(
-            &ctx,
-            MarkPartnerShopApplicationInReviewCommand {
-                user_id,
-                application_id,
-                task_token,
-            },
-        )
-        .await
-    {
-        Ok(r) => Json(PartnerApplicationData::from(r.application)).into_response(),
-        Err(e) => ApiError::from(e).into_response(),
-    }
-}
+
 pub async fn delete_me(
     State(state): State<PartnerApplicationsState>,
     headers: HeaderMap,

@@ -22,7 +22,6 @@ use shop_partner_service::use_cases::{
     AdminListPartnerShopApplicationsHandler, AdminUpdatePartnerShopApplicationHandler,
     CreatePartnerShopApplicationHandler, DeletePartnerShopApplicationHandler,
     GetPartnerShopApplicationHandler, ListPartnerShopApplicationsHandler,
-    UpdatePartnerShopApplicationHandler,
 };
 use shop_postgres::{
     SqlxPartnerShopReaderFactory, SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory,
@@ -188,7 +187,6 @@ pub fn app(state: AppState) -> Router {
                 .route(
                     "/api/v1/me/partner-applications/{partner_application_id}",
                     get(partner_applications::personal::get_me)
-                        .patch(partner_applications::personal::patch_me)
                         .delete(partner_applications::personal::delete_me),
                 )
                 .route(
@@ -273,10 +271,6 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
     );
-    let update_partner_application = UpdatePartnerShopApplicationHandler::new(
-        unit_of_work.clone(),
-        SqlxPartnerShopApplicationRepositoryFactory::new(),
-    );
     let delete_partner_application = DeletePartnerShopApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
@@ -340,7 +334,6 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         create: Arc::new(create_partner_application),
         list: Arc::new(list_partner_applications),
         get: Arc::new(get_partner_application),
-        update: Arc::new(update_partner_application),
         delete: Arc::new(delete_partner_application),
         admin_list: Arc::new(admin_list_partner_applications),
         admin_get: Arc::new(admin_get_partner_application),
@@ -556,7 +549,6 @@ mod tests {
                 create: Arc::new(UnusedUseCase),
                 list: Arc::new(UnusedUseCase),
                 get: Arc::new(UnusedUseCase),
-                update: Arc::new(UnusedUseCase),
                 delete: Arc::new(UnusedUseCase),
                 admin_list: Arc::new(UnusedUseCase),
                 admin_get: Arc::new(UnusedUseCase),
@@ -875,19 +867,6 @@ mod tests {
         }
     }
     #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::UpdatePartnerShopApplicationUseCase for UnusedUseCase {
-        async fn mark_in_review(
-            &self,
-            _context: &common::operation_context::OperationContext,
-            _command: shop_partner_service::use_cases::MarkPartnerShopApplicationInReviewCommand,
-        ) -> Result<
-            shop_partner_service::use_cases::UpdatePartnerShopApplicationResult,
-            shop_partner_service::use_cases::UpdatePartnerShopApplicationError,
-        > {
-            unreachable!("unused update application")
-        }
-    }
-    #[async_trait::async_trait]
     impl shop_partner_service::use_cases::DeletePartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
@@ -926,17 +905,6 @@ mod tests {
     }
     #[async_trait::async_trait]
     impl shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationUseCase for UnusedUseCase {
-        async fn get(
-            &self,
-            _context: &common::operation_context::OperationContext,
-            _request: shop_partner_service::use_cases::AdminGetPartnerShopApplicationForUpdateRequest,
-        ) -> Result<
-            shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationResult,
-            shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationError,
-        > {
-            unreachable!("unused admin get application for update")
-        }
-
         async fn mark_in_review(
             &self,
             _context: &common::operation_context::OperationContext,

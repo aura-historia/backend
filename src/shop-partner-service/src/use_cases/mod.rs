@@ -7,7 +7,6 @@ pub mod delete_partner_shop_application;
 pub mod get_partner_shop_application;
 pub mod list_partner_shop_applications;
 pub mod list_partner_shops;
-pub mod update_partner_shop_application;
 
 pub use admin_decide_partner_shop_application::{
     AdminDecidePartnerShopApplicationCommand, AdminDecidePartnerShopApplicationError,
@@ -51,9 +50,4 @@ pub use list_partner_shop_applications::{
 pub use list_partner_shops::{
     ListPartnerShopsError, ListPartnerShopsHandler, ListPartnerShopsRequest,
     ListPartnerShopsResult, ListPartnerShopsUseCase, PartnerShopSummary,
-};
-pub use update_partner_shop_application::{
-    MarkPartnerShopApplicationInReviewCommand, UpdatePartnerShopApplicationError,
-    UpdatePartnerShopApplicationHandler, UpdatePartnerShopApplicationResult,
-    UpdatePartnerShopApplicationUseCase,
 };

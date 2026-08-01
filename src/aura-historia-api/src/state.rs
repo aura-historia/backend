@@ -4,7 +4,6 @@ use shop_partner_service::use_cases::{
     AdminListPartnerShopApplicationsUseCase, AdminUpdatePartnerShopApplicationUseCase,
     CreatePartnerShopApplicationUseCase, DeletePartnerShopApplicationUseCase,
     GetPartnerShopApplicationUseCase, ListPartnerShopApplicationsUseCase,
-    UpdatePartnerShopApplicationUseCase,
 };
 use shop_service::use_cases::commands::create_shop::CreateShopUseCase;
 use shop_service::use_cases::commands::update_shop::UpdateShopUseCase;
@@ -119,7 +118,6 @@ pub struct PartnerApplicationsState {
     pub(crate) create: Arc<dyn CreatePartnerShopApplicationUseCase>,
     pub(crate) list: Arc<dyn ListPartnerShopApplicationsUseCase>,
     pub(crate) get: Arc<dyn GetPartnerShopApplicationUseCase>,
-    pub(crate) update: Arc<dyn UpdatePartnerShopApplicationUseCase>,
     pub(crate) delete: Arc<dyn DeletePartnerShopApplicationUseCase>,
     pub(crate) admin_list: Arc<dyn AdminListPartnerShopApplicationsUseCase>,
     pub(crate) admin_get: Arc<dyn AdminGetPartnerShopApplicationUseCase>,

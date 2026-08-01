@@ -57,12 +57,6 @@ pub enum AdminUpdatePartnerShopApplicationError {
 
 #[async_trait::async_trait]
 pub trait AdminUpdatePartnerShopApplicationUseCase: Send + Sync {
-    async fn get(
-        &self,
-        context: &OperationContext,
-        request: AdminGetPartnerShopApplicationForUpdateRequest,
-    ) -> Result<AdminUpdatePartnerShopApplicationResult, AdminUpdatePartnerShopApplicationError>;
-
     async fn mark_in_review(
         &self,
         context: &OperationContext,
@@ -91,36 +85,6 @@ where
     U: UnitOfWork,
     A: PartnerShopApplicationRepositoryFactory<U::Tx>,
 {
-    #[tracing::instrument(name = "admin_get_partner_shop_application_for_update", skip_all, fields(partner_shop_application_id = %request.application_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
-    async fn get(
-        &self,
-        context: &OperationContext,
-        request: AdminGetPartnerShopApplicationForUpdateRequest,
-    ) -> Result<AdminUpdatePartnerShopApplicationResult, AdminUpdatePartnerShopApplicationError>
-    {
-        context
-            .require()
-            .credential_capability(CredentialCapability::PartnerShopApplicationsWrite)
-            .service_or_system()
-            .authorize::<AdminUpdatePartnerShopApplicationError>()?;
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| AdminUpdatePartnerShopApplicationError::BeginTransactionFailed)?;
-        let application = self
-            .applications
-            .in_transaction(&mut tx)
-            .find_by_id(request.application_id)
-            .await?
-            .ok_or(AdminUpdatePartnerShopApplicationError::NotFound)?
-            .value;
-        tx.commit()
-            .await
-            .map_err(|_| AdminUpdatePartnerShopApplicationError::CommitTransactionFailed)?;
-        Ok(AdminUpdatePartnerShopApplicationResult { application })
-    }
-
     #[tracing::instrument(name = "admin_mark_partner_shop_application_in_review", skip_all, fields(partner_shop_application_id = %command.application_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn mark_in_review(
         &self,
@@ -346,29 +310,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_get_application_for_system() -> Result<(), String> {
-        let application = application(UserId::new());
-        let application_id = application.id();
-        let state = SharedState::with_application(application.clone());
-        let result = AdminUpdatePartnerShopApplicationHandler::new(
-            TestUnitOfWork {
-                state: state.clone(),
-            },
-            TestApplicationFactory {
-                state: state.clone(),
-            },
-        )
-        .get(
-            &context(Principal::System),
-            AdminGetPartnerShopApplicationForUpdateRequest { application_id },
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-        assert_eq!(application, result.application);
-        assert!(state.committed());
-        Ok(())
-    }
-    #[tokio::test]
     async fn should_mark_application_in_review_for_system() -> Result<(), String> {
         let application = application(UserId::new());
         let application_id = application.id();
@@ -398,6 +339,7 @@ mod tests {
         assert!(state.committed());
         Ok(())
     }
+
     #[tokio::test]
     async fn should_return_not_found_when_application_missing() {
         let state = SharedState::default();
@@ -420,27 +362,7 @@ mod tests {
             Err(AdminUpdatePartnerShopApplicationError::NotFound)
         ));
     }
-    #[tokio::test]
-    async fn should_forbid_plain_user() {
-        let state = SharedState::default();
-        let result = AdminUpdatePartnerShopApplicationHandler::new(
-            TestUnitOfWork {
-                state: state.clone(),
-            },
-            TestApplicationFactory { state },
-        )
-        .get(
-            &context(Principal::User(UserId::new())),
-            AdminGetPartnerShopApplicationForUpdateRequest {
-                application_id: PartnerShopApplicationId::new(),
-            },
-        )
-        .await;
-        assert!(matches!(
-            result,
-            Err(AdminUpdatePartnerShopApplicationError::Forbidden)
-        ));
-    }
+
     fn application(user_id: UserId) -> PartnerShopApplication {
         PartnerShopApplication::create(NewPartnerShopApplication {
             id: PartnerShopApplicationId::new(),

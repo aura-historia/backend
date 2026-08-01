@@ -3,7 +3,6 @@ use crate::use_cases::{
     AdminListPartnerShopApplicationsUseCase, AdminUpdatePartnerShopApplicationUseCase,
     CreatePartnerShopApplicationUseCase, DeletePartnerShopApplicationUseCase,
     GetPartnerShopApplicationUseCase, ListPartnerShopApplicationsUseCase, ListPartnerShopsUseCase,
-    UpdatePartnerShopApplicationUseCase,
 };
 use std::sync::Arc;
 
@@ -12,7 +11,6 @@ pub struct ShopPartnerUseCases {
     pub list_partner_shops: Arc<dyn ListPartnerShopsUseCase>,
     pub list_applications: Arc<dyn ListPartnerShopApplicationsUseCase>,
     pub get_application: Arc<dyn GetPartnerShopApplicationUseCase>,
-    pub update_application: Arc<dyn UpdatePartnerShopApplicationUseCase>,
     pub delete_application: Arc<dyn DeletePartnerShopApplicationUseCase>,
     pub admin_list_applications: Arc<dyn AdminListPartnerShopApplicationsUseCase>,
     pub admin_get_application: Arc<dyn AdminGetPartnerShopApplicationUseCase>,
@@ -25,7 +23,6 @@ pub struct ShopPartnerUseCasesInput {
     pub list_partner_shops: Arc<dyn ListPartnerShopsUseCase>,
     pub list_applications: Arc<dyn ListPartnerShopApplicationsUseCase>,
     pub get_application: Arc<dyn GetPartnerShopApplicationUseCase>,
-    pub update_application: Arc<dyn UpdatePartnerShopApplicationUseCase>,
     pub delete_application: Arc<dyn DeletePartnerShopApplicationUseCase>,
     pub admin_list_applications: Arc<dyn AdminListPartnerShopApplicationsUseCase>,
     pub admin_get_application: Arc<dyn AdminGetPartnerShopApplicationUseCase>,
@@ -40,7 +37,6 @@ impl ShopPartnerUseCases {
             list_partner_shops: input.list_partner_shops,
             list_applications: input.list_applications,
             get_application: input.get_application,
-            update_application: input.update_application,
             delete_application: input.delete_application,
             admin_list_applications: input.admin_list_applications,
             admin_get_application: input.admin_get_application,
