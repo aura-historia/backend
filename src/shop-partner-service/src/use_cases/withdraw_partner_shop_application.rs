@@ -138,12 +138,14 @@ impl From<PartnerShopApplicationRepositoryError> for WithdrawPartnerShopApplicat
 mod tests {
     use super::*;
     use crate::ports::{PartnerShopApplicationStorageVersion, VersionedPartnerShopApplication};
+    use common::execution_state::domain::ExecutionState;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::transaction::TransactionError;
     use common::{partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId};
     use shop_partner_core::partner_shop_application::{
         NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
     };
+    use shop_partner_core::partner_shop_application_state::PartnerShopApplicationState;
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Default)]
@@ -161,6 +163,7 @@ mod tests {
     struct SharedState {
         applications: Arc<Mutex<Vec<VersionedPartnerShopApplication>>>,
         committed: Arc<Mutex<bool>>,
+        updated: Arc<Mutex<usize>>,
         deleted: Arc<Mutex<usize>>,
     }
     struct TestApplicationPort {
@@ -180,8 +183,25 @@ mod tests {
                 ));
             }
         }
+        fn application(
+            &self,
+            id: PartnerShopApplicationId,
+        ) -> Result<Option<PartnerShopApplication>, String> {
+            self.applications
+                .lock()
+                .map_err(|_| "lock failed".to_owned())
+                .map(|applications| {
+                    applications
+                        .iter()
+                        .find(|application| application.value.id() == id)
+                        .map(|application| application.value.clone())
+                })
+        }
         fn committed(&self) -> bool {
             self.committed.lock().map(|value| *value).unwrap_or(false)
+        }
+        fn updated(&self) -> usize {
+            self.updated.lock().map(|value| *value).unwrap_or(0)
         }
         fn deleted(&self) -> usize {
             self.deleted.lock().map(|value| *value).unwrap_or(0)
@@ -274,10 +294,26 @@ mod tests {
             expected_version: PartnerShopApplicationStorageVersion,
         ) -> Result<VersionedPartnerShopApplication, PartnerShopApplicationRepositoryError>
         {
-            Ok(VersionedPartnerShopApplication::new(
-                application.clone(),
-                expected_version.next(),
-            ))
+            let persisted =
+                VersionedPartnerShopApplication::new(application.clone(), expected_version.next());
+            let mut applications = self.state.applications.lock().map_err(|_| {
+                PartnerShopApplicationRepositoryError::Internal {
+                    source: "lock failed".into(),
+                }
+            })?;
+            let existing = applications
+                .iter_mut()
+                .find(|existing| existing.value.id() == application.id())
+                .ok_or(PartnerShopApplicationRepositoryError::ConcurrencyConflict)?;
+            *existing = persisted.clone();
+            self.state
+                .updated
+                .lock()
+                .map(|mut updated| *updated += 1)
+                .map_err(|_| PartnerShopApplicationRepositoryError::Internal {
+                    source: "lock failed".into(),
+                })?;
+            Ok(persisted)
         }
         async fn delete(
             &mut self,
@@ -302,7 +338,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_delete_application_for_owner() -> Result<(), String> {
+    async fn should_withdraw_application_for_owner() -> Result<(), String> {
         let user_id = UserId::new();
         let application = application(user_id);
         let application_id = application.id();
@@ -324,7 +360,16 @@ mod tests {
         )
         .await
         .map_err(|error| error.to_string())?;
-        assert_eq!(1, state.deleted());
+        let application = state
+            .application(application_id)?
+            .ok_or_else(|| "application missing".to_owned())?;
+        assert_eq!(
+            PartnerShopApplicationState::Withdrawn,
+            application.business_state()
+        );
+        assert_eq!(ExecutionState::Completed, application.execution_state());
+        assert_eq!(1, state.updated());
+        assert_eq!(0, state.deleted());
         assert!(state.committed());
         Ok(())
     }
