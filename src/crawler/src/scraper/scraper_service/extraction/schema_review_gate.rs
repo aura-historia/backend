@@ -102,6 +102,9 @@ fn with_schema_matrix_summary(
     for candidate in &matrix.candidates {
         for page in &candidate.pages {
             for field in &page.fields {
+                if field.field == "images" && field.selector_match_count == Some(0) {
+                    continue;
+                }
                 let selector_missing = field.selector_match_count == Some(0);
                 if selector_missing || field.error.is_some() {
                     failed_fields.push(json!({
@@ -219,6 +222,39 @@ mod tests {
         assert_eq!(
             summary["schema_matrix_summary"]["present_but_missing_rule_failures"][0]["present_but_missing_rule"],
             true
+        );
+    }
+
+    #[test]
+    fn should_not_record_missing_images_as_present_but_missing_rule_failure() {
+        let page_id = uuid::Uuid::new_v4();
+        let matrix = SchemaMatrix {
+            review_id: uuid::Uuid::nil(),
+            candidates: vec![SchemaCandidateEvaluation {
+                schema_index: 0,
+                pages: vec![SchemaPageEvaluation {
+                    page_id,
+                    url: "https://example.com/product".to_string(),
+                    role: "PRIMARY".to_string(),
+                    apply_ok: true,
+                    extracted: None,
+                    error: None,
+                    fields: vec![SelectorFieldEvaluation {
+                        field: "images".to_string(),
+                        selector: "#gallery img".to_string(),
+                        selector_match_count: Some(0),
+                        additional_selector_match_counts: Vec::new(),
+                        error: None,
+                    }],
+                }],
+            }],
+        };
+
+        let summary = with_schema_matrix_summary(json!({ "schema_count": 1 }), &matrix, true);
+
+        assert_eq!(
+            summary["schema_matrix_summary"]["present_but_missing_rule_failures"],
+            json!([])
         );
     }
 
