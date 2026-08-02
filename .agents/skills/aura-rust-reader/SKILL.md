@@ -21,6 +21,7 @@ Use for purpose-specific reads and read models.
 
 ## Hard rules
 
+- One file per reader, grouped in mod `readers` of the specific entity.
 - Readers provide purpose-specific read capabilities.
 - Reader ports belong to service crates and are named by application capability.
 - Reader returns application-owned read models.

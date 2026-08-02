@@ -22,7 +22,7 @@ Use for service-crate use-case work.
 
 ## Hard rules
 
-- Use-case contract and handler live in `<entity>-service/src/use_cases/...`.
+- Use-case contract and handler live in `<entity>-service/src/use_cases/...`. One use-case per file.
 - One use-case file owns command/request, result/view, use-case error, inbound trait, and focused handler.
 - Commands express business intent: `Create*`, `Rename*`, `Archive*`, `Publish*`.
 - Broad `Update*` only for intentional PATCH. Use service-owned `Update*Command` and `common::patch_field::PatchField`.

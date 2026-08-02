@@ -35,6 +35,7 @@ Use for `aura-historia-api` route/controller work.
 
 ## Hard rules
 
+- One file per endpoint. Group endpoints in sensible modules for the specific entity.
 - Route files stay thin: authenticate, map, call use case, map result/error.
 - `aura-historia-api/state.rs` owns axum state structs.
 - State should hold inbound use-case trait objects and authenticator trait objects, not repositories.

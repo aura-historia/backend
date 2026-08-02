@@ -26,7 +26,7 @@ Use for test placement and validation.
 - PostgreSQL adapter: `FromRow`, aggregate rehydration, insert/update semantics, optimistic concurrency, rollback, cross-entity transactions, joined readers, migration compatibility.
 - Other adapters: request serialization, response deserialization, application mapping, timeout/error mapping, stale-version handling.
 - Controllers: DTO deserialization, request/use-case mapping, status mapping, response serialization, auth/context mapping, missing-token behavior on public routes, invalid-token rejection, protected-route auth.
-- Acceptance: externally visible behavior through public REST API only.
+- Acceptance: externally visible behavior through public REST API only. One file per endpoint group. At least one point per endpoint behavior.
 
 ## API test rules
 
