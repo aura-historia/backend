@@ -88,7 +88,7 @@ pub struct ProductCssSelectorSchema {
     pub seller_name: Option<ExtractionRule>,
 
     #[schemars(
-        description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc. Prioritize state sources in this order: (1) clear explicit state text such as 'available', 'sold', or 'out of stock'; (2) visible text from a product-specific add-to-cart or buy button; (3) visible text from other product-specific buttons that clearly indicate availability such as preorder, reserve, or sold-out actions. Prefer dedicated availability labels or visible button text over generic class names or whole script blobs. IMPORTANT: Never use price elements, image galleries, or generic layout wrappers as the state selector."
+        description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc. Prioritize state sources in this order: (1) clear explicit state text such as 'available', 'sold', or 'out of stock'; (2) visible text from a product-specific add-to-cart or buy button; (3) visible text from other product-specific buttons that clearly indicate availability such as preorder, reserve, or sold-out actions. Prefer dedicated availability labels or visible button text over generic class names or whole script blobs. IMPORTANT: Never use price elements, image galleries, or generic layout wrappers as the state selector. Select only the availability/cart action element; exclude price text and avoid containers that combine action text with price."
     )]
     pub state: ExtractionRule,
 
