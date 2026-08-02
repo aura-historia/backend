@@ -51,6 +51,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Admin user PATCH now accepts one logical change category per request: profile/preferences fields, `role`, or `tier`. It no longer documents `stripeCustomerId` in that payload.
 - `/api/v1/me/account` now uses own-user DTOs for writes while still returning read-only `role`, `tier`, and `stripeCustomerId`; admin user routes use separate admin DTOs.
 - Watchlist list reads with Aura Historia access tokens now require `watchlist:read`; watchlist writes still require `watchlist:write`.
+- Partner-application payload responses now use camelCase `shopId`, matching `swagger.yaml`.
 - `DELETE /api/v1/me/partner-applications/{partnerApplicationId}` now withdraws the application instead of physically deleting it.
 - `GetShopData` no longer includes `createdBy` or `updatedBy` because canonical shop storage has no audit actor columns.
 - Migrated API errors use `application/problem+json` and stable `ApiErrorCode` constants.
