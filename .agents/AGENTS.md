@@ -30,5 +30,3 @@
 - Check skill frontmatter has matching `name` and directory.
 
 ## Child DOX Index
-
-- `.agents/skills/github-workflow/SKILL.md` — GitHub issue, branch, push, and PR workflow.
