@@ -7,7 +7,8 @@
 ## Core Design
 
 - One OAuth use-case module per command/query.
-- Ports are split by aggregate/read capability: clients, authorization codes, third-party exchange codes, and access-token gateway.
+- `ports/` has one module per aggregate/read capability: clients, authorization codes, third-party exchange codes, and access-token gateway.
+- `access_token_gateway.rs` adapts the User access-token store for OAuth token issuance, lookup, and revocation.
 - No DynamoDB, HTTP, Lambda, or storage records.
 
 ## Ownership

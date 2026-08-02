@@ -1,4 +1,4 @@
-use common::{actor::domain::Actor, oauth_client_id::OAuthClientId, string_newtype};
+use common::{oauth_client_id::OAuthClientId, string_newtype};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -20,8 +20,6 @@ pub struct OAuthClient {
     pub client_uri: Url,
     pub logo_uri: Url,
     pub scopes: HashSet<Scope>,
-    pub created_by: Actor,
-    pub updated_by: Actor,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }

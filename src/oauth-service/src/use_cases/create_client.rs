@@ -1,6 +1,6 @@
 use crate::error::OAuthServiceError;
 use crate::ports::OAuthClientRepository;
-use crate::use_cases::support::{actor_principal, authorize_oauth_admin, validate_redirect_uris};
+use crate::use_cases::support::{authorize_oauth_admin, validate_redirect_uris};
 use common::oauth_client_id::OAuthClientId;
 use common::operation_context::OperationContext;
 use oauth_core::client::{OAuthClient, OAuthClientName};
@@ -69,8 +69,6 @@ where
             client_uri: command.client_uri,
             logo_uri: command.logo_uri,
             scopes: command.scopes,
-            created_by: actor_principal(context)?,
-            updated_by: actor_principal(context)?,
             created: now,
             updated: now,
         };

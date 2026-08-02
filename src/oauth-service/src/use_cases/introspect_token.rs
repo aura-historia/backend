@@ -76,7 +76,7 @@ where
             subject: Some(token.user_id),
             token_type: Some(OAuthTokenType::Bearer),
             expires: token.expires,
-            issued_at: Some(token.created),
+            issued_at: token.issued_at,
         })
     }
 }

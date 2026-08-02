@@ -13,6 +13,7 @@ geo = { workspace = true, features = ["data"] }
 http = { workspace = true }
 httpdate = { workspace = true }
 oauth-core = { workspace = true }
+oauth-dynamodb = { workspace = true }
 oauth-service = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }

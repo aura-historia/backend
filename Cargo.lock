@@ -230,6 +230,7 @@ dependencies = [
  "isocountry",
  "jsonwebtokens",
  "oauth-core",
+ "oauth-dynamodb",
  "oauth-service",
  "openssl",
  "reqwest 0.12.28",

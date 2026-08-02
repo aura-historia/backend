@@ -1,10 +1,10 @@
+use crate::scope_record::ScopeRecord;
 use oauth_core::third_party_exchange_code::{ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::RawAccessToken;
-use crate::scope_record::ScopeRecord;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub struct ThirdPartyExchangeCodeRecord {

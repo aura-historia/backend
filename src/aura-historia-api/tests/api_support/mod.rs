@@ -5,7 +5,7 @@ use aura_historia_api::auth::{
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, PartnerApplicationsState, ShopsState, UsersState, WatchlistState,
+    AppState, OAuthState, PartnerApplicationsState, ShopsState, UsersState, WatchlistState,
 };
 use aura_historia_api::{app, state};
 use common::domain::Domain;
@@ -14,6 +14,13 @@ use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use oauth_dynamodb::repository::OAuthDynamoDbStore;
+use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
+use oauth_service::use_cases::{
+    AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
+    IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
+    TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
+};
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
 use shop_core::shop_type::ShopType;
@@ -258,6 +265,8 @@ async fn test_state() -> AppState {
         RejectJwtAuthenticator,
         AuraAccessTokenAuthenticator::new(access_token_use_case),
     ));
+    let oauth_store = OAuthDynamoDbStore::new(client, "table_1");
+    let oauth_access_tokens = StoreOAuthAccessTokenGateway::new(access_token_store.clone());
 
     let shops_state = ShopsState::new(
         Arc::new(GetShopHandler::new(
@@ -399,7 +408,35 @@ async fn test_state() -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
+    let oauth_state = OAuthState::new(
+        Arc::new(CreateOAuthClientHandler::new(oauth_store.clone())),
+        Arc::new(ListOAuthClientsHandler::new(oauth_store.clone())),
+        Arc::new(GetOAuthClientHandler::new(oauth_store.clone())),
+        Arc::new(UpdateOAuthClientHandler::new(oauth_store.clone())),
+        Arc::new(DeleteOAuthClientHandler::new(oauth_store.clone())),
+        Arc::new(AuthorizeHandler::new(
+            oauth_store.clone(),
+            oauth_store.clone(),
+        )),
+        Arc::new(TokenByAuthorizationCodeHandler::new(
+            oauth_store.clone(),
+            oauth_store.clone(),
+            oauth_store.clone(),
+            oauth_access_tokens.clone(),
+        )),
+        Arc::new(TokenByThirdPartyCodeHandler::new(oauth_store.clone())),
+        Arc::new(RevokeTokenHandler::new(
+            oauth_store.clone(),
+            oauth_access_tokens.clone(),
+        )),
+        Arc::new(IntrospectTokenHandler::new(
+            oauth_store,
+            oauth_access_tokens,
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     state::AppState::new(shops_state, users_state, watchlist_state, partner_state)
+        .with_oauth(oauth_state)
 }
 
 struct RejectJwtAuthenticator;

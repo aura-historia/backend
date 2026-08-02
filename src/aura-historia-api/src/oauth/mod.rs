@@ -1,138 +1,124 @@
-#![allow(dead_code)]
+#![allow(clippy::result_large_err)]
 
-use oauth_core::client::OAuthClient;
-use oauth_service::use_cases::{
-    CreateOAuthClientResult, IntrospectTokenResponse, OAuthTokenType, TokenResponse,
-};
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use time::OffsetDateTime;
+pub mod authorize;
+pub mod create_client;
+pub mod delete_client;
+pub mod get_client;
+pub mod introspect;
+pub mod list_clients;
+pub mod revoke;
+pub mod token;
+pub mod token_by_third_party_code;
+pub mod update_client;
+
+use crate::error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE};
+use axum::http::{HeaderValue, header};
+use axum::response::{IntoResponse, Response};
+use std::collections::{HashMap, HashSet};
 use user_core::access_token::Scope;
 
-fn scope_strings(scopes: HashSet<Scope>) -> HashSet<String> {
-    scopes
+pub(crate) fn no_store(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+pub(crate) fn scope_strings(scopes: HashSet<Scope>) -> Vec<String> {
+    let mut values = scopes
         .into_iter()
         .map(|scope| scope.as_str().to_owned())
+        .collect::<Vec<_>>();
+    values.sort();
+    values
+}
+
+pub(crate) fn scope_string(scopes: &HashSet<Scope>) -> String {
+    let mut values = scopes
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect::<Vec<_>>();
+    values.sort();
+    values.join(" ")
+}
+
+pub(crate) fn parse_scopes(
+    values: impl IntoIterator<Item = String>,
+) -> Result<HashSet<Scope>, Response> {
+    values
+        .into_iter()
+        .map(|value| parse_scope(&value))
         .collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct OAuthClientMetadataRequestDto {
-    pub name: oauth_core::client::OAuthClientName,
-    pub redirect_uris: HashSet<url::Url>,
-    pub tos_uri: url::Url,
-    pub policy_uri: url::Url,
-    pub client_uri: url::Url,
-    pub logo_uri: url::Url,
-    pub scopes: HashSet<String>,
+pub(crate) fn parse_scope_string(
+    value: Option<&str>,
+    field: &'static str,
+) -> Result<HashSet<Scope>, Response> {
+    value
+        .unwrap_or("")
+        .split_whitespace()
+        .map(|scope| parse_scope_with_field(scope, field, true))
+        .collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub(crate) struct OAuthClientMetadataResponseDto {
-    pub client_id: common::oauth_client_id::OAuthClientId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_secret: Option<String>,
-    pub name: oauth_core::client::OAuthClientName,
-    pub redirect_uris: HashSet<url::Url>,
-    pub tos_uri: url::Url,
-    pub policy_uri: url::Url,
-    pub client_uri: url::Url,
-    pub logo_uri: url::Url,
-    pub scopes: HashSet<String>,
-    pub created: OffsetDateTime,
-    pub updated: OffsetDateTime,
+fn parse_scope(value: &str) -> Result<Scope, Response> {
+    parse_scope_with_field(value, "scope", false)
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub(crate) struct TokenResponseDto {
-    pub access_token: String,
-    pub token_type: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires: Option<OffsetDateTime>,
-    pub scopes: HashSet<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub third_party_exchange_code:
-        Option<oauth_core::third_party_exchange_code::ThirdPartyExchangeCode>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub(crate) struct IntrospectionResponseDto {
-    pub active: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scope: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_id: Option<common::oauth_client_id::OAuthClientId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sub: Option<common::user_id::UserId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub token_type: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exp: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub iat: Option<i64>,
-}
-
-impl From<OAuthClient> for OAuthClientMetadataResponseDto {
-    fn from(client: OAuthClient) -> Self {
-        Self {
-            client_id: client.client_id,
-            client_secret: None,
-            name: client.name,
-            redirect_uris: client.redirect_uris,
-            tos_uri: client.tos_uri,
-            policy_uri: client.policy_uri,
-            client_uri: client.client_uri,
-            logo_uri: client.logo_uri,
-            scopes: scope_strings(client.scopes),
-            created: client.created,
-            updated: client.updated,
+fn parse_scope_with_field(
+    value: &str,
+    field: &'static str,
+    query: bool,
+) -> Result<Scope, Response> {
+    let scope = match value {
+        "products:write" => Scope::ProductsWrite,
+        "shops:read" => Scope::ShopsRead,
+        "shops:write" => Scope::ShopsWrite,
+        "partner-shop-applications:write" => Scope::PartnerShopApplicationsWrite,
+        "partner-shops:read" => Scope::PartnerShopsRead,
+        "partner-shops:write" => Scope::PartnerShopsWrite,
+        "users:read" => Scope::UsersRead,
+        "users:write" => Scope::UsersWrite,
+        "access-tokens:read" => Scope::AccessTokensRead,
+        "access-tokens:write" => Scope::AccessTokensWrite,
+        "search-filters:write" => Scope::SearchFiltersWrite,
+        "watchlist:read" => Scope::WatchlistRead,
+        "watchlist:write" => Scope::WatchlistWrite,
+        _ => {
+            let error = ApiError::bad_request(if query {
+                BAD_QUERY_PARAMETER_VALUE
+            } else {
+                BAD_BODY_VALUE
+            })
+            .with_detail(format!("Unsupported scope '{value}'."));
+            return Err(if query {
+                error.with_query_field(field)
+            } else {
+                error
+            }
+            .into_response());
         }
-    }
+    };
+    Ok(scope)
 }
 
-impl From<CreateOAuthClientResult> for OAuthClientMetadataResponseDto {
-    fn from(result: CreateOAuthClientResult) -> Self {
-        let mut dto = Self::from(result.client);
-        dto.client_secret = Some(result.raw_client_secret.into());
-        dto
-    }
+pub(crate) fn parse_form(body: String) -> HashMap<String, String> {
+    url::form_urlencoded::parse(body.as_bytes())
+        .into_owned()
+        .collect()
 }
 
-impl From<TokenResponse> for TokenResponseDto {
-    fn from(result: TokenResponse) -> Self {
-        let token_type = match result.token_type {
-            OAuthTokenType::Bearer => "Bearer",
-        };
-        Self {
-            access_token: result.access_token.into(),
-            token_type,
-            expires: result.expires,
-            scopes: scope_strings(result.scopes),
-            third_party_exchange_code: result.third_party_exchange_code,
-        }
-    }
-}
-
-impl From<IntrospectTokenResponse> for IntrospectionResponseDto {
-    fn from(result: IntrospectTokenResponse) -> Self {
-        let token_type = result.token_type.map(|token_type| match token_type {
-            OAuthTokenType::Bearer => "Bearer",
-        });
-        let scope = result.scopes.map(|scopes| {
-            scopes
-                .into_iter()
-                .map(|scope| scope.as_str())
-                .collect::<Vec<_>>()
-                .join(" ")
-        });
-        Self {
-            active: result.active,
-            scope,
-            client_id: result.client_id,
-            sub: result.subject,
-            token_type,
-            exp: result.expires.map(|expires| expires.unix_timestamp()),
-            iat: result.issued_at.map(|issued_at| issued_at.unix_timestamp()),
-        }
-    }
+pub(crate) fn required_form<'a>(
+    form: &'a HashMap<String, String>,
+    field: &'static str,
+) -> Result<&'a str, Response> {
+    form.get(field)
+        .map(String::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail(format!("Form field '{field}' is required."))
+                .into_response()
+        })
 }

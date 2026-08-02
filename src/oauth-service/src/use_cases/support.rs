@@ -17,7 +17,6 @@ pub(crate) fn authorize_oauth_admin(context: &OperationContext) -> Result<(), OA
     context
         .require()
         .credential_capability(CredentialCapability::AccessTokensWrite)
-        .service_or_system()
         .authorize::<OAuthServiceError>()
 }
 
@@ -73,16 +72,4 @@ pub(crate) fn validate_redirect_uris(redirect_uris: &HashSet<url::Url>) -> Resul
         }
     }
     Ok(())
-}
-
-pub(crate) fn actor_principal(
-    context: &OperationContext,
-) -> Result<common::actor::domain::Actor, OAuthServiceError> {
-    use common::operation_context::Principal;
-    context.principal.require_authenticated()?;
-    Ok(match &context.principal {
-        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => (*user_id).into(),
-        Principal::Service(_) | Principal::System => common::actor::domain::Actor::System,
-        Principal::Anonymous => return Err(OAuthServiceError::AuthenticatedActorRequired),
-    })
 }

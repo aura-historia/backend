@@ -11,6 +11,9 @@ pub mod update_client;
 
 mod support;
 
+#[cfg(test)]
+mod tests;
+
 pub use authorize::{
     AuthorizeHandler, AuthorizeRequest, AuthorizeResponse, AuthorizeUseCase, OAuthResponseType,
     OAuthState,
