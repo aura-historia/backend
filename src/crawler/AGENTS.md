@@ -16,7 +16,7 @@
 - Shop sync load active shops and domains from upstream shop search into local Postgres.
 - Spider crawl shop domains, discover URLs, infer or refresh shop product regex, and batch-upsert URL metadata.
 - Spider HTTP asks for `gzip, br, deflate` only; avoid zstd decode noise from bad origins.
-- Scraper consume product URLs, fetch HTML, detect stored soft-404 removed templates, reuse or grow CSS selector schemas, normalize products, and push results onward. Product pages may carry zero images.
+- Scraper consume product URLs, fetch HTML, detect stored soft-404 removed templates, reuse or grow CSS selector schemas, normalize products, and push results onward.
 - Scraper description text without own language signal inherits title language only when language was detected from the title itself.
 - `review` own human-review rail and optional LLM-judge rail for URL patterns and schemas.
 - Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `shops_removed_page_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.

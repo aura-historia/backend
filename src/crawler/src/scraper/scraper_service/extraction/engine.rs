@@ -12,6 +12,7 @@ pub(crate) fn apply_schema(
     let parsed_html = Html::parse_document(html);
     let mut raw = schema.apply(&parsed_html)?;
     raw.images = schema
+        .images
         .apply_image_url_candidate_groups(&parsed_html)
         .map_err(ApplySchemaError::Images)?;
     Ok(raw)
