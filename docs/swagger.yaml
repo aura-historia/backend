@@ -3689,7 +3689,7 @@ paths:
       description: |
         Retrieves all products in the authenticated user's watchlist.
         Results are paginated using search-after cursor-based pagination with timestamp.
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito JWT authentication or an Aura Historia access token with `watchlist:read`.
       operationId: getWatchlistProducts
       tags:
         - Watchlist
@@ -4396,7 +4396,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserAccountData"
+                $ref: "#/components/schemas/AdminUserAccountData"
               example:
                 userId: "550e8400-e29b-41d4-a716-446655440000"
                 email: "ada.admin@example.com"
@@ -4524,7 +4524,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserAccountData"
+                $ref: "#/components/schemas/AdminUserAccountData"
               example:
                 userId: "550e8400-e29b-41d4-a716-446655440000"
                 email: "ada.admin@example.com"
@@ -4762,7 +4762,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserAccountData"
+                $ref: "#/components/schemas/OwnUserAccountData"
               example:
                 userId: "550e8400-e29b-41d4-a716-446655440000"
                 email: "user@example.com"
@@ -4868,7 +4868,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserAccountData"
+                $ref: "#/components/schemas/OwnUserAccountData"
               example:
                 userId: "550e8400-e29b-41d4-a716-446655440000"
                 email: "jane.smith@example.com"
@@ -13981,7 +13981,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/GetUserAccountData"
+            $ref: "#/components/schemas/AdminUserAccountData"
           description: Users returned in the current page.
         size:
           type: integer
@@ -14090,95 +14090,70 @@ components:
               description: Inclusive upper bound.
               example: "2026-04-25T23:59:59Z"
 
-    GetUserAccountData:
+    OwnUserAccountData:
       type: object
-      description: Complete user account information including prohibited content consent
+      description: User-owned account information for `/api/v1/me/account`. Admin-only fields are omitted.
       required:
         - userId
         - email
         - prohibitedContentConsent
-        - tier
-        - role
-        - createdBy
-        - updatedBy
-        - created
-        - updated
       properties:
         userId:
           type: string
           format: uuid
-          description: Unique identifier for the user
-          example: "550e8400-e29b-41d4-a716-446655440000"
+          description: Unique identifier for the user.
         email:
           type: string
           format: email
-          description: User's email address
-          example: "user@example.com"
+          description: User's email address.
         firstName:
           type: string
           maxLength: 64
           nullable: true
-          description: User's first name (optional, max 64 characters)
-          example: "John"
         lastName:
           type: string
           maxLength: 64
           nullable: true
-          description: User's last name (optional, max 64 characters)
-          example: "Doe"
         language:
           allOf:
             - $ref: "#/components/schemas/LanguageData"
           nullable: true
-          description: User's preferred language (optional)
         currency:
           allOf:
             - $ref: "#/components/schemas/CurrencyData"
           nullable: true
-          description: User's preferred currency (optional)
         measurementUnit:
           allOf:
             - $ref: "#/components/schemas/MeasurementUnitData"
           nullable: true
-          description: User's preferred measurement unit system (optional)
         prohibitedContentConsent:
           type: boolean
-          description: Whether the user has consented to viewing prohibited content
-          example: false
-        tier:
-          $ref: "#/components/schemas/UserTierData"
-        role:
-          $ref: "#/components/schemas/UserRoleData"
-        stripeCustomerId:
-          type: string
-          description: Persisted Stripe customer identifier for the user, omitted when the user has never been linked to a Stripe customer
-          example: "cus_mocked_550e8400e29b41d4a716446655440000"
         structuredAddress:
           allOf:
             - $ref: "#/components/schemas/StructuredAddressData"
           nullable: true
-          description: Optional structured postal address stored on the user account.
         geoAddress:
           allOf:
             - $ref: "#/components/schemas/GeoAddressData"
           nullable: true
-          description: Optional latitude/longitude coordinates derived by the backend from `structuredAddress`.
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who created this user account
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who last updated this user account
-        created:
-          type: string
-          format: date-time
-          description: When the user account was created (RFC3339 format)
-          example: "2024-01-01T10:00:00Z"
-        updated:
-          type: string
-          format: date-time
-          description: When the user account was last updated (RFC3339 format)
-          example: "2024-01-01T12:00:00Z"
+
+    AdminUserAccountData:
+      allOf:
+        - $ref: "#/components/schemas/OwnUserAccountData"
+        - type: object
+          description: Admin user account view with admin-only fields.
+          required:
+            - tier
+            - role
+          properties:
+            tier:
+              $ref: "#/components/schemas/UserTierData"
+            role:
+              $ref: "#/components/schemas/UserRoleData"
+            stripeCustomerId:
+              type: string
+              nullable: true
+              description: Persisted Stripe customer identifier, omitted when absent.
 
     PatchAdminUserData:
       type: object

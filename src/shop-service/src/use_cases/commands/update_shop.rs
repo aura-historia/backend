@@ -1,10 +1,9 @@
 use crate::ports::{
-    ShopGeocoder, ShopGeocoderError, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
+    PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory, ShopGeocoder,
+    ShopGeocoderError, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
 };
 use crate::use_cases::commands::create_shop::woocommerce_integration;
-use crate::use_cases::queries::check_user_partner_shop::{
-    CheckUserPartnerShopError, CheckUserPartnerShopRequest, CheckUserPartnerShopUseCase,
-};
+use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
 use crate::use_cases::queries::get_shop::ShopDetailsView;
 use common::change_outcome::ChangeOutcome;
 use common::currency::domain::Currency;
@@ -133,7 +132,7 @@ pub struct UpdateShopHandler<U, R, G, A, P> {
     shops: R,
     geocoder: G,
     check_user_admin: A,
-    check_user_partner_shop: P,
+    partner_shops: P,
 }
 
 impl<U, R, G, A, P> UpdateShopHandler<U, R, G, A, P> {
@@ -142,14 +141,14 @@ impl<U, R, G, A, P> UpdateShopHandler<U, R, G, A, P> {
         shops: R,
         geocoder: G,
         check_user_admin: A,
-        check_user_partner_shop: P,
+        partner_shops: P,
     ) -> Self {
         Self {
             unit_of_work,
             shops,
             geocoder,
             check_user_admin,
-            check_user_partner_shop,
+            partner_shops,
         }
     }
 }
@@ -161,7 +160,7 @@ where
     R: ShopRepositoryFactory<U::Tx>,
     G: ShopGeocoder,
     A: CheckUserAdminUseCase,
-    P: CheckUserPartnerShopUseCase,
+    P: PartnerShopReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "update_shop",
@@ -183,13 +182,7 @@ where
             .require()
             .credential_capability(CredentialCapability::ShopsWrite)
             .authorize::<UpdateShopError>()?;
-        ensure_can_update_shop(
-            context,
-            command.shop_id,
-            &self.check_user_admin,
-            &self.check_user_partner_shop,
-        )
-        .await?;
+        let actor = resolve_update_actor(context, &self.check_user_admin).await?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -203,15 +196,20 @@ where
             .await
             .map_err(|_| UpdateShopError::BeginTransactionFailed)?;
 
-        let common::versioned::Versioned {
-            value: mut shop,
+        let crate::ports::PersistedShop {
+            mut shop,
             version,
+            created,
+            updated,
         } = self
             .shops
             .in_transaction(&mut tx)
-            .find_by_id(command.shop_id)
+            .find_persisted_by_id(command.shop_id)
             .await?
             .ok_or(UpdateShopError::ShopNotFound)?;
+
+        ensure_partner_can_update_shop(&actor, command.shop_id, &mut tx, &self.partner_shops)
+            .await?;
 
         let outcome = apply_update(&mut shop, command)?;
 
@@ -225,8 +223,8 @@ where
             crate::ports::PersistedShop {
                 shop: shop.clone(),
                 version,
-                created: time::OffsetDateTime::now_utc(),
-                updated: time::OffsetDateTime::now_utc(),
+                created,
+                updated,
             }
             .into()
         };
@@ -277,46 +275,53 @@ impl From<ShopRepositoryError> for UpdateShopError {
     }
 }
 
-async fn ensure_can_update_shop<A, P>(
+enum UpdateActor {
+    AdminOrInternal,
+    PartnerCandidate(UserId),
+}
+
+async fn resolve_update_actor<A>(
     context: &OperationContext,
-    shop_id: ShopId,
     check_user_admin: &A,
-    check_user_partner_shop: &P,
-) -> Result<(), UpdateShopError>
+) -> Result<UpdateActor, UpdateShopError>
 where
     A: CheckUserAdminUseCase,
-    P: CheckUserPartnerShopUseCase,
 {
     let Some(user_id) = actor_user_id(context)? else {
-        return Ok(());
+        return Ok(UpdateActor::AdminOrInternal);
     };
 
     match check_user_admin
         .execute(context, CheckUserAdminRequest)
         .await
     {
-        Ok(_) => Ok(()),
-        Err(CheckUserAdminError::Forbidden) => {
-            ensure_user_partner_shop(context, user_id, shop_id, check_user_partner_shop).await
-        }
+        Ok(_) => Ok(UpdateActor::AdminOrInternal),
+        Err(CheckUserAdminError::Forbidden) => Ok(UpdateActor::PartnerCandidate(user_id)),
         Err(error) => Err(map_admin_error(error)),
     }
 }
 
-async fn ensure_user_partner_shop<P>(
-    context: &OperationContext,
-    user_id: UserId,
+async fn ensure_partner_can_update_shop<Tx, P>(
+    actor: &UpdateActor,
     shop_id: ShopId,
-    check_user_partner_shop: &P,
+    tx: &mut Tx,
+    partner_shops: &P,
 ) -> Result<(), UpdateShopError>
 where
-    P: CheckUserPartnerShopUseCase,
+    Tx: Transaction,
+    P: PartnerShopReaderFactory<Tx>,
 {
-    let result = check_user_partner_shop
-        .execute(context, CheckUserPartnerShopRequest { user_id, shop_id })
-        .await
-        .map_err(map_partner_error)?;
-    if result.is_partner {
+    let UpdateActor::PartnerCandidate(user_id) = actor else {
+        return Ok(());
+    };
+    let allowed = partner_shops
+        .in_transaction(tx)
+        .is_user_partner_of_shop(&CheckUserPartnerShopRequest {
+            user_id: *user_id,
+            shop_id,
+        })
+        .await?;
+    if allowed {
         Ok(())
     } else {
         Err(UpdateShopError::Forbidden)
@@ -349,19 +354,14 @@ fn map_admin_error(error: CheckUserAdminError) -> UpdateShopError {
     }
 }
 
-fn map_partner_error(error: CheckUserPartnerShopError) -> UpdateShopError {
-    match error {
-        CheckUserPartnerShopError::Forbidden => UpdateShopError::Forbidden,
-        CheckUserPartnerShopError::TemporarilyUnavailable { source } => {
-            UpdateShopError::TemporarilyUnavailable { source }
-        }
-        CheckUserPartnerShopError::InvalidReadModel { source }
-        | CheckUserPartnerShopError::Internal { source } => UpdateShopError::Internal { source },
-        CheckUserPartnerShopError::BeginTransactionFailed
-        | CheckUserPartnerShopError::CommitTransactionFailed => {
-            UpdateShopError::TemporarilyUnavailable {
-                source: static_error("check user partner shop transaction failed"),
+impl From<PartnerShopReadError> for UpdateShopError {
+    fn from(error: PartnerShopReadError) -> Self {
+        match error {
+            PartnerShopReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
             }
+            PartnerShopReadError::InvalidReadModel { source }
+            | PartnerShopReadError::Internal { source } => Self::Internal { source },
         }
     }
 }
@@ -613,7 +613,6 @@ mod tests {
         PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
         ShopStorageVersion, VersionedShop,
     };
-    use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopResult;
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::shop_name::ShopName;
@@ -738,6 +737,15 @@ mod tests {
             })
         }
 
+        async fn find_persisted_by_id(
+            &mut self,
+            id: ShopId,
+        ) -> Result<Option<PersistedShop>, ShopRepositoryError> {
+            self.find_by_id(id)
+                .await
+                .map(|shop| shop.map(|versioned| persisted_shop(versioned.value)))
+        }
+
         async fn find_by_slug(
             &mut self,
             _slug_id: &ShopSlugId,
@@ -779,18 +787,27 @@ mod tests {
         }
     }
 
+    impl PartnerShopReaderFactory<FakeTx> for AllowPolicy {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl PartnerShopReader + 'tx {
+            *self
+        }
+    }
+
     #[async_trait::async_trait]
-    impl CheckUserPartnerShopUseCase for AllowPolicy {
-        async fn execute(
-            &self,
-            _context: &OperationContext,
-            request: CheckUserPartnerShopRequest,
-        ) -> Result<CheckUserPartnerShopResult, CheckUserPartnerShopError> {
-            Ok(CheckUserPartnerShopResult {
-                user_id: request.user_id,
-                shop_id: request.shop_id,
-                is_partner: true,
-            })
+    impl PartnerShopReader for AllowPolicy {
+        async fn is_user_partner_of_shop(
+            &mut self,
+            _request: &CheckUserPartnerShopRequest,
+        ) -> Result<bool, PartnerShopReadError> {
+            Ok(true)
+        }
+
+        async fn list_summaries_for_user(
+            &mut self,
+            _user_id: UserId,
+        ) -> Result<Vec<crate::use_cases::queries::search_shops::ShopSummary>, PartnerShopReadError>
+        {
+            Ok(Vec::new())
         }
     }
 

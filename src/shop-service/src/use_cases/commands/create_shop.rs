@@ -473,6 +473,15 @@ mod tests {
             Ok(None)
         }
 
+        async fn find_persisted_by_id(
+            &mut self,
+            id: ShopId,
+        ) -> Result<Option<PersistedShop>, ShopRepositoryError> {
+            self.find_by_id(id)
+                .await
+                .map(|shop| shop.map(|versioned| persisted_shop(versioned.value)))
+        }
+
         async fn find_by_slug(
             &mut self,
             _slug_id: &ShopSlugId,

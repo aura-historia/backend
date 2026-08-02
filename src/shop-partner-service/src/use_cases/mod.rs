@@ -3,10 +3,10 @@ pub mod admin_get_partner_shop_application;
 pub mod admin_list_partner_shop_applications;
 pub mod admin_update_partner_shop_application;
 pub mod create_partner_shop_application;
-pub mod delete_partner_shop_application;
 pub mod get_partner_shop_application;
 pub mod list_partner_shop_applications;
 pub mod list_partner_shops;
+pub mod withdraw_partner_shop_application;
 
 pub use admin_decide_partner_shop_application::{
     AdminDecidePartnerShopApplicationCommand, AdminDecidePartnerShopApplicationError,
@@ -33,10 +33,6 @@ pub use create_partner_shop_application::{
     CreatePartnerShopApplicationHandler, CreatePartnerShopApplicationPayload,
     CreatePartnerShopApplicationResult, CreatePartnerShopApplicationUseCase, NewPartnerShopCommand,
 };
-pub use delete_partner_shop_application::{
-    DeletePartnerShopApplicationCommand, DeletePartnerShopApplicationError,
-    DeletePartnerShopApplicationHandler, DeletePartnerShopApplicationUseCase,
-};
 pub use get_partner_shop_application::{
     GetPartnerShopApplicationError, GetPartnerShopApplicationHandler,
     GetPartnerShopApplicationRequest, GetPartnerShopApplicationResult,
@@ -50,4 +46,8 @@ pub use list_partner_shop_applications::{
 pub use list_partner_shops::{
     ListPartnerShopsError, ListPartnerShopsHandler, ListPartnerShopsRequest,
     ListPartnerShopsResult, ListPartnerShopsUseCase, PartnerShopSummary,
+};
+pub use withdraw_partner_shop_application::{
+    WithdrawPartnerShopApplicationCommand, WithdrawPartnerShopApplicationError,
+    WithdrawPartnerShopApplicationHandler, WithdrawPartnerShopApplicationUseCase,
 };

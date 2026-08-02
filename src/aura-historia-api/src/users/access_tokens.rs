@@ -235,6 +235,7 @@ fn parse_scopes(values: HashSet<String>) -> HashSet<Scope> {
             "access-tokens:read" => Some(Scope::AccessTokensRead),
             "access-tokens:write" => Some(Scope::AccessTokensWrite),
             "search-filters:write" => Some(Scope::SearchFiltersWrite),
+            "watchlist:read" => Some(Scope::WatchlistRead),
             "watchlist:write" => Some(Scope::WatchlistWrite),
             _ => None,
         })

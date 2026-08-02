@@ -54,6 +54,24 @@ impl ShopRepository for SqlxShopRepository<'_> {
             })
     }
 
+    async fn find_persisted_by_id(
+        &mut self,
+        id: ShopId,
+    ) -> Result<Option<PersistedShop>, ShopRepositoryError> {
+        let sql = format!("SELECT {} FROM shops WHERE shop_id = $1", shop_columns());
+        let row = sqlx::query_as::<_, ShopRow>(&sql)
+            .bind(uuid::Uuid::from(id))
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(ShopLookupSqlxError)?;
+
+        row.map(PersistedShop::try_from)
+            .transpose()
+            .map_err(|source| ShopRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            })
+    }
+
     async fn find_by_slug(
         &mut self,
         slug_id: &ShopSlugId,

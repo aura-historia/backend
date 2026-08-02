@@ -1,18 +1,33 @@
 #![allow(dead_code)]
 
-use crate::ports::{PartnerShopApplicationRepositoryError, VersionedPartnerShopApplication};
-use common::user_id::UserId;
+use crate::ports::PartnerShopApplicationRepositoryError;
+use common::execution_state::domain::ExecutionState;
+use common::{
+    partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
+};
+use shop_partner_core::partner_shop_application::PartnerShopApplicationPayload;
+use shop_partner_core::partner_shop_application_state::PartnerShopApplicationState;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartnerShopApplicationView {
+    pub id: PartnerShopApplicationId,
+    pub applicant_user_id: UserId,
+    pub business_state: PartnerShopApplicationState,
+    pub execution_state: ExecutionState,
+    pub payload: PartnerShopApplicationPayload,
+    pub shop_id: ShopId,
+}
 
 #[async_trait::async_trait]
 pub trait PartnerShopApplicationReader: Send {
     async fn list_all(
         &mut self,
-    ) -> Result<Vec<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError>;
+    ) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError>;
 
     async fn list_by_user(
         &mut self,
         user_id: UserId,
-    ) -> Result<Vec<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError>;
+    ) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError>;
 }
 
 pub trait PartnerShopApplicationReaderFactory<Tx>: Send + Sync {

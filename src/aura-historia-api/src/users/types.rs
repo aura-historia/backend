@@ -9,7 +9,46 @@ use user_service::use_cases::queries::search_users::UserSummary;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct UserData {
+pub(crate) struct OwnUserData {
+    pub(crate) user_id: UserId,
+    pub(crate) email: serde_email::Email,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) first_name: Option<user_core::first_name::FirstName>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) last_name: Option<user_core::last_name::LastName>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) language: Option<LanguageData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) currency: Option<CurrencyData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) measurement_unit: Option<MeasurementUnitData>,
+    pub(crate) prohibited_content_consent: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) structured_address: Option<StructuredAddressData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) geo_address: Option<GeoAddressData>,
+}
+
+impl From<UserDetailsView> for OwnUserData {
+    fn from(view: UserDetailsView) -> Self {
+        Self {
+            user_id: view.user_id,
+            email: view.email,
+            first_name: view.first_name,
+            last_name: view.last_name,
+            language: view.language.map(Into::into),
+            currency: view.currency.map(Into::into),
+            measurement_unit: view.measurement_unit.map(Into::into),
+            prohibited_content_consent: view.prohibited_content_consent,
+            structured_address: view.structured_address.map(Into::into),
+            geo_address: view.geo_address.map(Into::into),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AdminUserData {
     pub(crate) user_id: UserId,
     pub(crate) email: serde_email::Email,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,7 +72,7 @@ pub(crate) struct UserData {
     pub(crate) geo_address: Option<GeoAddressData>,
 }
 
-impl From<UserDetailsView> for UserData {
+impl From<UserDetailsView> for AdminUserData {
     fn from(view: UserDetailsView) -> Self {
         Self {
             user_id: view.user_id,
@@ -55,7 +94,7 @@ impl From<UserDetailsView> for UserData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct UserSummaryData {
+pub(crate) struct AdminUserSummaryData {
     pub(crate) user_id: UserId,
     pub(crate) email: serde_email::Email,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -67,7 +106,7 @@ pub(crate) struct UserSummaryData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stripe_customer_id: Option<common::stripe_customer_id::StripeCustomerId>,
 }
-impl From<UserSummary> for UserSummaryData {
+impl From<UserSummary> for AdminUserSummaryData {
     fn from(v: UserSummary) -> Self {
         Self {
             user_id: v.user_id,
@@ -92,7 +131,20 @@ pub(crate) struct CursorData<T, C> {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PatchUserData {
+pub(crate) struct PatchOwnUserData {
+    pub(crate) email: Option<serde_email::Email>,
+    pub(crate) first_name: Option<user_core::first_name::FirstName>,
+    pub(crate) last_name: Option<user_core::last_name::LastName>,
+    pub(crate) language: Option<LanguageData>,
+    pub(crate) currency: Option<CurrencyData>,
+    pub(crate) measurement_unit: Option<MeasurementUnitData>,
+    pub(crate) prohibited_content_consent: Option<bool>,
+    pub(crate) structured_address: Option<StructuredAddressData>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PatchAdminUserData {
     pub(crate) email: Option<serde_email::Email>,
     pub(crate) first_name: Option<user_core::first_name::FirstName>,
     pub(crate) last_name: Option<user_core::last_name::LastName>,

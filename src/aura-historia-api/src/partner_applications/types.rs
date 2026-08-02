@@ -13,40 +13,103 @@ use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_partner_core::partner_shop_application::{
     PartnerShopApplication, PartnerShopApplicationPayload,
 };
+use shop_partner_service::ports::PartnerShopApplicationView;
 use std::collections::HashSet;
 use url::Url;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PartnerApplicationData {
+pub(crate) struct OwnPartnerApplicationData {
+    pub(crate) id: PartnerShopApplicationId,
+    pub(crate) business_state: String,
+    pub(crate) execution_state: String,
+    pub(crate) payload: PartnerApplicationPayloadData,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AdminPartnerApplicationData {
     pub(crate) id: PartnerShopApplicationId,
     pub(crate) applicant_user_id: UserId,
     pub(crate) business_state: String,
     pub(crate) execution_state: String,
     pub(crate) payload: PartnerApplicationPayloadData,
 }
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub(crate) enum PartnerApplicationPayloadData {
     Existing { shop_id: ShopId },
     New { shop_id: ShopId },
 }
-impl From<PartnerShopApplication> for PartnerApplicationData {
+
+fn payload_data(a: &PartnerShopApplication) -> PartnerApplicationPayloadData {
+    match a.payload() {
+        PartnerShopApplicationPayload::Existing { shop_id } => {
+            PartnerApplicationPayloadData::Existing { shop_id }
+        }
+        PartnerShopApplicationPayload::New { shop_id } => {
+            PartnerApplicationPayloadData::New { shop_id }
+        }
+    }
+}
+
+impl From<PartnerShopApplication> for OwnPartnerApplicationData {
     fn from(a: PartnerShopApplication) -> Self {
-        let payload = match a.payload() {
-            PartnerShopApplicationPayload::Existing { shop_id } => {
-                PartnerApplicationPayloadData::Existing { shop_id }
-            }
-            PartnerShopApplicationPayload::New { shop_id } => {
-                PartnerApplicationPayloadData::New { shop_id }
-            }
-        };
+        Self {
+            id: a.id(),
+            business_state: format!("{:?}", a.business_state()),
+            execution_state: format!("{:?}", a.execution_state()),
+            payload: payload_data(&a),
+        }
+    }
+}
+
+impl From<PartnerShopApplicationView> for OwnPartnerApplicationData {
+    fn from(v: PartnerShopApplicationView) -> Self {
+        Self {
+            id: v.id,
+            business_state: format!("{:?}", v.business_state),
+            execution_state: format!("{:?}", v.execution_state),
+            payload: match v.payload {
+                PartnerShopApplicationPayload::Existing { shop_id } => {
+                    PartnerApplicationPayloadData::Existing { shop_id }
+                }
+                PartnerShopApplicationPayload::New { shop_id } => {
+                    PartnerApplicationPayloadData::New { shop_id }
+                }
+            },
+        }
+    }
+}
+
+impl From<PartnerShopApplication> for AdminPartnerApplicationData {
+    fn from(a: PartnerShopApplication) -> Self {
         Self {
             id: a.id(),
             applicant_user_id: a.applicant_user_id(),
             business_state: format!("{:?}", a.business_state()),
             execution_state: format!("{:?}", a.execution_state()),
-            payload,
+            payload: payload_data(&a),
+        }
+    }
+}
+
+impl From<PartnerShopApplicationView> for AdminPartnerApplicationData {
+    fn from(v: PartnerShopApplicationView) -> Self {
+        Self {
+            id: v.id,
+            applicant_user_id: v.applicant_user_id,
+            business_state: format!("{:?}", v.business_state),
+            execution_state: format!("{:?}", v.execution_state),
+            payload: match v.payload {
+                PartnerShopApplicationPayload::Existing { shop_id } => {
+                    PartnerApplicationPayloadData::Existing { shop_id }
+                }
+                PartnerShopApplicationPayload::New { shop_id } => {
+                    PartnerApplicationPayloadData::New { shop_id }
+                }
+            },
         }
     }
 }

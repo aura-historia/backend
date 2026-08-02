@@ -54,11 +54,7 @@ async fn should_list_all_and_by_user_partner_shop_applications_in_created_order(
 
     assert_eq!(3, all.len());
     assert_eq!(2, by_user.len());
-    assert!(
-        by_user
-            .iter()
-            .all(|item| item.value.applicant_user_id() == user_id)
-    );
+    assert!(by_user.iter().all(|item| item.applicant_user_id == user_id));
 }
 
 fn new_application(user_id: UserId, shop_id: ShopId) -> PartnerShopApplication {

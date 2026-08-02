@@ -25,6 +25,7 @@ pub enum ScopeRecord {
     AccessTokensRead,
     AccessTokensWrite,
     SearchFiltersWrite,
+    WatchlistRead,
     WatchlistWrite,
 }
 
@@ -62,6 +63,7 @@ impl From<Scope> for ScopeRecord {
             Scope::AccessTokensRead => ScopeRecord::AccessTokensRead,
             Scope::AccessTokensWrite => ScopeRecord::AccessTokensWrite,
             Scope::SearchFiltersWrite => ScopeRecord::SearchFiltersWrite,
+            Scope::WatchlistRead => ScopeRecord::WatchlistRead,
             Scope::WatchlistWrite => ScopeRecord::WatchlistWrite,
         }
     }
@@ -81,6 +83,7 @@ impl From<ScopeRecord> for Scope {
             ScopeRecord::AccessTokensRead => Scope::AccessTokensRead,
             ScopeRecord::AccessTokensWrite => Scope::AccessTokensWrite,
             ScopeRecord::SearchFiltersWrite => Scope::SearchFiltersWrite,
+            ScopeRecord::WatchlistRead => Scope::WatchlistRead,
             ScopeRecord::WatchlistWrite => Scope::WatchlistWrite,
         }
     }
@@ -147,16 +150,12 @@ impl AccessTokenRecord {
             && self.token_short == hashed_token.short_token()
             && self.token_hash == hashed_token.long_token_hash()
     }
-}
 
-impl From<AccessToken> for AccessTokenRecord {
-    fn from(access_token: AccessToken) -> Self {
-        Self::from(&access_token)
-    }
-}
-
-impl From<&AccessToken> for AccessTokenRecord {
-    fn from(access_token: &AccessToken) -> Self {
+    pub(crate) fn from_access_token(
+        access_token: &AccessToken,
+        created: OffsetDateTime,
+        updated: OffsetDateTime,
+    ) -> Self {
         let expires = access_token
             .expires()
             .map(|expires| expires.unix_timestamp());
@@ -187,8 +186,8 @@ impl From<&AccessToken> for AccessTokenRecord {
             ttl: expires,
             gsi1_pk: Some(mk_gsi1_pk(access_token.hashed_token())),
             gsi1_sk: Some(mk_gsi1_sk(&access_token.user_id(), &access_token.id())),
-            created: access_token.created(),
-            updated: access_token.updated(),
+            created,
+            updated,
         }
     }
 }
@@ -222,8 +221,6 @@ impl TryFrom<AccessTokenRecord> for AccessToken {
             scopes: record.scopes.into_iter().map(Into::into).collect(),
             origin,
             expires,
-            created: record.created,
-            updated: record.updated,
         }))
     }
 }
@@ -235,7 +232,9 @@ mod faker {
 
     impl fake::Dummy<Faker> for AccessTokenRecord {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            config.fake_with_rng::<AccessToken, R>(rng).into()
+            let access_token = config.fake_with_rng::<AccessToken, R>(rng);
+            let now = OffsetDateTime::now_utc();
+            AccessTokenRecord::from_access_token(&access_token, now, now)
         }
     }
 }
@@ -252,11 +251,20 @@ mod tests {
         }
     }
 
+    fn now() -> OffsetDateTime {
+        assert_ok(OffsetDateTime::from_unix_timestamp(
+            OffsetDateTime::now_utc().unix_timestamp(),
+        ))
+    }
+
+    fn record_for(token: &AccessToken) -> AccessTokenRecord {
+        let now = now();
+        AccessTokenRecord::from_access_token(token, now, now)
+    }
+
     fn token() -> AccessToken {
         let raw = RawAccessToken::new();
-        let now = assert_ok(OffsetDateTime::from_unix_timestamp(
-            OffsetDateTime::now_utc().unix_timestamp(),
-        ));
+        let now = now();
         AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
@@ -265,7 +273,6 @@ mod tests {
             scopes: HashSet::from([Scope::ProductsWrite, Scope::ShopsWrite]),
             origin: AccessTokenOrigin::User,
             expires: Some(now + time::Duration::days(1)),
-            now,
         })
     }
 
@@ -306,6 +313,7 @@ mod tests {
             (Scope::AccessTokensRead, ScopeRecord::AccessTokensRead),
             (Scope::AccessTokensWrite, ScopeRecord::AccessTokensWrite),
             (Scope::SearchFiltersWrite, ScopeRecord::SearchFiltersWrite),
+            (Scope::WatchlistRead, ScopeRecord::WatchlistRead),
             (Scope::WatchlistWrite, ScopeRecord::WatchlistWrite),
         ] {
             assert_eq!(record, ScopeRecord::from(scope));
@@ -316,7 +324,7 @@ mod tests {
     #[test]
     fn should_map_access_token_to_record_and_back() {
         let token = token();
-        let record = AccessTokenRecord::from(token.clone());
+        let record = record_for(&token);
 
         assert_eq!(mk_pk(&token.user_id()), record.pk);
         assert_eq!(mk_sk(&token.id()), record.sk);
@@ -339,9 +347,6 @@ mod tests {
     fn should_map_oauth_origin() {
         let client_id = OAuthClientId::new();
         let raw = RawAccessToken::new();
-        let now = assert_ok(OffsetDateTime::from_unix_timestamp(
-            OffsetDateTime::now_utc().unix_timestamp(),
-        ));
         let token = AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
@@ -350,10 +355,9 @@ mod tests {
             scopes: HashSet::from([Scope::ProductsWrite]),
             origin: AccessTokenOrigin::OAuth { client_id },
             expires: None,
-            now,
         });
 
-        let record = AccessTokenRecord::from(token.clone());
+        let record = record_for(&token);
 
         assert_eq!(AccessTokenOriginRecord::OAuth, record.origin);
         assert_eq!(Some(client_id), record.oauth_client_id);
@@ -362,7 +366,8 @@ mod tests {
 
     #[test]
     fn should_reject_oauth_record_without_client_id() {
-        let mut record = AccessTokenRecord::from(token());
+        let token = token();
+        let mut record = record_for(&token);
         record.origin = AccessTokenOriginRecord::OAuth;
         record.oauth_client_id = None;
 
@@ -374,7 +379,8 @@ mod tests {
 
     #[test]
     fn should_reject_invalid_expires_timestamp() {
-        let mut record = AccessTokenRecord::from(token());
+        let token = token();
+        let mut record = record_for(&token);
         record.expires = Some(i64::MAX);
 
         assert!(matches!(
@@ -386,7 +392,7 @@ mod tests {
     #[test]
     fn should_match_hash_only_when_full_hash_matches() {
         let token = token();
-        let mut record = AccessTokenRecord::from(token.clone());
+        let mut record = record_for(&token);
         assert!(record.matches_hash(token.hashed_token()));
 
         record.token_hash = "different".to_owned();

@@ -1,6 +1,6 @@
 use crate::ports::{
     PartnerShopApplicationReader, PartnerShopApplicationReaderFactory,
-    PartnerShopApplicationRepositoryError,
+    PartnerShopApplicationRepositoryError, PartnerShopApplicationView,
 };
 use common::error::boxed::BoxError;
 use common::operation_context::{
@@ -8,8 +8,6 @@ use common::operation_context::{
 };
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
-use shop_partner_core::partner_shop_application::PartnerShopApplication;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListPartnerShopApplicationsRequest {
     pub user_id: UserId,
@@ -17,7 +15,7 @@ pub struct ListPartnerShopApplicationsRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListPartnerShopApplicationsResult {
-    pub items: Vec<PartnerShopApplication>,
+    pub items: Vec<PartnerShopApplicationView>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -96,10 +94,7 @@ where
             .reader
             .in_transaction(&mut tx)
             .list_by_user(request.user_id)
-            .await?
-            .into_iter()
-            .map(|versioned| versioned.value)
-            .collect();
+            .await?;
         tx.commit()
             .await
             .map_err(|_| ListPartnerShopApplicationsError::CommitTransactionFailed)?;
@@ -146,7 +141,7 @@ mod tests {
     use common::transaction::{TransactionError, UnitOfWork};
     use common::{partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId};
     use shop_partner_core::partner_shop_application::{
-        NewPartnerShopApplication, PartnerShopApplicationPayload,
+        NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
     };
     use std::sync::{Arc, Mutex};
 
@@ -232,7 +227,7 @@ mod tests {
     impl PartnerShopApplicationReader for TestApplicationPort {
         async fn list_all(
             &mut self,
-        ) -> Result<Vec<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError>
+        ) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError>
         {
             self.state
                 .applications
@@ -240,13 +235,18 @@ mod tests {
                 .map_err(|_| PartnerShopApplicationRepositoryError::Internal {
                     source: "lock failed".into(),
                 })
-                .map(|applications| applications.clone())
+                .map(|applications| {
+                    applications
+                        .iter()
+                        .map(|application| view(&application.value))
+                        .collect()
+                })
         }
 
         async fn list_by_user(
             &mut self,
             user_id: UserId,
-        ) -> Result<Vec<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError>
+        ) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError>
         {
             self.state
                 .applications
@@ -258,7 +258,7 @@ mod tests {
                     applications
                         .iter()
                         .filter(|application| application.value.applicant_user_id() == user_id)
-                        .cloned()
+                        .map(|application| view(&application.value))
                         .collect()
                 })
         }
@@ -285,7 +285,8 @@ mod tests {
         .await
         .map_err(|error| error.to_string())?;
 
-        assert_eq!(vec![application], result.items);
+        assert_eq!(1, result.items.len());
+        assert_eq!(application.id(), result.items[0].id);
         assert!(state.committed());
         Ok(())
     }
@@ -331,6 +332,17 @@ mod tests {
             result,
             Err(ListPartnerShopApplicationsError::Forbidden)
         ));
+    }
+
+    fn view(application: &PartnerShopApplication) -> PartnerShopApplicationView {
+        PartnerShopApplicationView {
+            id: application.id(),
+            applicant_user_id: application.applicant_user_id(),
+            business_state: application.business_state(),
+            execution_state: application.execution_state(),
+            payload: application.payload(),
+            shop_id: application.shop_id(),
+        }
     }
 
     fn application(user_id: UserId) -> PartnerShopApplication {

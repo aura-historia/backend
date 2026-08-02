@@ -78,6 +78,11 @@ impl PartnerShopApplication {
         self.execution_state = ExecutionState::Completed;
     }
 
+    pub fn withdraw(&mut self) {
+        self.business_state = PartnerShopApplicationState::Withdrawn;
+        self.execution_state = ExecutionState::Completed;
+    }
+
     pub fn id(&self) -> PartnerShopApplicationId {
         self.id
     }
@@ -184,6 +189,14 @@ mod tests {
         let mut app = application();
         app.reject();
         assert_eq!(PartnerShopApplicationState::Rejected, app.business_state());
+        assert_eq!(ExecutionState::Completed, app.execution_state());
+    }
+
+    #[test]
+    fn should_withdraw_application() {
+        let mut app = application();
+        app.withdraw();
+        assert_eq!(PartnerShopApplicationState::Withdrawn, app.business_state());
         assert_eq!(ExecutionState::Completed, app.execution_state());
     }
 

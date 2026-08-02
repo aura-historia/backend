@@ -5,7 +5,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use common::product_id::ProductId;
-use watchlist_service::use_cases::DeleteWatchlistProductCommand;
+use watchlist_service::use_cases::UnwatchProductCommand;
 
 pub async fn delete_watchlist(
     State(state): State<WatchlistState>,
@@ -26,10 +26,10 @@ pub async fn delete_watchlist(
         }
     };
     match state
-        .delete_watchlist_product
+        .unwatch_product
         .execute(
             &ctx,
-            DeleteWatchlistProductCommand {
+            UnwatchProductCommand {
                 user_id,
                 product_id,
             },

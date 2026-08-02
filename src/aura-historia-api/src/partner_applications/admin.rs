@@ -1,4 +1,4 @@
-use super::types::{DecisionData, PartnerApplicationData, PatchApplicationData};
+use super::types::{AdminPartnerApplicationData, DecisionData, PatchApplicationData};
 use super::util::{no_store, parse_id, parse_json};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
@@ -31,7 +31,7 @@ pub async fn admin_list(
             Json(
                 r.items
                     .into_iter()
-                    .map(PartnerApplicationData::from)
+                    .map(AdminPartnerApplicationData::from)
                     .collect::<Vec<_>>(),
             )
             .into_response(),
@@ -60,7 +60,7 @@ pub async fn admin_get(
         )
         .await
     {
-        Ok(r) => no_store(Json(PartnerApplicationData::from(r.application)).into_response()),
+        Ok(r) => no_store(Json(AdminPartnerApplicationData::from(r.application)).into_response()),
         Err(e) => ApiError::from(e).into_response(),
     }
 }
@@ -98,7 +98,7 @@ pub async fn admin_patch(
         )
         .await
     {
-        Ok(r) => Json(PartnerApplicationData::from(r.application)).into_response(),
+        Ok(r) => Json(AdminPartnerApplicationData::from(r.application)).into_response(),
         Err(e) => ApiError::from(e).into_response(),
     }
 }
@@ -136,7 +136,7 @@ pub async fn admin_decision(
         )
         .await
     {
-        Ok(r) => Json(PartnerApplicationData::from(r.application)).into_response(),
+        Ok(r) => Json(AdminPartnerApplicationData::from(r.application)).into_response(),
         Err(e) => ApiError::from(e).into_response(),
     }
 }

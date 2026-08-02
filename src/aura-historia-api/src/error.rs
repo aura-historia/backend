@@ -6,8 +6,8 @@ use serde::Serialize;
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationError, AdminGetPartnerShopApplicationError,
     AdminListPartnerShopApplicationsError, AdminUpdatePartnerShopApplicationError,
-    CreatePartnerShopApplicationError, DeletePartnerShopApplicationError,
-    GetPartnerShopApplicationError, ListPartnerShopApplicationsError,
+    CreatePartnerShopApplicationError, GetPartnerShopApplicationError,
+    ListPartnerShopApplicationsError, WithdrawPartnerShopApplicationError,
 };
 use shop_service::use_cases::commands::create_shop::CreateShopError;
 use shop_service::use_cases::commands::update_shop::UpdateShopError;
@@ -31,7 +31,7 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserError;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensError;
 use user_service::use_cases::queries::search_users::SearchUsersError;
 use watchlist_service::use_cases::{
-    DeleteWatchlistProductError, ListWatchlistError, UpdateWatchlistProductError, WatchProductError,
+    ListWatchlistError, UnwatchProductError, UpdateWatchlistProductError, WatchProductError,
 };
 
 #[derive(Debug, Serialize)]
@@ -463,7 +463,7 @@ impl From<DeleteUserError> for ApiError {
             | DeleteUserError::BeginTransactionFailed
             | DeleteUserError::CommitTransactionFailed => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
-                    .with_detail("User could not be deleted right now.")
+                    .with_detail("User could not be unwatched right now.")
             }
             DeleteUserError::InvalidPersistedState { .. } | DeleteUserError::Internal { .. } => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
@@ -690,26 +690,26 @@ impl From<UpdateWatchlistProductError> for ApiError {
         }
     }
 }
-impl From<DeleteWatchlistProductError> for ApiError {
-    fn from(error: DeleteWatchlistProductError) -> Self {
+impl From<UnwatchProductError> for ApiError {
+    fn from(error: UnwatchProductError) -> Self {
         match error {
-            DeleteWatchlistProductError::AuthenticatedActorRequired => {
+            UnwatchProductError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            DeleteWatchlistProductError::Forbidden => {
+            UnwatchProductError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            DeleteWatchlistProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
+            UnwatchProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 .with_detail("Watchlist entry was not found."),
-            DeleteWatchlistProductError::TemporarilyUnavailable
-            | DeleteWatchlistProductError::BeginTransactionFailed
-            | DeleteWatchlistProductError::CommitTransactionFailed => {
+            UnwatchProductError::TemporarilyUnavailable
+            | UnwatchProductError::BeginTransactionFailed
+            | UnwatchProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
-            DeleteWatchlistProductError::InvalidPersistedState => {
+            UnwatchProductError::InvalidPersistedState => {
                 ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
                     .with_detail("Watchlist failed internally.")
             }
@@ -808,7 +808,7 @@ impl_partner_shop_application_error!(
     ConcurrencyConflict
 );
 impl_partner_shop_application_error!(
-    DeletePartnerShopApplicationError,
+    WithdrawPartnerShopApplicationError,
     NotFound,
     ConcurrencyConflict
 );

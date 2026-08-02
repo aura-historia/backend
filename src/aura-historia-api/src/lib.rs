@@ -20,8 +20,8 @@ use shop_partner_postgres::{
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationHandler, AdminGetPartnerShopApplicationHandler,
     AdminListPartnerShopApplicationsHandler, AdminUpdatePartnerShopApplicationHandler,
-    CreatePartnerShopApplicationHandler, DeletePartnerShopApplicationHandler,
-    GetPartnerShopApplicationHandler, ListPartnerShopApplicationsHandler,
+    CreatePartnerShopApplicationHandler, GetPartnerShopApplicationHandler,
+    ListPartnerShopApplicationsHandler, WithdrawPartnerShopApplicationHandler,
 };
 use shop_postgres::{
     SqlxPartnerShopReaderFactory, SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory,
@@ -30,7 +30,7 @@ use shop_postgres::{
 use shop_service::ports::{ShopGeocoder, ShopGeocoderError};
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
-use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopHandler;
+
 use shop_service::use_cases::queries::get_shop::GetShopHandler;
 use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsHandler;
 use shop_service::use_cases::queries::search_shops::SearchShopsHandler;
@@ -60,8 +60,7 @@ use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandle
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
 use watchlist_postgres::{SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
-    DeleteWatchlistProductHandler, ListWatchlistHandler, UpdateWatchlistProductHandler,
-    WatchProductHandler,
+    ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
@@ -228,8 +227,6 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         SearchShopsHandler::new(unit_of_work.clone(), SqlxShopSearchReaderFactory::new());
     let check_user_admin =
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
-    let check_user_partner_shop =
-        CheckUserPartnerShopHandler::new(unit_of_work.clone(), SqlxPartnerShopReaderFactory::new());
     let create_shop = CreateShopHandler::new(
         unit_of_work.clone(),
         SqlxShopRepositoryFactory::new(),
@@ -241,7 +238,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         SqlxShopRepositoryFactory::new(),
         UnavailableShopGeocoder,
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
-        check_user_partner_shop,
+        SqlxPartnerShopReaderFactory::new(),
     );
     let list_user_partner_shops =
         ListUserPartnerShopsHandler::new(unit_of_work.clone(), SqlxPartnerShopReaderFactory::new());
@@ -283,8 +280,8 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         WatchProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
     let update_watchlist_product =
         UpdateWatchlistProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
-    let delete_watchlist_product =
-        DeleteWatchlistProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
+    let unwatch_product =
+        UnwatchProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
     let create_partner_application = CreatePartnerShopApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
@@ -299,7 +296,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
     );
-    let delete_partner_application = DeletePartnerShopApplicationHandler::new(
+    let delete_partner_application = WithdrawPartnerShopApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
     );
@@ -358,7 +355,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         list_watchlist: Arc::new(list_watchlist),
         watch_product: Arc::new(watch_product),
         update_watchlist_product: Arc::new(update_watchlist_product),
-        delete_watchlist_product: Arc::new(delete_watchlist_product),
+        unwatch_product: Arc::new(unwatch_product),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let partner_state = PartnerApplicationsState {
@@ -575,7 +572,7 @@ mod tests {
                 list_watchlist: Arc::new(UnusedUseCase),
                 watch_product: Arc::new(UnusedUseCase),
                 update_watchlist_product: Arc::new(UnusedUseCase),
-                delete_watchlist_product: Arc::new(UnusedUseCase),
+                unwatch_product: Arc::new(UnusedUseCase),
                 authenticator: authenticator.clone(),
             },
             PartnerApplicationsState {
@@ -891,14 +888,14 @@ mod tests {
         }
     }
     #[async_trait::async_trait]
-    impl watchlist_service::use_cases::DeleteWatchlistProductUseCase for UnusedUseCase {
+    impl watchlist_service::use_cases::UnwatchProductUseCase for UnusedUseCase {
         async fn execute(
             &self,
             _context: &common::operation_context::OperationContext,
-            _command: watchlist_service::use_cases::DeleteWatchlistProductCommand,
+            _command: watchlist_service::use_cases::UnwatchProductCommand,
         ) -> Result<
-            watchlist_service::use_cases::DeleteWatchlistProductResult,
-            watchlist_service::use_cases::DeleteWatchlistProductError,
+            watchlist_service::use_cases::UnwatchProductResult,
+            watchlist_service::use_cases::UnwatchProductError,
         > {
             unreachable!("unused delete watchlist")
         }
@@ -944,12 +941,12 @@ mod tests {
         }
     }
     #[async_trait::async_trait]
-    impl shop_partner_service::use_cases::DeletePartnerShopApplicationUseCase for UnusedUseCase {
+    impl shop_partner_service::use_cases::WithdrawPartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
             _context: &common::operation_context::OperationContext,
-            _command: shop_partner_service::use_cases::DeletePartnerShopApplicationCommand,
-        ) -> Result<(), shop_partner_service::use_cases::DeletePartnerShopApplicationError>
+            _command: shop_partner_service::use_cases::WithdrawPartnerShopApplicationCommand,
+        ) -> Result<(), shop_partner_service::use_cases::WithdrawPartnerShopApplicationError>
         {
             unreachable!("unused delete application")
         }

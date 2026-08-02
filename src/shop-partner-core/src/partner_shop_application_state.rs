@@ -5,6 +5,7 @@ pub enum PartnerShopApplicationState {
     InReview,
     Rejected,
     Approved,
+    Withdrawn,
 }
 
 #[cfg(test)]

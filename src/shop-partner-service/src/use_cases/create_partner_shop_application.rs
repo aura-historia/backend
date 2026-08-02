@@ -67,6 +67,12 @@ pub struct CreatePartnerShopApplicationResult {
     pub application: PartnerShopApplication,
 }
 
+#[allow(clippy::large_enum_variant)]
+enum PreparedPartnerShopApplicationPayload {
+    Existing { shop_id: ShopId },
+    New(Shop),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CreatePartnerShopApplicationError {
     #[error("authenticated actor required to create partner shop application")]
@@ -147,14 +153,25 @@ where
     ) -> Result<CreatePartnerShopApplicationResult, CreatePartnerShopApplicationError> {
         authorize_create(context, command.applicant_user_id)?;
 
+        let prepared_payload = match command.payload {
+            CreatePartnerShopApplicationPayload::Existing { shop_id } => {
+                PreparedPartnerShopApplicationPayload::Existing { shop_id }
+            }
+            CreatePartnerShopApplicationPayload::New(new_shop) => {
+                PreparedPartnerShopApplicationPayload::New(
+                    new_shop.into_draft_shop(&self.geocoder).await?,
+                )
+            }
+        };
+
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|_| CreatePartnerShopApplicationError::BeginTransactionFailed)?;
 
-        let payload = match command.payload {
-            CreatePartnerShopApplicationPayload::Existing { shop_id } => {
+        let payload = match prepared_payload {
+            PreparedPartnerShopApplicationPayload::Existing { shop_id } => {
                 if self
                     .shops
                     .in_transaction(&mut tx)
@@ -166,8 +183,7 @@ where
                 }
                 PartnerShopApplicationPayload::Existing { shop_id }
             }
-            CreatePartnerShopApplicationPayload::New(new_shop) => {
-                let shop = new_shop.into_draft_shop(&self.geocoder).await?;
+            PreparedPartnerShopApplicationPayload::New(shop) => {
                 if self
                     .shops
                     .in_transaction(&mut tx)

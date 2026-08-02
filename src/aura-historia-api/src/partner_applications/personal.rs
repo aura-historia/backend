@@ -1,4 +1,4 @@
-use super::types::{PartnerApplicationData, PostApplicationData, PostPayloadData};
+use super::types::{OwnPartnerApplicationData, PostApplicationData, PostPayloadData};
 use super::util::{no_store, parse_id, parse_json};
 use crate::auth::protected_context;
 use crate::error::ApiError;
@@ -9,8 +9,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use shop_partner_service::use_cases::{
     CreatePartnerShopApplicationCommand, CreatePartnerShopApplicationPayload,
-    DeletePartnerShopApplicationCommand, GetPartnerShopApplicationRequest,
-    ListPartnerShopApplicationsRequest, NewPartnerShopCommand,
+    GetPartnerShopApplicationRequest, ListPartnerShopApplicationsRequest, NewPartnerShopCommand,
+    WithdrawPartnerShopApplicationCommand,
 };
 
 pub async fn list_me(
@@ -30,7 +30,7 @@ pub async fn list_me(
             Json(
                 r.items
                     .into_iter()
-                    .map(PartnerApplicationData::from)
+                    .map(OwnPartnerApplicationData::from)
                     .collect::<Vec<_>>(),
             )
             .into_response(),
@@ -63,7 +63,7 @@ pub async fn get_me(
         )
         .await
     {
-        Ok(r) => no_store(Json(PartnerApplicationData::from(r.application)).into_response()),
+        Ok(r) => no_store(Json(OwnPartnerApplicationData::from(r.application)).into_response()),
         Err(e) => ApiError::from(e).into_response(),
     }
 }
@@ -130,7 +130,7 @@ pub async fn post_me(
     {
         Ok(r) => (
             StatusCode::CREATED,
-            Json(PartnerApplicationData::from(r.application)),
+            Json(OwnPartnerApplicationData::from(r.application)),
         )
             .into_response(),
         Err(e) => ApiError::from(e).into_response(),
@@ -154,7 +154,7 @@ pub async fn delete_me(
         .delete
         .execute(
             &ctx,
-            DeletePartnerShopApplicationCommand {
+            WithdrawPartnerShopApplicationCommand {
                 user_id,
                 application_id,
             },

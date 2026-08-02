@@ -23,6 +23,7 @@ pub enum Scope {
     AccessTokensRead,
     AccessTokensWrite,
     SearchFiltersWrite,
+    WatchlistRead,
     WatchlistWrite,
 }
 
@@ -40,6 +41,7 @@ impl Scope {
             Scope::AccessTokensRead => "access-tokens:read",
             Scope::AccessTokensWrite => "access-tokens:write",
             Scope::SearchFiltersWrite => "search-filters:write",
+            Scope::WatchlistRead => "watchlist:read",
             Scope::WatchlistWrite => "watchlist:write",
         }
     }
@@ -54,8 +56,6 @@ pub struct AccessToken {
     scopes: HashSet<Scope>,
     origin: AccessTokenOrigin,
     expires: Option<OffsetDateTime>,
-    created: OffsetDateTime,
-    updated: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,7 +67,6 @@ pub struct NewAccessToken {
     pub scopes: HashSet<Scope>,
     pub origin: AccessTokenOrigin,
     pub expires: Option<OffsetDateTime>,
-    pub now: OffsetDateTime,
 }
 
 #[doc(hidden)]
@@ -80,8 +79,6 @@ pub struct RehydratedAccessTokenState {
     pub scopes: HashSet<Scope>,
     pub origin: AccessTokenOrigin,
     pub expires: Option<OffsetDateTime>,
-    pub created: OffsetDateTime,
-    pub updated: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,8 +97,6 @@ impl AccessToken {
             scopes: input.scopes,
             origin: input.origin,
             expires: input.expires,
-            created: input.now,
-            updated: input.now,
         }
     }
 
@@ -115,37 +110,32 @@ impl AccessToken {
             scopes: state.scopes,
             origin: state.origin,
             expires: state.expires,
-            created: state.created,
-            updated: state.updated,
         }
     }
 
-    pub fn change_name(&mut self, name: AccessTokenName, now: OffsetDateTime) -> bool {
+    pub fn change_name(&mut self, name: AccessTokenName) -> bool {
         if self.name == name {
             false
         } else {
             self.name = name;
-            self.updated = now;
             true
         }
     }
 
-    pub fn replace_scopes(&mut self, scopes: HashSet<Scope>, now: OffsetDateTime) -> bool {
+    pub fn replace_scopes(&mut self, scopes: HashSet<Scope>) -> bool {
         if self.scopes == scopes {
             false
         } else {
             self.scopes = scopes;
-            self.updated = now;
             true
         }
     }
 
-    pub fn change_expires(&mut self, expires: Option<OffsetDateTime>, now: OffsetDateTime) -> bool {
+    pub fn change_expires(&mut self, expires: Option<OffsetDateTime>) -> bool {
         if self.expires == expires {
             false
         } else {
             self.expires = expires;
-            self.updated = now;
             true
         }
     }
@@ -184,14 +174,6 @@ impl AccessToken {
 
     pub fn expires(&self) -> Option<OffsetDateTime> {
         self.expires
-    }
-
-    pub fn created(&self) -> OffsetDateTime {
-        self.created
-    }
-
-    pub fn updated(&self) -> OffsetDateTime {
-        self.updated
     }
 }
 
@@ -626,6 +608,7 @@ mod access_token_state_tests {
             (Scope::AccessTokensRead, "access-tokens:read"),
             (Scope::AccessTokensWrite, "access-tokens:write"),
             (Scope::SearchFiltersWrite, "search-filters:write"),
+            (Scope::WatchlistRead, "watchlist:read"),
             (Scope::WatchlistWrite, "watchlist:write"),
         ] {
             assert_eq!(value, scope.as_str());
@@ -650,7 +633,6 @@ mod access_token_state_tests {
     }
 
     fn access_token(expires: Option<OffsetDateTime>, scopes: HashSet<Scope>) -> AccessToken {
-        let now = OffsetDateTime::now_utc();
         AccessToken {
             id: AccessTokenId::new(),
             hashed_token: RawAccessToken::new().into(),
@@ -659,8 +641,6 @@ mod access_token_state_tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created: now,
-            updated: now,
         }
     }
 }
@@ -704,8 +684,6 @@ mod faker {
                 scopes: [Scope::ProductsWrite].into(),
                 origin: AccessTokenOrigin::User,
                 expires: None,
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
             }
         }
     }

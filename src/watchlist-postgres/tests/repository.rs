@@ -51,7 +51,7 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
         .await
         .unwrap_or_else(|error| panic!("read failed: {error:?}"));
     assert_eq!(1, views.len());
-    assert!(!views[0].entry.notifications());
+    assert!(!views[0].notifications);
     assert!(views[0].updated >= views[0].created);
 
     let user_ids = reader

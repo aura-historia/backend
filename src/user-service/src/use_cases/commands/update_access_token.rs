@@ -141,26 +141,26 @@ fn apply_update(
     match command.name {
         PatchField::Unchanged => {}
         PatchField::Set(value) => {
-            changed |= access_token.change_name(value, OffsetDateTime::now_utc());
+            changed |= access_token.change_name(value);
         }
         PatchField::Clear => return Err(UpdateAccessTokenError::NameRequired),
     }
     match command.scopes {
         PatchField::Unchanged => {}
         PatchField::Set(value) => {
-            changed |= access_token.replace_scopes(value, OffsetDateTime::now_utc());
+            changed |= access_token.replace_scopes(value);
         }
         PatchField::Clear => {
-            changed |= access_token.replace_scopes(HashSet::new(), OffsetDateTime::now_utc());
+            changed |= access_token.replace_scopes(HashSet::new());
         }
     }
     match command.expires {
         PatchField::Unchanged => {}
         PatchField::Set(value) => {
-            changed |= access_token.change_expires(Some(value), OffsetDateTime::now_utc());
+            changed |= access_token.change_expires(Some(value));
         }
         PatchField::Clear => {
-            changed |= access_token.change_expires(None, OffsetDateTime::now_utc());
+            changed |= access_token.change_expires(None);
         }
     }
 
@@ -288,7 +288,6 @@ mod tests {
         expires: Option<OffsetDateTime>,
     ) -> AccessToken {
         let raw = RawAccessToken::new();
-        let now = OffsetDateTime::now_utc();
         AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
@@ -297,7 +296,6 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            now,
         })
     }
 

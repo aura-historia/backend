@@ -4,10 +4,13 @@ use crate::ports::{
 };
 use common::error::boxed::{BoxError, static_error};
 use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, user_id::UserId};
+use user_service::use_cases::queries::check_user_admin::{
+    CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GrantPartnerShopCommand {
@@ -67,28 +70,31 @@ pub trait GrantPartnerShopUseCase: Send + Sync {
     ) -> Result<GrantPartnerShopResult, GrantPartnerShopError>;
 }
 
-pub struct GrantPartnerShopHandler<U, S, P> {
+pub struct GrantPartnerShopHandler<U, S, P, A> {
     unit_of_work: U,
     shops: S,
     partner_shops: P,
+    check_user_admin: A,
 }
 
-impl<U, S, P> GrantPartnerShopHandler<U, S, P> {
-    pub fn new(unit_of_work: U, shops: S, partner_shops: P) -> Self {
+impl<U, S, P, A> GrantPartnerShopHandler<U, S, P, A> {
+    pub fn new(unit_of_work: U, shops: S, partner_shops: P, check_user_admin: A) -> Self {
         Self {
             unit_of_work,
             shops,
             partner_shops,
+            check_user_admin,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, S, P> GrantPartnerShopUseCase for GrantPartnerShopHandler<U, S, P>
+impl<U, S, P, A> GrantPartnerShopUseCase for GrantPartnerShopHandler<U, S, P, A>
 where
     U: UnitOfWork,
     S: ShopRepositoryFactory<U::Tx>,
     P: PartnerShopRepositoryFactory<U::Tx>,
+    A: CheckUserAdminUseCase,
 {
     #[tracing::instrument(
         name = "grant_partner_shop",
@@ -111,6 +117,7 @@ where
             .require()
             .credential_capability(CredentialCapability::PartnerShopsWrite)
             .authorize::<GrantPartnerShopError>()?;
+        ensure_admin_or_internal(context, &self.check_user_admin).await?;
         tracing::Span::current().record(
             "actor_id",
             tracing::field::display(context.principal.label()),
@@ -150,6 +157,44 @@ where
             user_id: command.user_id,
             shop_id: command.shop_id,
         })
+    }
+}
+
+async fn ensure_admin_or_internal<A>(
+    context: &OperationContext,
+    check_user_admin: &A,
+) -> Result<(), GrantPartnerShopError>
+where
+    A: CheckUserAdminUseCase,
+{
+    match context.principal {
+        Principal::Service(_) | Principal::System => Ok(()),
+        Principal::User(_) | Principal::DelegatedUser { .. } => check_user_admin
+            .execute(context, CheckUserAdminRequest)
+            .await
+            .map(|_| ())
+            .map_err(map_admin_error),
+        Principal::Anonymous => Err(GrantPartnerShopError::AuthenticatedActorRequired),
+    }
+}
+
+fn map_admin_error(error: CheckUserAdminError) -> GrantPartnerShopError {
+    match error {
+        CheckUserAdminError::AuthenticatedActorRequired => {
+            GrantPartnerShopError::AuthenticatedActorRequired
+        }
+        CheckUserAdminError::Forbidden => GrantPartnerShopError::Forbidden,
+        CheckUserAdminError::TemporarilyUnavailable { source } => {
+            GrantPartnerShopError::TemporarilyUnavailable { source }
+        }
+        CheckUserAdminError::InvalidReadModel { source }
+        | CheckUserAdminError::Internal { source } => GrantPartnerShopError::Internal { source },
+        CheckUserAdminError::BeginTransactionFailed
+        | CheckUserAdminError::CommitTransactionFailed => {
+            GrantPartnerShopError::TemporarilyUnavailable {
+                source: static_error("check user admin transaction failed"),
+            }
+        }
     }
 }
 
@@ -205,7 +250,7 @@ mod tests {
     use super::*;
     use crate::ports::{PersistedShop, ShopStorageVersion, VersionedShop};
     use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::shop_name::ShopName;
     use common::shop_slug_id::ShopSlugId;
     use common::transaction::{TransactionError, UnitOfWork};
@@ -215,6 +260,9 @@ mod tests {
     use shop_core::shop_type::ShopType;
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Copy)]
+    struct AllowAdmin;
 
     #[derive(Clone, Copy)]
     enum PartnerRepoErrorKind {
@@ -302,6 +350,20 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl CheckUserAdminUseCase for AllowAdmin {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _request: CheckUserAdminRequest,
+        ) -> Result<
+            user_service::use_cases::queries::check_user_admin::CheckUserAdminResult,
+            CheckUserAdminError,
+        > {
+            Ok(user_service::use_cases::queries::check_user_admin::CheckUserAdminResult)
+        }
+    }
+
     impl ShopRepositoryFactory<FakeTx> for FakeShopRepositoryFactory {
         fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl ShopRepository + 'tx {
             FakeShopRepository {
@@ -320,6 +382,15 @@ mod tests {
                 state.counts.find_by_id += 1;
                 Ok(state.shop_by_id.clone())
             })
+        }
+
+        async fn find_persisted_by_id(
+            &mut self,
+            id: ShopId,
+        ) -> Result<Option<PersistedShop>, ShopRepositoryError> {
+            self.find_by_id(id)
+                .await
+                .map(|shop| shop.map(|versioned| persisted_shop(versioned.value)))
         }
 
         async fn find_by_slug(
@@ -379,8 +450,12 @@ mod tests {
         with_state(&state, |state| {
             state.shop_by_id = Some(versioned_shop(existing))
         });
-        let handler =
-            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+        let handler = GrantPartnerShopHandler::new(
+            uow(&state),
+            shop_repo(&state),
+            partner_repo(&state),
+            AllowAdmin,
+        );
 
         let result = handler
             .execute(
@@ -402,8 +477,12 @@ mod tests {
     #[tokio::test]
     async fn should_cover_grant_partner_shop_errors() {
         let state = shared_state();
-        let handler =
-            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+        let handler = GrantPartnerShopHandler::new(
+            uow(&state),
+            shop_repo(&state),
+            partner_repo(&state),
+            AllowAdmin,
+        );
         let not_found = handler
             .execute(
                 &system_context(),
@@ -424,8 +503,12 @@ mod tests {
 
         let state = shared_state();
         with_state(&state, |state| state.begin_error = true);
-        let handler =
-            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+        let handler = GrantPartnerShopHandler::new(
+            uow(&state),
+            shop_repo(&state),
+            partner_repo(&state),
+            AllowAdmin,
+        );
         let begin = handler
             .execute(
                 &system_context(),
@@ -447,8 +530,12 @@ mod tests {
             state.shop_by_id = Some(versioned_shop(existing));
             state.grant_error = Some(PartnerRepoErrorKind::UserNotFound);
         });
-        let handler =
-            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+        let handler = GrantPartnerShopHandler::new(
+            uow(&state),
+            shop_repo(&state),
+            partner_repo(&state),
+            AllowAdmin,
+        );
         let grant = handler
             .execute(
                 &system_context(),
@@ -471,8 +558,12 @@ mod tests {
             state.shop_by_id = Some(versioned_shop(existing));
             state.commit_error = true;
         });
-        let handler =
-            GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+        let handler = GrantPartnerShopHandler::new(
+            uow(&state),
+            shop_repo(&state),
+            partner_repo(&state),
+            AllowAdmin,
+        );
         let commit = handler
             .execute(
                 &system_context(),
@@ -505,8 +596,12 @@ mod tests {
                 state.shop_by_id = Some(versioned_shop(existing));
                 state.grant_error = Some(kind);
             });
-            let handler =
-                GrantPartnerShopHandler::new(uow(&state), shop_repo(&state), partner_repo(&state));
+            let handler = GrantPartnerShopHandler::new(
+                uow(&state),
+                shop_repo(&state),
+                partner_repo(&state),
+                AllowAdmin,
+            );
             let result = handler
                 .execute(
                     &system_context(),

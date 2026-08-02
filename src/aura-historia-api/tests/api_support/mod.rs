@@ -23,14 +23,13 @@ use shop_partner_postgres::{
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationHandler, AdminGetPartnerShopApplicationHandler,
     AdminListPartnerShopApplicationsHandler, AdminUpdatePartnerShopApplicationHandler,
-    CreatePartnerShopApplicationHandler, DeletePartnerShopApplicationHandler,
-    GetPartnerShopApplicationHandler, ListPartnerShopApplicationsHandler,
+    CreatePartnerShopApplicationHandler, GetPartnerShopApplicationHandler,
+    ListPartnerShopApplicationsHandler, WithdrawPartnerShopApplicationHandler,
 };
 use shop_postgres::{SqlxPartnerShopReaderFactory, SqlxShopRepositoryFactory};
 use shop_service::ports::{ShopGeocoder, ShopGeocoderError, ShopRepository, ShopRepositoryFactory};
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
-use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopHandler;
 use shop_service::use_cases::queries::get_shop::GetShopHandler;
 use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsHandler;
 use shop_service::use_cases::queries::search_shops::SearchShopsHandler;
@@ -39,7 +38,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use test_api::{get_dynamodb_client, get_postgres_client};
-use time::OffsetDateTime;
 use url::Url;
 use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
@@ -62,8 +60,7 @@ use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandle
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
 use watchlist_postgres::{SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
-    DeleteWatchlistProductHandler, ListWatchlistHandler, UpdateWatchlistProductHandler,
-    WatchProductHandler,
+    ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
 
 #[derive(Clone, Copy)]
@@ -133,7 +130,6 @@ pub async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> R
     let client = get_dynamodb_client().await;
     let store = DynamoDbAccessTokenStore::new(client, "table_1");
     let raw = RawAccessToken::new();
-    let now = OffsetDateTime::now_utc();
     let token = AccessToken::create(NewAccessToken {
         id: AccessTokenId::new(),
         hashed_token: raw.clone().into(),
@@ -142,7 +138,6 @@ pub async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> R
         scopes,
         origin: AccessTokenOrigin::User,
         expires: None,
-        now,
     });
     if let Err(error) = store.insert(token).await {
         panic!("failed to seed access token: {error:?}");
@@ -290,10 +285,7 @@ async fn test_state() -> AppState {
                 unit_of_work.clone(),
                 user_postgres::SqlxUserAdminReaderFactory::new(),
             ),
-            CheckUserPartnerShopHandler::new(
-                unit_of_work.clone(),
-                SqlxPartnerShopReaderFactory::new(),
-            ),
+            SqlxPartnerShopReaderFactory::new(),
         )),
         Arc::new(ListUserPartnerShopsHandler::new(
             unit_of_work.clone(),
@@ -358,7 +350,7 @@ async fn test_state() -> AppState {
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
         )),
-        Arc::new(DeleteWatchlistProductHandler::new(
+        Arc::new(UnwatchProductHandler::new(
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
         )),
@@ -380,7 +372,7 @@ async fn test_state() -> AppState {
             unit_of_work.clone(),
             SqlxPartnerShopApplicationRepositoryFactory::new(),
         )),
-        Arc::new(DeletePartnerShopApplicationHandler::new(
+        Arc::new(WithdrawPartnerShopApplicationHandler::new(
             unit_of_work.clone(),
             SqlxPartnerShopApplicationRepositoryFactory::new(),
         )),

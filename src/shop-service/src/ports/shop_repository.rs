@@ -51,6 +51,11 @@ pub trait ShopRepository: Send {
         id: ShopId,
     ) -> Result<Option<VersionedShop>, ShopRepositoryError>;
 
+    async fn find_persisted_by_id(
+        &mut self,
+        id: ShopId,
+    ) -> Result<Option<PersistedShop>, ShopRepositoryError>;
+
     async fn find_by_slug(
         &mut self,
         slug_id: &ShopSlugId,

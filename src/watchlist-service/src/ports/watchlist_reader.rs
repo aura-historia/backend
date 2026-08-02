@@ -1,11 +1,14 @@
 use common::product_id::ProductId;
+use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use time::OffsetDateTime;
-use watchlist_core::WatchlistProduct;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatchlistProductView {
-    pub entry: WatchlistProduct,
+    pub user_id: UserId,
+    pub product_id: ProductId,
+    pub notifications: bool,
+    pub state: ResourceState,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }

@@ -2,8 +2,8 @@ use crate::auth::TokenAuthenticator;
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationUseCase, AdminGetPartnerShopApplicationUseCase,
     AdminListPartnerShopApplicationsUseCase, AdminUpdatePartnerShopApplicationUseCase,
-    CreatePartnerShopApplicationUseCase, DeletePartnerShopApplicationUseCase,
-    GetPartnerShopApplicationUseCase, ListPartnerShopApplicationsUseCase,
+    CreatePartnerShopApplicationUseCase, GetPartnerShopApplicationUseCase,
+    ListPartnerShopApplicationsUseCase, WithdrawPartnerShopApplicationUseCase,
 };
 use shop_service::use_cases::commands::create_shop::CreateShopUseCase;
 use shop_service::use_cases::commands::update_shop::UpdateShopUseCase;
@@ -24,8 +24,7 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserUseCase;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensUseCase;
 use user_service::use_cases::queries::search_users::SearchUsersUseCase;
 use watchlist_service::use_cases::{
-    DeleteWatchlistProductUseCase, ListWatchlistUseCase, UpdateWatchlistProductUseCase,
-    WatchProductUseCase,
+    ListWatchlistUseCase, UnwatchProductUseCase, UpdateWatchlistProductUseCase, WatchProductUseCase,
 };
 
 #[derive(Clone)]
@@ -148,7 +147,7 @@ pub struct WatchlistState {
     pub(crate) list_watchlist: Arc<dyn ListWatchlistUseCase>,
     pub(crate) watch_product: Arc<dyn WatchProductUseCase>,
     pub(crate) update_watchlist_product: Arc<dyn UpdateWatchlistProductUseCase>,
-    pub(crate) delete_watchlist_product: Arc<dyn DeleteWatchlistProductUseCase>,
+    pub(crate) unwatch_product: Arc<dyn UnwatchProductUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
@@ -157,14 +156,14 @@ impl WatchlistState {
         list_watchlist: Arc<dyn ListWatchlistUseCase>,
         watch_product: Arc<dyn WatchProductUseCase>,
         update_watchlist_product: Arc<dyn UpdateWatchlistProductUseCase>,
-        delete_watchlist_product: Arc<dyn DeleteWatchlistProductUseCase>,
+        unwatch_product: Arc<dyn UnwatchProductUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
             list_watchlist,
             watch_product,
             update_watchlist_product,
-            delete_watchlist_product,
+            unwatch_product,
             authenticator,
         }
     }
@@ -175,7 +174,7 @@ pub struct PartnerApplicationsState {
     pub(crate) create: Arc<dyn CreatePartnerShopApplicationUseCase>,
     pub(crate) list: Arc<dyn ListPartnerShopApplicationsUseCase>,
     pub(crate) get: Arc<dyn GetPartnerShopApplicationUseCase>,
-    pub(crate) delete: Arc<dyn DeletePartnerShopApplicationUseCase>,
+    pub(crate) delete: Arc<dyn WithdrawPartnerShopApplicationUseCase>,
     pub(crate) admin_list: Arc<dyn AdminListPartnerShopApplicationsUseCase>,
     pub(crate) admin_get: Arc<dyn AdminGetPartnerShopApplicationUseCase>,
     pub(crate) admin_update: Arc<dyn AdminUpdatePartnerShopApplicationUseCase>,
@@ -189,7 +188,7 @@ impl PartnerApplicationsState {
         create: Arc<dyn CreatePartnerShopApplicationUseCase>,
         list: Arc<dyn ListPartnerShopApplicationsUseCase>,
         get: Arc<dyn GetPartnerShopApplicationUseCase>,
-        delete: Arc<dyn DeletePartnerShopApplicationUseCase>,
+        delete: Arc<dyn WithdrawPartnerShopApplicationUseCase>,
         admin_list: Arc<dyn AdminListPartnerShopApplicationsUseCase>,
         admin_get: Arc<dyn AdminGetPartnerShopApplicationUseCase>,
         admin_update: Arc<dyn AdminUpdatePartnerShopApplicationUseCase>,

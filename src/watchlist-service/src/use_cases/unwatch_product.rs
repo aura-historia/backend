@@ -7,19 +7,19 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DeleteWatchlistProductCommand {
+pub struct UnwatchProductCommand {
     pub user_id: UserId,
     pub product_id: ProductId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DeleteWatchlistProductResult {
+pub struct UnwatchProductResult {
     pub user_id: UserId,
     pub product_id: ProductId,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum DeleteWatchlistProductError {
+pub enum UnwatchProductError {
     #[error("authenticated actor required")]
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
@@ -37,20 +37,20 @@ pub enum DeleteWatchlistProductError {
 }
 
 #[async_trait::async_trait]
-pub trait DeleteWatchlistProductUseCase: Send + Sync {
+pub trait UnwatchProductUseCase: Send + Sync {
     async fn execute(
         &self,
         context: &OperationContext,
-        command: DeleteWatchlistProductCommand,
-    ) -> Result<DeleteWatchlistProductResult, DeleteWatchlistProductError>;
+        command: UnwatchProductCommand,
+    ) -> Result<UnwatchProductResult, UnwatchProductError>;
 }
 
-pub struct DeleteWatchlistProductHandler<U, R> {
+pub struct UnwatchProductHandler<U, R> {
     unit_of_work: U,
     watchlist: R,
 }
 
-impl<U, R> DeleteWatchlistProductHandler<U, R> {
+impl<U, R> UnwatchProductHandler<U, R> {
     pub fn new(unit_of_work: U, watchlist: R) -> Self {
         Self {
             unit_of_work,
@@ -60,24 +60,24 @@ impl<U, R> DeleteWatchlistProductHandler<U, R> {
 }
 
 #[async_trait::async_trait]
-impl<U, R> DeleteWatchlistProductUseCase for DeleteWatchlistProductHandler<U, R>
+impl<U, R> UnwatchProductUseCase for UnwatchProductHandler<U, R>
 where
     U: UnitOfWork,
     R: WatchlistRepositoryFactory<U::Tx>,
 {
-    #[tracing::instrument(name = "delete_watchlist_product", skip_all, fields(user_id = %command.user_id, product_id = %command.product_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "unwatch_product", skip_all, fields(user_id = %command.user_id, product_id = %command.product_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
-        command: DeleteWatchlistProductCommand,
-    ) -> Result<DeleteWatchlistProductResult, DeleteWatchlistProductError> {
+        command: UnwatchProductCommand,
+    ) -> Result<UnwatchProductResult, UnwatchProductError> {
         authorize_write(context, command.user_id)?;
 
         let mut tx = self
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| DeleteWatchlistProductError::BeginTransactionFailed)?;
+            .map_err(|_| UnwatchProductError::BeginTransactionFailed)?;
         if self
             .watchlist
             .in_transaction(&mut tx)
@@ -85,7 +85,7 @@ where
             .await?
             .is_none()
         {
-            return Err(DeleteWatchlistProductError::NotFound);
+            return Err(UnwatchProductError::NotFound);
         }
         self.watchlist
             .in_transaction(&mut tx)
@@ -93,10 +93,10 @@ where
             .await?;
         tx.commit()
             .await
-            .map_err(|_| DeleteWatchlistProductError::CommitTransactionFailed)?;
+            .map_err(|_| UnwatchProductError::CommitTransactionFailed)?;
 
         tracing::info!(
-            event = "watchlist_product.deleted",
+            event = "watchlist_product.unwatched",
             actor_type = context.principal.kind(),
             actor_id = %context.principal.label(),
             user_id = %command.user_id,
@@ -104,26 +104,23 @@ where
             outcome = "success",
         );
 
-        Ok(DeleteWatchlistProductResult {
+        Ok(UnwatchProductResult {
             user_id: command.user_id,
             product_id: command.product_id,
         })
     }
 }
 
-fn authorize_write(
-    context: &OperationContext,
-    user_id: UserId,
-) -> Result<(), DeleteWatchlistProductError> {
+fn authorize_write(context: &OperationContext, user_id: UserId) -> Result<(), UnwatchProductError> {
     context
         .require()
         .credential_capability(CredentialCapability::WatchlistWrite)
         .user(&user_id)
         .service_or_system()
-        .authorize::<DeleteWatchlistProductError>()
+        .authorize::<UnwatchProductError>()
 }
 
-impl From<OperationAuthorizationError> for DeleteWatchlistProductError {
+impl From<OperationAuthorizationError> for UnwatchProductError {
     fn from(error: OperationAuthorizationError) -> Self {
         match error {
             OperationAuthorizationError::AuthenticationRequired(_) => {
@@ -135,7 +132,7 @@ impl From<OperationAuthorizationError> for DeleteWatchlistProductError {
     }
 }
 
-impl From<WatchlistRepositoryError> for DeleteWatchlistProductError {
+impl From<WatchlistRepositoryError> for UnwatchProductError {
     fn from(value: WatchlistRepositoryError) -> Self {
         match value {
             WatchlistRepositoryError::InvalidPersistedState => Self::InvalidPersistedState,
@@ -190,7 +187,7 @@ mod tests {
         entries: Arc<Mutex<Vec<WatchlistProduct>>>,
         committed: Arc<Mutex<bool>>,
         updated: Arc<Mutex<usize>>,
-        deleted: Arc<Mutex<usize>>,
+        unwatched: Arc<Mutex<usize>>,
     }
 
     struct TestWatchlistPort {
@@ -218,8 +215,8 @@ mod tests {
             self.updated.lock().map(|value| *value).unwrap_or(0)
         }
 
-        fn deleted(&self) -> usize {
-            self.deleted.lock().map(|value| *value).unwrap_or(0)
+        fn unwatched(&self) -> usize {
+            self.unwatched.lock().map(|value| *value).unwrap_or(0)
         }
     }
 
@@ -341,9 +338,9 @@ mod tests {
                 .map_err(|_| WatchlistRepositoryError::DeleteFailed)?
                 .retain(|entry| entry.user_id() != user_id || entry.product_id() != product_id);
             self.state
-                .deleted
+                .unwatched
                 .lock()
-                .map(|mut deleted| *deleted += 1)
+                .map(|mut unwatched| *unwatched += 1)
                 .map_err(|_| WatchlistRepositoryError::DeleteFailed)
         }
     }
@@ -364,7 +361,10 @@ mod tests {
                         .filter(|entry| entry.user_id() == user_id)
                         .cloned()
                         .map(|entry| WatchlistProductView {
-                            entry,
+                            user_id: entry.user_id(),
+                            product_id: entry.product_id(),
+                            notifications: entry.notifications(),
+                            state: entry.state(),
                             created: OffsetDateTime::UNIX_EPOCH,
                             updated: OffsetDateTime::UNIX_EPOCH,
                         })
@@ -422,12 +422,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_delete_watchlist_product_when_entry_exists() -> Result<(), String> {
+    async fn should_unwatch_product_when_entry_exists() -> Result<(), String> {
         let user_id = UserId::new();
         let product_id = ProductId::new();
         let state = SharedState::with_entry(entry(user_id, product_id, true));
 
-        let result = DeleteWatchlistProductHandler::new(
+        let result = UnwatchProductHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
                 ..Default::default()
@@ -438,7 +438,7 @@ mod tests {
         )
         .execute(
             &context_for_user(user_id),
-            DeleteWatchlistProductCommand {
+            UnwatchProductCommand {
                 user_id,
                 product_id,
             },
@@ -448,7 +448,7 @@ mod tests {
 
         assert_eq!(user_id, result.user_id);
         assert_eq!(product_id, result.product_id);
-        assert_eq!(1, state.deleted());
+        assert_eq!(1, state.unwatched());
         assert!(state.committed());
         Ok(())
     }
@@ -458,7 +458,7 @@ mod tests {
         let user_id = UserId::new();
         let state = SharedState::default();
 
-        let result = DeleteWatchlistProductHandler::new(
+        let result = UnwatchProductHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
                 ..Default::default()
@@ -467,13 +467,13 @@ mod tests {
         )
         .execute(
             &context_for_user(user_id),
-            DeleteWatchlistProductCommand {
+            UnwatchProductCommand {
                 user_id,
                 product_id: ProductId::new(),
             },
         )
         .await;
 
-        assert!(matches!(result, Err(DeleteWatchlistProductError::NotFound)));
+        assert!(matches!(result, Err(UnwatchProductError::NotFound)));
     }
 }

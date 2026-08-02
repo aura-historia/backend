@@ -8,7 +8,8 @@ use shop_partner_core::partner_shop_application::{
 };
 use shop_partner_core::partner_shop_application_state::PartnerShopApplicationState;
 use shop_partner_service::ports::{
-    PartnerShopApplicationStorageVersion, VersionedPartnerShopApplication,
+    PartnerShopApplicationStorageVersion, PartnerShopApplicationView,
+    VersionedPartnerShopApplication,
 };
 use time::OffsetDateTime;
 
@@ -46,6 +47,27 @@ pub(crate) const APPLICATION_COLUMNS: &str = r#"
     payload_type, shop_id, task_token, version, created, updated
 "#;
 
+impl TryFrom<PartnerShopApplicationRow> for PartnerShopApplicationView {
+    type Error = PartnerShopApplicationRowMappingError;
+
+    fn try_from(row: PartnerShopApplicationRow) -> Result<Self, Self::Error> {
+        let shop_id = ShopId::from(row.shop_id);
+        let payload = match row.payload_type.as_str() {
+            "EXISTING" => PartnerShopApplicationPayload::Existing { shop_id },
+            "NEW" => PartnerShopApplicationPayload::New { shop_id },
+            _ => return Err(PartnerShopApplicationRowMappingError::InvalidPayloadType),
+        };
+        Ok(Self {
+            id: PartnerShopApplicationId::from(row.partner_shop_application_id),
+            applicant_user_id: UserId::from(row.applicant_user_id),
+            business_state: parse_business_state(&row.business_state)?,
+            execution_state: parse_execution_state(&row.execution_state)?,
+            payload,
+            shop_id,
+        })
+    }
+}
+
 impl TryFrom<PartnerShopApplicationRow> for VersionedPartnerShopApplication {
     type Error = PartnerShopApplicationRowMappingError;
 
@@ -77,6 +99,7 @@ pub(crate) fn bind_business_state(value: PartnerShopApplicationState) -> &'stati
         PartnerShopApplicationState::InReview => "IN_REVIEW",
         PartnerShopApplicationState::Rejected => "REJECTED",
         PartnerShopApplicationState::Approved => "APPROVED",
+        PartnerShopApplicationState::Withdrawn => "WITHDRAWN",
     }
 }
 
@@ -107,6 +130,7 @@ fn parse_business_state(
         "IN_REVIEW" => Ok(PartnerShopApplicationState::InReview),
         "REJECTED" => Ok(PartnerShopApplicationState::Rejected),
         "APPROVED" => Ok(PartnerShopApplicationState::Approved),
+        "WITHDRAWN" => Ok(PartnerShopApplicationState::Withdrawn),
         _ => Err(PartnerShopApplicationRowMappingError::InvalidBusinessState),
     }
 }

@@ -1,7 +1,7 @@
-use super::types::{PatchUserData, UserData};
+use super::types::{OwnUserData, PatchOwnUserData};
 use super::util::{no_store, parse_json, patch};
 use crate::auth::protected_context;
-use crate::error::{ApiError, BAD_BODY_VALUE};
+use crate::error::ApiError;
 use crate::state::UsersState;
 use axum::Json;
 use axum::extract::State;
@@ -18,7 +18,7 @@ pub async fn get_me(State(state): State<UsersState>, headers: HeaderMap) -> Resp
         Err(r) => return r,
     };
     match state.get_own_user.execute(&ctx, GetOwnUserRequest).await {
-        Ok(view) => no_store(Json(UserData::from(view)).into_response()),
+        Ok(view) => no_store(Json(OwnUserData::from(view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
 }
@@ -55,15 +55,10 @@ pub(crate) async fn patch_user(
     user_id: UserId,
     body: String,
 ) -> Response {
-    let data: PatchUserData = match parse_json(&body) {
+    let data: PatchOwnUserData = match parse_json(&body) {
         Ok(v) => v,
         Err(r) => return r,
     };
-    if data.tier.is_some() || data.role.is_some() {
-        return ApiError::bad_request(BAD_BODY_VALUE)
-            .with_detail("Role and tier changes must use admin user update flow.")
-            .into_response();
-    }
     let command = UpdateUserProfileCommand {
         user_id,
         email: patch(data.email),
@@ -76,7 +71,7 @@ pub(crate) async fn patch_user(
         structured_address: patch(data.structured_address.map(Into::into)),
     };
     match state.update_user_profile.execute(&ctx, command).await {
-        Ok(result) => no_store(Json(UserData::from(result.view)).into_response()),
+        Ok(result) => no_store(Json(OwnUserData::from(result.view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
 }

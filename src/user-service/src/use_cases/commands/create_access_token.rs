@@ -100,7 +100,6 @@ where
         tracing::Span::current().record("actor_id", tracing::field::display(principal.label()));
 
         let raw_access_token = RawAccessToken::new();
-        let now = OffsetDateTime::now_utc();
         let access_token = AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw_access_token.clone().into(),
@@ -109,7 +108,6 @@ where
             scopes: command.scopes,
             origin: command.origin,
             expires: command.expires,
-            now,
         });
 
         self.store.insert(access_token.clone()).await?;
@@ -251,7 +249,6 @@ mod tests {
         expires: Option<OffsetDateTime>,
     ) -> AccessToken {
         let raw = RawAccessToken::new();
-        let now = OffsetDateTime::now_utc();
         AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
@@ -260,7 +257,6 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            now,
         })
     }
 

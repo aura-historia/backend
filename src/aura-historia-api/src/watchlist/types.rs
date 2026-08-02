@@ -37,10 +37,14 @@ impl From<WatchlistProduct> for WatchlistEntryData {
 }
 impl From<WatchlistProductView> for WatchlistEntryData {
     fn from(v: WatchlistProductView) -> Self {
-        let mut data = WatchlistEntryData::from(v.entry);
-        data.created = Some(v.created);
-        data.updated = Some(v.updated);
-        data
+        Self {
+            user_id: v.user_id,
+            product_id: v.product_id,
+            notifications: v.notifications,
+            state: format!("{:?}", v.state),
+            created: Some(v.created),
+            updated: Some(v.updated),
+        }
     }
 }
 

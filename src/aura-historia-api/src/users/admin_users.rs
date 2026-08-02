@@ -1,4 +1,4 @@
-use super::types::{CursorData, PatchUserData, UserData, UserSummaryData};
+use super::types::{AdminUserData, AdminUserSummaryData, CursorData, PatchAdminUserData};
 use super::util::{no_store, parse_json, parse_role, parse_tier, parse_user_id, patch};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
@@ -40,7 +40,7 @@ pub async fn search_users(
                 items: result
                     .items
                     .into_iter()
-                    .map(UserSummaryData::from)
+                    .map(AdminUserSummaryData::from)
                     .collect(),
                 size: result.cursor.size,
                 search_after: result.cursor.search_after,
@@ -70,7 +70,7 @@ pub async fn get_user(
         .execute(&ctx, AdminGetUserRequest { user_id })
         .await
     {
-        Ok(view) => no_store(Json(UserData::from(view)).into_response()),
+        Ok(view) => no_store(Json(AdminUserData::from(view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
 }
@@ -89,7 +89,7 @@ pub async fn patch_admin_user(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let data: PatchUserData = match parse_json(&body) {
+    let data: PatchAdminUserData = match parse_json(&body) {
         Ok(v) => v,
         Err(r) => return r,
     };
@@ -100,7 +100,7 @@ async fn admin_patch_user(
     state: UsersState,
     ctx: common::operation_context::OperationContext,
     user_id: common::user_id::UserId,
-    data: PatchUserData,
+    data: PatchAdminUserData,
 ) -> Response {
     let profile_changed = data.email.is_some()
         || data.first_name.is_some()
@@ -133,7 +133,7 @@ async fn admin_patch_user(
             .execute(&ctx, ChangeUserRoleCommand { user_id, role })
             .await
         {
-            Ok(result) => no_store(Json(UserData::from(result.view)).into_response()),
+            Ok(result) => no_store(Json(AdminUserData::from(result.view)).into_response()),
             Err(error) => ApiError::from(error).into_response(),
         };
     }
@@ -152,7 +152,7 @@ async fn admin_patch_user(
             .execute(&ctx, ChangeUserTierCommand { user_id, tier })
             .await
         {
-            Ok(result) => no_store(Json(UserData::from(result.view)).into_response()),
+            Ok(result) => no_store(Json(AdminUserData::from(result.view)).into_response()),
             Err(error) => ApiError::from(error).into_response(),
         };
     }
@@ -169,7 +169,7 @@ async fn admin_patch_user(
         structured_address: patch(data.structured_address.map(Into::into)),
     };
     match state.update_user_profile.execute(&ctx, command).await {
-        Ok(result) => no_store(Json(UserData::from(result.view)).into_response()),
+        Ok(result) => no_store(Json(AdminUserData::from(result.view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
 }

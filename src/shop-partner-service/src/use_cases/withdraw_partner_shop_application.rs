@@ -11,13 +11,13 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DeletePartnerShopApplicationCommand {
+pub struct WithdrawPartnerShopApplicationCommand {
     pub user_id: UserId,
     pub application_id: PartnerShopApplicationId,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum DeletePartnerShopApplicationError {
+pub enum WithdrawPartnerShopApplicationError {
     #[error("operation not permitted")]
     Forbidden,
     #[error("partner shop application not found")]
@@ -46,20 +46,20 @@ pub enum DeletePartnerShopApplicationError {
 }
 
 #[async_trait::async_trait]
-pub trait DeletePartnerShopApplicationUseCase: Send + Sync {
+pub trait WithdrawPartnerShopApplicationUseCase: Send + Sync {
     async fn execute(
         &self,
         context: &OperationContext,
-        command: DeletePartnerShopApplicationCommand,
-    ) -> Result<(), DeletePartnerShopApplicationError>;
+        command: WithdrawPartnerShopApplicationCommand,
+    ) -> Result<(), WithdrawPartnerShopApplicationError>;
 }
 
-pub struct DeletePartnerShopApplicationHandler<U, A> {
+pub struct WithdrawPartnerShopApplicationHandler<U, A> {
     unit_of_work: U,
     applications: A,
 }
 
-impl<U, A> DeletePartnerShopApplicationHandler<U, A> {
+impl<U, A> WithdrawPartnerShopApplicationHandler<U, A> {
     pub fn new(unit_of_work: U, applications: A) -> Self {
         Self {
             unit_of_work,
@@ -69,46 +69,47 @@ impl<U, A> DeletePartnerShopApplicationHandler<U, A> {
 }
 
 #[async_trait::async_trait]
-impl<U, A> DeletePartnerShopApplicationUseCase for DeletePartnerShopApplicationHandler<U, A>
+impl<U, A> WithdrawPartnerShopApplicationUseCase for WithdrawPartnerShopApplicationHandler<U, A>
 where
     U: UnitOfWork,
     A: PartnerShopApplicationRepositoryFactory<U::Tx>,
 {
-    #[tracing::instrument(name = "delete_partner_shop_application", skip_all, fields(user_id = %command.user_id, partner_shop_application_id = %command.application_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
+    #[tracing::instrument(name = "withdraw_partner_shop_application", skip_all, fields(user_id = %command.user_id, partner_shop_application_id = %command.application_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
         &self,
         context: &OperationContext,
-        command: DeletePartnerShopApplicationCommand,
-    ) -> Result<(), DeletePartnerShopApplicationError> {
+        command: WithdrawPartnerShopApplicationCommand,
+    ) -> Result<(), WithdrawPartnerShopApplicationError> {
         context
             .require()
             .credential_capability(CredentialCapability::PartnerShopApplicationsWrite)
             .user(&command.user_id)
             .service_or_system()
-            .authorize::<DeletePartnerShopApplicationError>()?;
+            .authorize::<WithdrawPartnerShopApplicationError>()?;
         let mut tx = self
             .unit_of_work
             .begin()
             .await
-            .map_err(|_| DeletePartnerShopApplicationError::BeginTransactionFailed)?;
-        let versioned = self
+            .map_err(|_| WithdrawPartnerShopApplicationError::BeginTransactionFailed)?;
+        let mut versioned = self
             .applications
             .in_transaction(&mut tx)
             .find_by_user_and_id(command.user_id, command.application_id)
             .await?
-            .ok_or(DeletePartnerShopApplicationError::NotFound)?;
+            .ok_or(WithdrawPartnerShopApplicationError::NotFound)?;
+        versioned.value.withdraw();
         self.applications
             .in_transaction(&mut tx)
-            .delete(versioned.value.id(), versioned.version)
+            .update(&versioned.value, versioned.version)
             .await?;
         tx.commit()
             .await
-            .map_err(|_| DeletePartnerShopApplicationError::CommitTransactionFailed)?;
+            .map_err(|_| WithdrawPartnerShopApplicationError::CommitTransactionFailed)?;
         Ok(())
     }
 }
 
-impl From<OperationAuthorizationError> for DeletePartnerShopApplicationError {
+impl From<OperationAuthorizationError> for WithdrawPartnerShopApplicationError {
     fn from(error: OperationAuthorizationError) -> Self {
         match error {
             OperationAuthorizationError::AuthenticationRequired(_)
@@ -118,7 +119,7 @@ impl From<OperationAuthorizationError> for DeletePartnerShopApplicationError {
     }
 }
 
-impl From<PartnerShopApplicationRepositoryError> for DeletePartnerShopApplicationError {
+impl From<PartnerShopApplicationRepositoryError> for WithdrawPartnerShopApplicationError {
     fn from(error: PartnerShopApplicationRepositoryError) -> Self {
         match error {
             PartnerShopApplicationRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
@@ -306,7 +307,7 @@ mod tests {
         let application = application(user_id);
         let application_id = application.id();
         let state = SharedState::with_application(application);
-        DeletePartnerShopApplicationHandler::new(
+        WithdrawPartnerShopApplicationHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
             },
@@ -316,7 +317,7 @@ mod tests {
         )
         .execute(
             &context(Principal::User(user_id)),
-            DeletePartnerShopApplicationCommand {
+            WithdrawPartnerShopApplicationCommand {
                 user_id,
                 application_id,
             },
@@ -331,7 +332,7 @@ mod tests {
     async fn should_return_not_found_when_application_missing() {
         let user_id = UserId::new();
         let state = SharedState::default();
-        let result = DeletePartnerShopApplicationHandler::new(
+        let result = WithdrawPartnerShopApplicationHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
             },
@@ -339,7 +340,7 @@ mod tests {
         )
         .execute(
             &context(Principal::User(user_id)),
-            DeletePartnerShopApplicationCommand {
+            WithdrawPartnerShopApplicationCommand {
                 user_id,
                 application_id: PartnerShopApplicationId::new(),
             },
@@ -347,7 +348,7 @@ mod tests {
         .await;
         assert!(matches!(
             result,
-            Err(DeletePartnerShopApplicationError::NotFound)
+            Err(WithdrawPartnerShopApplicationError::NotFound)
         ));
     }
     fn application(user_id: UserId) -> PartnerShopApplication {

@@ -3,7 +3,7 @@ mod partner_shop_application_repository;
 mod user_partner_shops_reader;
 
 pub use partner_shop_application_reader::{
-    PartnerShopApplicationReader, PartnerShopApplicationReaderFactory,
+    PartnerShopApplicationReader, PartnerShopApplicationReaderFactory, PartnerShopApplicationView,
 };
 pub use partner_shop_application_repository::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,

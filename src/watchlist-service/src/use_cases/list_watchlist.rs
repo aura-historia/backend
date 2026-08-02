@@ -91,7 +91,7 @@ where
 fn authorize_read(context: &OperationContext, user_id: UserId) -> Result<(), ListWatchlistError> {
     context
         .require()
-        .credential_capability(CredentialCapability::WatchlistWrite)
+        .credential_capability(CredentialCapability::WatchlistRead)
         .user(&user_id)
         .service_or_system()
         .authorize::<ListWatchlistError>()
@@ -333,9 +333,11 @@ mod tests {
                     entries
                         .iter()
                         .filter(|entry| entry.user_id() == user_id)
-                        .cloned()
                         .map(|entry| WatchlistProductView {
-                            entry,
+                            user_id: entry.user_id(),
+                            product_id: entry.product_id(),
+                            notifications: entry.notifications(),
+                            state: entry.state(),
                             created: OffsetDateTime::UNIX_EPOCH,
                             updated: OffsetDateTime::UNIX_EPOCH,
                         })
@@ -412,7 +414,10 @@ mod tests {
 
         let result = result.map_err(|error| error.to_string())?;
         assert_eq!(1, result.entries.len());
-        assert_eq!(entry, result.entries[0].entry);
+        assert_eq!(entry.user_id(), result.entries[0].user_id);
+        assert_eq!(entry.product_id(), result.entries[0].product_id);
+        assert_eq!(entry.notifications(), result.entries[0].notifications);
+        assert_eq!(entry.state(), result.entries[0].state);
         assert!(state.committed());
         Ok(())
     }

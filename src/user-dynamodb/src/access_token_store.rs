@@ -1,6 +1,7 @@
 use crate::access_token_record::{self, AccessTokenRecord};
 use aws_sdk_dynamodb::{Client, types::AttributeValue};
 use common::{error::boxed::box_error, user_id::UserId};
+use time::OffsetDateTime;
 use user_core::access_token::{AccessToken, AccessTokenId, HashedRawAccessToken};
 use user_service::ports::{AccessTokenStore, AccessTokenStoreError};
 
@@ -100,6 +101,28 @@ impl<'a> DynamoDbAccessTokenStore<'a> {
         record: AccessTokenRecord,
     ) -> Result<std::collections::HashMap<String, AttributeValue>, AccessTokenStoreError> {
         serde_dynamo::to_item(record).map_err(Self::map_internal_error)
+    }
+
+    async fn find_existing_record(
+        &self,
+        user_id: &UserId,
+        access_token_id: &AccessTokenId,
+    ) -> Result<Option<AccessTokenRecord>, AccessTokenStoreError> {
+        let item = self
+            .client
+            .get_item()
+            .table_name(&self.table)
+            .key("pk", AttributeValue::S(access_token_record::mk_pk(user_id)))
+            .key(
+                "sk",
+                AttributeValue::S(access_token_record::mk_sk(access_token_id)),
+            )
+            .send()
+            .await
+            .map_err(Self::map_read_error)?
+            .item;
+
+        item.map(Self::decode_record).transpose()
     }
 }
 
@@ -201,7 +224,12 @@ impl AccessTokenStore for DynamoDbAccessTokenStore<'_> {
     }
 
     async fn insert(&self, access_token: AccessToken) -> Result<(), AccessTokenStoreError> {
-        let item = Self::serialize_record(access_token.into())?;
+        let now = OffsetDateTime::now_utc();
+        let item = Self::serialize_record(AccessTokenRecord::from_access_token(
+            &access_token,
+            now,
+            now,
+        ))?;
         self.client
             .put_item()
             .table_name(&self.table)
@@ -214,7 +242,16 @@ impl AccessTokenStore for DynamoDbAccessTokenStore<'_> {
     }
 
     async fn replace(&self, access_token: AccessToken) -> Result<(), AccessTokenStoreError> {
-        let item = Self::serialize_record(access_token.into())?;
+        let created = self
+            .find_existing_record(&access_token.user_id(), &access_token.id())
+            .await?
+            .map(|record| record.created)
+            .unwrap_or_else(OffsetDateTime::now_utc);
+        let item = Self::serialize_record(AccessTokenRecord::from_access_token(
+            &access_token,
+            created,
+            OffsetDateTime::now_utc(),
+        ))?;
         self.client
             .put_item()
             .table_name(&self.table)

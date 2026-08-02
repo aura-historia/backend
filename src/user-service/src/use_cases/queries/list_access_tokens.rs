@@ -209,7 +209,6 @@ mod tests {
         expires: Option<OffsetDateTime>,
     ) -> AccessToken {
         let raw = RawAccessToken::new();
-        let now = OffsetDateTime::now_utc();
         AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
@@ -218,7 +217,6 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            now,
         })
     }
 

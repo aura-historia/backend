@@ -355,7 +355,10 @@ mod tests {
                         .filter(|entry| entry.user_id() == user_id)
                         .cloned()
                         .map(|entry| WatchlistProductView {
-                            entry,
+                            user_id: entry.user_id(),
+                            product_id: entry.product_id(),
+                            notifications: entry.notifications(),
+                            state: entry.state(),
                             created: OffsetDateTime::UNIX_EPOCH,
                             updated: OffsetDateTime::UNIX_EPOCH,
                         })
