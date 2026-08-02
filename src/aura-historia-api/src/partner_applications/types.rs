@@ -79,7 +79,11 @@ impl From<ExecutionState> for ExecutionStateData {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase", tag = "type")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "type"
+)]
 pub(crate) enum PartnerApplicationPayloadData {
     Existing { shop_id: ShopId },
     New { shop_id: ShopId },

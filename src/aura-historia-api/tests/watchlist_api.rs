@@ -75,7 +75,7 @@ async fn should_list_current_user_watchlist() {
     let user_id = seed_user("USER").await;
     let token = seed_access_token_for(
         user_id,
-        std::collections::HashSet::from([Scope::WatchlistWrite]),
+        std::collections::HashSet::from([Scope::WatchlistRead, Scope::WatchlistWrite]),
     )
     .await;
     let product_id = seed_product().await;

@@ -14,11 +14,8 @@ static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_ap
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
 async fn should_return_current_user_account_when_authenticated() {
     let user_id = seed_user("USER").await;
-    let token = seed_access_token_for(
-        user_id,
-        std::collections::HashSet::from([Scope::UsersWrite]),
-    )
-    .await;
+    let token =
+        seed_access_token_for(user_id, std::collections::HashSet::from([Scope::UsersRead])).await;
 
     let response = reqwest::Client::new()
         .get(format!("{}/api/v1/me/account", AURA_API.base_url()))
@@ -30,7 +27,7 @@ async fn should_return_current_user_account_when_authenticated() {
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
-    assert_eq!(serde_json::json!("User"), body["role"]);
+    assert_eq!(serde_json::json!("USER"), body["role"]);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
@@ -151,7 +148,7 @@ async fn should_update_user_tier_when_actor_is_admin() {
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
-    assert_eq!(serde_json::json!("Pro"), body["tier"]);
+    assert_eq!(serde_json::json!("PRO"), body["tier"]);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]

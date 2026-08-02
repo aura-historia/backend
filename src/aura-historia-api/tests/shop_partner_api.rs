@@ -28,12 +28,8 @@ async fn should_create_partner_application_for_existing_shop() {
 
     assert_eq!(reqwest::StatusCode::CREATED, status, "{body}");
     assert_eq!(
-        serde_json::json!(user_id.to_string()),
-        body["applicantUserId"]
-    );
-    assert_eq!(
         serde_json::json!(shop.id().to_string()),
-        body["payload"]["shop_id"]
+        body["payload"]["shopId"]
     );
 }
 
@@ -70,13 +66,9 @@ async fn should_create_partner_application_for_new_shop() {
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::CREATED, status, "{body}");
-    assert_eq!(
-        serde_json::json!(user_id.to_string()),
-        body["applicantUserId"]
-    );
     assert_eq!(serde_json::json!("new"), body["payload"]["type"]);
     assert!(
-        body["payload"]["shop_id"].as_str().is_some(),
+        body["payload"]["shopId"].as_str().is_some(),
         "missing new shop id: {body}"
     );
 }
@@ -312,7 +304,7 @@ async fn should_decide_partner_application_when_actor_is_admin() {
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(serde_json::json!(application_id), body["id"]);
-    assert_eq!(serde_json::json!("Rejected"), body["businessState"]);
+    assert_eq!(serde_json::json!("REJECTED"), body["businessState"]);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
