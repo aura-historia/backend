@@ -1,5 +1,5 @@
 use crate::error::OAuthServiceError;
-use crate::ports::{OAuthAccessTokenGateway, OAuthAccessTokenGatewayError, OAuthClientReader};
+use crate::ports::{OAuthAccessTokenGateway, OAuthAccessTokenGatewayError, OAuthClientRepository};
 use crate::use_cases::support::authenticate_client;
 use crate::use_cases::token_by_authorization_code::OAuthTokenType;
 use common::oauth_client_id::OAuthClientId;
@@ -49,7 +49,7 @@ impl<C, G> IntrospectTokenHandler<C, G> {
 #[async_trait::async_trait]
 impl<C, G> IntrospectTokenUseCase for IntrospectTokenHandler<C, G>
 where
-    C: OAuthClientReader,
+    C: OAuthClientRepository,
     G: OAuthAccessTokenGateway,
 {
     async fn execute(

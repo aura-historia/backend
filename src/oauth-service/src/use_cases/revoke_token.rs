@@ -1,5 +1,5 @@
 use crate::error::OAuthServiceError;
-use crate::ports::{OAuthAccessTokenGateway, OAuthAccessTokenGatewayError, OAuthClientReader};
+use crate::ports::{OAuthAccessTokenGateway, OAuthAccessTokenGatewayError, OAuthClientRepository};
 use crate::use_cases::support::authenticate_client;
 use common::oauth_client_id::OAuthClientId;
 use common::operation_context::OperationContext;
@@ -36,7 +36,7 @@ impl<C, G> RevokeTokenHandler<C, G> {
 #[async_trait::async_trait]
 impl<C, G> RevokeTokenUseCase for RevokeTokenHandler<C, G>
 where
-    C: OAuthClientReader,
+    C: OAuthClientRepository,
     G: OAuthAccessTokenGateway,
 {
     async fn execute(

@@ -1,5 +1,5 @@
 use crate::error::OAuthServiceError;
-use crate::ports::OAuthClientReader;
+use crate::ports::OAuthClientRepository;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use common::oauth_client_id::OAuthClientId;
@@ -20,17 +20,17 @@ pub(crate) fn authorize_oauth_admin(context: &OperationContext) -> Result<(), OA
         .authorize::<OAuthServiceError>()
 }
 
-pub(crate) async fn find_client<R: OAuthClientReader>(
+pub(crate) async fn find_client<R: OAuthClientRepository>(
     reader: &R,
     client_id: &OAuthClientId,
 ) -> Result<OAuthClient, OAuthServiceError> {
     reader
-        .find_by_id(client_id)
+        .find_by_client_id(client_id)
         .await?
         .ok_or(OAuthServiceError::ClientNotFound)
 }
 
-pub(crate) async fn authenticate_client<R: OAuthClientReader>(
+pub(crate) async fn authenticate_client<R: OAuthClientRepository>(
     reader: &R,
     client_id: &OAuthClientId,
     client_secret: &RawOAuthClientSecret,

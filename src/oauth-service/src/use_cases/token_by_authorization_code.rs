@@ -1,7 +1,7 @@
 use crate::error::OAuthServiceError;
 use crate::ports::{
-    AuthorizationCodeRepository, NewOAuthAccessToken, OAuthAccessTokenGateway, OAuthClientReader,
-    ThirdPartyExchangeCodeRepository,
+    AuthorizationCodeRepository, NewOAuthAccessToken, OAuthAccessTokenGateway,
+    OAuthClientRepository, ThirdPartyExchangeCodeRepository,
 };
 use crate::use_cases::support::{THIRD_PARTY_EXCHANGE_CODE_TTL, authenticate_client, verify_s256};
 use common::oauth_client_id::OAuthClientId;
@@ -66,7 +66,7 @@ impl<C, A, T, G> TokenByAuthorizationCodeHandler<C, A, T, G> {
 #[async_trait::async_trait]
 impl<C, A, T, G> TokenByAuthorizationCodeUseCase for TokenByAuthorizationCodeHandler<C, A, T, G>
 where
-    C: OAuthClientReader,
+    C: OAuthClientRepository,
     A: AuthorizationCodeRepository,
     T: ThirdPartyExchangeCodeRepository,
     G: OAuthAccessTokenGateway,

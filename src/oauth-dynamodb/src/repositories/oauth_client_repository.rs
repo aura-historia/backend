@@ -20,6 +20,31 @@ where
 
 #[async_trait::async_trait]
 impl OAuthClientRepository for OAuthDynamoDbStore<'_> {
+    async fn find_by_client_id(
+        &self,
+        client_id: &OAuthClientId,
+    ) -> Result<Option<OAuthClient>, OAuthClientRepositoryError> {
+        let Some(item) = self
+            .client()
+            .get_item()
+            .table_name(self.table())
+            .key("pk", AttributeValue::S(client_record::mk_pk().to_owned()))
+            .key("sk", AttributeValue::S(client_record::mk_sk(client_id)))
+            .send()
+            .await
+            .map_err(client_error)?
+            .item
+        else {
+            return Ok(None);
+        };
+        let record = serde_dynamo::from_item::<_, OAuthClientRecord>(item).map_err(|source| {
+            OAuthClientRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            }
+        })?;
+        Ok(Some(record.into()))
+    }
+
     async fn insert(
         &self,
         client: OAuthClient,

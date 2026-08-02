@@ -1,5 +1,5 @@
 use crate::error::OAuthServiceError;
-use crate::ports::{AuthorizationCodeRepository, OAuthClientReader};
+use crate::ports::{AuthorizationCodeRepository, OAuthClientRepository};
 use crate::use_cases::support::{AUTHORIZATION_CODE_TTL, append_query_params, find_client};
 use common::oauth_client_id::OAuthClientId;
 use common::string_newtype;
@@ -55,7 +55,7 @@ impl<C, A> AuthorizeHandler<C, A> {
 #[async_trait::async_trait]
 impl<C, A> AuthorizeUseCase for AuthorizeHandler<C, A>
 where
-    C: OAuthClientReader,
+    C: OAuthClientRepository,
     A: AuthorizationCodeRepository,
 {
     async fn execute(

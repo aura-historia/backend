@@ -1,5 +1,5 @@
 use crate::error::OAuthServiceError;
-use crate::ports::OAuthClientReader;
+use crate::ports::OAuthClientRepository;
 use crate::use_cases::support::find_client;
 use common::oauth_client_id::OAuthClientId;
 use oauth_core::client::OAuthClient;
@@ -20,7 +20,7 @@ impl<R> GetOAuthClientHandler<R> {
 #[async_trait::async_trait]
 impl<R> GetOAuthClientUseCase for GetOAuthClientHandler<R>
 where
-    R: OAuthClientReader,
+    R: OAuthClientRepository,
 {
     async fn execute(&self, client_id: &OAuthClientId) -> Result<OAuthClient, OAuthServiceError> {
         find_client(&self.reader, client_id).await

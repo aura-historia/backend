@@ -1,6 +1,3 @@
-use super::*;
-use crate::error::OAuthServiceError;
-use crate::ports::*;
 use common::oauth_client_id::OAuthClientId;
 use common::operation_context::{
     CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
@@ -12,6 +9,19 @@ use oauth_core::authorization_code::{
 };
 use oauth_core::client::{OAuthClient, OAuthClientName};
 use oauth_core::third_party_exchange_code::{ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant};
+use oauth_service::error::OAuthServiceError;
+use oauth_service::ports::*;
+use oauth_service::use_cases::{
+    AuthorizeHandler, AuthorizeRequest, AuthorizeUseCase, CreateOAuthClientCommand,
+    CreateOAuthClientHandler, CreateOAuthClientUseCase, DeleteOAuthClientHandler,
+    DeleteOAuthClientUseCase, GetOAuthClientHandler, GetOAuthClientUseCase, IntrospectTokenHandler,
+    IntrospectTokenRequest, IntrospectTokenUseCase, ListOAuthClientsHandler,
+    ListOAuthClientsUseCase, OAuthGrantType, OAuthResponseType, OAuthState, OAuthTokenType,
+    RevokeTokenHandler, RevokeTokenRequest, RevokeTokenUseCase, TokenByAuthorizationCodeHandler,
+    TokenByAuthorizationCodeRequest, TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeHandler,
+    TokenByThirdPartyCodeUseCase, UpdateOAuthClientCommand, UpdateOAuthClientHandler,
+    UpdateOAuthClientUseCase,
+};
 use std::collections::{BTreeSet, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 use time::OffsetDateTime;
@@ -74,15 +84,6 @@ fn client_with_secret(raw: &RawOAuthClientSecret) -> OAuthClient {
 
 #[async_trait::async_trait]
 impl OAuthClientReader for FakePorts {
-    async fn find_by_id(
-        &self,
-        client_id: &OAuthClientId,
-    ) -> Result<Option<OAuthClient>, OAuthClientRepositoryError> {
-        Ok(lock(&self.0)
-            .client
-            .clone()
-            .filter(|c| c.client_id == *client_id))
-    }
     async fn list(&self) -> Result<Vec<OAuthClient>, OAuthClientRepositoryError> {
         Ok(lock(&self.0).client.clone().into_iter().collect())
     }
@@ -90,6 +91,16 @@ impl OAuthClientReader for FakePorts {
 
 #[async_trait::async_trait]
 impl OAuthClientRepository for FakePorts {
+    async fn find_by_client_id(
+        &self,
+        client_id: &OAuthClientId,
+    ) -> Result<Option<OAuthClient>, OAuthClientRepositoryError> {
+        Ok(lock(&self.0)
+            .client
+            .clone()
+            .filter(|client| client.client_id == *client_id))
+    }
+
     async fn insert(
         &self,
         client: OAuthClient,

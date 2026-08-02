@@ -43,6 +43,11 @@ pub struct OAuthClientPatch {
 
 #[async_trait::async_trait]
 pub trait OAuthClientRepository: Send + Sync {
+    async fn find_by_client_id(
+        &self,
+        client_id: &OAuthClientId,
+    ) -> Result<Option<OAuthClient>, OAuthClientRepositoryError>;
+
     async fn insert(
         &self,
         client: OAuthClient,

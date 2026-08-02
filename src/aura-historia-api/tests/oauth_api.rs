@@ -1,7 +1,6 @@
 mod api_support;
 
 use api_support::{json_response, seed_access_token_for, seed_user};
-
 use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
 };
@@ -11,10 +10,14 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const DYNAMODB: DynamoDB = DynamoDB();
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
-async fn should_run_oauth_rest_flow() {
+struct OAuthClientCredentials {
+    client_id: String,
+    client_secret: String,
+}
+
+async fn authenticated_client() -> (reqwest::Client, String) {
     let user_id = seed_user("USER").await;
-    let admin_token = seed_access_token_for(
+    let token = seed_access_token_for(
         user_id,
         std::collections::HashSet::from([Scope::AccessTokensWrite]),
     )
@@ -23,10 +26,13 @@ async fn should_run_oauth_rest_flow() {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap_or_else(|error| panic!("failed to build HTTP client: {error}"));
+    (client, String::from(token))
+}
 
+async fn create_oauth_client(client: &reqwest::Client, token: &str) -> OAuthClientCredentials {
     let response = client
         .post(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
-        .bearer_auth(String::from(admin_token.clone()))
+        .bearer_auth(token)
         .json(&serde_json::json!({
             "client_name": "Acceptance OAuth Client",
             "tos_uri": "https://client.example/tos",
@@ -41,61 +47,29 @@ async fn should_run_oauth_rest_flow() {
         .unwrap_or_else(|error| panic!("failed to create OAuth client: {error}"));
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::CREATED, status);
-    let client_id = body["client_id"]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing client_id"))
-        .to_owned();
-    let client_secret = body["client_secret"]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing client_secret"))
-        .to_owned();
+    OAuthClientCredentials {
+        client_id: body["client_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("missing client_id"))
+            .to_owned(),
+        client_secret: body["client_secret"]
+            .as_str()
+            .unwrap_or_else(|| panic!("missing client_secret"))
+            .to_owned(),
+    }
+}
 
-    let response = client
-        .get(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
-        .bearer_auth(String::from(admin_token.clone()))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to list OAuth clients: {error}"));
-    let (status, body) = json_response(response).await;
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(Some(1), body.as_array().map(Vec::len));
-
-    let response = client
-        .get(format!(
-            "{}/api/v1/oauth/clients/{}",
-            AURA_API.base_url(),
-            client_id
-        ))
-        .bearer_auth(String::from(admin_token.clone()))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to get OAuth client: {error}"));
-    assert_eq!(reqwest::StatusCode::OK, response.status());
-
-    let response = client
-        .patch(format!(
-            "{}/api/v1/oauth/clients/{}",
-            AURA_API.base_url(),
-            client_id
-        ))
-        .bearer_auth(String::from(admin_token.clone()))
-        .json(&serde_json::json!({ "client_name": "Acceptance OAuth Client Updated" }))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to update OAuth client: {error}"));
-    let (status, body) = json_response(response).await;
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(
-        serde_json::json!("Acceptance OAuth Client Updated"),
-        body["client_name"]
-    );
-
+async fn authorize_code(
+    client: &reqwest::Client,
+    token: &str,
+    credentials: &OAuthClientCredentials,
+) -> String {
     let response = client
         .get(format!("{}/api/v1/oauth/authorize", AURA_API.base_url()))
-        .bearer_auth(String::from(admin_token.clone()))
+        .bearer_auth(token)
         .query(&[
             ("response_type", "code"),
-            ("client_id", client_id.as_str()),
+            ("client_id", credentials.client_id.as_str()),
             ("redirect_uri", "https://client.example/callback"),
             ("scope", "products:write"),
             ("state", "acceptance-state"),
@@ -116,20 +90,33 @@ async fn should_run_oauth_rest_flow() {
         .unwrap_or_else(|| panic!("missing redirect location"));
     let redirect =
         url::Url::parse(location).unwrap_or_else(|error| panic!("invalid redirect URL: {error}"));
-    let code = redirect
+    assert_eq!(
+        Some("acceptance-state".to_owned()),
+        redirect
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .map(|(_, value)| value.to_string())
+    );
+    redirect
         .query_pairs()
         .find(|(key, _)| key == "code")
         .map(|(_, value)| value.to_string())
-        .unwrap_or_else(|| panic!("missing authorization code"));
+        .unwrap_or_else(|| panic!("missing authorization code"))
+}
 
+async fn exchange_code(
+    client: &reqwest::Client,
+    credentials: &OAuthClientCredentials,
+    code: &str,
+) -> serde_json::Value {
     let response = client
         .post(format!("{}/api/v1/oauth/token", AURA_API.base_url()))
         .form(&[
             ("grant_type", "authorization_code"),
-            ("code", code.as_str()),
+            ("code", code),
             ("redirect_uri", "https://client.example/callback"),
-            ("client_id", client_id.as_str()),
-            ("client_secret", client_secret.as_str()),
+            ("client_id", credentials.client_id.as_str()),
+            ("client_secret", credentials.client_secret.as_str()),
             (
                 "code_verifier",
                 "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
@@ -140,28 +127,99 @@ async fn should_run_oauth_rest_flow() {
         .unwrap_or_else(|error| panic!("failed to exchange OAuth token: {error}"));
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status);
-    let access_token = body["access_token"]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing access token"))
-        .to_owned();
-    let third_party_code = body["third_party_exchange_code"]
-        .as_str()
-        .unwrap_or_else(|| panic!("missing third party code"))
-        .to_owned();
+    body
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_create_list_get_update_and_delete_oauth_client() {
+    let (client, token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &token).await;
 
     let response = client
-        .post(format!("{}/api/v1/oauth/introspect", AURA_API.base_url()))
-        .form(&[
-            ("token", access_token.as_str()),
-            ("client_id", client_id.as_str()),
-            ("client_secret", client_secret.as_str()),
-        ])
+        .get(format!("{}/api/v1/oauth/clients", AURA_API.base_url()))
+        .bearer_auth(&token)
         .send()
         .await
-        .unwrap_or_else(|error| panic!("failed to introspect token: {error}"));
+        .unwrap_or_else(|error| panic!("failed to list OAuth clients: {error}"));
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(serde_json::json!(true), body["active"]);
+    assert_eq!(Some(1), body.as_array().map(Vec::len));
+
+    let response = client
+        .get(format!(
+            "{}/api/v1/oauth/clients/{}",
+            AURA_API.base_url(),
+            credentials.client_id
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get OAuth client: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, response.status());
+
+    let response = client
+        .patch(format!(
+            "{}/api/v1/oauth/clients/{}",
+            AURA_API.base_url(),
+            credentials.client_id
+        ))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({ "client_name": "Updated OAuth Client" }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to update OAuth client: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(
+        serde_json::json!("Updated OAuth Client"),
+        body["client_name"]
+    );
+
+    let response = client
+        .delete(format!(
+            "{}/api/v1/oauth/clients/{}",
+            AURA_API.base_url(),
+            credentials.client_id
+        ))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to delete OAuth client: {error}"));
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_redirect_authorized_user_with_authorization_code_and_state() {
+    let (client, token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &token).await;
+    let code = authorize_code(&client, &token, &credentials).await;
+    assert!(!code.is_empty());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_exchange_authorization_code_for_access_token() {
+    let (client, token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &token).await;
+    let code = authorize_code(&client, &token, &credentials).await;
+    let body = exchange_code(&client, &credentials, &code).await;
+    assert_eq!(serde_json::json!("Bearer"), body["token_type"]);
+    assert!(
+        body["access_token"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_exchange_third_party_code_once_for_the_issued_access_token() {
+    let (client, token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &token).await;
+    let code = authorize_code(&client, &token, &credentials).await;
+    let token_body = exchange_code(&client, &credentials, &code).await;
+    let third_party_code = token_body["third_party_exchange_code"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing third-party exchange code"));
+    let expected_access_token = token_body["access_token"].clone();
 
     let response = client
         .get(format!(
@@ -171,30 +229,56 @@ async fn should_run_oauth_rest_flow() {
         ))
         .send()
         .await
-        .unwrap_or_else(|error| panic!("failed to exchange third party code: {error}"));
-    assert_eq!(reqwest::StatusCode::OK, response.status());
+        .unwrap_or_else(|error| panic!("failed to exchange third-party code: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(expected_access_token, body["access_token"]);
+
+    let response = client
+        .get(format!(
+            "{}/api/v1/oauth/tokens/by-third-party-code/{}",
+            AURA_API.base_url(),
+            third_party_code
+        ))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to retry third-party exchange: {error}"));
+    assert_eq!(reqwest::StatusCode::BAD_REQUEST, response.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_introspect_and_revoke_oauth_access_token() {
+    let (client, token) = authenticated_client().await;
+    let credentials = create_oauth_client(&client, &token).await;
+    let code = authorize_code(&client, &token, &credentials).await;
+    let token_body = exchange_code(&client, &credentials, &code).await;
+    let access_token = token_body["access_token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing access token"));
+
+    let response = client
+        .post(format!("{}/api/v1/oauth/introspect", AURA_API.base_url()))
+        .form(&[
+            ("token", access_token),
+            ("client_id", credentials.client_id.as_str()),
+            ("client_secret", credentials.client_secret.as_str()),
+        ])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to introspect token: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(serde_json::json!(true), body["active"]);
 
     let response = client
         .post(format!("{}/api/v1/oauth/revoke", AURA_API.base_url()))
         .form(&[
-            ("token", access_token.as_str()),
-            ("client_id", client_id.as_str()),
-            ("client_secret", client_secret.as_str()),
+            ("token", access_token),
+            ("client_id", credentials.client_id.as_str()),
+            ("client_secret", credentials.client_secret.as_str()),
         ])
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to revoke token: {error}"));
     assert_eq!(reqwest::StatusCode::OK, response.status());
-
-    let response = client
-        .delete(format!(
-            "{}/api/v1/oauth/clients/{}",
-            AURA_API.base_url(),
-            client_id
-        ))
-        .bearer_auth(String::from(admin_token))
-        .send()
-        .await
-        .unwrap_or_else(|error| panic!("failed to delete OAuth client: {error}"));
-    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
 }
