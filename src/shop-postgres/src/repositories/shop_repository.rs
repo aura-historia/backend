@@ -8,8 +8,7 @@ use common::postgres::SqlxTransaction;
 use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
 use shop_core::shop::Shop;
 use shop_service::ports::{
-    PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion,
-    VersionedShop,
+    ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, StoredShop,
 };
 use sqlx::PgConnection;
 
@@ -36,10 +35,7 @@ impl ShopRepositoryFactory<SqlxTransaction> for SqlxShopRepositoryFactory {
 
 #[async_trait::async_trait]
 impl ShopRepository for SqlxShopRepository<'_> {
-    async fn find_by_id(
-        &mut self,
-        id: ShopId,
-    ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+    async fn find_by_id(&mut self, id: ShopId) -> Result<Option<StoredShop>, ShopRepositoryError> {
         let sql = format!("SELECT {} FROM shops WHERE shop_id = $1", shop_columns());
         let row = sqlx::query_as::<_, ShopRow>(&sql)
             .bind(uuid::Uuid::from(id))
@@ -47,35 +43,17 @@ impl ShopRepository for SqlxShopRepository<'_> {
             .await
             .map_err(ShopLookupSqlxError)?;
 
-        row.map(VersionedShop::try_from)
-            .transpose()
-            .map_err(|source| ShopRepositoryError::InvalidPersistedState {
+        row.map(StoredShop::try_from).transpose().map_err(|source| {
+            ShopRepositoryError::InvalidPersistedState {
                 source: box_error(source),
-            })
-    }
-
-    async fn find_persisted_by_id(
-        &mut self,
-        id: ShopId,
-    ) -> Result<Option<PersistedShop>, ShopRepositoryError> {
-        let sql = format!("SELECT {} FROM shops WHERE shop_id = $1", shop_columns());
-        let row = sqlx::query_as::<_, ShopRow>(&sql)
-            .bind(uuid::Uuid::from(id))
-            .fetch_optional(&mut *self.connection)
-            .await
-            .map_err(ShopLookupSqlxError)?;
-
-        row.map(PersistedShop::try_from)
-            .transpose()
-            .map_err(|source| ShopRepositoryError::InvalidPersistedState {
-                source: box_error(source),
-            })
+            }
+        })
     }
 
     async fn find_by_slug(
         &mut self,
         slug_id: &ShopSlugId,
-    ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+    ) -> Result<Option<StoredShop>, ShopRepositoryError> {
         let sql = format!(
             "SELECT {} FROM shops WHERE shop_slug_id = $1",
             shop_columns()
@@ -86,14 +64,14 @@ impl ShopRepository for SqlxShopRepository<'_> {
             .await
             .map_err(ShopLookupSqlxError)?;
 
-        row.map(VersionedShop::try_from)
-            .transpose()
-            .map_err(|source| ShopRepositoryError::InvalidPersistedState {
+        row.map(StoredShop::try_from).transpose().map_err(|source| {
+            ShopRepositoryError::InvalidPersistedState {
                 source: box_error(source),
-            })
+            }
+        })
     }
 
-    async fn insert(&mut self, shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
+    async fn insert(&mut self, shop: &Shop) -> Result<StoredShop, ShopRepositoryError> {
         let address = shop.address();
         let structured_address = address.map(|value| &value.structured);
         let contact = shop.contact();
@@ -156,7 +134,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
             .await
             .map_err(ShopWriteSqlxError)?;
 
-        PersistedShop::try_from(row).map_err(|source| ShopRepositoryError::InvalidPersistedState {
+        StoredShop::try_from(row).map_err(|source| ShopRepositoryError::InvalidPersistedState {
             source: box_error(source),
         })
     }
@@ -165,7 +143,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
         &mut self,
         shop: &Shop,
         expected_version: ShopStorageVersion,
-    ) -> Result<PersistedShop, ShopRepositoryError> {
+    ) -> Result<StoredShop, ShopRepositoryError> {
         let address = shop.address();
         let structured_address = address.map(|value| &value.structured);
         let contact = shop.contact();
@@ -243,7 +221,7 @@ impl ShopRepository for SqlxShopRepository<'_> {
             .map_err(ShopWriteSqlxError)?
             .ok_or(ShopRepositoryError::ConcurrencyConflict)?;
 
-        PersistedShop::try_from(row).map_err(|source| ShopRepositoryError::InvalidPersistedState {
+        StoredShop::try_from(row).map_err(|source| ShopRepositoryError::InvalidPersistedState {
             source: box_error(source),
         })
     }

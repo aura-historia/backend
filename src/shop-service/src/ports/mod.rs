@@ -12,7 +12,6 @@ pub use partner_shop_repository::{
 pub use shop_details_reader::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory};
 pub use shop_geocoder::{ShopGeocoder, ShopGeocoderError};
 pub use shop_repository::{
-    PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion,
-    VersionedShop,
+    ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, StoredShop,
 };
 pub use shop_search_reader::{ShopSearchReadError, ShopSearchReader, ShopSearchReaderFactory};

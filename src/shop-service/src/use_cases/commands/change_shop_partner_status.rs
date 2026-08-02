@@ -120,9 +120,8 @@ where
             .await
             .map_err(|_| ChangeShopPartnerStatusError::BeginTransactionFailed)?;
 
-        let common::versioned::Versioned {
-            value: mut shop,
-            version,
+        let crate::ports::StoredShop {
+            mut shop, version, ..
         } = self
             .shops
             .in_transaction(&mut tx)
@@ -240,12 +239,11 @@ impl From<ShopRepositoryError> for ChangeShopPartnerStatusError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::PersistedShop;
-    use crate::ports::{ShopRepository, ShopRepositoryFactory, ShopStorageVersion, VersionedShop};
+    use crate::ports::{ShopRepository, ShopRepositoryFactory, ShopStorageVersion, StoredShop};
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::transaction::{TransactionError, UnitOfWork};
-    use common::versioned::Versioned;
+
     use shop_core::shop::{NewShop, ShopContact, ShopPresentation};
     use shop_core::shop_type::ShopType;
     use std::collections::HashSet;
@@ -272,7 +270,7 @@ mod tests {
     struct State {
         begin_error: bool,
         commit_error: bool,
-        shop_by_id: Option<VersionedShop>,
+        shop_by_id: Option<StoredShop>,
         find_by_id_error: Option<RepoErrorKind>,
         update_error: Option<RepoErrorKind>,
         counts: Counts,
@@ -357,7 +355,7 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ShopId,
-        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.find_by_id += 1;
                 match state.find_by_id_error {
@@ -367,36 +365,27 @@ mod tests {
             })
         }
 
-        async fn find_persisted_by_id(
-            &mut self,
-            id: ShopId,
-        ) -> Result<Option<PersistedShop>, ShopRepositoryError> {
-            self.find_by_id(id)
-                .await
-                .map(|shop| shop.map(|versioned| persisted_shop(versioned.value)))
-        }
-
         async fn find_by_slug(
             &mut self,
             _slug_id: &ShopSlugId,
-        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             Ok(None)
         }
 
-        async fn insert(&mut self, shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
-            Ok(persisted_shop(shop.clone()))
+        async fn insert(&mut self, shop: &Shop) -> Result<StoredShop, ShopRepositoryError> {
+            Ok(stored_shop(shop.clone()))
         }
 
         async fn update(
             &mut self,
             shop: &Shop,
             _expected_version: ShopStorageVersion,
-        ) -> Result<PersistedShop, ShopRepositoryError> {
+        ) -> Result<StoredShop, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.update += 1;
                 match state.update_error {
                     Some(kind) => Err(shop_repo_error(kind)),
-                    None => Ok(persisted_shop(shop.clone())),
+                    None => Ok(stored_shop(shop.clone())),
                 }
             })
         }
@@ -408,7 +397,7 @@ mod tests {
         let existing = shop("Partner Shop");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing))
+            state.shop_by_id = Some(stored_shop(existing))
         });
         let handler =
             ChangeShopPartnerStatusHandler::new(uow(&state), shop_repo(&state), AllowAdmin);
@@ -432,7 +421,7 @@ mod tests {
         let existing = partnered_shop("Partner Shop");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing))
+            state.shop_by_id = Some(stored_shop(existing))
         });
         let handler =
             ChangeShopPartnerStatusHandler::new(uow(&state), shop_repo(&state), AllowAdmin);
@@ -494,7 +483,7 @@ mod tests {
         let existing = shop("Bad Update");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing));
+            state.shop_by_id = Some(stored_shop(existing));
             state.update_error = Some(RepoErrorKind::ConcurrencyConflict);
         });
         let handler =
@@ -518,7 +507,7 @@ mod tests {
         let existing = shop("Commit Fail");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing));
+            state.shop_by_id = Some(stored_shop(existing));
             state.commit_error = true;
         });
         let handler =
@@ -627,20 +616,14 @@ mod tests {
         }
     }
 
-    fn versioned_shop(shop: Shop) -> VersionedShop {
-        Versioned::new(shop, ShopStorageVersion::INITIAL)
-    }
-
-    fn persisted_shop(shop: Shop) -> PersistedShop {
-        let now = time::OffsetDateTime::now_utc();
-        PersistedShop {
+    fn stored_shop(shop: Shop) -> StoredShop {
+        StoredShop {
             shop,
             version: ShopStorageVersion::INITIAL,
-            created: now,
-            updated: now,
+            created: time::OffsetDateTime::now_utc(),
+            updated: time::OffsetDateTime::now_utc(),
         }
     }
-
     fn system_context() -> OperationContext {
         OperationContext {
             principal: Principal::System,

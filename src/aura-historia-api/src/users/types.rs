@@ -23,6 +23,10 @@ pub(crate) struct OwnUserData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) measurement_unit: Option<MeasurementUnitData>,
     pub(crate) prohibited_content_consent: bool,
+    pub(crate) tier: String,
+    pub(crate) role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) stripe_customer_id: Option<common::stripe_customer_id::StripeCustomerId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) structured_address: Option<StructuredAddressData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -40,6 +44,9 @@ impl From<UserDetailsView> for OwnUserData {
             currency: view.currency.map(Into::into),
             measurement_unit: view.measurement_unit.map(Into::into),
             prohibited_content_consent: view.prohibited_content_consent,
+            tier: format!("{:?}", view.tier),
+            role: format!("{:?}", view.role),
+            stripe_customer_id: view.stripe_customer_id,
             structured_address: view.structured_address.map(Into::into),
             geo_address: view.geo_address.map(Into::into),
         }

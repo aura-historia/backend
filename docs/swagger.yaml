@@ -8257,7 +8257,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                  $ref: "#/components/schemas/OwnPartnerApplicationData"
               examples:
                 empty:
                   summary: No applications exist yet
@@ -8266,28 +8266,11 @@ paths:
                   summary: One existing application for a new shop
                   value:
                     - id: "550e8400-e29b-41d4-a716-446655440000"
-                      applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                       businessState: "IN_REVIEW"
                       executionState: "WAITING"
                       payload:
-                        type: "NEW"
-                        shopName: "My Antique Store"
-                        shopType: "COMMERCIAL_DEALER"
-                        shopDomains:
-                          - "my-antique-store.com"
-                        shopUrl: "https://my-antique-store.com/"
-                        shopImage: "https://my-antique-store.com/logo.png"
-                        shopStructuredAddress:
-                          addressline: "Pariser Platz 1"
-                          addresslineExtra: "2. Etage"
-                          postalCode: "10117"
-                          locality: "Berlin"
-                          country: "DE"
-                          continent: "EUROPE"
-                        shopPhone: "+49 30 123456"
-                        shopEmail: "contact@my-antique-store.com"
-                      created: "2026-04-09T10:00:00Z"
-                      updated: "2026-04-09T10:00:00Z"
+                        type: "new"
+                        shopId: "550e8400-e29b-41d4-a716-446655440001"
         "401":
           description: Unauthorized – invalid or missing JWT token.
           content:
@@ -8376,31 +8359,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/OwnPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
-                applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "SUBMITTED"
                 executionState: "PROCESSING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopImage: "https://my-antique-store.com/logo.png"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-09T10:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid request body.
           content:
@@ -8487,31 +8453,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/OwnPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
-                applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
                 executionState: "WAITING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopImage: "https://my-antique-store.com/logo.png"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-09T11:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter.
           content:
@@ -8642,30 +8591,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/OwnPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
-                applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "SUBMITTED"
                 executionState: "PROCESSING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Renamed Antique Store"
-                  shopType: "AUCTION_HOUSE"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/renamed"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-09T12:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter or request body.
           content:
@@ -8861,7 +8794,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                  $ref: "#/components/schemas/AdminPartnerApplicationData"
               examples:
                 empty:
                   summary: No applications exist yet
@@ -8874,32 +8807,15 @@ paths:
                       businessState: "SUBMITTED"
                       executionState: "PROCESSING"
                       payload:
-                        type: "NEW"
-                        shopName: "My Antique Store"
-                        shopType: "COMMERCIAL_DEALER"
-                        shopDomains:
-                          - "my-antique-store.com"
-                        shopUrl: "https://my-antique-store.com/"
-                        shopStructuredAddress:
-                          addressline: "Pariser Platz 1"
-                          addresslineExtra: "2. Etage"
-                          postalCode: "10117"
-                          locality: "Berlin"
-                          country: "DE"
-                          continent: "EUROPE"
-                        shopPhone: "+49 30 123456"
-                        shopEmail: "contact@my-antique-store.com"
-                      created: "2026-04-09T10:00:00Z"
-                      updated: "2026-04-09T10:00:00Z"
+                        type: "new"
+                        shopId: "550e8400-e29b-41d4-a716-446655440001"
                     - id: "7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901"
                       applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f2"
                       businessState: "APPROVED"
                       executionState: "COMPLETED"
                       payload:
-                        type: "EXISTING"
+                        type: "existing"
                         shopId: "1b0ef61a-a4e1-4667-a7e6-bce7eb4f8c1a"
-                      created: "2026-04-08T09:30:00Z"
-                      updated: "2026-04-10T07:15:00Z"
         "401":
           description: Unauthorized – invalid or missing JWT token.
           content:
@@ -8978,31 +8894,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/AdminPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
                 executionState: "WAITING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopImage: "https://my-antique-store.com/logo.png"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-09T11:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter.
           content:
@@ -9146,30 +9046,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/AdminPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
                 executionState: "WAITING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-10T12:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter or request body.
           content:
@@ -9314,22 +9199,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/AdminPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
                 executionState: "PROCESSING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopImage: "https://my-antique-store.com/logo.png"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-11T12:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter or request body.
           content:
@@ -10729,10 +10607,6 @@ components:
         - url
         - viewUrl
         - images
-        - createdBy
-        - updatedBy
-        - created
-        - updated
       properties:
         productId:
           type: string
@@ -14092,11 +13966,13 @@ components:
 
     OwnUserAccountData:
       type: object
-      description: User-owned account information for `/api/v1/me/account`. Admin-only fields are omitted.
+      description: User-owned account information for `/api/v1/me/account`. Role, tier, and Stripe customer ID are read-only here.
       required:
         - userId
         - email
         - prohibitedContentConsent
+        - tier
+        - role
       properties:
         userId:
           type: string
@@ -14128,6 +14004,14 @@ components:
           nullable: true
         prohibitedContentConsent:
           type: boolean
+        tier:
+          $ref: "#/components/schemas/UserTierData"
+        role:
+          $ref: "#/components/schemas/UserRoleData"
+        stripeCustomerId:
+          type: string
+          nullable: true
+          description: Persisted Stripe customer identifier, omitted when absent.
         structuredAddress:
           allOf:
             - $ref: "#/components/schemas/StructuredAddressData"
@@ -14141,19 +14025,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/OwnUserAccountData"
         - type: object
-          description: Admin user account view with admin-only fields.
-          required:
-            - tier
-            - role
-          properties:
-            tier:
-              $ref: "#/components/schemas/UserTierData"
-            role:
-              $ref: "#/components/schemas/UserRoleData"
-            stripeCustomerId:
-              type: string
-              nullable: true
-              description: Persisted Stripe customer identifier, omitted when absent.
+          description: Admin user account view. Same read fields as own account; write permissions differ by endpoint.
 
     PatchAdminUserData:
       type: object
@@ -15107,13 +14979,14 @@ components:
 
     PartnerShopApplicationStateData:
       type: string
-      enum: [SUBMITTED, IN_REVIEW, REJECTED, APPROVED]
+      enum: [SUBMITTED, IN_REVIEW, REJECTED, APPROVED, WITHDRAWN]
       description: |
         The business review state of a partner shop application:
         - `SUBMITTED`: Application has been submitted and is awaiting review.
         - `IN_REVIEW`: Application is currently being reviewed by the team.
         - `REJECTED`: Application was reviewed and rejected.
         - `APPROVED`: Application was reviewed and approved.
+        - `WITHDRAWN`: Applicant withdrew the application.
         The state is read-only from the client perspective and can only be changed internally.
       example: SUBMITTED
 
@@ -15130,107 +15003,57 @@ components:
 
     GetPartnerShopApplicationPayloadData:
       description: |
-        The payload of a partner shop application. Discriminated by the `type` field.
-        - `EXISTING`: The application targets an existing shop and includes the hydrated shop data.
-        - `NEW`: The application targets a new shop described by name, type, domains, and optional metadata such as a primary URL, image, address, and contact details.
+        The response payload of a partner shop application. Discriminated by the `type` field.
+        Both variants reference the associated shop by `shopId`; shop details are read through shop endpoints.
       oneOf:
         - title: Existing shop payload
           type: object
           required:
             - type
-            - shop
+            - shopId
           properties:
             type:
               type: string
-              enum: [EXISTING]
+              enum: [existing]
               description: Discriminator value indicating this payload targets an existing shop.
-            shop:
-              allOf:
-                - $ref: "#/components/schemas/GetShopData"
-              description: Hydrated data for the existing shop.
+            shopId:
+              type: string
+              format: uuid
+              description: Associated shop identifier.
         - title: New shop payload
           type: object
           required:
             - type
-            - shopName
-            - shopType
-            - shopDomains
+            - shopId
           properties:
             type:
               type: string
-              enum: [NEW]
-              description: Discriminator value indicating this payload describes a new shop.
-            shopName:
+              enum: [new]
+              description: Discriminator value indicating this payload created a new draft shop.
+            shopId:
               type: string
-              description: Display name of the new shop.
-              maxLength: 255
-              example: "My Antique Store"
-            shopType:
-              $ref: "#/components/schemas/ShopTypeData"
-            shopDomains:
-              type: array
-              items:
-                type: string
-              description: |
-                Domains associated with the new shop.
-                Domains are normalized (lowercase, no scheme, no www prefix, no path/query/fragment).
-              minItems: 1
-              uniqueItems: true
-              example:
-                - "my-antique-store.com"
-            shopUrl:
-              type: string
-              format: uri
-              nullable: true
-              description: Optional primary URL of the requested new shop website.
-              example: "https://my-antique-store.com/"
-            shopImage:
-              type: string
-              format: uri
-              nullable: true
-              description: Optional URL to the new shop's logo or image.
-              example: "https://my-antique-store.com/logo.png"
-            shopStructuredAddress:
-              $ref: "#/components/schemas/StructuredAddressData"
-            shopPhone:
-              type: string
-              description: Optional public contact phone number for the requested new shop.
-              example: "+49 30 123456"
-            shopEmail:
-              type: string
-              format: email
-              description: Optional public contact email address for the requested new shop.
-              example: "contact@my-antique-store.com"
+              format: uuid
+              description: Associated draft shop identifier.
       discriminator:
         propertyName: type
         mapping:
-          EXISTING: "#/components/schemas/GetPartnerShopApplicationPayloadData/oneOf/0"
-          NEW: "#/components/schemas/GetPartnerShopApplicationPayloadData/oneOf/1"
+          existing: "#/components/schemas/GetPartnerShopApplicationPayloadData/oneOf/0"
+          new: "#/components/schemas/GetPartnerShopApplicationPayloadData/oneOf/1"
 
-    GetPartnerShopApplicationData:
+    OwnPartnerApplicationData:
       type: object
-      description: Full representation of a partner shop application.
+      description: User-owned partner shop application response.
       required:
         - id
-        - applicantUserId
         - businessState
         - executionState
         - payload
-        - createdBy
-        - updatedBy
-        - created
-        - updated
       properties:
         id:
           type: string
           format: uuid
           description: Unique identifier of the partner shop application.
           example: "550e8400-e29b-41d4-a716-446655440000"
-        applicantUserId:
-          type: string
-          format: uuid
-          description: Unique identifier of the user who submitted the partner shop application.
-          example: "0196580c-e4ca-723f-a7e0-1a73588380f1"
         businessState:
           allOf:
             - $ref: "#/components/schemas/PartnerShopApplicationStateData"
@@ -15241,20 +15064,20 @@ components:
           description: Workflow execution state of the application.
         payload:
           $ref: "#/components/schemas/GetPartnerShopApplicationPayloadData"
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
-        created:
-          type: string
-          format: date-time
-          description: When the application was created (RFC3339 format).
-          example: "2026-04-09T10:00:00Z"
-        updated:
-          type: string
-          format: date-time
-          description: When the application was last updated (RFC3339 format).
-          example: "2026-04-09T11:00:00Z"
+
+    AdminPartnerApplicationData:
+      allOf:
+        - $ref: "#/components/schemas/OwnPartnerApplicationData"
+        - type: object
+          description: Admin partner shop application response.
+          required:
+            - applicantUserId
+          properties:
+            applicantUserId:
+              type: string
+              format: uuid
+              description: Unique identifier of the user who submitted the partner shop application.
+              example: "0196580c-e4ca-723f-a7e0-1a73588380f1"
 
     PostPartnerShopApplicationPayloadData:
       description: |

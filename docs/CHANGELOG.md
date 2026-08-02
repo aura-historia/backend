@@ -49,7 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Optional Aura Historia access tokens are accepted on public read routes; invalid supplied bearer tokens return `401`.
 - Admin partner-application routes now accept Cognito JWTs and Aura Historia access tokens. User callers must have stored `ADMIN` role; Aura access tokens also need `partner-shop-applications:write`.
 - Admin user PATCH now accepts one logical change category per request: profile/preferences fields, `role`, or `tier`. It no longer documents `stripeCustomerId` in that payload.
-- `/api/v1/me/account` now uses own-user DTOs and omits admin-only fields such as `role`, `tier`, and `stripeCustomerId`; admin user routes use separate admin DTOs.
+- `/api/v1/me/account` now uses own-user DTOs for writes while still returning read-only `role`, `tier`, and `stripeCustomerId`; admin user routes use separate admin DTOs.
 - Watchlist list reads with Aura Historia access tokens now require `watchlist:read`; watchlist writes still require `watchlist:write`.
 - `DELETE /api/v1/me/partner-applications/{partnerApplicationId}` now withdraws the application instead of physically deleting it.
 - `GetShopData` no longer includes `createdBy` or `updatedBy` because canonical shop storage has no audit actor columns.

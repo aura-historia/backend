@@ -196,7 +196,7 @@ where
             .await
             .map_err(|_| UpdateShopError::BeginTransactionFailed)?;
 
-        let crate::ports::PersistedShop {
+        let crate::ports::StoredShop {
             mut shop,
             version,
             created,
@@ -204,7 +204,7 @@ where
         } = self
             .shops
             .in_transaction(&mut tx)
-            .find_persisted_by_id(command.shop_id)
+            .find_by_id(command.shop_id)
             .await?
             .ok_or(UpdateShopError::ShopNotFound)?;
 
@@ -220,7 +220,7 @@ where
                 .await?
                 .into()
         } else {
-            crate::ports::PersistedShop {
+            crate::ports::StoredShop {
                 shop: shop.clone(),
                 version,
                 created,
@@ -610,15 +610,13 @@ fn apply_optional_patch<T>(current: Option<T>, patch: PatchField<T>) -> Option<T
 mod tests {
     use super::*;
     use crate::ports::{
-        PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
-        ShopStorageVersion, VersionedShop,
+        ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, StoredShop,
     };
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::shop_name::ShopName;
     use common::shop_slug_id::ShopSlugId;
     use common::transaction::{TransactionError, UnitOfWork};
-    use common::versioned::Versioned;
     use shop_core::address::GeoAddress;
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop::NewShop;
@@ -646,7 +644,7 @@ mod tests {
     struct State {
         begin_error: bool,
         commit_error: bool,
-        shop_by_id: Option<VersionedShop>,
+        shop_by_id: Option<StoredShop>,
         find_by_id_error: Option<RepoErrorKind>,
         update_error: Option<RepoErrorKind>,
         geocoder_error: Option<ShopGeocoderError>,
@@ -727,7 +725,7 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ShopId,
-        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.find_by_id += 1;
                 match state.find_by_id_error {
@@ -737,38 +735,29 @@ mod tests {
             })
         }
 
-        async fn find_persisted_by_id(
-            &mut self,
-            id: ShopId,
-        ) -> Result<Option<PersistedShop>, ShopRepositoryError> {
-            self.find_by_id(id)
-                .await
-                .map(|shop| shop.map(|versioned| persisted_shop(versioned.value)))
-        }
-
         async fn find_by_slug(
             &mut self,
             _slug_id: &ShopSlugId,
-        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             Ok(None)
         }
 
-        async fn insert(&mut self, _shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
-            Ok(persisted_shop(_shop.clone()))
+        async fn insert(&mut self, _shop: &Shop) -> Result<StoredShop, ShopRepositoryError> {
+            Ok(stored_shop(_shop.clone()))
         }
 
         async fn update(
             &mut self,
             shop: &Shop,
             _expected_version: ShopStorageVersion,
-        ) -> Result<PersistedShop, ShopRepositoryError> {
+        ) -> Result<StoredShop, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.update += 1;
                 match state.update_error {
                     Some(kind) => Err(shop_repo_error(kind)),
                     None => {
                         state.updated = Some(shop.clone());
-                        Ok(persisted_shop(shop.clone()))
+                        Ok(stored_shop(shop.clone()))
                     }
                 }
             })
@@ -885,7 +874,7 @@ mod tests {
         let existing = shop("Antik Markt");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing))
+            state.shop_by_id = Some(stored_shop(existing))
         });
         let handler = build_handler(&state);
         let mut domains = HashSet::new();
@@ -929,7 +918,7 @@ mod tests {
         let existing = shop("Antik Markt");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing))
+            state.shop_by_id = Some(stored_shop(existing))
         });
         let handler = build_handler(&state);
 
@@ -956,7 +945,7 @@ mod tests {
         let existing = shop("Antik Markt");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing))
+            state.shop_by_id = Some(stored_shop(existing))
         });
         let handler = build_handler(&state);
 
@@ -1009,7 +998,7 @@ mod tests {
         let existing = shop("Commit Fail");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing));
+            state.shop_by_id = Some(stored_shop(existing));
             state.commit_error = true;
         });
         let handler = build_handler(&state);
@@ -1070,7 +1059,7 @@ mod tests {
         let existing = shop("Patch Bad");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing))
+            state.shop_by_id = Some(stored_shop(existing))
         });
         let handler = build_handler(&state);
 
@@ -1090,7 +1079,7 @@ mod tests {
         let existing = shop("Patch Bad 2");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing))
+            state.shop_by_id = Some(stored_shop(existing))
         });
         let handler = build_handler(&state);
         let shopify = handler
@@ -1115,7 +1104,7 @@ mod tests {
         let existing = shop("Slug Error");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing));
+            state.shop_by_id = Some(stored_shop(existing));
             state.update_error = Some(RepoErrorKind::SlugConflict);
         });
         let handler = build_handler(&state);
@@ -1192,20 +1181,14 @@ mod tests {
         })
     }
 
-    fn versioned_shop(shop: Shop) -> VersionedShop {
-        Versioned::new(shop, ShopStorageVersion::INITIAL)
-    }
-
-    fn persisted_shop(shop: Shop) -> PersistedShop {
-        let now = time::OffsetDateTime::now_utc();
-        PersistedShop {
+    fn stored_shop(shop: Shop) -> StoredShop {
+        StoredShop {
             shop,
             version: ShopStorageVersion::INITIAL,
-            created: now,
-            updated: now,
+            created: time::OffsetDateTime::now_utc(),
+            updated: time::OffsetDateTime::now_utc(),
         }
     }
-
     fn address() -> StructuredAddress {
         StructuredAddress {
             addressline: Some("Street 1".to_string()),

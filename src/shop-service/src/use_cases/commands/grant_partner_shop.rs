@@ -248,13 +248,12 @@ impl From<PartnerShopRepositoryError> for GrantPartnerShopError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::{PersistedShop, ShopStorageVersion, VersionedShop};
+    use crate::ports::{ShopStorageVersion, StoredShop};
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::shop_name::ShopName;
     use common::shop_slug_id::ShopSlugId;
     use common::transaction::{TransactionError, UnitOfWork};
-    use common::versioned::Versioned;
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
     use shop_core::shop_type::ShopType;
@@ -284,7 +283,7 @@ mod tests {
     struct State {
         begin_error: bool,
         commit_error: bool,
-        shop_by_id: Option<VersionedShop>,
+        shop_by_id: Option<StoredShop>,
         grant_error: Option<PartnerRepoErrorKind>,
         counts: Counts,
     }
@@ -377,39 +376,30 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ShopId,
-        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.find_by_id += 1;
                 Ok(state.shop_by_id.clone())
             })
         }
 
-        async fn find_persisted_by_id(
-            &mut self,
-            id: ShopId,
-        ) -> Result<Option<PersistedShop>, ShopRepositoryError> {
-            self.find_by_id(id)
-                .await
-                .map(|shop| shop.map(|versioned| persisted_shop(versioned.value)))
-        }
-
         async fn find_by_slug(
             &mut self,
             _slug_id: &ShopSlugId,
-        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             Ok(None)
         }
 
-        async fn insert(&mut self, shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
-            Ok(persisted_shop(shop.clone()))
+        async fn insert(&mut self, shop: &Shop) -> Result<StoredShop, ShopRepositoryError> {
+            Ok(stored_shop(shop.clone()))
         }
 
         async fn update(
             &mut self,
             shop: &Shop,
             _expected_version: ShopStorageVersion,
-        ) -> Result<PersistedShop, ShopRepositoryError> {
-            Ok(persisted_shop(shop.clone()))
+        ) -> Result<StoredShop, ShopRepositoryError> {
+            Ok(stored_shop(shop.clone()))
         }
     }
 
@@ -448,7 +438,7 @@ mod tests {
         let shop_id = existing.id();
         let user_id = UserId::new();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing))
+            state.shop_by_id = Some(stored_shop(existing))
         });
         let handler = GrantPartnerShopHandler::new(
             uow(&state),
@@ -527,7 +517,7 @@ mod tests {
         let existing = shop("Grant Error");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing));
+            state.shop_by_id = Some(stored_shop(existing));
             state.grant_error = Some(PartnerRepoErrorKind::UserNotFound);
         });
         let handler = GrantPartnerShopHandler::new(
@@ -555,7 +545,7 @@ mod tests {
         let existing = shop("Commit Grant");
         let shop_id = existing.id();
         with_state(&state, |state| {
-            state.shop_by_id = Some(versioned_shop(existing));
+            state.shop_by_id = Some(stored_shop(existing));
             state.commit_error = true;
         });
         let handler = GrantPartnerShopHandler::new(
@@ -593,7 +583,7 @@ mod tests {
             let existing = shop("Grant Map");
             let shop_id = existing.id();
             with_state(&state, |state| {
-                state.shop_by_id = Some(versioned_shop(existing));
+                state.shop_by_id = Some(stored_shop(existing));
                 state.grant_error = Some(kind);
             });
             let handler = GrantPartnerShopHandler::new(
@@ -686,20 +676,14 @@ mod tests {
         })
     }
 
-    fn versioned_shop(shop: Shop) -> VersionedShop {
-        Versioned::new(shop, ShopStorageVersion::INITIAL)
-    }
-
-    fn persisted_shop(shop: Shop) -> PersistedShop {
-        let now = time::OffsetDateTime::now_utc();
-        PersistedShop {
+    fn stored_shop(shop: Shop) -> StoredShop {
+        StoredShop {
             shop,
             version: ShopStorageVersion::INITIAL,
-            created: now,
-            updated: now,
+            created: time::OffsetDateTime::now_utc(),
+            updated: time::OffsetDateTime::now_utc(),
         }
     }
-
     fn system_context() -> OperationContext {
         OperationContext {
             principal: Principal::System,
