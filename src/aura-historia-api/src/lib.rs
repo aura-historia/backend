@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod error;
+pub mod oauth;
 pub mod partner_applications;
 pub mod shops;
 pub mod state;

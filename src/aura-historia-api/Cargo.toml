@@ -12,6 +12,8 @@ common = { workspace = true, features = ["postgres"] }
 geo = { workspace = true, features = ["data"] }
 http = { workspace = true }
 httpdate = { workspace = true }
+oauth-core = { workspace = true }
+oauth-service = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }

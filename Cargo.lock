@@ -229,6 +229,8 @@ dependencies = [
  "httpdate",
  "isocountry",
  "jsonwebtokens",
+ "oauth-core",
+ "oauth-service",
  "openssl",
  "reqwest 0.12.28",
  "rstest",
@@ -285,6 +287,9 @@ dependencies = [
  "notification-service",
  "oauth",
  "oauth-api",
+ "oauth-core",
+ "oauth-dynamodb",
+ "oauth-service",
  "partner-shop-application",
  "partner-shop-application-api",
  "partner-shop-application-lambda",
@@ -4883,6 +4888,66 @@ dependencies = [
  "tracing",
  "url",
  "user",
+]
+
+[[package]]
+name = "oauth-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "serde",
+ "time",
+ "url",
+ "user-core",
+ "uuid",
+]
+
+[[package]]
+name = "oauth-dynamodb"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-dynamodb",
+ "common",
+ "fake",
+ "oauth-core",
+ "oauth-dynamodb",
+ "oauth-service",
+ "rstest",
+ "serde",
+ "serde_dynamo",
+ "serde_fields",
+ "serial_test",
+ "test-api",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+]
+
+[[package]]
+name = "oauth-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.23.0",
+ "common",
+ "fake",
+ "mockall",
+ "oauth-core",
+ "oauth-service",
+ "rstest",
+ "sha2 0.11.0",
+ "thiserror 2.0.19",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]

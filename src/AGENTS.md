@@ -103,8 +103,11 @@
 - `src/notification-dynamodb/AGENTS.md` — canonical Notification DynamoDB adapter crate.
 - `src/notification-api/AGENTS.md` — `notification-api` crate.
 - `src/notification-send/AGENTS.md` — `notification-send` crate.
-- `src/oauth/AGENTS.md` — `oauth` crate.
-- `src/oauth-api/AGENTS.md` — `oauth-api` crate.
+- `src/oauth/AGENTS.md` — legacy `oauth` crate.
+- `src/oauth-api/AGENTS.md` — legacy `oauth-api` crate.
+- `src/oauth-core/AGENTS.md` — canonical OAuth domain crate.
+- `src/oauth-service/AGENTS.md` — canonical OAuth service/use-case crate.
+- `src/oauth-dynamodb/AGENTS.md` — canonical OAuth DynamoDB adapter crate.
 - `src/partner-shop-application/AGENTS.md` — `partner-shop-application` crate.
 - `src/partner-shop-application-api/AGENTS.md` — `partner-shop-application-api` crate.
 - `src/partner-shop-application-lambda/AGENTS.md` — `partner-shop-application-lambda` crate.

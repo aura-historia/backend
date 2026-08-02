@@ -66,6 +66,9 @@ newsletter-api = { workspace = true }
 notification-api = { workspace = true }
 oauth = { workspace = true }
 oauth-api = { workspace = true }
+oauth-core = { workspace = true }
+oauth-service = { workspace = true }
+oauth-dynamodb = { workspace = true }
 product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
@@ -136,6 +139,9 @@ members = [
     "src/newsletter-api",
     "src/oauth",
     "src/oauth-api",
+    "src/oauth-core",
+    "src/oauth-service",
+    "src/oauth-dynamodb",
     "src/product-pipeline",
     "src/fxrate",
     "src/fxrate-lambda",
@@ -207,6 +213,9 @@ notification-dynamodb = { path = "src/notification-dynamodb" }
 notification-api = { path = "src/notification-api" }
 oauth = { path = "src/oauth" }
 oauth-api = { path = "src/oauth-api" }
+oauth-core = { path = "src/oauth-core" }
+oauth-service = { path = "src/oauth-service" }
+oauth-dynamodb = { path = "src/oauth-dynamodb" }
 futures = { version = "0.3.32", default-features = false }
 hex = "0.4.3"
 http = "1.4.2"
