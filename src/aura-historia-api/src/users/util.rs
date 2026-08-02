@@ -4,8 +4,6 @@ use axum::response::{IntoResponse, Response};
 use common::patch_field::PatchField;
 use common::user_id::UserId;
 use serde::Deserialize;
-use user_core::role::UserRole;
-use user_core::tier::UserTier;
 
 pub(crate) fn no_store(mut response: Response) -> Response {
     response.headers_mut().insert(
@@ -38,19 +36,4 @@ pub(crate) fn parse_user_id(raw: &str, field: &'static str) -> Result<UserId, Re
             .with_detail(format!("Path parameter '{field}' must be a UUID."))
             .into_response()
     })
-}
-pub(crate) fn parse_tier(value: String) -> Option<UserTier> {
-    match value.as_str() {
-        "Free" | "FREE" | "free" => Some(UserTier::Free),
-        "Pro" | "PRO" | "pro" => Some(UserTier::Pro),
-        "Ultimate" | "ULTIMATE" | "ultimate" => Some(UserTier::Ultimate),
-        _ => None,
-    }
-}
-pub(crate) fn parse_role(value: String) -> Option<UserRole> {
-    match value.as_str() {
-        "User" | "USER" | "user" => Some(UserRole::User),
-        "Admin" | "ADMIN" | "admin" => Some(UserRole::Admin),
-        _ => None,
-    }
 }

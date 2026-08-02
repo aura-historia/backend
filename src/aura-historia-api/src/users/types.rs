@@ -4,8 +4,63 @@ use common::measurement_unit::data::MeasurementUnitData;
 use common::user_id::UserId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
+use user_core::role::UserRole;
+use user_core::tier::UserTier;
 use user_service::ports::UserDetailsView;
 use user_service::use_cases::queries::search_users::UserSummary;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum UserTierData {
+    Free,
+    Pro,
+    Ultimate,
+}
+
+impl From<UserTier> for UserTierData {
+    fn from(tier: UserTier) -> Self {
+        match tier {
+            UserTier::Free => Self::Free,
+            UserTier::Pro => Self::Pro,
+            UserTier::Ultimate => Self::Ultimate,
+        }
+    }
+}
+
+impl From<UserTierData> for UserTier {
+    fn from(tier: UserTierData) -> Self {
+        match tier {
+            UserTierData::Free => Self::Free,
+            UserTierData::Pro => Self::Pro,
+            UserTierData::Ultimate => Self::Ultimate,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum UserRoleData {
+    User,
+    Admin,
+}
+
+impl From<UserRole> for UserRoleData {
+    fn from(role: UserRole) -> Self {
+        match role {
+            UserRole::User => Self::User,
+            UserRole::Admin => Self::Admin,
+        }
+    }
+}
+
+impl From<UserRoleData> for UserRole {
+    fn from(role: UserRoleData) -> Self {
+        match role {
+            UserRoleData::User => Self::User,
+            UserRoleData::Admin => Self::Admin,
+        }
+    }
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,8 +78,8 @@ pub(crate) struct OwnUserData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) measurement_unit: Option<MeasurementUnitData>,
     pub(crate) prohibited_content_consent: bool,
-    pub(crate) tier: String,
-    pub(crate) role: String,
+    pub(crate) tier: UserTierData,
+    pub(crate) role: UserRoleData,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stripe_customer_id: Option<common::stripe_customer_id::StripeCustomerId>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -44,8 +99,8 @@ impl From<UserDetailsView> for OwnUserData {
             currency: view.currency.map(Into::into),
             measurement_unit: view.measurement_unit.map(Into::into),
             prohibited_content_consent: view.prohibited_content_consent,
-            tier: format!("{:?}", view.tier),
-            role: format!("{:?}", view.role),
+            tier: view.tier.into(),
+            role: view.role.into(),
             stripe_customer_id: view.stripe_customer_id,
             structured_address: view.structured_address.map(Into::into),
             geo_address: view.geo_address.map(Into::into),
@@ -69,8 +124,8 @@ pub(crate) struct AdminUserData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) measurement_unit: Option<MeasurementUnitData>,
     pub(crate) prohibited_content_consent: bool,
-    pub(crate) tier: String,
-    pub(crate) role: String,
+    pub(crate) tier: UserTierData,
+    pub(crate) role: UserRoleData,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stripe_customer_id: Option<common::stripe_customer_id::StripeCustomerId>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,8 +145,8 @@ impl From<UserDetailsView> for AdminUserData {
             currency: view.currency.map(Into::into),
             measurement_unit: view.measurement_unit.map(Into::into),
             prohibited_content_consent: view.prohibited_content_consent,
-            tier: format!("{:?}", view.tier),
-            role: format!("{:?}", view.role),
+            tier: view.tier.into(),
+            role: view.role.into(),
             stripe_customer_id: view.stripe_customer_id,
             structured_address: view.structured_address.map(Into::into),
             geo_address: view.geo_address.map(Into::into),
@@ -108,8 +163,8 @@ pub(crate) struct AdminUserSummaryData {
     pub(crate) first_name: Option<user_core::first_name::FirstName>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) last_name: Option<user_core::last_name::LastName>,
-    pub(crate) tier: String,
-    pub(crate) role: String,
+    pub(crate) tier: UserTierData,
+    pub(crate) role: UserRoleData,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) stripe_customer_id: Option<common::stripe_customer_id::StripeCustomerId>,
 }
@@ -120,8 +175,8 @@ impl From<UserSummary> for AdminUserSummaryData {
             email: v.email,
             first_name: v.first_name,
             last_name: v.last_name,
-            tier: format!("{:?}", v.tier),
-            role: format!("{:?}", v.role),
+            tier: v.tier.into(),
+            role: v.role.into(),
             stripe_customer_id: v.stripe_customer_id,
         }
     }
@@ -159,7 +214,7 @@ pub(crate) struct PatchAdminUserData {
     pub(crate) currency: Option<CurrencyData>,
     pub(crate) measurement_unit: Option<MeasurementUnitData>,
     pub(crate) prohibited_content_consent: Option<bool>,
-    pub(crate) tier: Option<String>,
-    pub(crate) role: Option<String>,
+    pub(crate) tier: Option<UserTierData>,
+    pub(crate) role: Option<UserRoleData>,
     pub(crate) structured_address: Option<StructuredAddressData>,
 }

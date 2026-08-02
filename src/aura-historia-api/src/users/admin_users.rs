@@ -1,5 +1,5 @@
 use super::types::{AdminUserData, AdminUserSummaryData, CursorData, PatchAdminUserData};
-use super::util::{no_store, parse_json, parse_role, parse_tier, parse_user_id, patch};
+use super::util::{no_store, parse_json, parse_user_id, patch};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::UsersState;
@@ -120,17 +120,15 @@ async fn admin_patch_user(
     }
 
     if let Some(role) = data.role {
-        let role = match parse_role(role) {
-            Some(value) => value,
-            None => {
-                return ApiError::bad_request(BAD_BODY_VALUE)
-                    .with_detail("User role is invalid.")
-                    .into_response();
-            }
-        };
         return match state
             .change_user_role
-            .execute(&ctx, ChangeUserRoleCommand { user_id, role })
+            .execute(
+                &ctx,
+                ChangeUserRoleCommand {
+                    user_id,
+                    role: role.into(),
+                },
+            )
             .await
         {
             Ok(result) => no_store(Json(AdminUserData::from(result.view)).into_response()),
@@ -139,17 +137,15 @@ async fn admin_patch_user(
     }
 
     if let Some(tier) = data.tier {
-        let tier = match parse_tier(tier) {
-            Some(value) => value,
-            None => {
-                return ApiError::bad_request(BAD_BODY_VALUE)
-                    .with_detail("User tier is invalid.")
-                    .into_response();
-            }
-        };
         return match state
             .change_user_tier
-            .execute(&ctx, ChangeUserTierCommand { user_id, tier })
+            .execute(
+                &ctx,
+                ChangeUserTierCommand {
+                    user_id,
+                    tier: tier.into(),
+                },
+            )
             .await
         {
             Ok(result) => no_store(Json(AdminUserData::from(result.view)).into_response()),
