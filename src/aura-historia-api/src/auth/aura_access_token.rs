@@ -81,6 +81,7 @@ fn credential_capability(scope: Scope) -> CredentialCapability {
         Scope::AccessTokensRead => CredentialCapability::AccessTokensRead,
         Scope::AccessTokensWrite => CredentialCapability::AccessTokensWrite,
         Scope::SearchFiltersWrite => CredentialCapability::SearchFiltersWrite,
+        Scope::WatchlistRead => CredentialCapability::WatchlistRead,
         Scope::WatchlistWrite => CredentialCapability::WatchlistWrite,
     }
 }
@@ -286,6 +287,7 @@ mod tests {
                 Scope::SearchFiltersWrite,
                 CredentialCapability::SearchFiltersWrite,
             ),
+            (Scope::WatchlistRead, CredentialCapability::WatchlistRead),
             (Scope::WatchlistWrite, CredentialCapability::WatchlistWrite),
         ];
 

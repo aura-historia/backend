@@ -10,6 +10,7 @@
 - Domain-only crate.
 - Root modules: `partner_shop_application`, `partner_shop_application_state`.
 - Applications always link one valid `ShopId`; new applications use a draft shop created before the application.
+- Applications support explicit submitted, in-review, approved, rejected, and withdrawn states.
 
 ## Ownership
 

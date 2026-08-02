@@ -1,6 +1,4 @@
-use crate::ports::{
-    PersistedShop, ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory,
-};
+use crate::ports::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory, StoredShop};
 use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::BoxError;
@@ -51,9 +49,9 @@ pub struct ShopDetailsView {
     pub updated: OffsetDateTime,
 }
 
-impl From<PersistedShop> for ShopDetailsView {
-    fn from(persisted: PersistedShop) -> Self {
-        let shop = persisted.shop;
+impl From<StoredShop> for ShopDetailsView {
+    fn from(stored: StoredShop) -> Self {
+        let shop = stored.shop;
         Self {
             shop_id: shop.id(),
             shop_slug_id: shop.slug_id().clone(),
@@ -74,8 +72,8 @@ impl From<PersistedShop> for ShopDetailsView {
             email: shop.contact().email.clone(),
             partner_status: shop.partner_status(),
             affiliate_configuration: shop.affiliate_configuration().cloned(),
-            created: persisted.created,
-            updated: persisted.updated,
+            created: stored.created,
+            updated: stored.updated,
         }
     }
 }

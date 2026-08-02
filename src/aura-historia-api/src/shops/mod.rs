@@ -1,4 +1,3 @@
-pub(crate) mod authz;
 pub mod create_shop;
 pub mod get_partner_shops;
 pub mod get_shop;

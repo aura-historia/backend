@@ -23,6 +23,7 @@ pub enum Scope {
     AccessTokensRead,
     AccessTokensWrite,
     SearchFiltersWrite,
+    WatchlistRead,
     WatchlistWrite,
 }
 
@@ -40,6 +41,7 @@ impl Scope {
             Scope::AccessTokensRead => "access-tokens:read",
             Scope::AccessTokensWrite => "access-tokens:write",
             Scope::SearchFiltersWrite => "search-filters:write",
+            Scope::WatchlistRead => "watchlist:read",
             Scope::WatchlistWrite => "watchlist:write",
         }
     }
@@ -47,6 +49,17 @@ impl Scope {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccessToken {
+    id: AccessTokenId,
+    hashed_token: HashedRawAccessToken,
+    user_id: UserId,
+    name: AccessTokenName,
+    scopes: HashSet<Scope>,
+    origin: AccessTokenOrigin,
+    expires: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewAccessToken {
     pub id: AccessTokenId,
     pub hashed_token: HashedRawAccessToken,
     pub user_id: UserId,
@@ -54,8 +67,18 @@ pub struct AccessToken {
     pub scopes: HashSet<Scope>,
     pub origin: AccessTokenOrigin,
     pub expires: Option<OffsetDateTime>,
-    pub created: OffsetDateTime,
-    pub updated: OffsetDateTime,
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct RehydratedAccessTokenState {
+    pub id: AccessTokenId,
+    pub hashed_token: HashedRawAccessToken,
+    pub user_id: UserId,
+    pub name: AccessTokenName,
+    pub scopes: HashSet<Scope>,
+    pub origin: AccessTokenOrigin,
+    pub expires: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,16 +88,92 @@ pub enum AccessTokenOrigin {
 }
 
 impl AccessToken {
-    pub fn is_expired(&self) -> bool {
-        if let Some(expires) = self.expires {
-            expires < OffsetDateTime::now_utc()
-        } else {
-            false
+    pub fn create(input: NewAccessToken) -> Self {
+        Self {
+            id: input.id,
+            hashed_token: input.hashed_token,
+            user_id: input.user_id,
+            name: input.name,
+            scopes: input.scopes,
+            origin: input.origin,
+            expires: input.expires,
         }
+    }
+
+    #[doc(hidden)]
+    pub fn rehydrate(state: RehydratedAccessTokenState) -> Self {
+        Self {
+            id: state.id,
+            hashed_token: state.hashed_token,
+            user_id: state.user_id,
+            name: state.name,
+            scopes: state.scopes,
+            origin: state.origin,
+            expires: state.expires,
+        }
+    }
+
+    pub fn change_name(&mut self, name: AccessTokenName) -> bool {
+        if self.name == name {
+            false
+        } else {
+            self.name = name;
+            true
+        }
+    }
+
+    pub fn replace_scopes(&mut self, scopes: HashSet<Scope>) -> bool {
+        if self.scopes == scopes {
+            false
+        } else {
+            self.scopes = scopes;
+            true
+        }
+    }
+
+    pub fn change_expires(&mut self, expires: Option<OffsetDateTime>) -> bool {
+        if self.expires == expires {
+            false
+        } else {
+            self.expires = expires;
+            true
+        }
+    }
+
+    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
+        self.expires.is_some_and(|expires| expires < now)
     }
 
     pub fn has_scope(&self, scope: Scope) -> bool {
         self.scopes.contains(&scope)
+    }
+
+    pub fn id(&self) -> AccessTokenId {
+        self.id
+    }
+
+    pub fn hashed_token(&self) -> &HashedRawAccessToken {
+        &self.hashed_token
+    }
+
+    pub fn user_id(&self) -> UserId {
+        self.user_id
+    }
+
+    pub fn name(&self) -> &AccessTokenName {
+        &self.name
+    }
+
+    pub fn scopes(&self) -> &HashSet<Scope> {
+        &self.scopes
+    }
+
+    pub fn origin(&self) -> &AccessTokenOrigin {
+        &self.origin
+    }
+
+    pub fn expires(&self) -> Option<OffsetDateTime> {
+        self.expires
     }
 }
 
@@ -469,7 +568,7 @@ mod access_token_state_tests {
     fn should_report_not_expired_when_no_expiry() {
         let token = access_token(None, HashSet::new());
 
-        assert!(!token.is_expired());
+        assert!(!token.is_expired_at(OffsetDateTime::now_utc()));
     }
 
     #[test]
@@ -479,7 +578,7 @@ mod access_token_state_tests {
             HashSet::new(),
         );
 
-        assert!(!token.is_expired());
+        assert!(!token.is_expired_at(OffsetDateTime::now_utc()));
     }
 
     #[test]
@@ -489,7 +588,7 @@ mod access_token_state_tests {
             HashSet::new(),
         );
 
-        assert!(token.is_expired());
+        assert!(token.is_expired_at(OffsetDateTime::now_utc()));
     }
 
     #[test]
@@ -509,6 +608,7 @@ mod access_token_state_tests {
             (Scope::AccessTokensRead, "access-tokens:read"),
             (Scope::AccessTokensWrite, "access-tokens:write"),
             (Scope::SearchFiltersWrite, "search-filters:write"),
+            (Scope::WatchlistRead, "watchlist:read"),
             (Scope::WatchlistWrite, "watchlist:write"),
         ] {
             assert_eq!(value, scope.as_str());
@@ -533,7 +633,6 @@ mod access_token_state_tests {
     }
 
     fn access_token(expires: Option<OffsetDateTime>, scopes: HashSet<Scope>) -> AccessToken {
-        let now = OffsetDateTime::now_utc();
         AccessToken {
             id: AccessTokenId::new(),
             hashed_token: RawAccessToken::new().into(),
@@ -542,8 +641,6 @@ mod access_token_state_tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created: now,
-            updated: now,
         }
     }
 }
@@ -587,8 +684,6 @@ mod faker {
                 scopes: [Scope::ProductsWrite].into(),
                 origin: AccessTokenOrigin::User,
                 expires: None,
-                created: OffsetDateTime::now_utc(),
-                updated: OffsetDateTime::now_utc(),
             }
         }
     }

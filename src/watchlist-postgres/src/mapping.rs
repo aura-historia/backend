@@ -30,12 +30,10 @@ impl WatchlistRow {
     pub(crate) fn into_view(self) -> Result<WatchlistProductView, WatchlistReadError> {
         let state = parse_state_read(&self.state)?;
         Ok(WatchlistProductView {
-            entry: WatchlistProduct::rehydrate(
-                UserId::from(self.user_id),
-                ProductId::from(self.product_id),
-                self.notifications,
-                state,
-            ),
+            user_id: UserId::from(self.user_id),
+            product_id: ProductId::from(self.product_id),
+            notifications: self.notifications,
+            state,
             created: self.created,
             updated: self.updated,
         })

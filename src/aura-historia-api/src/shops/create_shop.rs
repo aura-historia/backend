@@ -1,5 +1,5 @@
+use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
-use crate::shops::authz::protected_context;
 use crate::shops::shop_data::shop_response;
 use crate::shops::types::ShopTypeData;
 use crate::state::ShopsState;
@@ -53,7 +53,7 @@ pub async fn create_shop(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let (context, _) = match protected_context(&state, &headers).await {
+    let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
         Err(response) => return response,
     };

@@ -11,3 +11,6 @@ thiserror = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
 watchlist-core = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

@@ -165,8 +165,8 @@ search-filter = ["common", "geo", "product", "product-pipeline-embed-text", "sho
 # Depends on: common, product-core, search-filter-core
 search-filter-service = ["common", "product-core", "search-filter-core"]
 
-# Depends on: common, geo, shop-core, shop-partner-core, shop-service
-shop-partner-service = ["common", "geo", "shop-core", "shop-partner-core", "shop-service"]
+# Depends on: common, geo, shop-core, shop-partner-core, shop-service, user-core, user-service
+shop-partner-service = ["common", "geo", "shop-core", "shop-partner-core", "shop-service", "user-core", "user-service"]
 
 # Depends on: common, geo, shop-core, shop-service
 shop-postgres = ["common", "geo", "shop-core", "shop-service"]
@@ -177,8 +177,8 @@ watchlist-postgres = ["common", "watchlist-core", "watchlist-service"]
 # Depends on: cognito, common, fxrate, geo, product, product-lambda-ingest-partner-products, shop, user
 webhook-api = ["cognito", "common", "fxrate", "geo", "product", "product-lambda-ingest-partner-products", "shop", "user"]
 
-# Depends on: common, geo, shop-core, shop-postgres, shop-service, user-core, user-dynamodb, user-postgres, user-service
-aura-historia-api = ["common", "geo", "shop-core", "shop-postgres", "shop-service", "user-core", "user-dynamodb", "user-postgres", "user-service"]
+# Depends on: common, geo, shop-core, shop-partner-core, shop-partner-postgres, shop-partner-service, shop-postgres, shop-service, user-core, user-dynamodb, user-postgres, user-service, watchlist-core, watchlist-postgres, watchlist-service
+aura-historia-api = ["common", "geo", "shop-core", "shop-partner-core", "shop-partner-postgres", "shop-partner-service", "shop-postgres", "shop-service", "user-core", "user-dynamodb", "user-postgres", "user-service", "watchlist-core", "watchlist-postgres", "watchlist-service"]
 
 # Depends on: common, product, search-filter, user
 notification = ["common", "product", "search-filter", "user"]

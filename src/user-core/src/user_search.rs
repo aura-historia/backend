@@ -1,5 +1,4 @@
 use crate::{role::UserRole, tier::UserTier};
-use common::distance::domain::GeoDistanceQuery;
 use common::query::{any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery};
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
@@ -15,7 +14,7 @@ pub struct UserSearch {
     pub role_query: AnyOfQuery<UserRole>,
     pub country_query: AnyOfQuery<CountryCode>,
     pub continent_query: AnyOfQuery<Continent>,
-    pub geo_address_distance_query: Option<GeoDistanceQuery>,
+
     pub created: Option<RangeQuery<OffsetDateTime>>,
     pub updated: Option<RangeQuery<OffsetDateTime>>,
 }
@@ -36,7 +35,7 @@ mod tests {
         assert!(search.role_query.is_empty());
         assert!(search.country_query.is_empty());
         assert!(search.continent_query.is_empty());
-        assert_eq!(None, search.geo_address_distance_query);
+
         assert_eq!(None, search.created);
         assert_eq!(None, search.updated);
     }

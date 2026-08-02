@@ -21,6 +21,7 @@ pub enum CredentialCapability {
     AccessTokensRead,
     AccessTokensWrite,
     SearchFiltersWrite,
+    WatchlistRead,
     WatchlistWrite,
 }
 
@@ -38,6 +39,7 @@ impl CredentialCapability {
             CredentialCapability::AccessTokensRead => "access-tokens:read",
             CredentialCapability::AccessTokensWrite => "access-tokens:write",
             CredentialCapability::SearchFiltersWrite => "search-filters:write",
+            CredentialCapability::WatchlistRead => "watchlist:read",
             CredentialCapability::WatchlistWrite => "watchlist:write",
         }
     }
@@ -479,6 +481,7 @@ mod tests {
                 CredentialCapability::SearchFiltersWrite,
                 "search-filters:write",
             ),
+            (CredentialCapability::WatchlistRead, "watchlist:read"),
             (CredentialCapability::WatchlistWrite, "watchlist:write"),
         ] {
             assert_eq!(scope, capability.as_scope_str());

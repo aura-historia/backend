@@ -17,7 +17,6 @@ use user_postgres::{SqlxUserAdminReaderFactory, SqlxUserRepositoryFactory};
 use user_service::ports::{
     UserAdminReader, UserAdminReaderFactory, UserRepository, UserRepositoryFactory,
 };
-use user_service::use_cases::queries::get_user::GetUserRequest;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -37,7 +36,7 @@ async fn should_read_user_admin_view_from_postgres() {
 
     let admin_view = match admins
         .in_transaction(&mut tx)
-        .find_admin_view(&GetUserRequest::ById(user.id()))
+        .find_admin_actor(user.id())
         .await
     {
         Ok(Some(view)) => view,

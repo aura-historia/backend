@@ -88,12 +88,12 @@ where
             .await?
             .ok_or(AuthenticateAccessTokenError::NotFound)?;
 
-        if access_token.is_expired() {
+        if access_token.is_expired_at(time::OffsetDateTime::now_utc()) {
             return Err(AuthenticateAccessTokenError::Expired);
         }
         Ok(AuthenticateAccessTokenResult {
-            user_id: access_token.user_id,
-            scopes: access_token.scopes,
+            user_id: access_token.user_id(),
+            scopes: access_token.scopes().clone(),
         })
     }
 }
@@ -132,7 +132,7 @@ mod tests {
     use time::{Duration, OffsetDateTime};
     use user_core::access_token::{
         AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-        RawAccessToken, Scope,
+        NewAccessToken, RawAccessToken, Scope,
     };
 
     #[derive(Debug, Clone, Copy)]
@@ -187,8 +187,7 @@ mod tests {
         expires: Option<OffsetDateTime>,
     ) -> AccessToken {
         let raw = RawAccessToken::new();
-        let now = OffsetDateTime::now_utc();
-        AccessToken {
+        AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
             user_id,
@@ -196,9 +195,7 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created: now,
-            updated: now,
-        }
+        })
     }
 
     fn boxed() -> BoxError {
@@ -325,7 +322,7 @@ mod tests {
             scopes.clone(),
             Some(OffsetDateTime::now_utc() + Duration::days(1)),
         );
-        let hashed = valid.hashed_token.clone();
+        let hashed = valid.hashed_token().clone();
         let store = FakeAccessTokenStore::default();
         lock(&store.state).token = Some(valid);
 
@@ -365,7 +362,7 @@ mod tests {
             HashSet::from([Scope::ShopsWrite]),
             Some(OffsetDateTime::now_utc() - Duration::days(1)),
         );
-        let hashed = expired.hashed_token.clone();
+        let hashed = expired.hashed_token().clone();
         lock(&store.state).token = Some(expired);
         assert_error(
             AuthenticateAccessTokenHandler::new(store.clone())

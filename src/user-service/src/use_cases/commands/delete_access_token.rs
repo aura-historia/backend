@@ -166,7 +166,7 @@ mod tests {
     use time::{Duration, OffsetDateTime};
     use user_core::access_token::{
         AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-        RawAccessToken, Scope,
+        NewAccessToken, RawAccessToken, Scope,
     };
 
     #[derive(Debug, Clone, Copy)]
@@ -221,8 +221,7 @@ mod tests {
         expires: Option<OffsetDateTime>,
     ) -> AccessToken {
         let raw = RawAccessToken::new();
-        let now = OffsetDateTime::now_utc();
-        AccessToken {
+        AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
             user_id,
@@ -230,9 +229,7 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created: now,
-            updated: now,
-        }
+        })
     }
 
     fn boxed() -> BoxError {

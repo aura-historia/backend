@@ -12,7 +12,6 @@ use ::common::user_id::UserId;
 use geo::core::{address::StructuredAddress, continent::Continent};
 use isocountry::CountryCode;
 use serde_email::Email;
-use serde_json::{Value, json};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::OffsetDateTime;
 use user_core::first_name::FirstName;
@@ -68,7 +67,7 @@ async fn should_search_users_with_filters_and_sorting_in_postgres() {
                 sort: SortUserField::Email,
                 order: SortOrder::Asc,
             }),
-            cursor: Some(Cursor::<Value> {
+            cursor: Some(Cursor {
                 search_after: None,
                 size: 1000,
             }),
@@ -79,7 +78,7 @@ async fn should_search_users_with_filters_and_sorting_in_postgres() {
 
     assert_eq!(1, result.items.len());
     assert_eq!(matching.id(), result.items[0].user_id);
-    assert_eq!(1000, result.cursor.size);
+    assert_eq!(100, result.cursor.size);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -143,8 +142,8 @@ async fn should_search_users_by_remaining_filters_dates_sorts_and_cursor_size() 
                 sort: SortUserField::Name,
                 order: SortOrder::Desc,
             }),
-            cursor: Some(Cursor::<Value> {
-                search_after: Some(json!(["ignored"])),
+            cursor: Some(Cursor {
+                search_after: None,
                 size: 250,
             }),
         },
@@ -163,7 +162,7 @@ async fn should_search_users_by_remaining_filters_dates_sorts_and_cursor_size() 
                 sort: SortUserField::Tier,
                 order: SortOrder::Asc,
             }),
-            cursor: Some(Cursor::<Value> {
+            cursor: Some(Cursor {
                 search_after: None,
                 size: 5,
             }),
@@ -189,7 +188,7 @@ async fn should_search_users_by_remaining_filters_dates_sorts_and_cursor_size() 
     commit(tx).await;
 
     assert_eq!(vec![admin.id()], user_ids(&continent_result.items));
-    assert_eq!(250, continent_result.cursor.size);
+    assert_eq!(100, continent_result.cursor.size);
     assert!(continent_result.cursor.search_after.is_none());
     assert_eq!(vec![ultimate.id()], user_ids(&tier_role_result.items));
     assert!(empty_result.items.is_empty());
@@ -264,7 +263,7 @@ async fn should_sort_users_by_each_user_sort_field() {
                 ..Default::default()
             },
             sort: None,
-            cursor: Some(Cursor::<Value> {
+            cursor: Some(Cursor {
                 search_after: None,
                 size: 10,
             }),
@@ -276,6 +275,8 @@ async fn should_sort_users_by_each_user_sort_field() {
         user_ids(&default_result.items)
     );
 
+    let mut user_role_tie = [b.id(), c.id()];
+    user_role_tie.sort();
     for (field, order, expected) in [
         (
             SortUserField::Name,
@@ -300,7 +301,7 @@ async fn should_sort_users_by_each_user_sort_field() {
         (
             SortUserField::Role,
             SortOrder::Asc,
-            vec![a.id(), b.id(), c.id()],
+            vec![a.id(), user_role_tie[0], user_role_tie[1]],
         ),
         (
             SortUserField::Created,
@@ -322,7 +323,7 @@ async fn should_sort_users_by_each_user_sort_field() {
                     ..Default::default()
                 },
                 sort: Some(Sort { sort: field, order }),
-                cursor: Some(Cursor::<Value> {
+                cursor: Some(Cursor {
                     search_after: None,
                     size: 10,
                 }),

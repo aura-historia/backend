@@ -1,13 +1,23 @@
-use crate::readers::user_account_reader::find_user_details;
+use crate::mapping::bind_role;
+use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
-use user_service::ports::{UserAdminReadError, UserAdminReader, UserAdminReaderFactory};
-use user_service::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
+use common::user_id::UserId;
+use user_core::role::UserRole;
+use user_service::ports::{
+    UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxUserAdminReaderFactory;
 
 struct SqlxUserAdminReader<'tx> {
     connection: &'tx mut sqlx::PgConnection,
+}
+
+#[derive(sqlx::FromRow)]
+struct UserAdminActorRow {
+    user_id: uuid::Uuid,
+    role: String,
 }
 
 impl SqlxUserAdminReaderFactory {
@@ -26,22 +36,45 @@ impl UserAdminReaderFactory<SqlxTransaction> for SqlxUserAdminReaderFactory {
 
 #[async_trait::async_trait]
 impl UserAdminReader for SqlxUserAdminReader<'_> {
-    async fn find_admin_view(
+    async fn find_admin_actor(
         &mut self,
-        request: &GetUserRequest,
-    ) -> Result<Option<UserDetailsView>, UserAdminReadError> {
-        find_user_details(self.connection, request)
-            .await
-            .map_err(|error| match error {
-                user_service::ports::UserAccountReadError::TemporarilyUnavailable { source } => {
-                    UserAdminReadError::TemporarilyUnavailable { source }
-                }
-                user_service::ports::UserAccountReadError::InvalidReadModel { source } => {
-                    UserAdminReadError::InvalidReadModel { source }
-                }
-                user_service::ports::UserAccountReadError::Internal { source } => {
-                    UserAdminReadError::Internal { source }
-                }
-            })
+        user_id: UserId,
+    ) -> Result<Option<UserAdminActorView>, UserAdminReadError> {
+        let row = sqlx::query_as::<_, UserAdminActorRow>(
+            "SELECT user_id, role FROM users WHERE user_id = $1",
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(|source| UserAdminReadError::TemporarilyUnavailable {
+            source: box_error(source),
+        })?;
+
+        row.map(TryInto::try_into).transpose()
     }
 }
+
+impl TryFrom<UserAdminActorRow> for UserAdminActorView {
+    type Error = UserAdminReadError;
+
+    fn try_from(row: UserAdminActorRow) -> Result<Self, Self::Error> {
+        let role = match row.role.as_str() {
+            value if value == bind_role(UserRole::User) => UserRole::User,
+            value if value == bind_role(UserRole::Admin) => UserRole::Admin,
+            _ => {
+                return Err(UserAdminReadError::InvalidReadModel {
+                    source: box_error(InvalidAdminRole),
+                });
+            }
+        };
+
+        Ok(Self {
+            user_id: UserId::from(row.user_id),
+            role,
+        })
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("invalid persisted admin role")]
+struct InvalidAdminRole;

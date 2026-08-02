@@ -3689,7 +3689,7 @@ paths:
       description: |
         Retrieves all products in the authenticated user's watchlist.
         Results are paginated using search-after cursor-based pagination with timestamp.
-        Requires valid Cognito JWT authentication.
+        Accepts Cognito JWT authentication or an Aura Historia access token with `watchlist:read`.
       operationId: getWatchlistProducts
       tags:
         - Watchlist
@@ -3912,7 +3912,7 @@ paths:
               schema:
                 type: string
                 format: uri
-              example: "https://api.aura-historia.com/api/v1/me/watchlist/550e8400-e29b-41d4-a716-446655440000/6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+              example: "https://api.aura-historia.com/api/v1/me/watchlist/550e8400-e29b-41d4-a716-446655440000"
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -4396,7 +4396,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserAccountData"
+                $ref: "#/components/schemas/AdminUserAccountData"
               example:
                 userId: "550e8400-e29b-41d4-a716-446655440000"
                 email: "ada.admin@example.com"
@@ -4466,6 +4466,7 @@ paths:
       description: |
         Partially updates a user account for authenticated administrators.
         All request fields are optional, but the request body itself must be present and non-empty.
+        Send only one logical change category per request: profile/preferences fields, `role`, or `tier`.
         An empty JSON object (`{}`) is accepted and returns the existing user unchanged.
       operationId: adminPatchUser
       tags:
@@ -4489,20 +4490,22 @@ paths:
             schema:
               $ref: "#/components/schemas/PatchAdminUserData"
             examples:
-              update_access:
-                summary: Promote a user and upgrade the tier
+              update_role:
+                summary: Promote a user
+                value:
+                  role: "ADMIN"
+              update_tier:
+                summary: Upgrade the tier
                 value:
                   tier: "ULTIMATE"
-                  role: "ADMIN"
-              update_profile_and_billing:
-                summary: Update profile settings and Stripe customer mapping
+              update_profile:
+                summary: Update profile settings
                 value:
                   firstName: "Ada"
                   lastName: "Lovelace"
                   language: "en"
                   currency: "EUR"
                   prohibitedContentConsent: true
-                  stripeCustomerId: "cus_admin_550e8400e29b41d4a716446655440000"
       responses:
         "200":
           description: User updated successfully.
@@ -4521,7 +4524,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserAccountData"
+                $ref: "#/components/schemas/AdminUserAccountData"
               example:
                 userId: "550e8400-e29b-41d4-a716-446655440000"
                 email: "ada.admin@example.com"
@@ -4759,7 +4762,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserAccountData"
+                $ref: "#/components/schemas/OwnUserAccountData"
               example:
                 userId: "550e8400-e29b-41d4-a716-446655440000"
                 email: "user@example.com"
@@ -4865,7 +4868,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserAccountData"
+                $ref: "#/components/schemas/OwnUserAccountData"
               example:
                 userId: "550e8400-e29b-41d4-a716-446655440000"
                 email: "jane.smith@example.com"
@@ -5708,7 +5711,7 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
-  /api/v1/me/watchlist/{shopId}/{shopsProductId}:
+  /api/v1/me/watchlist/{productId}:
     delete:
       summary: Remove product from watchlist
       description: |
@@ -5719,21 +5722,14 @@ paths:
       tags:
         - Watchlist
       parameters:
-        - name: shopId
+        - name: productId
           in: path
           required: true
-          description: Unique identifier of the shop
+          description: Unique identifier of the product
           schema:
             type: string
             format: uuid
           example: "550e8400-e29b-41d4-a716-446655440000"
-        - name: shopsProductId
-          in: path
-          required: true
-          description: Shop's unique identifier for the product
-          schema:
-            type: string
-          example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
       security:
         - BearerAuth: []
       responses:
@@ -5752,32 +5748,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                missing_shop_id:
-                  summary: Missing shop ID
+                missing_product_id:
+                  summary: Missing product ID
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "BAD_PATH_PARAMETER_VALUE"
                     source:
-                      field: "shopId"
-                      sourceType: "path"
-                missing_shops_product_id:
-                  summary: Missing shop's product ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "shopsProductId"
+                      field: "productId"
                       sourceType: "path"
                 invalid_uuid:
-                  summary: Invalid shop ID format
+                  summary: Invalid product ID format
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "INVALID_UUID"
                     source:
-                      field: "shopId"
+                      field: "productId"
                       sourceType: "path"
                     detail: "Invalid UUID format"
         "401":
@@ -5821,21 +5808,14 @@ paths:
       tags:
         - Watchlist
       parameters:
-        - name: shopId
+        - name: productId
           in: path
           required: true
-          description: Unique identifier of the shop
+          description: Unique identifier of the product
           schema:
             type: string
             format: uuid
           example: "550e8400-e29b-41d4-a716-446655440000"
-        - name: shopsProductId
-          in: path
-          required: true
-          description: Shop's unique identifier for the product
-          schema:
-            type: string
-          example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
         - name: language
           in: query
           required: false
@@ -5938,32 +5918,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                missing_shop_id:
-                  summary: Missing shop ID
+                missing_product_id:
+                  summary: Missing product ID
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "BAD_PATH_PARAMETER_VALUE"
                     source:
-                      field: "shopId"
-                      sourceType: "path"
-                missing_shops_product_id:
-                  summary: Missing shop's product ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "shopsProductId"
+                      field: "productId"
                       sourceType: "path"
                 invalid_uuid:
-                  summary: Invalid shop ID format
+                  summary: Invalid product ID format
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "INVALID_UUID"
                     source:
-                      field: "shopId"
+                      field: "productId"
                       sourceType: "path"
                     detail: "Invalid UUID format"
                 missing_body:
@@ -8286,7 +8257,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                  $ref: "#/components/schemas/OwnPartnerApplicationData"
               examples:
                 empty:
                   summary: No applications exist yet
@@ -8295,28 +8266,11 @@ paths:
                   summary: One existing application for a new shop
                   value:
                     - id: "550e8400-e29b-41d4-a716-446655440000"
-                      applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                       businessState: "IN_REVIEW"
                       executionState: "WAITING"
                       payload:
-                        type: "NEW"
-                        shopName: "My Antique Store"
-                        shopType: "COMMERCIAL_DEALER"
-                        shopDomains:
-                          - "my-antique-store.com"
-                        shopUrl: "https://my-antique-store.com/"
-                        shopImage: "https://my-antique-store.com/logo.png"
-                        shopStructuredAddress:
-                          addressline: "Pariser Platz 1"
-                          addresslineExtra: "2. Etage"
-                          postalCode: "10117"
-                          locality: "Berlin"
-                          country: "DE"
-                          continent: "EUROPE"
-                        shopPhone: "+49 30 123456"
-                        shopEmail: "contact@my-antique-store.com"
-                      created: "2026-04-09T10:00:00Z"
-                      updated: "2026-04-09T10:00:00Z"
+                        type: "new"
+                        shopId: "550e8400-e29b-41d4-a716-446655440001"
         "401":
           description: Unauthorized – invalid or missing JWT token.
           content:
@@ -8405,31 +8359,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/OwnPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
-                applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "SUBMITTED"
                 executionState: "PROCESSING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopImage: "https://my-antique-store.com/logo.png"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-09T10:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid request body.
           content:
@@ -8516,31 +8453,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/OwnPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
-                applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
                 executionState: "WAITING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopImage: "https://my-antique-store.com/logo.png"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-09T11:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter.
           content:
@@ -8671,30 +8591,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/OwnPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
-                applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "SUBMITTED"
                 executionState: "PROCESSING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Renamed Antique Store"
-                  shopType: "AUCTION_HOUSE"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/renamed"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-09T12:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter or request body.
           content:
@@ -8861,13 +8765,16 @@ paths:
       summary: List all partner shop applications
       description: |
         Retrieves all partner shop applications across all users.
-        This endpoint is restricted to authenticated users with the `ADMIN` role.
+        This endpoint accepts Cognito JWTs and Aura Historia access tokens.
+        User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
+        the `partner-shop-applications:write` scope.
         Returns an empty array when no applications exist.
       operationId: adminGetPartnerApplications
       tags:
         - Partner Applications
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Partner shop applications retrieved successfully.
@@ -8887,7 +8794,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                  $ref: "#/components/schemas/AdminPartnerApplicationData"
               examples:
                 empty:
                   summary: No applications exist yet
@@ -8900,32 +8807,15 @@ paths:
                       businessState: "SUBMITTED"
                       executionState: "PROCESSING"
                       payload:
-                        type: "NEW"
-                        shopName: "My Antique Store"
-                        shopType: "COMMERCIAL_DEALER"
-                        shopDomains:
-                          - "my-antique-store.com"
-                        shopUrl: "https://my-antique-store.com/"
-                        shopStructuredAddress:
-                          addressline: "Pariser Platz 1"
-                          addresslineExtra: "2. Etage"
-                          postalCode: "10117"
-                          locality: "Berlin"
-                          country: "DE"
-                          continent: "EUROPE"
-                        shopPhone: "+49 30 123456"
-                        shopEmail: "contact@my-antique-store.com"
-                      created: "2026-04-09T10:00:00Z"
-                      updated: "2026-04-09T10:00:00Z"
+                        type: "new"
+                        shopId: "550e8400-e29b-41d4-a716-446655440001"
                     - id: "7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901"
                       applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f2"
                       businessState: "APPROVED"
                       executionState: "COMPLETED"
                       payload:
-                        type: "EXISTING"
+                        type: "existing"
                         shopId: "1b0ef61a-a4e1-4667-a7e6-bce7eb4f8c1a"
-                      created: "2026-04-08T09:30:00Z"
-                      updated: "2026-04-10T07:15:00Z"
         "401":
           description: Unauthorized – invalid or missing JWT token.
           content:
@@ -8963,7 +8853,9 @@ paths:
       summary: Get a specific partner shop application as admin
       description: |
         Retrieves a single partner shop application by its ID across all users.
-        This endpoint is restricted to authenticated users with the `ADMIN` role.
+        This endpoint accepts Cognito JWTs and Aura Historia access tokens.
+        User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
+        the `partner-shop-applications:write` scope.
       operationId: adminGetPartnerApplication
       tags:
         - Partner Applications
@@ -8978,6 +8870,7 @@ paths:
           example: "550e8400-e29b-41d4-a716-446655440000"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Partner shop application found and returned successfully.
@@ -9001,31 +8894,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/AdminPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
                 executionState: "WAITING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopImage: "https://my-antique-store.com/logo.png"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-09T11:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter.
           content:
@@ -9099,7 +8976,9 @@ paths:
       summary: Update a partner shop application as admin
       description: |
         Updates a specific partner shop application by ID across all users.
-        This endpoint is restricted to authenticated users with the `ADMIN` role.
+        This endpoint accepts Cognito JWTs and Aura Historia access tokens.
+        User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
+        the `partner-shop-applications:write` scope.
         Admins can update payload fields, but review decisions must be submitted through
         `POST /api/v1/partner-applications/{partnerApplicationId}/decision`.
         The request body is required and must not be empty.
@@ -9117,6 +8996,7 @@ paths:
           example: "550e8400-e29b-41d4-a716-446655440000"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: |
@@ -9166,30 +9046,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/AdminPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
                 executionState: "WAITING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-10T12:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter or request body.
           content:
@@ -9279,7 +9144,9 @@ paths:
       summary: Submit a partner shop application decision as admin
       description: |
         Submits an `APPROVE` or `REJECT` decision for a specific partner shop application across all users.
-        This endpoint is restricted to authenticated users with the `ADMIN` role.
+        This endpoint accepts Cognito JWTs and Aura Historia access tokens.
+        User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
+        the `partner-shop-applications:write` scope.
         The targeted application must currently have `businessState` `IN_REVIEW`; otherwise the request fails with `409 Conflict`.
         On success, the workflow resumes asynchronously and the returned application has `executionState` `PROCESSING`
         while the decision is being applied.
@@ -9297,6 +9164,7 @@ paths:
           example: "550e8400-e29b-41d4-a716-446655440000"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: Decision payload indicating whether the application should be approved or rejected.
@@ -9331,22 +9199,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPartnerShopApplicationData"
+                $ref: "#/components/schemas/AdminPartnerApplicationData"
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
                 executionState: "PROCESSING"
                 payload:
-                  type: "NEW"
-                  shopName: "My Antique Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  shopDomains:
-                    - "my-antique-store.com"
-                  shopUrl: "https://my-antique-store.com/"
-                  shopImage: "https://my-antique-store.com/logo.png"
-                created: "2026-04-09T10:00:00Z"
-                updated: "2026-04-11T12:00:00Z"
+                  type: "new"
+                  shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
           description: Bad request – missing or invalid path parameter or request body.
           content:
@@ -10746,10 +10607,6 @@ components:
         - url
         - viewUrl
         - images
-        - createdBy
-        - updatedBy
-        - created
-        - updated
       properties:
         productId:
           type: string
@@ -13998,7 +13855,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/GetUserAccountData"
+            $ref: "#/components/schemas/AdminUserAccountData"
           description: Users returned in the current page.
         size:
           type: integer
@@ -14107,101 +13964,75 @@ components:
               description: Inclusive upper bound.
               example: "2026-04-25T23:59:59Z"
 
-    GetUserAccountData:
+    OwnUserAccountData:
       type: object
-      description: Complete user account information including prohibited content consent
+      description: User-owned account information for `/api/v1/me/account`. Role, tier, and Stripe customer ID are read-only here.
       required:
         - userId
         - email
         - prohibitedContentConsent
         - tier
         - role
-        - createdBy
-        - updatedBy
-        - created
-        - updated
       properties:
         userId:
           type: string
           format: uuid
-          description: Unique identifier for the user
-          example: "550e8400-e29b-41d4-a716-446655440000"
+          description: Unique identifier for the user.
         email:
           type: string
           format: email
-          description: User's email address
-          example: "user@example.com"
+          description: User's email address.
         firstName:
           type: string
           maxLength: 64
           nullable: true
-          description: User's first name (optional, max 64 characters)
-          example: "John"
         lastName:
           type: string
           maxLength: 64
           nullable: true
-          description: User's last name (optional, max 64 characters)
-          example: "Doe"
         language:
           allOf:
             - $ref: "#/components/schemas/LanguageData"
           nullable: true
-          description: User's preferred language (optional)
         currency:
           allOf:
             - $ref: "#/components/schemas/CurrencyData"
           nullable: true
-          description: User's preferred currency (optional)
         measurementUnit:
           allOf:
             - $ref: "#/components/schemas/MeasurementUnitData"
           nullable: true
-          description: User's preferred measurement unit system (optional)
         prohibitedContentConsent:
           type: boolean
-          description: Whether the user has consented to viewing prohibited content
-          example: false
         tier:
           $ref: "#/components/schemas/UserTierData"
         role:
           $ref: "#/components/schemas/UserRoleData"
         stripeCustomerId:
           type: string
-          description: Persisted Stripe customer identifier for the user, omitted when the user has never been linked to a Stripe customer
-          example: "cus_mocked_550e8400e29b41d4a716446655440000"
+          nullable: true
+          description: Persisted Stripe customer identifier, omitted when absent.
         structuredAddress:
           allOf:
             - $ref: "#/components/schemas/StructuredAddressData"
           nullable: true
-          description: Optional structured postal address stored on the user account.
         geoAddress:
           allOf:
             - $ref: "#/components/schemas/GeoAddressData"
           nullable: true
-          description: Optional latitude/longitude coordinates derived by the backend from `structuredAddress`.
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who created this user account
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
-          description: Actor who last updated this user account
-        created:
-          type: string
-          format: date-time
-          description: When the user account was created (RFC3339 format)
-          example: "2024-01-01T10:00:00Z"
-        updated:
-          type: string
-          format: date-time
-          description: When the user account was last updated (RFC3339 format)
-          example: "2024-01-01T12:00:00Z"
+
+    AdminUserAccountData:
+      allOf:
+        - $ref: "#/components/schemas/OwnUserAccountData"
+        - type: object
+          description: Admin user account view. Same read fields as own account; write permissions differ by endpoint.
 
     PatchAdminUserData:
       type: object
       description: |
         Partial admin-only user update payload.
         All fields are optional. Omitted fields remain unchanged.
+        Only one logical change category may be sent per request: profile/preferences fields, `role`, or `tier`.
       properties:
         firstName:
           type: string
@@ -14245,11 +14076,7 @@ components:
             - $ref: "#/components/schemas/UserRoleData"
           nullable: true
           description: New user role.
-        stripeCustomerId:
-          type: string
-          nullable: true
-          description: New Stripe customer identifier to persist for the user.
-          example: "cus_admin_550e8400e29b41d4a716446655440000"
+
         structuredAddress:
           allOf:
             - $ref: "#/components/schemas/StructuredAddressData"
@@ -15152,13 +14979,14 @@ components:
 
     PartnerShopApplicationStateData:
       type: string
-      enum: [SUBMITTED, IN_REVIEW, REJECTED, APPROVED]
+      enum: [SUBMITTED, IN_REVIEW, REJECTED, APPROVED, WITHDRAWN]
       description: |
         The business review state of a partner shop application:
         - `SUBMITTED`: Application has been submitted and is awaiting review.
         - `IN_REVIEW`: Application is currently being reviewed by the team.
         - `REJECTED`: Application was reviewed and rejected.
         - `APPROVED`: Application was reviewed and approved.
+        - `WITHDRAWN`: Applicant withdrew the application.
         The state is read-only from the client perspective and can only be changed internally.
       example: SUBMITTED
 
@@ -15175,107 +15003,57 @@ components:
 
     GetPartnerShopApplicationPayloadData:
       description: |
-        The payload of a partner shop application. Discriminated by the `type` field.
-        - `EXISTING`: The application targets an existing shop and includes the hydrated shop data.
-        - `NEW`: The application targets a new shop described by name, type, domains, and optional metadata such as a primary URL, image, address, and contact details.
+        The response payload of a partner shop application. Discriminated by the `type` field.
+        Both variants reference the associated shop by `shopId`; shop details are read through shop endpoints.
       oneOf:
         - title: Existing shop payload
           type: object
           required:
             - type
-            - shop
+            - shopId
           properties:
             type:
               type: string
-              enum: [EXISTING]
+              enum: [existing]
               description: Discriminator value indicating this payload targets an existing shop.
-            shop:
-              allOf:
-                - $ref: "#/components/schemas/GetShopData"
-              description: Hydrated data for the existing shop.
+            shopId:
+              type: string
+              format: uuid
+              description: Associated shop identifier.
         - title: New shop payload
           type: object
           required:
             - type
-            - shopName
-            - shopType
-            - shopDomains
+            - shopId
           properties:
             type:
               type: string
-              enum: [NEW]
-              description: Discriminator value indicating this payload describes a new shop.
-            shopName:
+              enum: [new]
+              description: Discriminator value indicating this payload created a new draft shop.
+            shopId:
               type: string
-              description: Display name of the new shop.
-              maxLength: 255
-              example: "My Antique Store"
-            shopType:
-              $ref: "#/components/schemas/ShopTypeData"
-            shopDomains:
-              type: array
-              items:
-                type: string
-              description: |
-                Domains associated with the new shop.
-                Domains are normalized (lowercase, no scheme, no www prefix, no path/query/fragment).
-              minItems: 1
-              uniqueItems: true
-              example:
-                - "my-antique-store.com"
-            shopUrl:
-              type: string
-              format: uri
-              nullable: true
-              description: Optional primary URL of the requested new shop website.
-              example: "https://my-antique-store.com/"
-            shopImage:
-              type: string
-              format: uri
-              nullable: true
-              description: Optional URL to the new shop's logo or image.
-              example: "https://my-antique-store.com/logo.png"
-            shopStructuredAddress:
-              $ref: "#/components/schemas/StructuredAddressData"
-            shopPhone:
-              type: string
-              description: Optional public contact phone number for the requested new shop.
-              example: "+49 30 123456"
-            shopEmail:
-              type: string
-              format: email
-              description: Optional public contact email address for the requested new shop.
-              example: "contact@my-antique-store.com"
+              format: uuid
+              description: Associated draft shop identifier.
       discriminator:
         propertyName: type
         mapping:
-          EXISTING: "#/components/schemas/GetPartnerShopApplicationPayloadData/oneOf/0"
-          NEW: "#/components/schemas/GetPartnerShopApplicationPayloadData/oneOf/1"
+          existing: "#/components/schemas/GetPartnerShopApplicationPayloadData/oneOf/0"
+          new: "#/components/schemas/GetPartnerShopApplicationPayloadData/oneOf/1"
 
-    GetPartnerShopApplicationData:
+    OwnPartnerApplicationData:
       type: object
-      description: Full representation of a partner shop application.
+      description: User-owned partner shop application response.
       required:
         - id
-        - applicantUserId
         - businessState
         - executionState
         - payload
-        - createdBy
-        - updatedBy
-        - created
-        - updated
       properties:
         id:
           type: string
           format: uuid
           description: Unique identifier of the partner shop application.
           example: "550e8400-e29b-41d4-a716-446655440000"
-        applicantUserId:
-          type: string
-          format: uuid
-          description: Unique identifier of the user who submitted the partner shop application.
-          example: "0196580c-e4ca-723f-a7e0-1a73588380f1"
         businessState:
           allOf:
             - $ref: "#/components/schemas/PartnerShopApplicationStateData"
@@ -15286,20 +15064,20 @@ components:
           description: Workflow execution state of the application.
         payload:
           $ref: "#/components/schemas/GetPartnerShopApplicationPayloadData"
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
-        created:
-          type: string
-          format: date-time
-          description: When the application was created (RFC3339 format).
-          example: "2026-04-09T10:00:00Z"
-        updated:
-          type: string
-          format: date-time
-          description: When the application was last updated (RFC3339 format).
-          example: "2026-04-09T11:00:00Z"
+
+    AdminPartnerApplicationData:
+      allOf:
+        - $ref: "#/components/schemas/OwnPartnerApplicationData"
+        - type: object
+          description: Admin partner shop application response.
+          required:
+            - applicantUserId
+          properties:
+            applicantUserId:
+              type: string
+              format: uuid
+              description: Unique identifier of the user who submitted the partner shop application.
+              example: "0196580c-e4ca-723f-a7e0-1a73588380f1"
 
     PostPartnerShopApplicationPayloadData:
       description: |

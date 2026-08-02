@@ -1,8 +1,8 @@
-use crate::auth::OptionalAuthExtractor;
+use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{
     ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE, INVALID_UUID,
 };
-use crate::shops::shop_data::{ShopSummaryData, cache_control, request_metadata};
+use crate::shops::shop_data::{ShopSummaryData, cache_control};
 use crate::shops::types::{ShopContinentData, ShopPartnerStatusData, ShopTypeData};
 use crate::state::ShopsState;
 use axum::Json;

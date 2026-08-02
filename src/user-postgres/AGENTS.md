@@ -11,7 +11,7 @@
 - Exports public SQLx factories only.
 - Keeps SQL rows, SQL, mapping, repositories, and readers private.
 - Readers and repositories bind to caller-owned transactions through service factory ports.
-- User repository writes use `RETURNING` and expose only storage-neutral persisted user state.
+- User repository writes use `RETURNING` and expose only storage-neutral persisted user state; delete returns row-existence only.
 - Access tokens stay outside this crate until their source-of-truth moves off DynamoDB.
 - User search sort maps `Name` to `first_name`, then `last_name`; no score sort.
 

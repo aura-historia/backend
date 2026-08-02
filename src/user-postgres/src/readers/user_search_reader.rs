@@ -5,7 +5,7 @@ use common::error::boxed::box_error;
 use common::pagination::cursor::Cursor;
 use common::postgres::SqlxTransaction;
 use common::sort::{Sort, SortOrder};
-use serde_json::Value;
+use common::user_id::UserId;
 use sqlx::{Postgres, QueryBuilder};
 use user_core::sort_user_field::SortUserField;
 use user_service::ports::{UserSearchReadError, UserSearchReader, UserSearchReaderFactory};
@@ -40,24 +40,50 @@ impl UserSearchReader for SqlxUserSearchReader<'_> {
         &mut self,
         request: &SearchUsersRequest,
     ) -> Result<SearchUsersResult, UserSearchReadError> {
-        let mut builder = QueryBuilder::<Postgres>::new(format!(
-            "SELECT {} FROM users WHERE TRUE",
-            user_columns()
-        ));
-        push_filters(&mut builder, request);
-        push_sort(&mut builder, request.sort);
-        let cursor = request.cursor.clone().unwrap_or_default();
-        builder
-            .push(" LIMIT ")
-            .push_bind(i64::try_from(cursor.size.min(100)).unwrap_or(100));
+        let cursor = request.cursor.unwrap_or_default();
+        let size = cursor.size.clamp(1, 100);
+        let size_usize = usize::try_from(size).map_err(|source| UserSearchReadError::Internal {
+            source: box_error(source),
+        })?;
+        let limit = i64::try_from(size + 1).map_err(|source| UserSearchReadError::Internal {
+            source: box_error(source),
+        })?;
+        let sort = request.sort.unwrap_or(Sort {
+            sort: SortUserField::default(),
+            order: SortOrder::Asc,
+        });
 
-        let rows = builder
+        let mut builder = QueryBuilder::<Postgres>::new("WITH filtered AS (SELECT ");
+        builder.push(user_columns()).push(" FROM users WHERE TRUE");
+        push_filters(&mut builder, request);
+        builder.push("), ranked AS (SELECT filtered.*, row_number() OVER (ORDER BY ");
+        push_sort_fields(&mut builder, sort);
+        builder.push(", user_id ASC) AS rn FROM filtered) SELECT ");
+        builder.push(user_columns()).push(" FROM ranked WHERE TRUE");
+        if let Some(search_after) = cursor.search_after {
+            builder.push(" AND rn > (SELECT rn FROM ranked WHERE user_id = ");
+            builder.push_bind(uuid::Uuid::from(search_after));
+            builder.push(")");
+        }
+        builder.push(" ORDER BY rn LIMIT ").push_bind(limit);
+
+        let mut rows = builder
             .build_query_as::<UserRow>()
             .fetch_all(&mut *self.connection)
             .await
             .map_err(|source| UserSearchReadError::TemporarilyUnavailable {
                 source: box_error(source),
             })?;
+
+        let has_more = rows.len() > size_usize;
+        if has_more {
+            rows.truncate(size_usize);
+        }
+        let search_after = if has_more {
+            rows.last().map(|row| UserId::from(row.user_id))
+        } else {
+            None
+        };
 
         let items = rows
             .into_iter()
@@ -69,10 +95,7 @@ impl UserSearchReader for SqlxUserSearchReader<'_> {
 
         Ok(SearchUsersResult {
             items,
-            cursor: Cursor::<Value> {
-                search_after: None,
-                size: cursor.size,
-            },
+            cursor: Cursor { size, search_after },
             total: None,
         })
     }
@@ -160,17 +183,12 @@ fn push_filters(builder: &mut QueryBuilder<'_, Postgres>, request: &SearchUsersR
     }
 }
 
-fn push_sort(builder: &mut QueryBuilder<'_, Postgres>, sort: Option<Sort<SortUserField>>) {
-    let sort = sort.unwrap_or(Sort {
-        sort: SortUserField::default(),
-        order: SortOrder::Asc,
-    });
+fn push_sort_fields(builder: &mut QueryBuilder<'_, Postgres>, sort: Sort<SortUserField>) {
     let order = match sort.order {
         SortOrder::Asc => "ASC",
         SortOrder::Desc => "DESC",
     };
 
-    builder.push(" ORDER BY ");
     for (index, column) in sort_user_field_columns(sort.sort).iter().enumerate() {
         if index > 0 {
             builder.push(", ");

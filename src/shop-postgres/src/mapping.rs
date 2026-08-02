@@ -1,7 +1,6 @@
 use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::language::domain::Language;
-use common::versioned::Versioned;
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use geo::core::address::{GeoAddress, StructuredAddress};
 use geo::core::continent::Continent;
@@ -17,7 +16,7 @@ use shop_core::shop::{
 };
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
-use shop_service::ports::{PersistedShop, ShopStorageVersion, VersionedShop};
+use shop_service::ports::{ShopStorageVersion, StoredShop};
 use shop_service::use_cases::queries::get_shop::ShopDetailsView;
 use shop_service::use_cases::queries::search_shops::ShopSummary;
 use std::collections::HashSet;
@@ -133,16 +132,7 @@ pub(crate) fn shop_summary_columns() -> &'static str {
     SHOP_SUMMARY_COLUMNS
 }
 
-impl TryFrom<ShopRow> for VersionedShop {
-    type Error = ShopRowMappingError;
-
-    fn try_from(row: ShopRow) -> Result<Self, Self::Error> {
-        let persisted = PersistedShop::try_from(row)?;
-        Ok(Versioned::new(persisted.shop, persisted.version))
-    }
-}
-
-impl TryFrom<ShopRow> for PersistedShop {
+impl TryFrom<ShopRow> for StoredShop {
     type Error = ShopRowMappingError;
 
     fn try_from(row: ShopRow) -> Result<Self, Self::Error> {
@@ -568,15 +558,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_map_valid_row_to_versioned_shop() {
+    fn should_map_valid_row_to_stored_shop() {
         let row = full_row("Antik Markt", "antik-markt");
 
-        let result = VersionedShop::try_from(row);
+        let result = StoredShop::try_from(row);
 
         assert!(matches!(result, Ok(ref loaded)
-            if loaded.value.name().as_ref() == "Antik Markt"
+            if loaded.shop.name().as_ref() == "Antik Markt"
                 && loaded.version == ShopStorageVersion::INITIAL
-                && loaded.value.view_url().as_ref().map(Url::as_str) == Some("https://prf.hn/click/camref:1110lF73C/pubref:aurahistoria/destination:https%3A%2F%2Fexample.com%2Fshop")
+                && loaded.shop.view_url().as_ref().map(Url::as_str) == Some("https://prf.hn/click/camref:1110lF73C/pubref:aurahistoria/destination:https%3A%2F%2Fexample.com%2Fshop")
         ));
     }
 
@@ -584,7 +574,7 @@ mod tests {
     fn should_reject_row_when_slug_does_not_match_name() {
         let row = full_row("Antik Markt", "wrong");
 
-        let result = VersionedShop::try_from(row);
+        let result = StoredShop::try_from(row);
 
         assert!(matches!(
             result,
@@ -751,7 +741,7 @@ mod tests {
         let mut row = full_row("Antik Markt", "antik-markt");
         mutate(&mut row);
 
-        let result = VersionedShop::try_from(row);
+        let result = StoredShop::try_from(row);
 
         assert!(matches!(result, Err(error) if error == expected));
     }
@@ -776,13 +766,13 @@ mod tests {
         row.email = None;
         row.phone = None;
 
-        let result = VersionedShop::try_from(row);
+        let result = StoredShop::try_from(row);
 
         assert!(matches!(result, Ok(ref loaded)
-            if loaded.value.shopify().is_none()
-                && loaded.value.woocommerce().is_none()
-                && loaded.value.address().is_none()
-                && loaded.value.contact() == &ShopContact::default()
+            if loaded.shop.address().is_none()
+                && loaded.shop.woocommerce().is_none()
+                && loaded.shop.address().is_none()
+                && loaded.shop.contact() == &ShopContact::default()
         ));
     }
 

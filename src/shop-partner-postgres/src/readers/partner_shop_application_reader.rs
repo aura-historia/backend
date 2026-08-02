@@ -4,7 +4,7 @@ use common::postgres::SqlxTransaction;
 use common::user_id::UserId;
 use shop_partner_service::ports::{
     PartnerShopApplicationReader, PartnerShopApplicationReaderFactory,
-    PartnerShopApplicationRepositoryError, VersionedPartnerShopApplication,
+    PartnerShopApplicationRepositoryError, PartnerShopApplicationView,
 };
 use sqlx::PgConnection;
 
@@ -38,7 +38,7 @@ impl PartnerShopApplicationReaderFactory<SqlxTransaction>
 impl PartnerShopApplicationReader for SqlxPartnerShopApplicationReader<'_> {
     async fn list_all(
         &mut self,
-    ) -> Result<Vec<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError> {
+    ) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError> {
         let sql = format!(
             "SELECT {} FROM partner_shop_applications ORDER BY created DESC",
             APPLICATION_COLUMNS
@@ -49,7 +49,7 @@ impl PartnerShopApplicationReader for SqlxPartnerShopApplicationReader<'_> {
     async fn list_by_user(
         &mut self,
         user_id: UserId,
-    ) -> Result<Vec<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError> {
+    ) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError> {
         let sql = format!(
             "SELECT {} FROM partner_shop_applications WHERE applicant_user_id = $1 ORDER BY created DESC",
             APPLICATION_COLUMNS
@@ -66,7 +66,7 @@ impl PartnerShopApplicationReader for SqlxPartnerShopApplicationReader<'_> {
 async fn fetch_many(
     connection: &mut PgConnection,
     sql: &str,
-) -> Result<Vec<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError> {
+) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError> {
     let rows = sqlx::query_as::<_, PartnerShopApplicationRow>(sql)
         .fetch_all(connection)
         .await
@@ -76,9 +76,9 @@ async fn fetch_many(
 
 fn map_rows(
     rows: Vec<PartnerShopApplicationRow>,
-) -> Result<Vec<VersionedPartnerShopApplication>, PartnerShopApplicationRepositoryError> {
+) -> Result<Vec<PartnerShopApplicationView>, PartnerShopApplicationRepositoryError> {
     rows.into_iter()
-        .map(VersionedPartnerShopApplication::try_from)
+        .map(PartnerShopApplicationView::try_from)
         .collect::<Result<Vec<_>, _>>()
         .map_err(
             |source| PartnerShopApplicationRepositoryError::InvalidPersistedState {

@@ -1,4 +1,4 @@
-use crate::ports::{UserRepository, UserRepositoryError};
+use crate::ports::{UserAdminReadError, UserAdminReader};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
@@ -11,7 +11,7 @@ pub(crate) enum RequireAdminActorError {
     #[error("operation not permitted")]
     Forbidden,
     #[error(transparent)]
-    UserRepository(#[from] UserRepositoryError),
+    UserAdminRead(#[from] UserAdminReadError),
 }
 
 pub(crate) fn require_admin_actor_credential(
@@ -24,18 +24,18 @@ pub(crate) fn require_admin_actor_credential(
         .authorize::<RequireAdminActorError>()
 }
 
-pub(crate) async fn require_admin_actor<R: UserRepository>(
+pub(crate) async fn require_admin_actor<R: UserAdminReader>(
     context: &OperationContext,
-    users: &mut R,
+    reader: &mut R,
 ) -> Result<(), RequireAdminActorError> {
     match &context.principal {
         Principal::Service(_) | Principal::System => Ok(()),
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => {
-            let actor = users
-                .find_by_id(*user_id)
+            let actor = reader
+                .find_admin_actor(*user_id)
                 .await?
                 .ok_or(RequireAdminActorError::Forbidden)?;
-            if actor.value.account().role == UserRole::Admin {
+            if actor.role == UserRole::Admin {
                 Ok(())
             } else {
                 Err(RequireAdminActorError::Forbidden)
@@ -57,7 +57,10 @@ impl From<OperationAuthorizationError> for RequireAdminActorError {
 
 #[cfg(test)]
 mod tests {
-    use crate::ports::{UserStorageVersion, VersionedUser};
+    use crate::ports::{
+        UserAdminActorView, UserAdminReadError, UserAdminReader, UserRepository,
+        UserRepositoryError, UserStorageVersion, VersionedUser,
+    };
 
     use super::*;
     use common::error::boxed::{BoxError, box_error};
@@ -113,6 +116,37 @@ mod tests {
     }
 
     #[async_trait::async_trait]
+    impl UserAdminReader for FakeUserRepository {
+        async fn find_admin_actor(
+            &mut self,
+            _user_id: UserId,
+        ) -> Result<Option<UserAdminActorView>, UserAdminReadError> {
+            self.find_by_id_calls += 1;
+            if let Some(error) = self.error.take() {
+                match error {
+                    UserRepositoryError::TemporarilyUnavailable { source } => {
+                        Err(UserAdminReadError::TemporarilyUnavailable { source })
+                    }
+                    UserRepositoryError::InvalidPersistedState { source } => {
+                        Err(UserAdminReadError::InvalidReadModel { source })
+                    }
+                    UserRepositoryError::Internal { source } => {
+                        Err(UserAdminReadError::Internal { source })
+                    }
+                    _ => Err(UserAdminReadError::Internal {
+                        source: "unexpected repository error".into(),
+                    }),
+                }
+            } else {
+                Ok(self.user.clone().map(|user| UserAdminActorView {
+                    user_id: user.id(),
+                    role: user.account().role,
+                }))
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
     impl UserRepository for FakeUserRepository {
         async fn find_by_id(
             &mut self,
@@ -153,6 +187,10 @@ mod tests {
             _expected_version: UserStorageVersion,
         ) -> Result<VersionedUser, UserRepositoryError> {
             Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
+        }
+
+        async fn delete_by_id(&mut self, _id: UserId) -> Result<bool, UserRepositoryError> {
+            Ok(true)
         }
     }
 
@@ -288,7 +326,7 @@ mod tests {
 
         assert_error(
             require_admin_actor(&context(Principal::User(user_id)), &mut repo).await,
-            |error| matches!(error, RequireAdminActorError::UserRepository(_)),
+            |error| matches!(error, RequireAdminActorError::UserAdminRead(_)),
         );
     }
 }

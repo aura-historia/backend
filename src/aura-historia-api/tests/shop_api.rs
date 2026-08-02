@@ -19,7 +19,6 @@ use shop_service::ports::{ShopGeocoder, ShopGeocoderError};
 use shop_service::ports::{ShopRepository, ShopRepositoryFactory};
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
-use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopHandler;
 use shop_service::use_cases::queries::get_shop::GetShopHandler;
 use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsHandler;
 use shop_service::use_cases::queries::search_shops::SearchShopsHandler;
@@ -30,10 +29,10 @@ use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
     get_dynamodb_client, get_postgres_client,
 };
-use time::OffsetDateTime;
 use url::Url;
 use user_core::access_token::{
-    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken, Scope,
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
+    Scope,
 };
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_service::ports::AccessTokenStore;
@@ -617,8 +616,7 @@ async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> RawAc
     let client = get_dynamodb_client().await;
     let store = DynamoDbAccessTokenStore::new(client, "table_1");
     let raw = RawAccessToken::new();
-    let now = OffsetDateTime::now_utc();
-    let token = AccessToken {
+    let token = AccessToken::create(NewAccessToken {
         id: AccessTokenId::new(),
         hashed_token: raw.clone().into(),
         user_id,
@@ -626,9 +624,7 @@ async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> RawAc
         scopes,
         origin: AccessTokenOrigin::User,
         expires: None,
-        created: now,
-        updated: now,
-    };
+    });
     if let Err(error) = store.insert(token).await {
         panic!("failed to seed access token: {error:?}");
     }
@@ -699,10 +695,6 @@ async fn test_state() -> AppState {
         unit_of_work.clone(),
         user_postgres::SqlxUserAdminReaderFactory::new(),
     );
-    let check_user_partner_shop = CheckUserPartnerShopHandler::new(
-        unit_of_work.clone(),
-        shop_postgres::SqlxPartnerShopReaderFactory::new(),
-    );
     let create_shop = CreateShopHandler::new(
         unit_of_work.clone(),
         SqlxShopRepositoryFactory::new(),
@@ -717,7 +709,7 @@ async fn test_state() -> AppState {
             unit_of_work.clone(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
         ),
-        check_user_partner_shop,
+        shop_postgres::SqlxPartnerShopReaderFactory::new(),
     );
     let list_user_partner_shops = ListUserPartnerShopsHandler::new(
         unit_of_work,
@@ -726,17 +718,17 @@ async fn test_state() -> AppState {
     let client = get_dynamodb_client().await;
     let store = DynamoDbAccessTokenStore::new(client, "table_1");
     let access_token = AuthenticateAccessTokenHandler::new(store);
-    let authenticator = ApiAuthService::new(
+    let authenticator = std::sync::Arc::new(ApiAuthService::new(
         RejectJwtAuthenticator,
         AuraAccessTokenAuthenticator::new(access_token),
-    );
-    AppState::new(ShopsState::new(
+    ));
+    AppState::with_shops_only(ShopsState::new(
         std::sync::Arc::new(get_shop),
         std::sync::Arc::new(search_shops),
         std::sync::Arc::new(create_shop),
         std::sync::Arc::new(update_shop),
         std::sync::Arc::new(list_user_partner_shops),
-        std::sync::Arc::new(authenticator),
+        authenticator,
     ))
 }
 

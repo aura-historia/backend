@@ -1,7 +1,6 @@
 use common::domain::Domain;
 use common::postgres::SqlxUnitOfWork;
 use common::transaction::{Transaction, UnitOfWork};
-use common::versioned::Versioned;
 use common::{shop_id::ShopId, shop_name::ShopName};
 use shop_core::affiliate_configuration::AffiliateConfiguration;
 use shop_core::partner_status::ShopPartnerStatus;
@@ -88,7 +87,7 @@ async fn should_find_shop_by_slug() {
     };
     commit(tx).await;
 
-    assert_eq!(shop.id(), loaded.value.id());
+    assert_eq!(shop.id(), loaded.shop.id());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -106,9 +105,10 @@ async fn should_update_shop_with_optimistic_concurrency() {
     commit(tx).await;
 
     let mut tx = begin(&unit_of_work).await;
-    let Versioned {
-        value: mut loaded,
+    let shop_service::ports::StoredShop {
+        shop: mut loaded,
         version,
+        ..
     } = match shops.in_transaction(&mut tx).find_by_id(shop.id()).await {
         Ok(Some(loaded)) => loaded,
         Ok(None) => panic!("missing shop"),

@@ -224,6 +224,16 @@ impl UserRepository for SqlxUserRepository<'_> {
             source: box_error(source),
         })
     }
+
+    async fn delete_by_id(&mut self, id: UserId) -> Result<bool, UserRepositoryError> {
+        let result = sqlx::query("DELETE FROM users WHERE user_id = $1")
+            .bind(uuid::Uuid::from(id))
+            .execute(&mut *self.connection)
+            .await
+            .map_err(map_write_error)?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }
 
 fn map_write_error(source: sqlx::Error) -> UserRepositoryError {

@@ -260,12 +260,12 @@ async fn ensure_can_create_shop<A>(
 where
     A: CheckUserAdminUseCase,
 {
-    let Some(user_id) = actor_user_id(context)? else {
+    if actor_user_id(context)?.is_none() {
         return Ok(());
-    };
+    }
 
     check_user_admin
-        .execute(context, CheckUserAdminRequest { user_id })
+        .execute(context, CheckUserAdminRequest)
         .await
         .map(drop)
         .map_err(map_admin_error)
@@ -281,9 +281,10 @@ fn actor_user_id(context: &OperationContext) -> Result<Option<UserId>, CreateSho
 
 fn map_admin_error(error: CheckUserAdminError) -> CreateShopError {
     match error {
-        CheckUserAdminError::Forbidden | CheckUserAdminError::UserNotFound => {
-            CreateShopError::Forbidden
+        CheckUserAdminError::AuthenticatedActorRequired => {
+            CreateShopError::AuthenticatedActorRequired
         }
+        CheckUserAdminError::Forbidden => CreateShopError::Forbidden,
         CheckUserAdminError::TemporarilyUnavailable { source } => {
             CreateShopError::TemporarilyUnavailable { source }
         }
@@ -355,13 +356,11 @@ pub(crate) fn woocommerce_integration(
 mod tests {
     use super::*;
     use crate::ports::{
-        PersistedShop, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
-        ShopStorageVersion, VersionedShop,
+        ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, StoredShop,
     };
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::transaction::{TransactionError, UnitOfWork};
-    use common::versioned::Versioned;
     use shop_core::shop::{NewShop, ShopContact, ShopPresentation};
     use std::sync::{Arc, Mutex};
     use user_service::use_cases::queries::check_user_admin::{
@@ -387,7 +386,7 @@ mod tests {
     struct State {
         begin_error: bool,
         commit_error: bool,
-        shop_by_slug: Option<VersionedShop>,
+        shop_by_slug: Option<StoredShop>,
         find_by_slug_error: Option<RepoErrorKind>,
         insert_error: Option<RepoErrorKind>,
         geocoder_error: Option<ShopGeocoderError>,
@@ -468,14 +467,14 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ShopId,
-        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             Ok(None)
         }
 
         async fn find_by_slug(
             &mut self,
             _slug_id: &ShopSlugId,
-        ) -> Result<Option<VersionedShop>, ShopRepositoryError> {
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.find_by_slug += 1;
                 match state.find_by_slug_error {
@@ -485,14 +484,14 @@ mod tests {
             })
         }
 
-        async fn insert(&mut self, shop: &Shop) -> Result<PersistedShop, ShopRepositoryError> {
+        async fn insert(&mut self, shop: &Shop) -> Result<StoredShop, ShopRepositoryError> {
             with_state(&self.state, |state| {
                 state.counts.insert += 1;
                 match state.insert_error {
                     Some(kind) => Err(shop_repo_error(kind)),
                     None => {
                         state.inserted = Some(shop.clone());
-                        Ok(persisted_shop(shop.clone()))
+                        Ok(stored_shop(shop.clone()))
                     }
                 }
             })
@@ -502,8 +501,8 @@ mod tests {
             &mut self,
             _shop: &Shop,
             _expected_version: ShopStorageVersion,
-        ) -> Result<PersistedShop, ShopRepositoryError> {
-            Ok(persisted_shop(_shop.clone()))
+        ) -> Result<StoredShop, ShopRepositoryError> {
+            Ok(stored_shop(_shop.clone()))
         }
     }
 
@@ -514,9 +513,8 @@ mod tests {
             _context: &OperationContext,
             request: CheckUserAdminRequest,
         ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
-            Ok(CheckUserAdminResult {
-                user_id: request.user_id,
-            })
+            let _ = request;
+            Ok(CheckUserAdminResult)
         }
     }
 
@@ -616,7 +614,7 @@ mod tests {
     async fn should_not_commit_create_when_slug_exists_or_repo_fails() {
         let state = shared_state();
         with_state(&state, |state| {
-            state.shop_by_slug = Some(versioned_shop(shop("Antik Markt")))
+            state.shop_by_slug = Some(stored_shop(shop("Antik Markt")))
         });
         let slug_handler = build_handler(&state);
 
@@ -763,20 +761,14 @@ mod tests {
         })
     }
 
-    fn versioned_shop(shop: Shop) -> VersionedShop {
-        Versioned::new(shop, ShopStorageVersion::INITIAL)
-    }
-
-    fn persisted_shop(shop: Shop) -> PersistedShop {
-        let now = time::OffsetDateTime::now_utc();
-        PersistedShop {
+    fn stored_shop(shop: Shop) -> StoredShop {
+        StoredShop {
             shop,
             version: ShopStorageVersion::INITIAL,
-            created: now,
-            updated: now,
+            created: time::OffsetDateTime::now_utc(),
+            updated: time::OffsetDateTime::now_utc(),
         }
     }
-
     fn address() -> StructuredAddress {
         StructuredAddress {
             addressline: Some("Street 1".to_string()),

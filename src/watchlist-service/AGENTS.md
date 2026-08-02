@@ -4,6 +4,7 @@
 
 - Own `watchlist-service` crate.
 - Own watchlist use cases and outbound ports.
+- Exposes watch, list, update, and unwatch product use cases.
 
 ## Core Design
 
@@ -11,8 +12,9 @@
 - Write use cases own transactions.
 - Persistence hidden behind repository factory.
 - Repository writes return persisted watchlist state.
-- User/product list reads live in dedicated transaction-scoped reader port/factory, not repository.
+- User/product list reads live in dedicated transaction-scoped reader port/factory, not repository, and return service-owned read models, not aggregates.
 - Watchlist writes require `watchlist:write`.
+- Watchlist list reads require owner/service/system access and delegated `watchlist:read`.
 
 ## Ownership
 

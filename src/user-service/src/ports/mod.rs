@@ -6,8 +6,12 @@ pub mod user_search_reader;
 pub mod user_stripe_customer_reader;
 
 pub use access_token_store::{AccessTokenStore, AccessTokenStoreError};
-pub use user_account_reader::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
-pub use user_admin_reader::{UserAdminReadError, UserAdminReader, UserAdminReaderFactory};
+pub use user_account_reader::{
+    UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
+};
+pub use user_admin_reader::{
+    UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,
+};
 pub use user_repository::{
     UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion, VersionedUser,
 };

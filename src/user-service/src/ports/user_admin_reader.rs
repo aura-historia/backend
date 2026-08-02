@@ -1,7 +1,14 @@
 #![allow(dead_code)]
 
-use crate::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
 use common::error::boxed::BoxError;
+use common::user_id::UserId;
+use user_core::role::UserRole;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserAdminActorView {
+    pub user_id: UserId,
+    pub role: UserRole,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum UserAdminReadError {
@@ -24,10 +31,10 @@ pub enum UserAdminReadError {
 
 #[async_trait::async_trait]
 pub trait UserAdminReader: Send {
-    async fn find_admin_view(
+    async fn find_admin_actor(
         &mut self,
-        request: &GetUserRequest,
-    ) -> Result<Option<UserDetailsView>, UserAdminReadError>;
+        user_id: UserId,
+    ) -> Result<Option<UserAdminActorView>, UserAdminReadError>;
 }
 
 pub trait UserAdminReaderFactory<Tx>: Send + Sync {
