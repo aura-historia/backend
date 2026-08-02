@@ -185,7 +185,7 @@ impl ProductCssSelectorSchema {
         match self.images.apply_image_url_candidate_groups(html) {
             Ok(images) => Ok(images),
             Err(ExtractionError::NoElementMatched { .. })
-                if image_rule_has_existing_container(&self.images, html) =>
+                if image_rule_has_existing_empty_container(&self.images, html) =>
             {
                 Ok(Vec::new())
             }
@@ -349,12 +349,26 @@ impl ProductCssSelectorSchema {
     }
 }
 
-fn image_rule_has_existing_container(rule: &ExtractionRule, html: &Html) -> bool {
-    std::iter::once(&rule.selector)
+fn image_rule_has_existing_empty_container(rule: &ExtractionRule, html: &Html) -> bool {
+    let mut found_container = false;
+
+    for container_selector in std::iter::once(&rule.selector)
         .chain(rule.additional_selectors.iter())
         .flat_map(|selector| image_container_selectors(selector.as_ref()))
-        .filter_map(|container| scraper::Selector::parse(&container).ok())
-        .any(|container| html.select(&container).next().is_some())
+    {
+        let Ok(container_selector) = scraper::Selector::parse(&container_selector) else {
+            continue;
+        };
+
+        for container in html.select(&container_selector) {
+            found_container = true;
+            if element_has_image_like_evidence(&container) {
+                return false;
+            }
+        }
+    }
+
+    found_container
 }
 
 fn image_container_selectors(selector: &str) -> Vec<String> {
@@ -371,6 +385,28 @@ fn image_container_selectors(selector: &str) -> Vec<String> {
             }
         })
         .collect()
+}
+
+fn element_has_image_like_evidence(element: &scraper::ElementRef<'_>) -> bool {
+    let html = element.html().to_ascii_lowercase();
+    [
+        "<img",
+        "<picture",
+        "<source",
+        " src=",
+        " srcset=",
+        " data-src=",
+        " data-srcset=",
+        " data-lazy=",
+        " data-lazy-src=",
+        " data-large_image=",
+        " data-full=",
+        " data-original=",
+        " data-zoom-image=",
+        " background-image",
+    ]
+    .iter()
+    .any(|needle| html.contains(needle))
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
@@ -681,6 +717,44 @@ mod tests {
             seller_name: None,
             state: text_rule("#state"),
             images: image_rule_all("#wrong-gallery img"),
+            auction_start: None,
+            auction_end: None,
+            default_currency: None,
+            raw_attributes: Default::default(),
+        };
+
+        let err = schema.apply(&html).unwrap_err();
+
+        assert!(
+            matches!(err, ApplySchemaError::Images(_)),
+            "unexpected variant: {err}"
+        );
+    }
+
+    #[test]
+    fn should_return_err_images_when_container_has_image_like_markup_but_selector_misses() {
+        let html = Html::parse_document(
+            r#"<html><body>
+                <span id="product-id">23175</span>
+                <h1>Pair of Mid-Victorian Figured Mahogany Three-Drawer Jewellery Drawers.</h1>
+                <span id="state">In Stock</span>
+                <div id="wpgs-gallery" class="wcgs-woocommerce-product-gallery">
+                    <picture>
+                        <source srcset="/images/full-size.webp 1200w">
+                    </picture>
+                </div>
+            </body></html>"#,
+        );
+        let schema = ProductCssSelectorSchema {
+            shops_product_id: Some(text_rule("#product-id")),
+            title: text_rule("h1"),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            seller_name: None,
+            state: text_rule("#state"),
+            images: image_rule_all("#wpgs-gallery img"),
             auction_start: None,
             auction_end: None,
             default_currency: None,
