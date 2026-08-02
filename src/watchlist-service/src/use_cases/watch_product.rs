@@ -358,7 +358,6 @@ mod tests {
                     entries
                         .iter()
                         .filter(|entry| entry.user_id() == user_id)
-                        .cloned()
                         .map(|entry| WatchlistProductView {
                             user_id: entry.user_id(),
                             product_id: entry.product_id(),
