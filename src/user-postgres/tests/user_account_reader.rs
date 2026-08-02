@@ -17,7 +17,6 @@ use user_postgres::{SqlxUserAccountReaderFactory, SqlxUserRepositoryFactory};
 use user_service::ports::{
     UserAccountReader, UserAccountReaderFactory, UserRepository, UserRepositoryFactory,
 };
-use user_service::use_cases::queries::get_user::GetUserRequest;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -35,11 +34,7 @@ async fn should_read_user_account_from_postgres() {
         Err(error) => panic!("failed to insert user: {error:?}"),
     }
 
-    let account_view = match accounts
-        .in_transaction(&mut tx)
-        .find_account(&GetUserRequest::ByEmail(user.email().clone()))
-        .await
-    {
+    let account_view = match accounts.in_transaction(&mut tx).find_by_id(user.id()).await {
         Ok(Some(view)) => view,
         Ok(None) => panic!("missing account view"),
         Err(error) => panic!("failed to read account view: {error:?}"),

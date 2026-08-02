@@ -4466,6 +4466,7 @@ paths:
       description: |
         Partially updates a user account for authenticated administrators.
         All request fields are optional, but the request body itself must be present and non-empty.
+        Send only one logical change category per request: profile/preferences fields, `role`, or `tier`.
         An empty JSON object (`{}`) is accepted and returns the existing user unchanged.
       operationId: adminPatchUser
       tags:
@@ -4489,20 +4490,22 @@ paths:
             schema:
               $ref: "#/components/schemas/PatchAdminUserData"
             examples:
-              update_access:
-                summary: Promote a user and upgrade the tier
+              update_role:
+                summary: Promote a user
+                value:
+                  role: "ADMIN"
+              update_tier:
+                summary: Upgrade the tier
                 value:
                   tier: "ULTIMATE"
-                  role: "ADMIN"
-              update_profile_and_billing:
-                summary: Update profile settings and Stripe customer mapping
+              update_profile:
+                summary: Update profile settings
                 value:
                   firstName: "Ada"
                   lastName: "Lovelace"
                   language: "en"
                   currency: "EUR"
                   prohibitedContentConsent: true
-                  stripeCustomerId: "cus_admin_550e8400e29b41d4a716446655440000"
       responses:
         "200":
           description: User updated successfully.
@@ -14182,6 +14185,7 @@ components:
       description: |
         Partial admin-only user update payload.
         All fields are optional. Omitted fields remain unchanged.
+        Only one logical change category may be sent per request: profile/preferences fields, `role`, or `tier`.
       properties:
         firstName:
           type: string
@@ -14225,11 +14229,7 @@ components:
             - $ref: "#/components/schemas/UserRoleData"
           nullable: true
           description: New user role.
-        stripeCustomerId:
-          type: string
-          nullable: true
-          description: New Stripe customer identifier to persist for the user.
-          example: "cus_admin_550e8400e29b41d4a716446655440000"
+
         structuredAddress:
           allOf:
             - $ref: "#/components/schemas/StructuredAddressData"

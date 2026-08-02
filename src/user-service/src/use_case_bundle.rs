@@ -1,17 +1,20 @@
 use crate::use_cases::{
-    AuthenticateAccessTokenUseCase, ChangeUserRoleUseCase, ChangeUserTierUseCase,
-    CheckUserAdminUseCase, CreateAccessTokenUseCase, CreateUserUseCase, DeleteAccessTokenUseCase,
-    DeleteUserUseCase, FindUserByStripeCustomerIdUseCase, GetAccessTokenUseCase, GetUserUseCase,
-    ListAccessTokensUseCase, SearchUsersUseCase, UpdateAccessTokenUseCase, UpdateUserUseCase,
+    AdminGetUserUseCase, AuthenticateAccessTokenUseCase, ChangeUserRoleUseCase,
+    ChangeUserTierUseCase, CheckUserAdminUseCase, CreateAccessTokenUseCase, CreateUserUseCase,
+    DeleteAccessTokenUseCase, DeleteUserUseCase, FindUserByStripeCustomerIdUseCase,
+    GetAccessTokenUseCase, GetOwnUserUseCase, ListAccessTokensUseCase, SearchUsersUseCase,
+    SetUserStripeCustomerIdUseCase, UpdateAccessTokenUseCase, UpdateUserProfileUseCase,
 };
 use std::sync::Arc;
 
 pub struct UserUseCases {
     pub create: Arc<dyn CreateUserUseCase>,
-    pub update: Arc<dyn UpdateUserUseCase>,
+    pub update_profile: Arc<dyn UpdateUserProfileUseCase>,
     pub change_role: Arc<dyn ChangeUserRoleUseCase>,
     pub change_tier: Arc<dyn ChangeUserTierUseCase>,
-    pub get: Arc<dyn GetUserUseCase>,
+    pub set_stripe_customer_id: Arc<dyn SetUserStripeCustomerIdUseCase>,
+    pub get_own: Arc<dyn GetOwnUserUseCase>,
+    pub admin_get: Arc<dyn AdminGetUserUseCase>,
     pub check_admin: Arc<dyn CheckUserAdminUseCase>,
     pub search: Arc<dyn SearchUsersUseCase>,
     pub find_by_stripe_customer_id: Arc<dyn FindUserByStripeCustomerIdUseCase>,
@@ -26,10 +29,12 @@ pub struct UserUseCases {
 
 pub struct UserUseCasesInput {
     pub create: Arc<dyn CreateUserUseCase>,
-    pub update: Arc<dyn UpdateUserUseCase>,
+    pub update_profile: Arc<dyn UpdateUserProfileUseCase>,
     pub change_role: Arc<dyn ChangeUserRoleUseCase>,
     pub change_tier: Arc<dyn ChangeUserTierUseCase>,
-    pub get: Arc<dyn GetUserUseCase>,
+    pub set_stripe_customer_id: Arc<dyn SetUserStripeCustomerIdUseCase>,
+    pub get_own: Arc<dyn GetOwnUserUseCase>,
+    pub admin_get: Arc<dyn AdminGetUserUseCase>,
     pub check_admin: Arc<dyn CheckUserAdminUseCase>,
     pub search: Arc<dyn SearchUsersUseCase>,
     pub find_by_stripe_customer_id: Arc<dyn FindUserByStripeCustomerIdUseCase>,
@@ -46,10 +51,12 @@ impl UserUseCases {
     pub fn new(input: UserUseCasesInput) -> Self {
         Self {
             create: input.create,
-            update: input.update,
+            update_profile: input.update_profile,
             change_role: input.change_role,
             change_tier: input.change_tier,
-            get: input.get,
+            set_stripe_customer_id: input.set_stripe_customer_id,
+            get_own: input.get_own,
+            admin_get: input.admin_get,
             check_admin: input.check_admin,
             search: input.search,
             find_by_stripe_customer_id: input.find_by_stripe_customer_id,

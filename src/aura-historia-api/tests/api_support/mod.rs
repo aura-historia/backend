@@ -42,18 +42,22 @@ use test_api::{get_dynamodb_client, get_postgres_client};
 use time::OffsetDateTime;
 use url::Url;
 use user_core::access_token::{
-    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken, Scope,
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
+    Scope,
 };
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_service::ports::AccessTokenStore;
+use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
+use user_service::use_cases::commands::change_user_tier::ChangeUserTierHandler;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenHandler;
 use user_service::use_cases::commands::delete_access_token::DeleteAccessTokenHandler;
 use user_service::use_cases::commands::delete_user::DeleteUserHandler;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenHandler;
-use user_service::use_cases::commands::update_user::UpdateUserHandler;
+use user_service::use_cases::commands::update_user_profile::UpdateUserProfileHandler;
+use user_service::use_cases::queries::admin_get_user::AdminGetUserHandler;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
-use user_service::use_cases::queries::get_user::GetUserHandler;
+use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
 use watchlist_postgres::{SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory};
@@ -130,7 +134,7 @@ pub async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> R
     let store = DynamoDbAccessTokenStore::new(client, "table_1");
     let raw = RawAccessToken::new();
     let now = OffsetDateTime::now_utc();
-    let token = AccessToken {
+    let token = AccessToken::create(NewAccessToken {
         id: AccessTokenId::new(),
         hashed_token: raw.clone().into(),
         user_id,
@@ -138,9 +142,8 @@ pub async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> R
         scopes,
         origin: AccessTokenOrigin::User,
         expires: None,
-        created: now,
-        updated: now,
-    };
+        now,
+    });
     if let Err(error) = store.insert(token).await {
         panic!("failed to seed access token: {error:?}");
     }
@@ -300,7 +303,11 @@ async fn test_state() -> AppState {
     );
 
     let users_state = UsersState::new(
-        Arc::new(GetUserHandler::new(
+        Arc::new(GetOwnUserHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserAccountReaderFactory::new(),
+        )),
+        Arc::new(AdminGetUserHandler::new(
             unit_of_work.clone(),
             user_postgres::SqlxUserAccountReaderFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
@@ -310,7 +317,17 @@ async fn test_state() -> AppState {
             user_postgres::SqlxUserSearchReaderFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
         )),
-        Arc::new(UpdateUserHandler::new(
+        Arc::new(UpdateUserProfileHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserRepositoryFactory::new(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        )),
+        Arc::new(ChangeUserRoleHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserRepositoryFactory::new(),
+            user_postgres::SqlxUserAdminReaderFactory::new(),
+        )),
+        Arc::new(ChangeUserTierHandler::new(
             unit_of_work.clone(),
             user_postgres::SqlxUserRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),

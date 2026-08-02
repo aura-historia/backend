@@ -4,8 +4,7 @@ use common::measurement_unit::data::MeasurementUnitData;
 use common::user_id::UserId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use user_service::use_cases::queries::get_user::UserDetailsView;
+use user_service::ports::UserDetailsView;
 use user_service::use_cases::queries::search_users::UserSummary;
 
 #[derive(Debug, Serialize)]
@@ -84,10 +83,10 @@ impl From<UserSummary> for UserSummaryData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct CursorData<T> {
+pub(crate) struct CursorData<T, C> {
     pub(crate) items: Vec<T>,
     pub(crate) size: u64,
-    pub(crate) search_after: Option<Value>,
+    pub(crate) search_after: Option<C>,
     pub(crate) total: Option<u64>,
 }
 

@@ -1,8 +1,10 @@
 use crate::mapping::{UserRow, user_columns};
 use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
-use user_service::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
-use user_service::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
+use common::user_id::UserId;
+use user_service::ports::{
+    UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxUserAccountReaderFactory;
@@ -30,40 +32,26 @@ impl UserAccountReaderFactory<SqlxTransaction> for SqlxUserAccountReaderFactory 
 
 #[async_trait::async_trait]
 impl UserAccountReader for SqlxUserAccountReader<'_> {
-    async fn find_account(
+    async fn find_by_id(
         &mut self,
-        request: &GetUserRequest,
+        user_id: UserId,
     ) -> Result<Option<UserDetailsView>, UserAccountReadError> {
-        find_user_details(self.connection, request).await
+        find_user_details_by_id(self.connection, user_id).await
     }
 }
 
-pub(crate) async fn find_user_details(
+pub(crate) async fn find_user_details_by_id(
     connection: &mut sqlx::PgConnection,
-    request: &GetUserRequest,
+    user_id: UserId,
 ) -> Result<Option<UserDetailsView>, UserAccountReadError> {
-    let sql = match request {
-        GetUserRequest::ById(_) | GetUserRequest::AdminById(_) => {
-            format!("SELECT {} FROM users WHERE user_id = $1", user_columns())
-        }
-        GetUserRequest::ByEmail(_) => {
-            format!("SELECT {} FROM users WHERE email = $1", user_columns())
-        }
-    };
-
-    let mut query = sqlx::query_as::<_, UserRow>(&sql);
-    query = match request {
-        GetUserRequest::ById(user_id) | GetUserRequest::AdminById(user_id) => {
-            query.bind(uuid::Uuid::from(*user_id))
-        }
-        GetUserRequest::ByEmail(email) => query.bind::<&str>(email.as_ref()),
-    };
-
-    let row = query.fetch_optional(connection).await.map_err(|source| {
-        UserAccountReadError::TemporarilyUnavailable {
+    let sql = format!("SELECT {} FROM users WHERE user_id = $1", user_columns());
+    let row = sqlx::query_as::<_, UserRow>(&sql)
+        .bind(uuid::Uuid::from(user_id))
+        .fetch_optional(connection)
+        .await
+        .map_err(|source| UserAccountReadError::TemporarilyUnavailable {
             source: box_error(source),
-        }
-    })?;
+        })?;
 
     row.map(UserDetailsView::try_from)
         .transpose()

@@ -1,6 +1,6 @@
 use crate::ports::{
-    UserAdminReadError, UserAdminReaderFactory, UserRepository, UserRepositoryError,
-    UserRepositoryFactory,
+    UserAdminReadError, UserAdminReaderFactory, UserDetailsView, UserRepository,
+    UserRepositoryError, UserRepositoryFactory,
 };
 use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
@@ -19,8 +19,7 @@ pub struct ChangeUserTierCommand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChangeUserTierResult {
-    pub user_id: UserId,
-    pub tier: UserTier,
+    pub view: UserDetailsView,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -163,8 +162,7 @@ where
 impl From<&User> for ChangeUserTierResult {
     fn from(user: &User) -> Self {
         Self {
-            user_id: user.id(),
-            tier: user.account().tier,
+            view: UserDetailsView::from(user),
         }
     }
 }
@@ -221,10 +219,10 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{
-        UserAdminReader, UserAdminReaderFactory, UserRepository, UserRepositoryError,
-        UserRepositoryFactory, UserStorageVersion, VersionedUser,
+        UserAdminActorView, UserAdminReader, UserAdminReaderFactory, UserDetailsView,
+        UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion,
+        VersionedUser,
     };
-    use crate::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::stripe_customer_id::StripeCustomerId;
@@ -519,11 +517,17 @@ mod tests {
 
     #[async_trait::async_trait]
     impl UserAdminReader for FakeUserAdminReader {
-        async fn find_admin_view(
+        async fn find_admin_actor(
             &mut self,
-            _request: &GetUserRequest,
-        ) -> Result<Option<UserDetailsView>, crate::ports::UserAdminReadError> {
-            Ok(lock(&self.state).user.clone())
+            _user_id: UserId,
+        ) -> Result<Option<UserAdminActorView>, crate::ports::UserAdminReadError> {
+            Ok(lock(&self.state)
+                .user
+                .clone()
+                .map(|user| UserAdminActorView {
+                    user_id: user.user_id,
+                    role: user.role,
+                }))
         }
     }
 

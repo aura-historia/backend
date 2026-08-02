@@ -33,7 +33,8 @@ use test_api::{
 use time::OffsetDateTime;
 use url::Url;
 use user_core::access_token::{
-    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken, Scope,
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
+    Scope,
 };
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_service::ports::AccessTokenStore;
@@ -618,7 +619,7 @@ async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> RawAc
     let store = DynamoDbAccessTokenStore::new(client, "table_1");
     let raw = RawAccessToken::new();
     let now = OffsetDateTime::now_utc();
-    let token = AccessToken {
+    let token = AccessToken::create(NewAccessToken {
         id: AccessTokenId::new(),
         hashed_token: raw.clone().into(),
         user_id,
@@ -626,9 +627,8 @@ async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> RawAc
         scopes,
         origin: AccessTokenOrigin::User,
         expires: None,
-        created: now,
-        updated: now,
-    };
+        now,
+    });
     if let Err(error) = store.insert(token).await {
         panic!("failed to seed access token: {error:?}");
     }

@@ -1,5 +1,4 @@
 use crate::ports::{UserAdminReadError, UserAdminReader};
-use crate::use_cases::queries::get_user::GetUserRequest;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
@@ -33,7 +32,7 @@ pub(crate) async fn require_admin_actor<R: UserAdminReader>(
         Principal::Service(_) | Principal::System => Ok(()),
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => {
             let actor = reader
-                .find_admin_view(&GetUserRequest::ById(*user_id))
+                .find_admin_actor(*user_id)
                 .await?
                 .ok_or(RequireAdminActorError::Forbidden)?;
             if actor.role == UserRole::Admin {
@@ -59,10 +58,9 @@ impl From<OperationAuthorizationError> for RequireAdminActorError {
 #[cfg(test)]
 mod tests {
     use crate::ports::{
-        UserAdminReadError, UserAdminReader, UserRepository, UserRepositoryError,
-        UserStorageVersion, VersionedUser,
+        UserAdminActorView, UserAdminReadError, UserAdminReader, UserRepository,
+        UserRepositoryError, UserStorageVersion, VersionedUser,
     };
-    use crate::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
 
     use super::*;
     use common::error::boxed::{BoxError, box_error};
@@ -117,30 +115,12 @@ mod tests {
         box_error(std::io::Error::other("boom"))
     }
 
-    fn user_details(user: User) -> UserDetailsView {
-        UserDetailsView {
-            user_id: user.id(),
-            email: user.email().clone(),
-            first_name: user.profile().first_name.clone(),
-            last_name: user.profile().last_name.clone(),
-            language: user.preferences().language,
-            currency: user.preferences().currency,
-            measurement_unit: user.preferences().measurement_unit,
-            prohibited_content_consent: user.preferences().prohibited_content_consent,
-            tier: user.account().tier,
-            role: user.account().role,
-            stripe_customer_id: user.account().stripe_customer_id.clone(),
-            structured_address: user.profile().structured_address.clone(),
-            geo_address: user.profile().geo_address,
-        }
-    }
-
     #[async_trait::async_trait]
     impl UserAdminReader for FakeUserRepository {
-        async fn find_admin_view(
+        async fn find_admin_actor(
             &mut self,
-            _request: &GetUserRequest,
-        ) -> Result<Option<UserDetailsView>, UserAdminReadError> {
+            _user_id: UserId,
+        ) -> Result<Option<UserAdminActorView>, UserAdminReadError> {
             self.find_by_id_calls += 1;
             if let Some(error) = self.error.take() {
                 match error {
@@ -158,7 +138,10 @@ mod tests {
                     }),
                 }
             } else {
-                Ok(self.user.clone().map(user_details))
+                Ok(self.user.clone().map(|user| UserAdminActorView {
+                    user_id: user.id(),
+                    role: user.account().role,
+                }))
             }
         }
     }

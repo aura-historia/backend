@@ -15,9 +15,8 @@ use user_core::role::UserRole;
 use user_core::sort_user_field::SortUserField;
 use user_core::tier::UserTier;
 use user_core::user::{RehydratedUserState, User, UserAccount, UserPreferences, UserProfile};
-use user_service::ports::{UserStorageVersion, VersionedUser};
+use user_service::ports::{UserDetailsView, UserStorageVersion, VersionedUser};
 use user_service::use_cases::queries::find_user_by_stripe_customer_id::UserStripeLookupView;
-use user_service::use_cases::queries::get_user::UserDetailsView;
 use user_service::use_cases::queries::search_users::UserSummary;
 
 #[allow(dead_code)]

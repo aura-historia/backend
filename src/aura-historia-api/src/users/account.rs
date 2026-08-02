@@ -1,28 +1,23 @@
 use super::types::{PatchUserData, UserData};
-use super::util::{no_store, parse_json, parse_role, parse_tier, patch};
+use super::util::{no_store, parse_json, patch};
 use crate::auth::protected_context;
-use crate::error::ApiError;
+use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::UsersState;
 use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::patch_field::PatchField;
 use common::user_id::UserId;
 use user_service::use_cases::commands::delete_user::DeleteUserCommand;
-use user_service::use_cases::commands::update_user::UpdateUserCommand;
-use user_service::use_cases::queries::get_user::GetUserRequest;
+use user_service::use_cases::commands::update_user_profile::UpdateUserProfileCommand;
+use user_service::use_cases::queries::get_own_user::GetOwnUserRequest;
 
 pub async fn get_me(State(state): State<UsersState>, headers: HeaderMap) -> Response {
-    let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
+    let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
         Err(r) => return r,
     };
-    match state
-        .get_user
-        .execute(&ctx, GetUserRequest::ById(user_id))
-        .await
-    {
+    match state.get_own_user.execute(&ctx, GetOwnUserRequest).await {
         Ok(view) => no_store(Json(UserData::from(view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
@@ -64,7 +59,12 @@ pub(crate) async fn patch_user(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let command = UpdateUserCommand {
+    if data.tier.is_some() || data.role.is_some() {
+        return ApiError::bad_request(BAD_BODY_VALUE)
+            .with_detail("Role and tier changes must use admin user update flow.")
+            .into_response();
+    }
+    let command = UpdateUserProfileCommand {
         user_id,
         email: patch(data.email),
         first_name: patch(data.first_name),
@@ -73,20 +73,10 @@ pub(crate) async fn patch_user(
         currency: patch(data.currency.map(Into::into)),
         measurement_unit: patch(data.measurement_unit.map(Into::into)),
         prohibited_content_consent: patch(data.prohibited_content_consent),
-        tier: patch(data.tier.and_then(parse_tier)),
-        role: patch(data.role.and_then(parse_role)),
-        stripe_customer_id: PatchField::Unchanged,
         structured_address: patch(data.structured_address.map(Into::into)),
     };
-    match state.update_user.execute(&ctx, command).await {
-        Ok(result) => match state
-            .get_user
-            .execute(&ctx, GetUserRequest::ById(result.user_id))
-            .await
-        {
-            Ok(view) => no_store(Json(UserData::from(view)).into_response()),
-            Err(error) => ApiError::from(error).into_response(),
-        },
+    match state.update_user_profile.execute(&ctx, command).await {
+        Ok(result) => no_store(Json(UserData::from(result.view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
 }

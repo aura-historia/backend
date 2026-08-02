@@ -5,7 +5,6 @@ use common::operation_context::{
 use common::transaction::Transaction;
 use user_core::role::UserRole;
 use user_service::ports::{UserAdminReadError, UserAdminReader, UserAdminReaderFactory};
-use user_service::use_cases::queries::get_user::GetUserRequest;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum AdminAuthorizationError {
@@ -49,7 +48,7 @@ where
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => {
             let user = reader
                 .in_transaction(tx)
-                .find_admin_view(&GetUserRequest::ById(*user_id))
+                .find_admin_actor(*user_id)
                 .await?
                 .ok_or(AdminAuthorizationError::Forbidden)?;
             if user.role == UserRole::Admin {

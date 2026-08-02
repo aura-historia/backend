@@ -164,8 +164,9 @@ mod tests {
         NewPartnerShopApplication, PartnerShopApplicationPayload,
     };
     use std::sync::{Arc, Mutex};
-    use user_service::ports::{UserAdminReadError, UserAdminReader, UserAdminReaderFactory};
-    use user_service::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
+    use user_service::ports::{
+        UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,
+    };
     #[derive(Clone, Default)]
     struct TestUnitOfWork {
         state: SharedState,
@@ -242,10 +243,10 @@ mod tests {
     }
     #[async_trait::async_trait]
     impl UserAdminReader for TestAdminReader {
-        async fn find_admin_view(
+        async fn find_admin_actor(
             &mut self,
-            _request: &GetUserRequest,
-        ) -> Result<Option<UserDetailsView>, UserAdminReadError> {
+            _user_id: UserId,
+        ) -> Result<Option<UserAdminActorView>, UserAdminReadError> {
             Ok(None)
         }
     }

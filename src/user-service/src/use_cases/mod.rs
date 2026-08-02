@@ -2,6 +2,7 @@ pub(crate) mod authorization;
 pub mod commands;
 pub mod queries;
 
+pub use crate::ports::UserDetailsView;
 pub use commands::change_user_role::{
     ChangeUserRoleCommand, ChangeUserRoleError, ChangeUserRoleHandler, ChangeUserRoleResult,
     ChangeUserRoleUseCase,
@@ -24,13 +25,20 @@ pub use commands::delete_access_token::{
 pub use commands::delete_user::{
     DeleteUserCommand, DeleteUserError, DeleteUserHandler, DeleteUserResult, DeleteUserUseCase,
 };
-
+pub use commands::set_user_stripe_customer_id::{
+    SetUserStripeCustomerIdCommand, SetUserStripeCustomerIdError, SetUserStripeCustomerIdHandler,
+    SetUserStripeCustomerIdResult, SetUserStripeCustomerIdUseCase,
+};
 pub use commands::update_access_token::{
     UpdateAccessTokenCommand, UpdateAccessTokenError, UpdateAccessTokenHandler,
     UpdateAccessTokenResult, UpdateAccessTokenUseCase,
 };
-pub use commands::update_user::{
-    UpdateUserCommand, UpdateUserError, UpdateUserHandler, UpdateUserResult, UpdateUserUseCase,
+pub use commands::update_user_profile::{
+    UpdateUserProfileCommand, UpdateUserProfileError, UpdateUserProfileHandler,
+    UpdateUserProfileResult, UpdateUserProfileUseCase,
+};
+pub use queries::admin_get_user::{
+    AdminGetUserError, AdminGetUserHandler, AdminGetUserRequest, AdminGetUserUseCase,
 };
 pub use queries::authenticate_access_token::{
     AuthenticateAccessTokenError, AuthenticateAccessTokenHandler, AuthenticateAccessTokenRequest,
@@ -48,8 +56,8 @@ pub use queries::get_access_token::{
     AccessTokenView, GetAccessTokenError, GetAccessTokenHandler, GetAccessTokenRequest,
     GetAccessTokenUseCase,
 };
-pub use queries::get_user::{
-    GetUserError, GetUserHandler, GetUserRequest, GetUserUseCase, UserDetailsView,
+pub use queries::get_own_user::{
+    GetOwnUserError, GetOwnUserHandler, GetOwnUserRequest, GetOwnUserUseCase,
 };
 pub use queries::list_access_tokens::{
     ListAccessTokensError, ListAccessTokensHandler, ListAccessTokensRequest,

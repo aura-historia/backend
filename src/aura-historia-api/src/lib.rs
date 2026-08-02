@@ -45,14 +45,17 @@ use user_postgres::{
     SqlxUserSearchReaderFactory,
 };
 use user_service::use_cases::AuthenticateAccessTokenHandler;
+use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
+use user_service::use_cases::commands::change_user_tier::ChangeUserTierHandler;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenHandler;
 use user_service::use_cases::commands::delete_access_token::DeleteAccessTokenHandler;
 use user_service::use_cases::commands::delete_user::DeleteUserHandler;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenHandler;
-use user_service::use_cases::commands::update_user::UpdateUserHandler;
+use user_service::use_cases::commands::update_user_profile::UpdateUserProfileHandler;
+use user_service::use_cases::queries::admin_get_user::AdminGetUserHandler;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
-use user_service::use_cases::queries::get_user::GetUserHandler;
+use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
 use watchlist_postgres::{SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory};
@@ -242,7 +245,9 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     );
     let list_user_partner_shops =
         ListUserPartnerShopsHandler::new(unit_of_work.clone(), SqlxPartnerShopReaderFactory::new());
-    let get_user = GetUserHandler::new(
+    let get_own_user =
+        GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
+    let admin_get_user = AdminGetUserHandler::new(
         unit_of_work.clone(),
         SqlxUserAccountReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
@@ -252,7 +257,17 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         SqlxUserSearchReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let update_user = UpdateUserHandler::new(
+    let update_user_profile = UpdateUserProfileHandler::new(
+        unit_of_work.clone(),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let change_user_role = ChangeUserRoleHandler::new(
+        unit_of_work.clone(),
+        SqlxUserRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let change_user_tier = ChangeUserTierHandler::new(
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
@@ -325,9 +340,12 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         AuraAccessTokenAuthenticator::new(access_token_use_case),
     ));
     let users_state = UsersState {
-        get_user: Arc::new(get_user),
+        get_own_user: Arc::new(get_own_user),
+        admin_get_user: Arc::new(admin_get_user),
         search_users: Arc::new(search_users),
-        update_user: Arc::new(update_user),
+        update_user_profile: Arc::new(update_user_profile),
+        change_user_role: Arc::new(change_user_role),
+        change_user_tier: Arc::new(change_user_tier),
         delete_user: Arc::new(delete_user),
         create_access_token: Arc::new(CreateAccessTokenHandler::new(access_token_store.clone())),
         list_access_tokens: Arc::new(ListAccessTokensHandler::new(access_token_store.clone())),
@@ -539,9 +557,12 @@ mod tests {
                 authenticator.clone(),
             ),
             UsersState {
-                get_user: Arc::new(UnusedUseCase),
+                get_own_user: Arc::new(UnusedUseCase),
+                admin_get_user: Arc::new(UnusedUseCase),
                 search_users: Arc::new(UnusedUseCase),
-                update_user: Arc::new(UnusedUseCase),
+                update_user_profile: Arc::new(UnusedUseCase),
+                change_user_role: Arc::new(UnusedUseCase),
+                change_user_tier: Arc::new(UnusedUseCase),
                 delete_user: Arc::new(UnusedUseCase),
                 create_access_token: Arc::new(UnusedUseCase),
                 list_access_tokens: Arc::new(UnusedUseCase),
@@ -648,16 +669,30 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl user_service::use_cases::queries::get_user::GetUserUseCase for UnusedUseCase {
+    impl user_service::use_cases::queries::get_own_user::GetOwnUserUseCase for UnusedUseCase {
         async fn execute(
             &self,
             _context: &common::operation_context::OperationContext,
-            _request: user_service::use_cases::queries::get_user::GetUserRequest,
+            _request: user_service::use_cases::queries::get_own_user::GetOwnUserRequest,
         ) -> Result<
-            user_service::use_cases::queries::get_user::UserDetailsView,
-            user_service::use_cases::queries::get_user::GetUserError,
+            user_service::ports::UserDetailsView,
+            user_service::use_cases::queries::get_own_user::GetOwnUserError,
         > {
-            unreachable!("unused get user")
+            unreachable!("unused get own user")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl user_service::use_cases::queries::admin_get_user::AdminGetUserUseCase for UnusedUseCase {
+        async fn execute(
+            &self,
+            _context: &common::operation_context::OperationContext,
+            _request: user_service::use_cases::queries::admin_get_user::AdminGetUserRequest,
+        ) -> Result<
+            user_service::ports::UserDetailsView,
+            user_service::use_cases::queries::admin_get_user::AdminGetUserError,
+        > {
+            unreachable!("unused admin get user")
         }
     }
     #[async_trait::async_trait]
@@ -674,16 +709,46 @@ mod tests {
         }
     }
     #[async_trait::async_trait]
-    impl user_service::use_cases::commands::update_user::UpdateUserUseCase for UnusedUseCase {
+    impl user_service::use_cases::commands::update_user_profile::UpdateUserProfileUseCase
+        for UnusedUseCase
+    {
         async fn execute(
             &self,
             _context: &common::operation_context::OperationContext,
-            _command: user_service::use_cases::commands::update_user::UpdateUserCommand,
+            _command: user_service::use_cases::commands::update_user_profile::UpdateUserProfileCommand,
         ) -> Result<
-            user_service::use_cases::commands::update_user::UpdateUserResult,
-            user_service::use_cases::commands::update_user::UpdateUserError,
+            user_service::use_cases::commands::update_user_profile::UpdateUserProfileResult,
+            user_service::use_cases::commands::update_user_profile::UpdateUserProfileError,
         > {
-            unreachable!("unused update user")
+            unreachable!("unused update user profile")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase for UnusedUseCase {
+        async fn execute(
+            &self,
+            _context: &common::operation_context::OperationContext,
+            _command: user_service::use_cases::commands::change_user_role::ChangeUserRoleCommand,
+        ) -> Result<
+            user_service::use_cases::commands::change_user_role::ChangeUserRoleResult,
+            user_service::use_cases::commands::change_user_role::ChangeUserRoleError,
+        > {
+            unreachable!("unused change user role")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase for UnusedUseCase {
+        async fn execute(
+            &self,
+            _context: &common::operation_context::OperationContext,
+            _command: user_service::use_cases::commands::change_user_tier::ChangeUserTierCommand,
+        ) -> Result<
+            user_service::use_cases::commands::change_user_tier::ChangeUserTierResult,
+            user_service::use_cases::commands::change_user_tier::ChangeUserTierError,
+        > {
+            unreachable!("unused change user tier")
         }
     }
     #[async_trait::async_trait]

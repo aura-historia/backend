@@ -18,6 +18,8 @@ pub struct ListAccessTokensResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListAccessTokensError {
+    #[error("authenticated actor required to list access tokens")]
+    AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
     #[error("access token already exists")]
@@ -109,7 +111,9 @@ fn authorize_access_token_read(
 impl From<OperationAuthorizationError> for ListAccessTokensError {
     fn from(error: OperationAuthorizationError) -> Self {
         match error {
-            OperationAuthorizationError::AuthenticationRequired(_) => Self::Forbidden,
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
             OperationAuthorizationError::Forbidden
             | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
         }
@@ -150,7 +154,7 @@ mod tests {
     use time::{Duration, OffsetDateTime};
     use user_core::access_token::{
         AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-        RawAccessToken, Scope,
+        NewAccessToken, RawAccessToken, Scope,
     };
 
     #[derive(Debug, Clone, Copy)]
@@ -206,7 +210,7 @@ mod tests {
     ) -> AccessToken {
         let raw = RawAccessToken::new();
         let now = OffsetDateTime::now_utc();
-        AccessToken {
+        AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
             user_id,
@@ -214,9 +218,8 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created: now,
-            updated: now,
-        }
+            now,
+        })
     }
 
     fn boxed() -> BoxError {

@@ -235,9 +235,9 @@ impl From<UserRepositoryError> for DeleteUserError {
 mod tests {
     use super::*;
     use crate::ports::{
-        UserAdminReader, UserAdminReaderFactory, UserStorageVersion, VersionedUser,
+        UserAdminActorView, UserAdminReader, UserAdminReaderFactory, UserDetailsView,
+        UserStorageVersion, VersionedUser,
     };
-    use crate::use_cases::queries::get_user::{GetUserRequest, UserDetailsView};
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, RequestId};
     use common::stripe_customer_id::StripeCustomerId;
@@ -476,13 +476,16 @@ mod tests {
 
     #[async_trait::async_trait]
     impl UserAdminReader for FakeUserAdminReader {
-        async fn find_admin_view(
+        async fn find_admin_actor(
             &mut self,
-            _request: &GetUserRequest,
-        ) -> Result<Option<UserDetailsView>, UserAdminReadError> {
+            _user_id: UserId,
+        ) -> Result<Option<UserAdminActorView>, UserAdminReadError> {
             let mut state = lock(&self.state);
             state.calls += 1;
-            Ok(state.user.clone())
+            Ok(state.user.clone().map(|user| UserAdminActorView {
+                user_id: user.user_id,
+                role: user.role,
+            }))
         }
     }
 

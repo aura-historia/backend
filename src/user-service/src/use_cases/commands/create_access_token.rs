@@ -7,7 +7,8 @@ use common::user_id::UserId;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::{
-    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, RawAccessToken, Scope,
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
+    Scope,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -100,7 +101,7 @@ where
 
         let raw_access_token = RawAccessToken::new();
         let now = OffsetDateTime::now_utc();
-        let access_token = AccessToken {
+        let access_token = AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw_access_token.clone().into(),
             user_id: command.user_id,
@@ -108,23 +109,22 @@ where
             scopes: command.scopes,
             origin: command.origin,
             expires: command.expires,
-            created: now,
-            updated: now,
-        };
+            now,
+        });
 
         self.store.insert(access_token.clone()).await?;
 
         tracing::info!(
             event = "access_token.created",
             actor_id = %principal.label(),
-            user_id = %access_token.user_id,
-            access_token_id = %access_token.id,
+            user_id = %access_token.user_id(),
+            access_token_id = %access_token.id(),
             outcome = "success",
         );
 
         Ok(CreateAccessTokenResult {
-            user_id: access_token.user_id,
-            access_token_id: access_token.id,
+            user_id: access_token.user_id(),
+            access_token_id: access_token.id(),
             raw_access_token,
         })
     }
@@ -196,7 +196,7 @@ mod tests {
     use time::{Duration, OffsetDateTime};
     use user_core::access_token::{
         AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-        RawAccessToken, Scope,
+        NewAccessToken, RawAccessToken, Scope,
     };
 
     #[derive(Debug, Clone, Copy)]
@@ -252,7 +252,7 @@ mod tests {
     ) -> AccessToken {
         let raw = RawAccessToken::new();
         let now = OffsetDateTime::now_utc();
-        AccessToken {
+        AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
             user_id,
@@ -260,9 +260,8 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created: now,
-            updated: now,
-        }
+            now,
+        })
     }
 
     fn boxed() -> BoxError {
@@ -405,7 +404,7 @@ mod tests {
         assert_eq!(1, state.insert_calls);
         assert_eq!(
             Some(user_id),
-            state.token.as_ref().map(|token| token.user_id)
+            state.token.as_ref().map(|token| token.user_id())
         );
     }
 

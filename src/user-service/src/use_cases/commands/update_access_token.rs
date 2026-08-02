@@ -26,8 +26,7 @@ impl UpdateAccessTokenCommand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateAccessTokenResult {
-    pub user_id: UserId,
-    pub access_token_id: AccessTokenId,
+    pub view: crate::use_cases::queries::get_access_token::AccessTokenView,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -121,15 +120,14 @@ where
         tracing::info!(
             event = "access_token.updated",
             actor_id = %principal.label(),
-            user_id = %access_token.user_id,
-            access_token_id = %access_token.id,
+            user_id = %access_token.user_id(),
+            access_token_id = %access_token.id(),
             changed,
             outcome = "success",
         );
 
         Ok(UpdateAccessTokenResult {
-            user_id: access_token.user_id,
-            access_token_id: access_token.id,
+            view: crate::use_cases::queries::get_access_token::AccessTokenView::from(access_token),
         })
     }
 }
@@ -143,36 +141,27 @@ fn apply_update(
     match command.name {
         PatchField::Unchanged => {}
         PatchField::Set(value) => {
-            changed |= access_token.name != value;
-            access_token.name = value;
+            changed |= access_token.change_name(value, OffsetDateTime::now_utc());
         }
         PatchField::Clear => return Err(UpdateAccessTokenError::NameRequired),
     }
     match command.scopes {
         PatchField::Unchanged => {}
         PatchField::Set(value) => {
-            changed |= access_token.scopes != value;
-            access_token.scopes = value;
+            changed |= access_token.replace_scopes(value, OffsetDateTime::now_utc());
         }
         PatchField::Clear => {
-            changed |= !access_token.scopes.is_empty();
-            access_token.scopes.clear();
+            changed |= access_token.replace_scopes(HashSet::new(), OffsetDateTime::now_utc());
         }
     }
     match command.expires {
         PatchField::Unchanged => {}
         PatchField::Set(value) => {
-            changed |= access_token.expires != Some(value);
-            access_token.expires = Some(value);
+            changed |= access_token.change_expires(Some(value), OffsetDateTime::now_utc());
         }
         PatchField::Clear => {
-            changed |= access_token.expires.is_some();
-            access_token.expires = None;
+            changed |= access_token.change_expires(None, OffsetDateTime::now_utc());
         }
-    }
-
-    if changed {
-        access_token.updated = OffsetDateTime::now_utc();
     }
 
     Ok(changed)
@@ -244,7 +233,7 @@ mod tests {
     use time::{Duration, OffsetDateTime};
     use user_core::access_token::{
         AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-        RawAccessToken, Scope,
+        NewAccessToken, RawAccessToken, Scope,
     };
 
     #[derive(Debug, Clone, Copy)]
@@ -300,7 +289,7 @@ mod tests {
     ) -> AccessToken {
         let raw = RawAccessToken::new();
         let now = OffsetDateTime::now_utc();
-        AccessToken {
+        AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
             user_id,
@@ -308,9 +297,8 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created: now,
-            updated: now,
-        }
+            now,
+        })
     }
 
     fn boxed() -> BoxError {
@@ -464,7 +452,7 @@ mod tests {
                     &ctx(Principal::Service("svc".to_owned())),
                     UpdateAccessTokenCommand {
                         user_id,
-                        access_token_id: current.id,
+                        access_token_id: current.id(),
                         name: PatchField::Set(AccessTokenName::from("updated")),
                         scopes: PatchField::Clear,
                         expires: PatchField::Set(OffsetDateTime::now_utc() + Duration::days(1)),
@@ -480,7 +468,7 @@ mod tests {
                     &ctx(Principal::System),
                     UpdateAccessTokenCommand {
                         user_id,
-                        access_token_id: current.id,
+                        access_token_id: current.id(),
                         ..Default::default()
                     },
                 )
@@ -505,7 +493,7 @@ mod tests {
                     }),
                     UpdateAccessTokenCommand {
                         user_id,
-                        access_token_id: current.id,
+                        access_token_id: current.id(),
                         name: PatchField::Set(AccessTokenName::from("delegated update")),
                         ..Default::default()
                     },

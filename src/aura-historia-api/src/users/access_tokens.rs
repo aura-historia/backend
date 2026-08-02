@@ -183,20 +183,7 @@ pub async fn patch_access_token(
         expires: patch(data.expires),
     };
     match state.update_access_token.execute(&ctx, command).await {
-        Ok(_) => match state
-            .get_access_token
-            .execute(
-                &ctx,
-                GetAccessTokenRequest {
-                    user_id,
-                    access_token_id: id,
-                },
-            )
-            .await
-        {
-            Ok(v) => no_store(Json(TokenData::from(v)).into_response()),
-            Err(e) => ApiError::from(e).into_response(),
-        },
+        Ok(result) => no_store(Json(TokenData::from(result.view)).into_response()),
         Err(e) => ApiError::from(e).into_response(),
     }
 }

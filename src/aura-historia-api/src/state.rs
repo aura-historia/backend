@@ -11,13 +11,16 @@ use shop_service::use_cases::queries::get_shop::GetShopUseCase;
 use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsUseCase;
 use shop_service::use_cases::queries::search_shops::SearchShopsUseCase;
 use std::sync::Arc;
+use user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase;
+use user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenUseCase;
 use user_service::use_cases::commands::delete_access_token::DeleteAccessTokenUseCase;
 use user_service::use_cases::commands::delete_user::DeleteUserUseCase;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenUseCase;
-use user_service::use_cases::commands::update_user::UpdateUserUseCase;
+use user_service::use_cases::commands::update_user_profile::UpdateUserProfileUseCase;
+use user_service::use_cases::queries::admin_get_user::AdminGetUserUseCase;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenUseCase;
-use user_service::use_cases::queries::get_user::GetUserUseCase;
+use user_service::use_cases::queries::get_own_user::GetOwnUserUseCase;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensUseCase;
 use user_service::use_cases::queries::search_users::SearchUsersUseCase;
 use watchlist_service::use_cases::{
@@ -90,9 +93,12 @@ impl ShopsState {
 
 #[derive(Clone)]
 pub struct UsersState {
-    pub(crate) get_user: Arc<dyn GetUserUseCase>,
+    pub(crate) get_own_user: Arc<dyn GetOwnUserUseCase>,
+    pub(crate) admin_get_user: Arc<dyn AdminGetUserUseCase>,
     pub(crate) search_users: Arc<dyn SearchUsersUseCase>,
-    pub(crate) update_user: Arc<dyn UpdateUserUseCase>,
+    pub(crate) update_user_profile: Arc<dyn UpdateUserProfileUseCase>,
+    pub(crate) change_user_role: Arc<dyn ChangeUserRoleUseCase>,
+    pub(crate) change_user_tier: Arc<dyn ChangeUserTierUseCase>,
     pub(crate) delete_user: Arc<dyn DeleteUserUseCase>,
     pub(crate) create_access_token: Arc<dyn CreateAccessTokenUseCase>,
     pub(crate) list_access_tokens: Arc<dyn ListAccessTokensUseCase>,
@@ -105,9 +111,12 @@ pub struct UsersState {
 impl UsersState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        get_user: Arc<dyn GetUserUseCase>,
+        get_own_user: Arc<dyn GetOwnUserUseCase>,
+        admin_get_user: Arc<dyn AdminGetUserUseCase>,
         search_users: Arc<dyn SearchUsersUseCase>,
-        update_user: Arc<dyn UpdateUserUseCase>,
+        update_user_profile: Arc<dyn UpdateUserProfileUseCase>,
+        change_user_role: Arc<dyn ChangeUserRoleUseCase>,
+        change_user_tier: Arc<dyn ChangeUserTierUseCase>,
         delete_user: Arc<dyn DeleteUserUseCase>,
         create_access_token: Arc<dyn CreateAccessTokenUseCase>,
         list_access_tokens: Arc<dyn ListAccessTokensUseCase>,
@@ -117,9 +126,12 @@ impl UsersState {
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
-            get_user,
+            get_own_user,
+            admin_get_user,
             search_users,
-            update_user,
+            update_user_profile,
+            change_user_role,
+            change_user_tier,
             delete_user,
             create_access_token,
             list_access_tokens,

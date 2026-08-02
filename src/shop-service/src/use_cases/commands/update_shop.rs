@@ -292,7 +292,7 @@ where
     };
 
     match check_user_admin
-        .execute(context, CheckUserAdminRequest { user_id })
+        .execute(context, CheckUserAdminRequest)
         .await
     {
         Ok(_) => Ok(()),
@@ -333,9 +333,10 @@ fn actor_user_id(context: &OperationContext) -> Result<Option<UserId>, UpdateSho
 
 fn map_admin_error(error: CheckUserAdminError) -> UpdateShopError {
     match error {
-        CheckUserAdminError::Forbidden | CheckUserAdminError::UserNotFound => {
-            UpdateShopError::Forbidden
+        CheckUserAdminError::AuthenticatedActorRequired => {
+            UpdateShopError::AuthenticatedActorRequired
         }
+        CheckUserAdminError::Forbidden => UpdateShopError::Forbidden,
         CheckUserAdminError::TemporarilyUnavailable { source } => {
             UpdateShopError::TemporarilyUnavailable { source }
         }
@@ -773,9 +774,8 @@ mod tests {
             _context: &OperationContext,
             request: CheckUserAdminRequest,
         ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
-            Ok(CheckUserAdminResult {
-                user_id: request.user_id,
-            })
+            let _ = request;
+            Ok(CheckUserAdminResult)
         }
     }
 

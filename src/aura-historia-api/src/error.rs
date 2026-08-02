@@ -17,14 +17,17 @@ use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerSh
 use shop_service::use_cases::queries::search_shops::SearchShopsError;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use user_service::use_cases::commands::change_user_role::ChangeUserRoleError;
+use user_service::use_cases::commands::change_user_tier::ChangeUserTierError;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenError;
 use user_service::use_cases::commands::delete_access_token::DeleteAccessTokenError;
 use user_service::use_cases::commands::delete_user::DeleteUserError;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenError;
-use user_service::use_cases::commands::update_user::UpdateUserError;
+use user_service::use_cases::commands::update_user_profile::UpdateUserProfileError;
+use user_service::use_cases::queries::admin_get_user::AdminGetUserError;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminError;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenError;
-use user_service::use_cases::queries::get_user::GetUserError;
+use user_service::use_cases::queries::get_own_user::GetOwnUserError;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensError;
 use user_service::use_cases::queries::search_users::SearchUsersError;
 use watchlist_service::use_cases::{
@@ -233,8 +236,10 @@ impl From<AuthError> for ApiError {
 impl From<CheckUserAdminError> for ApiError {
     fn from(error: CheckUserAdminError) -> Self {
         match error {
-            CheckUserAdminError::UserNotFound => {
-                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            CheckUserAdminError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
             }
             CheckUserAdminError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
@@ -253,25 +258,55 @@ impl From<CheckUserAdminError> for ApiError {
     }
 }
 
-impl From<GetUserError> for ApiError {
-    fn from(error: GetUserError) -> Self {
+impl From<GetOwnUserError> for ApiError {
+    fn from(error: GetOwnUserError) -> Self {
         match error {
-            GetUserError::AuthenticatedActorRequired => ApiError::unauthorized(INVALID_CREDENTIALS)
-                .with_header_field("Authorization")
-                .with_detail("Bearer token is required."),
-            GetUserError::Forbidden => {
+            GetOwnUserError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            GetOwnUserError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            GetUserError::NotFound => {
+            GetOwnUserError::NotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
-            GetUserError::TemporarilyUnavailable { .. }
-            | GetUserError::BeginTransactionFailed
-            | GetUserError::CommitTransactionFailed => {
+            GetOwnUserError::TemporarilyUnavailable { .. }
+            | GetOwnUserError::BeginTransactionFailed
+            | GetOwnUserError::CommitTransactionFailed => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User details are temporarily unavailable.")
             }
-            GetUserError::InvalidReadModel { .. } | GetUserError::Internal { .. } => {
+            GetOwnUserError::InvalidReadModel { .. } | GetOwnUserError::Internal { .. } => {
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<AdminGetUserError> for ApiError {
+    fn from(error: AdminGetUserError) -> Self {
+        match error {
+            AdminGetUserError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            AdminGetUserError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            AdminGetUserError::NotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            AdminGetUserError::TemporarilyUnavailable { .. }
+            | AdminGetUserError::BeginTransactionFailed
+            | AdminGetUserError::CommitTransactionFailed => {
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User details are temporarily unavailable.")
+            }
+            AdminGetUserError::InvalidReadModel { .. } | AdminGetUserError::Internal { .. } => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
                     .with_detail("User details failed internally.")
             }
@@ -304,37 +339,101 @@ impl From<SearchUsersError> for ApiError {
     }
 }
 
-impl From<UpdateUserError> for ApiError {
-    fn from(error: UpdateUserError) -> Self {
+impl From<UpdateUserProfileError> for ApiError {
+    fn from(error: UpdateUserProfileError) -> Self {
         match error {
-            UpdateUserError::AuthenticatedActorRequired => {
+            UpdateUserProfileError::AuthenticatedActorRequired => {
                 ApiError::unauthorized(INVALID_CREDENTIALS)
                     .with_header_field("Authorization")
                     .with_detail("Bearer token is required.")
             }
-            UpdateUserError::Forbidden => {
+            UpdateUserProfileError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            UpdateUserError::UserNotFound => {
+            UpdateUserProfileError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
-            UpdateUserError::ConcurrencyConflict
-            | UpdateUserError::EmailConflict { .. }
-            | UpdateUserError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
+            UpdateUserProfileError::ConcurrencyConflict
+            | UpdateUserProfileError::EmailConflict { .. } => ApiError::conflict(CONFLICT)
                 .with_detail("User update conflicts with current state."),
-            UpdateUserError::EmailRequired
-            | UpdateUserError::TierRequired
-            | UpdateUserError::RoleRequired
-            | UpdateUserError::InvalidUserState { .. } => {
+            UpdateUserProfileError::EmailRequired
+            | UpdateUserProfileError::InvalidUserState { .. } => {
                 ApiError::bad_request(BAD_BODY_VALUE).with_detail("User update is invalid.")
             }
-            UpdateUserError::TemporarilyUnavailable { .. }
-            | UpdateUserError::BeginTransactionFailed
-            | UpdateUserError::CommitTransactionFailed => {
+            UpdateUserProfileError::TemporarilyUnavailable { .. }
+            | UpdateUserProfileError::BeginTransactionFailed
+            | UpdateUserProfileError::CommitTransactionFailed => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("User could not be updated right now.")
             }
-            UpdateUserError::InvalidPersistedState { .. } | UpdateUserError::Internal { .. } => {
+            UpdateUserProfileError::InvalidPersistedState { .. }
+            | UpdateUserProfileError::Internal { .. } => {
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User update failed internally.")
+            }
+        }
+    }
+}
+
+impl From<ChangeUserRoleError> for ApiError {
+    fn from(error: ChangeUserRoleError) -> Self {
+        match error {
+            ChangeUserRoleError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            ChangeUserRoleError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ChangeUserRoleError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            ChangeUserRoleError::ConcurrencyConflict
+            | ChangeUserRoleError::EmailConflict { .. }
+            | ChangeUserRoleError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
+                .with_detail("User update conflicts with current state."),
+            ChangeUserRoleError::TemporarilyUnavailable { .. }
+            | ChangeUserRoleError::BeginTransactionFailed
+            | ChangeUserRoleError::CommitTransactionFailed => {
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User could not be updated right now.")
+            }
+            ChangeUserRoleError::InvalidPersistedState { .. }
+            | ChangeUserRoleError::Internal { .. } => {
+                ApiError::internal_server_error(USER_INTERNAL_ERROR)
+                    .with_detail("User update failed internally.")
+            }
+        }
+    }
+}
+
+impl From<ChangeUserTierError> for ApiError {
+    fn from(error: ChangeUserTierError) -> Self {
+        match error {
+            ChangeUserTierError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            ChangeUserTierError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ChangeUserTierError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            ChangeUserTierError::ConcurrencyConflict
+            | ChangeUserTierError::EmailConflict { .. }
+            | ChangeUserTierError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
+                .with_detail("User update conflicts with current state."),
+            ChangeUserTierError::TemporarilyUnavailable { .. }
+            | ChangeUserTierError::BeginTransactionFailed
+            | ChangeUserTierError::CommitTransactionFailed => {
+                ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("User could not be updated right now.")
+            }
+            ChangeUserTierError::InvalidPersistedState { .. }
+            | ChangeUserTierError::Internal { .. } => {
                 ApiError::internal_server_error(USER_INTERNAL_ERROR)
                     .with_detail("User update failed internally.")
             }
@@ -403,6 +502,11 @@ impl From<CreateAccessTokenError> for ApiError {
 impl From<ListAccessTokensError> for ApiError {
     fn from(error: ListAccessTokensError) -> Self {
         match error {
+            ListAccessTokensError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
             ListAccessTokensError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
@@ -424,6 +528,11 @@ impl From<ListAccessTokensError> for ApiError {
 impl From<GetAccessTokenError> for ApiError {
     fn from(error: GetAccessTokenError) -> Self {
         match error {
+            GetAccessTokenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
             GetAccessTokenError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }

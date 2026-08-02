@@ -1,8 +1,7 @@
-use super::account::patch_user;
-use super::types::{CursorData, UserData, UserSummaryData};
-use super::util::{no_store, parse_user_id};
+use super::types::{CursorData, PatchUserData, UserData, UserSummaryData};
+use super::util::{no_store, parse_json, parse_role, parse_tier, parse_user_id, patch};
 use crate::auth::protected_context;
-use crate::error::ApiError;
+use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::UsersState;
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -11,8 +10,11 @@ use axum::response::{IntoResponse, Response};
 use common::pagination::cursor::Cursor;
 use std::collections::HashMap;
 use user_core::user_search::UserSearch;
+use user_service::use_cases::commands::change_user_role::ChangeUserRoleCommand;
+use user_service::use_cases::commands::change_user_tier::ChangeUserTierCommand;
 use user_service::use_cases::commands::delete_user::DeleteUserCommand;
-use user_service::use_cases::queries::get_user::GetUserRequest;
+use user_service::use_cases::commands::update_user_profile::UpdateUserProfileCommand;
+use user_service::use_cases::queries::admin_get_user::AdminGetUserRequest;
 use user_service::use_cases::queries::search_users::SearchUsersRequest;
 
 pub async fn search_users(
@@ -64,8 +66,8 @@ pub async fn get_user(
         Err(r) => return r,
     };
     match state
-        .get_user
-        .execute(&ctx, GetUserRequest::AdminById(user_id))
+        .admin_get_user
+        .execute(&ctx, AdminGetUserRequest { user_id })
         .await
     {
         Ok(view) => no_store(Json(UserData::from(view)).into_response()),
@@ -87,7 +89,89 @@ pub async fn patch_admin_user(
         Ok(v) => v,
         Err(r) => return r,
     };
-    patch_user(state, ctx, user_id, body).await
+    let data: PatchUserData = match parse_json(&body) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    admin_patch_user(state, ctx, user_id, data).await
+}
+
+async fn admin_patch_user(
+    state: UsersState,
+    ctx: common::operation_context::OperationContext,
+    user_id: common::user_id::UserId,
+    data: PatchUserData,
+) -> Response {
+    let profile_changed = data.email.is_some()
+        || data.first_name.is_some()
+        || data.last_name.is_some()
+        || data.language.is_some()
+        || data.currency.is_some()
+        || data.measurement_unit.is_some()
+        || data.prohibited_content_consent.is_some()
+        || data.structured_address.is_some();
+    let role_changed = data.role.is_some();
+    let tier_changed = data.tier.is_some();
+    let change_count = u8::from(profile_changed) + u8::from(role_changed) + u8::from(tier_changed);
+    if change_count > 1 {
+        return ApiError::bad_request(BAD_BODY_VALUE)
+            .with_detail("Patch only one user change category per request.")
+            .into_response();
+    }
+
+    if let Some(role) = data.role {
+        let role = match parse_role(role) {
+            Some(value) => value,
+            None => {
+                return ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("User role is invalid.")
+                    .into_response();
+            }
+        };
+        return match state
+            .change_user_role
+            .execute(&ctx, ChangeUserRoleCommand { user_id, role })
+            .await
+        {
+            Ok(result) => no_store(Json(UserData::from(result.view)).into_response()),
+            Err(error) => ApiError::from(error).into_response(),
+        };
+    }
+
+    if let Some(tier) = data.tier {
+        let tier = match parse_tier(tier) {
+            Some(value) => value,
+            None => {
+                return ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("User tier is invalid.")
+                    .into_response();
+            }
+        };
+        return match state
+            .change_user_tier
+            .execute(&ctx, ChangeUserTierCommand { user_id, tier })
+            .await
+        {
+            Ok(result) => no_store(Json(UserData::from(result.view)).into_response()),
+            Err(error) => ApiError::from(error).into_response(),
+        };
+    }
+
+    let command = UpdateUserProfileCommand {
+        user_id,
+        email: patch(data.email),
+        first_name: patch(data.first_name),
+        last_name: patch(data.last_name),
+        language: patch(data.language.map(Into::into)),
+        currency: patch(data.currency.map(Into::into)),
+        measurement_unit: patch(data.measurement_unit.map(Into::into)),
+        prohibited_content_consent: patch(data.prohibited_content_consent),
+        structured_address: patch(data.structured_address.map(Into::into)),
+    };
+    match state.update_user_profile.execute(&ctx, command).await {
+        Ok(result) => no_store(Json(UserData::from(result.view)).into_response()),
+        Err(error) => ApiError::from(error).into_response(),
+    }
 }
 
 pub async fn delete_admin_user(

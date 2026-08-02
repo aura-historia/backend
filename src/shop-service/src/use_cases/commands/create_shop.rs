@@ -260,12 +260,12 @@ async fn ensure_can_create_shop<A>(
 where
     A: CheckUserAdminUseCase,
 {
-    let Some(user_id) = actor_user_id(context)? else {
+    if actor_user_id(context)?.is_none() {
         return Ok(());
-    };
+    }
 
     check_user_admin
-        .execute(context, CheckUserAdminRequest { user_id })
+        .execute(context, CheckUserAdminRequest)
         .await
         .map(drop)
         .map_err(map_admin_error)
@@ -281,9 +281,10 @@ fn actor_user_id(context: &OperationContext) -> Result<Option<UserId>, CreateSho
 
 fn map_admin_error(error: CheckUserAdminError) -> CreateShopError {
     match error {
-        CheckUserAdminError::Forbidden | CheckUserAdminError::UserNotFound => {
-            CreateShopError::Forbidden
+        CheckUserAdminError::AuthenticatedActorRequired => {
+            CreateShopError::AuthenticatedActorRequired
         }
+        CheckUserAdminError::Forbidden => CreateShopError::Forbidden,
         CheckUserAdminError::TemporarilyUnavailable { source } => {
             CreateShopError::TemporarilyUnavailable { source }
         }
@@ -514,9 +515,8 @@ mod tests {
             _context: &OperationContext,
             request: CheckUserAdminRequest,
         ) -> Result<CheckUserAdminResult, CheckUserAdminError> {
-            Ok(CheckUserAdminResult {
-                user_id: request.user_id,
-            })
+            let _ = request;
+            Ok(CheckUserAdminResult)
         }
     }
 

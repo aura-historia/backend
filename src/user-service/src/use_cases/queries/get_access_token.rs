@@ -28,6 +28,8 @@ pub struct AccessTokenView {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetAccessTokenError {
+    #[error("authenticated actor required to get access token")]
+    AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
     #[error("access token not found")]
@@ -108,7 +110,9 @@ where
 impl From<OperationAuthorizationError> for GetAccessTokenError {
     fn from(error: OperationAuthorizationError) -> Self {
         match error {
-            OperationAuthorizationError::AuthenticationRequired(_) => Self::Forbidden,
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
             OperationAuthorizationError::Forbidden
             | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
         }
@@ -118,12 +122,12 @@ impl From<OperationAuthorizationError> for GetAccessTokenError {
 impl From<AccessToken> for AccessTokenView {
     fn from(access_token: AccessToken) -> Self {
         Self {
-            user_id: access_token.user_id,
-            access_token_id: access_token.id,
-            name: access_token.name,
-            scopes: access_token.scopes,
-            origin: access_token.origin,
-            expires: access_token.expires,
+            user_id: access_token.user_id(),
+            access_token_id: access_token.id(),
+            name: access_token.name().clone(),
+            scopes: access_token.scopes().clone(),
+            origin: access_token.origin().clone(),
+            expires: access_token.expires(),
         }
     }
 }
@@ -173,7 +177,7 @@ mod tests {
     use time::{Duration, OffsetDateTime};
     use user_core::access_token::{
         AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-        RawAccessToken, Scope,
+        NewAccessToken, RawAccessToken, Scope,
     };
 
     #[derive(Debug, Clone, Copy)]
@@ -229,7 +233,7 @@ mod tests {
     ) -> AccessToken {
         let raw = RawAccessToken::new();
         let now = OffsetDateTime::now_utc();
-        AccessToken {
+        AccessToken::create(NewAccessToken {
             id: AccessTokenId::new(),
             hashed_token: raw.into(),
             user_id,
@@ -237,9 +241,8 @@ mod tests {
             scopes,
             origin: AccessTokenOrigin::User,
             expires,
-            created: now,
-            updated: now,
-        }
+            now,
+        })
     }
 
     fn boxed() -> BoxError {
@@ -365,14 +368,14 @@ mod tests {
         lock(&store.state).token = Some(current.clone());
 
         assert_eq!(
-            current.id,
+            current.id(),
             assert_ok(
                 GetAccessTokenHandler::new(store)
                     .execute(
                         &ctx(Principal::User(user_id)),
                         GetAccessTokenRequest {
                             user_id,
-                            access_token_id: current.id,
+                            access_token_id: current.id(),
                         },
                     )
                     .await,
