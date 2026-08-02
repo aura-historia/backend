@@ -19,6 +19,7 @@
 - `users/` owns account, admin user, and access-token REST controllers.
 - `watchlist/` owns watchlist REST controllers. Product watchlist paths now use `{productId}` only.
 - `partner_applications/` owns own/admin partner-shop application REST controllers.
+- `oauth/` owns OAuth REST controllers for client registration, authorization code, token, revoke, and introspection flows.
 - Runtime shop and partner-shop create/update geocoding is not wired yet; structured-address writes return temporary failure until a geocoder adapter is added.
 
 ## Ownership
@@ -49,3 +50,4 @@
 - `users/` — user account, admin, and access-token REST controllers.
 - `watchlist/` — watchlist REST controllers.
 - `partner_applications/` — partner-shop application REST controllers.
+- `oauth/` — OAuth REST controllers.

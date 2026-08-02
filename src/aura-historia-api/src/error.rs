@@ -2,6 +2,7 @@ use crate::auth::AuthError;
 use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use oauth_service::error::OAuthServiceError;
 use serde::Serialize;
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationError, AdminGetPartnerShopApplicationError,
@@ -88,6 +89,25 @@ pub(crate) const PARTNER_SHOP_APPLICATION_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("PARTNER_SHOP_APPLICATION_INTERNAL_ERROR");
 pub(crate) const PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE");
+pub(crate) const OAUTH_AUTHORIZATION_CODE_EXPIRED: ApiErrorCode =
+    ApiErrorCode("OAUTH_AUTHORIZATION_CODE_EXPIRED");
+pub(crate) const OAUTH_AUTHORIZATION_CODE_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("OAUTH_AUTHORIZATION_CODE_NOT_FOUND");
+pub(crate) const OAUTH_CLIENT_NOT_FOUND: ApiErrorCode = ApiErrorCode("OAUTH_CLIENT_NOT_FOUND");
+pub(crate) const OAUTH_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("OAUTH_INTERNAL_ERROR");
+pub(crate) const OAUTH_INVALID_CLIENT_METADATA: ApiErrorCode =
+    ApiErrorCode("OAUTH_INVALID_CLIENT_METADATA");
+pub(crate) const OAUTH_INVALID_CLIENT_SECRET: ApiErrorCode =
+    ApiErrorCode("OAUTH_INVALID_CLIENT_SECRET");
+pub(crate) const OAUTH_INVALID_CODE_VERIFIER: ApiErrorCode =
+    ApiErrorCode("OAUTH_INVALID_CODE_VERIFIER");
+pub(crate) const OAUTH_INVALID_REDIRECT_URI: ApiErrorCode =
+    ApiErrorCode("OAUTH_INVALID_REDIRECT_URI");
+pub(crate) const OAUTH_INVALID_SCOPE: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_SCOPE");
+pub(crate) const OAUTH_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("OAUTH_TEMPORARILY_UNAVAILABLE");
+pub(crate) const OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND");
 
 impl Display for ApiErrorCode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -827,6 +847,49 @@ impl_partner_shop_application_error!(
     NotFound,
     ConcurrencyConflict
 );
+
+impl From<OAuthServiceError> for ApiError {
+    fn from(error: OAuthServiceError) -> Self {
+        match error {
+            OAuthServiceError::AuthenticatedActorRequired
+            | OAuthServiceError::InvalidClientSecret => {
+                ApiError::unauthorized(OAUTH_INVALID_CLIENT_SECRET).with_detail(error.to_string())
+            }
+            OAuthServiceError::Forbidden => ApiError::forbidden(FORBIDDEN),
+            OAuthServiceError::ClientNotFound => ApiError::not_found(OAUTH_CLIENT_NOT_FOUND),
+            OAuthServiceError::InvalidRedirectUri => {
+                ApiError::bad_request(OAUTH_INVALID_REDIRECT_URI)
+            }
+            OAuthServiceError::InvalidScope => ApiError::bad_request(OAUTH_INVALID_SCOPE),
+            OAuthServiceError::AuthorizationCodeNotFound => {
+                ApiError::bad_request(OAUTH_AUTHORIZATION_CODE_NOT_FOUND)
+            }
+            OAuthServiceError::AuthorizationCodeExpired => {
+                ApiError::bad_request(OAUTH_AUTHORIZATION_CODE_EXPIRED)
+            }
+            OAuthServiceError::AuthorizationCodeClientMismatch
+            | OAuthServiceError::AuthorizationCodeRedirectUriMismatch => {
+                ApiError::bad_request(OAUTH_AUTHORIZATION_CODE_NOT_FOUND)
+            }
+            OAuthServiceError::InvalidCodeVerifier => {
+                ApiError::bad_request(OAUTH_INVALID_CODE_VERIFIER)
+            }
+            OAuthServiceError::ThirdPartyExchangeCodeNotFound
+            | OAuthServiceError::ThirdPartyExchangeCodeExpired => {
+                ApiError::bad_request(OAUTH_THIRD_PARTY_EXCHANGE_CODE_NOT_FOUND)
+            }
+            OAuthServiceError::InvalidClientMetadata(detail) => {
+                ApiError::bad_request(OAUTH_INVALID_CLIENT_METADATA).with_detail(detail)
+            }
+            OAuthServiceError::TemporarilyUnavailable => {
+                ApiError::service_unavailable(OAUTH_TEMPORARILY_UNAVAILABLE)
+            }
+            OAuthServiceError::InvalidPersistedState | OAuthServiceError::Internal => {
+                ApiError::internal_server_error(OAUTH_INTERNAL_ERROR)
+            }
+        }
+    }
+}
 
 impl From<GetShopError> for ApiError {
     fn from(error: GetShopError) -> Self {

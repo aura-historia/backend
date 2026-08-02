@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod error;
+pub mod oauth;
 pub mod partner_applications;
 pub mod shops;
 pub mod state;
@@ -10,10 +11,19 @@ use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
 };
-use crate::state::{AppState, PartnerApplicationsState, ShopsState, UsersState, WatchlistState};
+use crate::state::{
+    AppState, OAuthState, PartnerApplicationsState, ShopsState, UsersState, WatchlistState,
+};
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
+use oauth_dynamodb::repository::OAuthDynamoDbStore;
+use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
+use oauth_service::use_cases::{
+    AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
+    IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
+    TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
+};
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
 };
@@ -131,6 +141,35 @@ pub fn app(state: AppState) -> Router {
         )
         .with_state(state.shops);
     let mut routes = health_routes.merge(shop_routes);
+
+    if let Some(oauth) = state.oauth {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/oauth/clients",
+                    get(oauth::list_clients::list_clients)
+                        .post(oauth::create_client::create_client),
+                )
+                .route(
+                    "/api/v1/oauth/clients/{client_id}",
+                    get(oauth::get_client::get_client)
+                        .patch(oauth::update_client::update_client)
+                        .delete(oauth::delete_client::delete_client),
+                )
+                .route("/api/v1/oauth/authorize", get(oauth::authorize::authorize))
+                .route("/api/v1/oauth/token", post(oauth::token::token))
+                .route(
+                    "/api/v1/oauth/tokens/by-third-party-code/{third_party_code}",
+                    get(oauth::token_by_third_party_code::token_by_third_party_code),
+                )
+                .route("/api/v1/oauth/revoke", post(oauth::revoke::revoke))
+                .route(
+                    "/api/v1/oauth/introspect",
+                    post(oauth::introspect::introspect),
+                )
+                .with_state(oauth),
+        );
+    }
 
     if let Some(users) = state.users {
         routes = routes.merge(
@@ -330,7 +369,10 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
             name: DYNAMODB_TABLE_NAME_ENV,
         })?;
     let table_name = Box::leak(table_name.into_boxed_str());
-    let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name);
+    let table_name_ref: &str = table_name;
+    let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name_ref);
+    let oauth_store = OAuthDynamoDbStore::new(dynamodb_client, table_name_ref);
+    let oauth_access_tokens = StoreOAuthAccessTokenGateway::new(access_token_store.clone());
     let access_token_use_case = AuthenticateAccessTokenHandler::new(access_token_store.clone());
     let authenticator = Arc::new(ApiAuthService::new(
         JwtUnavailableAuthenticator,
@@ -358,6 +400,33 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         unwatch_product: Arc::new(unwatch_product),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    let oauth_state = OAuthState {
+        create_client: Arc::new(CreateOAuthClientHandler::new(oauth_store.clone())),
+        list_clients: Arc::new(ListOAuthClientsHandler::new(oauth_store.clone())),
+        get_client: Arc::new(GetOAuthClientHandler::new(oauth_store.clone())),
+        update_client: Arc::new(UpdateOAuthClientHandler::new(oauth_store.clone())),
+        delete_client: Arc::new(DeleteOAuthClientHandler::new(oauth_store.clone())),
+        authorize: Arc::new(AuthorizeHandler::new(
+            oauth_store.clone(),
+            oauth_store.clone(),
+        )),
+        token_by_authorization_code: Arc::new(TokenByAuthorizationCodeHandler::new(
+            oauth_store.clone(),
+            oauth_store.clone(),
+            oauth_store.clone(),
+            oauth_access_tokens.clone(),
+        )),
+        token_by_third_party_code: Arc::new(TokenByThirdPartyCodeHandler::new(oauth_store.clone())),
+        revoke: Arc::new(RevokeTokenHandler::new(
+            oauth_store.clone(),
+            oauth_access_tokens.clone(),
+        )),
+        introspect: Arc::new(IntrospectTokenHandler::new(
+            oauth_store,
+            oauth_access_tokens,
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     let partner_state = PartnerApplicationsState {
         create: Arc::new(create_partner_application),
         list: Arc::new(list_partner_applications),
@@ -382,7 +451,8 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         users_state,
         watchlist_state,
         partner_state,
-    ))
+    )
+    .with_oauth(oauth_state))
 }
 
 #[derive(Clone, Copy)]

@@ -1,4 +1,9 @@
 use crate::auth::TokenAuthenticator;
+use oauth_service::use_cases::{
+    AuthorizeUseCase, CreateOAuthClientUseCase, DeleteOAuthClientUseCase, GetOAuthClientUseCase,
+    IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
+    TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
+};
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationUseCase, AdminGetPartnerShopApplicationUseCase,
     AdminListPartnerShopApplicationsUseCase, AdminUpdatePartnerShopApplicationUseCase,
@@ -33,6 +38,7 @@ pub struct AppState {
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partner_applications: Option<PartnerApplicationsState>,
+    pub(crate) oauth: Option<OAuthState>,
 }
 
 impl AppState {
@@ -47,6 +53,7 @@ impl AppState {
             users: Some(users),
             watchlist: Some(watchlist),
             partner_applications: Some(partner_applications),
+            oauth: None,
         }
     }
 
@@ -56,6 +63,58 @@ impl AppState {
             users: None,
             watchlist: None,
             partner_applications: None,
+            oauth: None,
+        }
+    }
+
+    pub fn with_oauth(mut self, oauth: OAuthState) -> Self {
+        self.oauth = Some(oauth);
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct OAuthState {
+    pub(crate) create_client: Arc<dyn CreateOAuthClientUseCase>,
+    pub(crate) list_clients: Arc<dyn ListOAuthClientsUseCase>,
+    pub(crate) get_client: Arc<dyn GetOAuthClientUseCase>,
+    pub(crate) update_client: Arc<dyn UpdateOAuthClientUseCase>,
+    pub(crate) delete_client: Arc<dyn DeleteOAuthClientUseCase>,
+    pub(crate) authorize: Arc<dyn AuthorizeUseCase>,
+    pub(crate) token_by_authorization_code: Arc<dyn TokenByAuthorizationCodeUseCase>,
+    pub(crate) token_by_third_party_code: Arc<dyn TokenByThirdPartyCodeUseCase>,
+    pub(crate) revoke: Arc<dyn RevokeTokenUseCase>,
+    pub(crate) introspect: Arc<dyn IntrospectTokenUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl OAuthState {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        create_client: Arc<dyn CreateOAuthClientUseCase>,
+        list_clients: Arc<dyn ListOAuthClientsUseCase>,
+        get_client: Arc<dyn GetOAuthClientUseCase>,
+        update_client: Arc<dyn UpdateOAuthClientUseCase>,
+        delete_client: Arc<dyn DeleteOAuthClientUseCase>,
+        authorize: Arc<dyn AuthorizeUseCase>,
+        token_by_authorization_code: Arc<dyn TokenByAuthorizationCodeUseCase>,
+        token_by_third_party_code: Arc<dyn TokenByThirdPartyCodeUseCase>,
+        revoke: Arc<dyn RevokeTokenUseCase>,
+        introspect: Arc<dyn IntrospectTokenUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            create_client,
+            list_clients,
+            get_client,
+            update_client,
+            delete_client,
+            authorize,
+            token_by_authorization_code,
+            token_by_third_party_code,
+            revoke,
+            introspect,
+            authenticator,
         }
     }
 }

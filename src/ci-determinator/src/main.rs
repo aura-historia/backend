@@ -34,6 +34,9 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/notification-core",
     "src/notification-dynamodb",
     "src/notification-service",
+    "src/oauth-core",
+    "src/oauth-dynamodb",
+    "src/oauth-service",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.
