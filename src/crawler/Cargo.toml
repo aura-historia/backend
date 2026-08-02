@@ -28,7 +28,6 @@ mockall = { workspace = true }
 llm = { workspace = true, features = ["google", "rustls-tls"] }
 kuchiki = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
-httpdate = { workspace = true }
 imagesize = { workspace = true }
 tokio = { workspace = true, features = ["full", "macros"] }
 spider = { workspace = true }

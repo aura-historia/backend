@@ -1,6 +1,6 @@
 use crate::network::policy::{
-    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, backoff_delay,
-    classify_reqwest_error, retry_cooldown_for,
+    NetworkAction, NetworkErrorKind, RetryPolicy, action_for, classify_reqwest_error,
+    inline_retry_backoff_for,
 };
 use crate::review::model::ARTIFACT_PRODUCT_SCHEMA;
 use crate::review::repository::CrawlerReviewRepository;
@@ -16,7 +16,7 @@ use crate::scraper::scraper_service::auto_throttle::{
 };
 use crate::scraper::scraper_service::image_validation::{ImageValidator, ReqwestImageValidator};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::debug;
 use url::Url;
@@ -87,7 +87,6 @@ pub struct ReqwestHtmlFetcher {
 
 struct FetchAttemptError {
     error: FetchError,
-    retry_after: Option<Duration>,
 }
 
 impl Default for ReqwestHtmlFetcher {
@@ -188,16 +187,11 @@ impl ReqwestHtmlFetcher {
                     kind: classify_reqwest_error(&err),
                     details: err.to_string(),
                 },
-                retry_after: None,
             }
         })?;
 
         self.record_domain_latency(domain.as_deref(), started.elapsed());
 
-        let retry_after = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(retry_after_delay);
         let response = response
             .error_for_status()
             .map_err(|err| FetchAttemptError {
@@ -205,7 +199,6 @@ impl ReqwestHtmlFetcher {
                     kind: classify_reqwest_error(&err),
                     details: err.to_string(),
                 },
-                retry_after,
             })?;
 
         let final_url = response.url().clone();
@@ -214,7 +207,6 @@ impl ReqwestHtmlFetcher {
                 kind: classify_reqwest_error(&err),
                 details: err.to_string(),
             },
-            retry_after: None,
         })?;
 
         Ok(FetchedHtml::new(html, final_url))
@@ -232,16 +224,6 @@ impl ReqwestHtmlFetcher {
     }
 }
 
-fn retry_after_delay(header: &reqwest::header::HeaderValue) -> Option<Duration> {
-    let raw = header.to_str().ok()?.trim();
-    if let Ok(seconds) = raw.parse::<u64>() {
-        return Some(Duration::from_secs(seconds));
-    }
-
-    let retry_at = httpdate::parse_http_date(raw).ok()?;
-    retry_at.duration_since(SystemTime::now()).ok()
-}
-
 #[async_trait::async_trait]
 impl HtmlFetcher for ReqwestHtmlFetcher {
     async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError> {
@@ -253,15 +235,9 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
                     if action != NetworkAction::Retry || attempt >= self.retry_policy.max_attempts {
                         return Err(attempt_error.error);
                     }
-                    // Prefer server retry timing when available, then fall back
-                    // to crawler cooldowns so the retry policy cap does not shorten it.
-                    let cooldown = attempt_error
-                        .retry_after
-                        .unwrap_or_else(|| retry_cooldown_for(attempt_error.error.kind()));
-                    let backoff = backoff_delay(self.retry_policy, attempt);
-                    let delay = cooldown.max(backoff);
-                    if !delay.is_zero() {
-                        sleep(delay).await;
+                    let backoff = inline_retry_backoff_for(self.retry_policy, attempt);
+                    if !backoff.is_zero() {
+                        sleep(backoff).await;
                     }
                 }
             }
@@ -422,10 +398,10 @@ impl ScraperServiceImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::{HtmlFetcher, ReqwestHtmlFetcher, SchemaLlmReviewMode, retry_after_delay};
+    use super::{HtmlFetcher, ReqwestHtmlFetcher, SchemaLlmReviewMode};
     use crate::network::policy::RetryPolicy;
     use crate::scraper::scraper_service::ScraperAutoThrottleConfig;
-    use std::time::{Duration, Instant, SystemTime};
+    use std::time::{Duration, Instant};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use url::Url;
@@ -453,6 +429,14 @@ mod tests {
             max_attempts,
             base_delay: Duration::ZERO,
             max_delay: Duration::ZERO,
+        }
+    }
+
+    fn short_delay_retry_policy(max_attempts: u32) -> RetryPolicy {
+        RetryPolicy {
+            max_attempts,
+            base_delay: Duration::from_millis(1),
+            max_delay: Duration::from_millis(1),
         }
     }
 
@@ -489,36 +473,44 @@ mod tests {
         assert!(SchemaLlmReviewMode::AutoApproveHighConfidence.allows_auto_approval());
     }
 
-    #[test]
-    fn parses_retry_after_delta_seconds() {
-        let header = reqwest::header::HeaderValue::from_static("3");
-
-        assert_eq!(retry_after_delay(&header), Some(Duration::from_secs(3)));
-    }
-
-    #[test]
-    fn parses_retry_after_http_date() {
-        let retry_at = SystemTime::now() + Duration::from_secs(3);
-        let header = reqwest::header::HeaderValue::from_str(&httpdate::fmt_http_date(retry_at))
-            .expect("http date header should be valid");
-
-        assert!(retry_after_delay(&header).is_some_and(|delay| delay <= Duration::from_secs(3)));
-    }
-
     #[tokio::test]
-    async fn reqwest_fetcher_retries_429_with_retry_after() {
+    async fn reqwest_fetcher_ignores_retry_after_for_inline_retry_delay() {
         let url = spawn_http_sequence(vec![
-            "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 300\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
             "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
         ])
-            .await;
+        .await;
 
         let fetcher = ReqwestHtmlFetcher::with_retry_policy_and_auto_throttle_config(
             zero_delay_retry_policy(2),
             throttle_config(Duration::ZERO),
         );
 
-        let fetched = fetcher.fetch(&url).await.unwrap();
+        let fetched = tokio::time::timeout(Duration::from_millis(100), fetcher.fetch(&url))
+            .await
+            .expect("retry should ignore long Retry-After for inline backoff")
+            .unwrap();
+
+        assert_eq!(fetched.html, "<html>ok</html>");
+        assert_eq!(fetched.final_url, url);
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_uses_short_inline_backoff_for_retryable_status() {
+        let url = spawn_http_sequence(vec![
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>",
+        ])
+        .await;
+        let fetcher = ReqwestHtmlFetcher::with_retry_policy_and_auto_throttle_config(
+            short_delay_retry_policy(2),
+            throttle_config(Duration::ZERO),
+        );
+
+        let fetched = tokio::time::timeout(Duration::from_millis(100), fetcher.fetch(&url))
+            .await
+            .expect("retry should use short inline backoff")
+            .unwrap();
 
         assert_eq!(fetched.html, "<html>ok</html>");
         assert_eq!(fetched.final_url, url);

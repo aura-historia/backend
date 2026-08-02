@@ -28,7 +28,7 @@ impl Default for RetryPolicy {
         Self {
             max_attempts: 3,
             base_delay: Duration::from_millis(1000),
-            max_delay: Duration::from_secs(200),
+            max_delay: Duration::from_secs(2),
         }
     }
 }
@@ -85,7 +85,7 @@ pub fn should_adapt_domain_delay(kind: NetworkErrorKind) -> bool {
     )
 }
 
-pub fn backoff_delay(policy: RetryPolicy, attempt: u32) -> Duration {
+pub fn inline_retry_backoff_for(policy: RetryPolicy, attempt: u32) -> Duration {
     if attempt == 0 {
         return Duration::ZERO;
     }
@@ -98,7 +98,12 @@ pub fn backoff_delay(policy: RetryPolicy, attempt: u32) -> Duration {
     Duration::from_millis(capped_ms as u64)
 }
 
-pub fn retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
+/// Durable cooldown persisted after all inline fetch attempts fail.
+///
+/// Do not use this inside a domain worker between fetch attempts; use
+/// [`inline_retry_backoff_for`] there so one slow shop cannot block the worker
+/// for minutes.
+pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
     match kind {
         NetworkErrorKind::HttpStatus(429) => Duration::from_secs(10),
         NetworkErrorKind::HttpStatus(503) | NetworkErrorKind::HttpStatus(504) => {
@@ -154,9 +159,9 @@ mod tests {
     }
 
     #[test]
-    fn should_cooldown_403_for_two_minutes() {
+    fn should_calculate_durable_cooldown_403_for_two_minutes() {
         assert_eq!(
-            retry_cooldown_for(NetworkErrorKind::HttpStatus(403)),
+            durable_retry_cooldown_for(NetworkErrorKind::HttpStatus(403)),
             Duration::from_secs(2 * 60)
         );
     }
@@ -221,15 +226,31 @@ mod tests {
     }
 
     #[test]
-    fn should_backoff_exponentially_with_cap() {
+    fn should_calculate_short_inline_retry_backoff_exponentially_with_cap() {
         let policy = RetryPolicy {
             max_attempts: 3,
             base_delay: Duration::from_millis(100),
             max_delay: Duration::from_millis(250),
         };
 
-        assert_eq!(backoff_delay(policy, 1), Duration::from_millis(100));
-        assert_eq!(backoff_delay(policy, 2), Duration::from_millis(200));
-        assert_eq!(backoff_delay(policy, 3), Duration::from_millis(250));
+        assert_eq!(
+            inline_retry_backoff_for(policy, 1),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            inline_retry_backoff_for(policy, 2),
+            Duration::from_millis(200)
+        );
+        assert_eq!(
+            inline_retry_backoff_for(policy, 3),
+            Duration::from_millis(250)
+        );
+    }
+
+    #[test]
+    fn should_cap_default_inline_retry_backoff_at_two_seconds() {
+        let policy = RetryPolicy::default();
+
+        assert_eq!(inline_retry_backoff_for(policy, 3), Duration::from_secs(2));
     }
 }
