@@ -18,7 +18,7 @@
 - `shops/` owns shop REST controllers.
 - `users/` owns account, admin user, and access-token REST controllers.
 - `watchlist/` owns watchlist REST controllers. Product watchlist paths now use `{productId}` only.
-- `products/` owns canonical product detail, search, immutable history, and similar-product REST controllers. Detail, history, and similar routes use product ID or shop/product slugs. Product detail uses one joined Postgres reader query, while search and KNN similar reads use denormalized OpenSearch fields. User-state personalization is not implemented. Product prices remain stored source amounts/currencies with `fxRateId`; currency conversion is deferred to #1466.
+- `products/` owns canonical product detail, search, immutable history, and similar-product REST controllers. Detail, history, and similar routes use product ID or shop/product slugs. Product detail uses one joined Postgres reader query and adds top-level `userState` for valid user/delegated-user tokens; its handler then reads the newest DynamoDB notification after Postgres commits. Search and KNN similar reads use denormalized OpenSearch fields and are not personalized yet. Product prices remain stored source amounts/currencies with `fxRateId`; currency conversion is deferred to #1466.
 - `partner_applications/` owns own/admin partner-shop application REST controllers.
 - `oauth/` owns OAuth REST controllers for client registration, authorization code, token, revoke, and introspection flows.
 - Runtime shop and partner-shop create/update geocoding is not wired yet; structured-address writes return temporary failure until a geocoder adapter is added.

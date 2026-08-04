@@ -229,6 +229,7 @@ dependencies = [
  "httpdate",
  "isocountry",
  "jsonwebtokens",
+ "notification-dynamodb",
  "oauth-core",
  "oauth-dynamodb",
  "oauth-service",
@@ -6093,6 +6094,8 @@ dependencies = [
  "fake",
  "geo",
  "indexmap 2.14.0",
+ "notification-core",
+ "notification-service",
  "product-core",
  "serde_json",
  "thiserror 2.0.19",
@@ -6100,6 +6103,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]

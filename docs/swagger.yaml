@@ -928,6 +928,9 @@ paths:
         Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
         `fxRateId`; this endpoint performs no currency conversion.
 
+        Anonymous responses are flat product data and cacheable. A valid user bearer token adds the
+        optional top-level `userState`; authenticated responses are not cached.
+
       operationId: getProduct
       tags:
         - Products
@@ -952,6 +955,10 @@ paths:
       responses:
         "200":
           description: Product found and returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductDetailsData"
           headers:
             Content-Language:
               description: The language of the returned content
@@ -1002,7 +1009,17 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+                error: "PRODUCT_INTERNAL_ERROR"
+        "503":
+          description: Product detail or notification state is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
 
   /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}:
     get:
@@ -1012,6 +1029,9 @@ paths:
 
         Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
         `fxRateId`; this endpoint performs no currency conversion.
+
+        Anonymous responses are flat product data and cacheable. A valid user bearer token adds the
+        optional top-level `userState`; authenticated responses are not cached.
 
         **Human-Readable Identifiers**: This endpoint uses slug-based identifiers which are human-readable
         kebab-case strings. Shop slugs are derived from the shop name (e.g., "tech-store-premium"),
@@ -1052,6 +1072,10 @@ paths:
       responses:
         "200":
           description: Product found and returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductDetailsData"
           headers:
             Content-Language:
               description: The language of the returned content
@@ -1102,7 +1126,17 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+                error: "PRODUCT_INTERNAL_ERROR"
+        "503":
+          description: Product detail or notification state is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
 
   /api/v1/products/{productId}/history:
     get:
@@ -10468,6 +10502,158 @@ components:
           format: date-time
           description: When the product was last updated (RFC3339 format)
 
+    ProductDetailsData:
+      type: object
+      description: |
+        Canonical Product detail response. It remains a flat product object for anonymous callers.
+        A valid user bearer token adds `userState`
+      required:
+        - productId
+        - productSlugId
+        - eventId
+        - shopId
+        - sellerId
+        - shopsProductId
+        - shopName
+        - sellerName
+        - shopSlugId
+        - sellerSlugId
+        - pricing
+        - state
+        - lifecycle
+        - url
+        - viewUrl
+        - images
+        - auction
+        - created
+        - updated
+      properties:
+        productId:
+          type: string
+          format: uuid
+        productSlugId:
+          type: string
+        eventId:
+          type: string
+          format: uuid
+        shopId:
+          type: string
+          format: uuid
+        sellerId:
+          type: string
+          format: uuid
+        shopsProductId:
+          type: string
+        shopName:
+          type: string
+        sellerName:
+          type: string
+        shopSlugId:
+          type: string
+        sellerSlugId:
+          type: string
+        structuredAddress:
+          allOf:
+            - $ref: "#/components/schemas/StructuredAddressData"
+          nullable: true
+        geoAddress:
+          allOf:
+            - $ref: "#/components/schemas/GeoAddressData"
+          nullable: true
+        productTitle:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        productDescription:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        title:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        description:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        pricing:
+          type: object
+          description: Stored source pricing. `fxRateId` identifies the source FX snapshot; no conversion occurs.
+          properties:
+            price:
+              allOf:
+                - $ref: "#/components/schemas/PriceData"
+              nullable: true
+            priceEstimateMin:
+              allOf:
+                - $ref: "#/components/schemas/PriceData"
+              nullable: true
+            priceEstimateMax:
+              allOf:
+                - $ref: "#/components/schemas/PriceData"
+              nullable: true
+            fxRateId:
+              type: string
+              format: uuid
+              nullable: true
+        price:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        priceEstimateMin:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        priceEstimateMax:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        currency:
+          allOf:
+            - $ref: "#/components/schemas/CurrencyData"
+          nullable: true
+        state:
+          $ref: "#/components/schemas/ProductStateData"
+        lifecycle:
+          $ref: "#/components/schemas/ProductLifecycleData"
+        url:
+          type: string
+          format: uri
+        viewUrl:
+          type: string
+          format: uri
+        images:
+          type: array
+          items:
+            type: object
+            required: [url]
+            properties:
+              url:
+                type: string
+                format: uri
+        auction:
+          type: object
+          properties:
+            start:
+              type: string
+              format: date-time
+              nullable: true
+            end:
+              type: string
+              format: date-time
+              nullable: true
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+        userState:
+          allOf:
+            - $ref: "#/components/schemas/ProductUserStateData"
+          nullable: true
+          description: Present only for a valid user or delegated-user bearer token.
+
     PersonalizedGetProductData:
       type: object
       description: |
@@ -10575,9 +10761,9 @@ components:
     ProhibitedContentUserStateData:
       type: object
       description: |
-        User's consent state for viewing prohibited content on a product.
-        When `consent` is `true`, image URLs for images with prohibited content are included in the response.
-        When `consent` is `false`, image URLs for images with prohibited content are omitted.
+        Effective user consent for viewing prohibited content on a product. It is `true` when all
+        product images are safe (including no images); otherwise it reflects the user's stored
+        consent. Canonical Product detail currently exposes this state for client-side display policy.
       required:
         - consent
       properties:
@@ -10589,17 +10775,15 @@ components:
     NotificationUserStateData:
       type: object
       description: |
-        User's notification seen-state for a product.
-        When `seen` is `false`, the product has at least one unseen notification for the authenticated user.
-        When `seen` is `true`, there are no unseen notifications (or no notifications at all) for the user on this product.
-        Defaults to `true`.
-        `originEventId` is present whenever at least one notification exists for the user on this product (regardless of `seen` status), and absent when there are no notifications.
+        User's newest notification state for a product. The newest notification is selected from the
+        notification product index; it is not an aggregate "any unseen" flag. `seen` defaults to
+        `true` and `originEventId` is omitted when no notification exists.
       required:
         - seen
       properties:
         seen:
           type: boolean
-          description: Whether the latest notification for this product has been seen by the user. Defaults to `true` when no notifications exist.
+          description: Whether the newest notification for this product has been seen by the user. Defaults to `true` when no notifications exist.
           default: true
           example: true
         originEventId:

@@ -285,5 +285,7 @@ CREATE INDEX IF NOT EXISTS search_filter_matches_user_created_idx
     ON search_filter_matches (user_id, created DESC);
 CREATE INDEX IF NOT EXISTS search_filter_matches_user_filter_created_idx
     ON search_filter_matches (user_id, user_search_filter_id, created DESC);
+CREATE INDEX IF NOT EXISTS search_filter_matches_user_product_created_idx
+    ON search_filter_matches (user_id, product_id, created ASC, user_search_filter_id ASC);
 CREATE INDEX IF NOT EXISTS search_filter_matches_product_id_idx ON search_filter_matches (product_id);
 CREATE INDEX IF NOT EXISTS search_filter_matches_origin_event_id_idx ON search_filter_matches (origin_event_id);

@@ -6,7 +6,8 @@ pub mod product_repository;
 pub mod product_search_reader;
 pub mod product_similar_products_reader;
 pub use product_details_reader::{
-    ProductDetailsReadError, ProductDetailsReader, ProductDetailsReaderFactory,
+    ProductDetailsReadError, ProductDetailsReadRequest, ProductDetailsReader,
+    ProductDetailsReaderFactory,
 };
 pub use product_embedding_reader::{
     ProductEmbedding, ProductEmbeddingLookup, ProductEmbeddingReadError, ProductEmbeddingReader,

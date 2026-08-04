@@ -1,4 +1,5 @@
 use common::currency::domain::Currency;
+use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
@@ -11,6 +12,8 @@ use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
+use common::user_search_filter_id::UserSearchFilterId;
+use common::user_search_filter_name::UserSearchFilterName;
 use common::utm::append_utm_params;
 use indexmap::IndexSet;
 use product_core::description::Description;
@@ -19,12 +22,14 @@ use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
 use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
+use product_core::user_state::{
+    ProductUserState, ProhibitedContentUserState, SearchFilterUserState, WatchlistUserState,
+};
 use product_service::ports::{
-    ProductDetailsReadError, ProductDetailsReader, ProductDetailsReaderFactory,
+    ProductDetailsReadError, ProductDetailsReadRequest, ProductDetailsReader,
+    ProductDetailsReaderFactory,
 };
-use product_service::use_cases::queries::get_product::{
-    GetProductRequest, ProductDetailsView, ProductLookup,
-};
+use product_service::use_cases::queries::get_product::{ProductDetailsView, ProductLookup};
 use serde::Deserialize;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
@@ -80,6 +85,15 @@ struct ProductDetailsRow {
     auction_end: Option<OffsetDateTime>,
     created: OffsetDateTime,
     updated: OffsetDateTime,
+    personalization_user_id: Option<uuid::Uuid>,
+    user_prohibited_content_consent: Option<bool>,
+    user_tier: Option<String>,
+    watchlist_notifications: Option<bool>,
+    selected_match_user_search_filter_id: Option<uuid::Uuid>,
+    selected_match_user_search_filter_name: Option<String>,
+    selected_match_reason: Option<String>,
+    selected_match_feedback: Option<bool>,
+    selected_match_month_position: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,15 +125,17 @@ impl ProductDetailsReaderFactory<common::postgres::SqlxTransaction>
 impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
     async fn find_details(
         &mut self,
-        request: &GetProductRequest,
+        request: &ProductDetailsReadRequest,
     ) -> Result<Option<ProductDetailsView>, ProductDetailsReadError> {
         let requested_language = request.language.as_str();
+        let user_id = request.user_id.map(uuid::Uuid::from);
         let row = match &request.lookup {
             ProductLookup::ById(product_id) => {
                 sqlx::query_as::<_, ProductDetailsRow>(&format!(
-                    "{SELECT_PRODUCT_DETAILS} WHERE p.product_id = $2"
+                    "{SELECT_PRODUCT_DETAILS} WHERE p.product_id = $3"
                 ))
                 .bind(requested_language)
+                .bind(user_id)
                 .bind(uuid::Uuid::from(*product_id))
                 .fetch_optional(&mut *self.connection)
                 .await
@@ -129,9 +145,10 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
                 shop_slug_id,
                 product_slug_id,
             } => sqlx::query_as::<_, ProductDetailsRow>(&format!(
-                "{SELECT_PRODUCT_DETAILS} WHERE shop.shop_slug_id = $2 AND p.product_slug_id = $3"
+                "{SELECT_PRODUCT_DETAILS} WHERE shop.shop_slug_id = $3 AND p.product_slug_id = $4"
             ))
             .bind(requested_language)
+            .bind(user_id)
             .bind(shop_slug_id.as_ref())
             .bind(product_slug_id.as_ref())
             .fetch_optional(&mut *self.connection)
@@ -161,10 +178,59 @@ const SELECT_PRODUCT_DETAILS: &str = r#"
         p.price_amount, p.price_currency, p.price_estimate_min_amount,
         p.price_estimate_min_currency, p.price_estimate_max_amount,
         p.price_estimate_max_currency, p.fx_rate_id, p.state, p.lifecycle, p.url,
-        p.product_images, p.auction_start, p.auction_end, p.created, p.updated
+        p.product_images, p.auction_start, p.auction_end, p.created, p.updated,
+        $2::uuid AS personalization_user_id,
+        authenticated_user.prohibited_content_consent AS user_prohibited_content_consent,
+        authenticated_user.tier AS user_tier,
+        watchlist.notifications AS watchlist_notifications,
+        selected_match.user_search_filter_id AS selected_match_user_search_filter_id,
+        selected_match.user_search_filter_name AS selected_match_user_search_filter_name,
+        selected_match.enhanced_match_reason AS selected_match_reason,
+        selected_match.feedback AS selected_match_feedback,
+        selected_match.month_position AS selected_match_month_position
     FROM products p
     JOIN shops shop ON shop.shop_id = p.shop_id
     JOIN shops seller ON seller.shop_id = p.seller_id
+    LEFT JOIN users authenticated_user ON authenticated_user.user_id = $2
+    LEFT JOIN product_watchlist watchlist
+        ON watchlist.user_id = $2
+        AND watchlist.product_id = p.product_id
+    LEFT JOIN LATERAL (
+        SELECT
+            matched.user_search_filter_id,
+            matched.user_search_filter_name,
+            matched.enhanced_match_reason,
+            matched.feedback,
+            CASE
+                WHEN authenticated_user.tier = 'FREE' THEN (
+                    SELECT COUNT(*)
+                    FROM search_filter_matches monthly_match
+                    WHERE monthly_match.user_id = $2
+                        AND monthly_match.created >= (
+                            date_trunc('month', matched.created AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+                        )
+                        AND (
+                            monthly_match.created < matched.created
+                            OR (
+                                monthly_match.created = matched.created
+                                AND (
+                                    monthly_match.user_search_filter_id < matched.user_search_filter_id
+                                    OR (
+                                        monthly_match.user_search_filter_id = matched.user_search_filter_id
+                                        AND monthly_match.product_id <= matched.product_id
+                                    )
+                                )
+                            )
+                        )
+                )
+                ELSE NULL
+            END AS month_position
+        FROM search_filter_matches matched
+        WHERE matched.user_id = $2
+            AND matched.product_id = p.product_id
+        ORDER BY matched.created ASC, matched.user_search_filter_id ASC
+        LIMIT 1
+    ) AS selected_match ON TRUE
     LEFT JOIN LATERAL (
         SELECT
             (
@@ -264,6 +330,8 @@ impl TryFrom<ProductDetailsRow> for ProductDetailsView {
 
     fn try_from(row: ProductDetailsRow) -> Result<Self, Self::Error> {
         let address = address(&row)?;
+        let parsed_images = images(row.product_images.clone())?;
+        let user_state = user_state(&row, &parsed_images)?;
         let product_title = localized_title(row.product_title_text, row.product_title_language)?;
         let product_description = localized_description(
             row.product_description_text,
@@ -316,15 +384,99 @@ impl TryFrom<ProductDetailsRow> for ProductDetailsView {
             lifecycle: lifecycle(&row.lifecycle)?,
             view_url: append_utm_params(url.clone()),
             url,
-            images: images(row.product_images)?,
+            images: parsed_images,
             auction: ProductAuction {
                 start: row.auction_start,
                 end: row.auction_end,
             },
             created: row.created,
             updated: row.updated,
+            user_state,
         })
     }
+}
+
+fn user_state(
+    row: &ProductDetailsRow,
+    images: &IndexSet<ProductImage>,
+) -> Result<Option<ProductUserState>, ()> {
+    if row.personalization_user_id.is_none() {
+        return Ok(None);
+    }
+
+    let user = match (
+        row.user_prohibited_content_consent,
+        row.user_tier.as_deref(),
+    ) {
+        (Some(consent), Some("FREE")) => Some((consent, "FREE")),
+        (Some(consent), Some("PRO")) => Some((consent, "PRO")),
+        (Some(consent), Some("ULTIMATE")) => Some((consent, "ULTIMATE")),
+        (None, None) => None,
+        _ => return Err(()),
+    };
+
+    let consent = if images
+        .iter()
+        .all(|image| image.prohibited_content.is_safe())
+    {
+        true
+    } else {
+        user.map(|(consent, _)| consent).ok_or(())?
+    };
+
+    let search_filter = search_filter_user_state(row, user.map(|(_, tier)| tier))?;
+
+    Ok(Some(ProductUserState {
+        watchlist: WatchlistUserState {
+            watching: row.watchlist_notifications.is_some(),
+            notifications: row.watchlist_notifications.unwrap_or(false),
+        },
+        prohibited_content: ProhibitedContentUserState { consent },
+        notification: Default::default(),
+        search_filter,
+    }))
+}
+
+fn search_filter_user_state(
+    row: &ProductDetailsRow,
+    tier: Option<&str>,
+) -> Result<SearchFilterUserState, ()> {
+    let Some(user_search_filter_id) = row.selected_match_user_search_filter_id else {
+        if row.selected_match_user_search_filter_name.is_some()
+            || row.selected_match_reason.is_some()
+            || row.selected_match_feedback.is_some()
+            || row.selected_match_month_position.is_some()
+        {
+            return Err(());
+        }
+        return Ok(SearchFilterUserState::default());
+    };
+
+    let hidden = match tier.ok_or(())? {
+        "FREE" => row.selected_match_month_position.ok_or(())? > 10,
+        "PRO" | "ULTIMATE" => {
+            if row.selected_match_month_position.is_some() {
+                return Err(());
+            }
+            false
+        }
+        _ => return Err(()),
+    };
+
+    Ok(SearchFilterUserState {
+        matched: true,
+        hidden,
+        user_search_filter_id: Some(UserSearchFilterId::from(user_search_filter_id)),
+        user_search_filter_name: row
+            .selected_match_user_search_filter_name
+            .clone()
+            .map(UserSearchFilterName::from),
+        match_reason: row
+            .selected_match_reason
+            .clone()
+            .map(EnhancedMatchReason::from),
+        match_feedback: row.selected_match_feedback,
+    })
 }
 
 fn address(row: &ProductDetailsRow) -> Result<ProductAddress, ()> {

@@ -19,6 +19,7 @@ use crate::state::{
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
+use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -315,8 +316,6 @@ async fn ready() -> &'static str {
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let pool = common::postgres::connect_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let get_product =
-        GetProductHandler::new(unit_of_work.clone(), SqlxProductDetailsReaderFactory::new());
     let get_product_events =
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
     let opensearch_client = opensearch_client_from_env()?;
@@ -436,6 +435,11 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         })?;
     let table_name = Box::leak(table_name.into_boxed_str());
     let table_name_ref: &str = table_name;
+    let get_product = GetProductHandler::new(
+        unit_of_work.clone(),
+        SqlxProductDetailsReaderFactory::new(),
+        DynamoDbProductNotificationsReader::new(dynamodb_client, table_name_ref),
+    );
     let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name_ref);
     let oauth_store = OAuthDynamoDbStore::new(dynamodb_client, table_name_ref);
     let oauth_access_tokens = StoreOAuthAccessTokenGateway::new(access_token_store.clone());

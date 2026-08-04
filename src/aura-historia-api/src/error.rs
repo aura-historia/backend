@@ -268,6 +268,7 @@ impl From<GetProductError> for ApiError {
                 ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
             }
             GetProductError::ProductDetailsQueryFailed
+            | GetProductError::ProductNotificationReadFailed { .. }
             | GetProductError::BeginTransactionFailed
             | GetProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
@@ -1136,6 +1137,21 @@ impl IntoResponse for ApiError {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn should_map_product_notification_read_failure_to_service_unavailable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = ApiError::from(GetProductError::ProductNotificationReadFailed {
+            source: common::error::boxed::box_error(std::io::Error::other("dynamodb unavailable")),
+        })
+        .into_response();
+
+        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(PRODUCT_TEMPORARILY_UNAVAILABLE.to_string(), body["error"]);
+        Ok(())
+    }
 
     #[tokio::test]
     async fn should_render_problem_json_response() -> Result<(), Box<dyn std::error::Error>> {

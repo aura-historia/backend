@@ -13,7 +13,13 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
+use common::user_search_filter_id::UserSearchFilterId;
+use common::user_search_filter_name::UserSearchFilterName;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use product_core::user_state::{
+    NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
+    WatchlistUserState,
+};
 use product_service::use_cases::{ProductDetailsView, ProductSummary};
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -63,6 +69,53 @@ pub(crate) struct ProductDetailsData {
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     updated: OffsetDateTime,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_state: Option<ProductUserStateData>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductUserStateData {
+    watchlist: WatchlistUserStateData,
+    prohibited_content: ProhibitedContentUserStateData,
+    notification: NotificationUserStateData,
+    search_filter: SearchFilterUserStateData,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WatchlistUserStateData {
+    watching: bool,
+    notifications: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProhibitedContentUserStateData {
+    consent: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NotificationUserStateData {
+    seen: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin_event_id: Option<EventId>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchFilterUserStateData {
+    matched: bool,
+    hidden: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_search_filter_id: Option<UserSearchFilterId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_search_filter_name: Option<UserSearchFilterName>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_feedback: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -181,6 +234,57 @@ impl From<ProductDetailsView> for ProductDetailsData {
             },
             created: view.created,
             updated: view.updated,
+            user_state: view.user_state.map(Into::into),
+        }
+    }
+}
+
+impl From<ProductUserState> for ProductUserStateData {
+    fn from(state: ProductUserState) -> Self {
+        Self {
+            watchlist: state.watchlist.into(),
+            prohibited_content: state.prohibited_content.into(),
+            notification: state.notification.into(),
+            search_filter: state.search_filter.into(),
+        }
+    }
+}
+
+impl From<WatchlistUserState> for WatchlistUserStateData {
+    fn from(state: WatchlistUserState) -> Self {
+        Self {
+            watching: state.watching,
+            notifications: state.notifications,
+        }
+    }
+}
+
+impl From<ProhibitedContentUserState> for ProhibitedContentUserStateData {
+    fn from(state: ProhibitedContentUserState) -> Self {
+        Self {
+            consent: state.consent,
+        }
+    }
+}
+
+impl From<NotificationUserState> for NotificationUserStateData {
+    fn from(state: NotificationUserState) -> Self {
+        Self {
+            seen: state.seen,
+            origin_event_id: state.origin_event_id,
+        }
+    }
+}
+
+impl From<SearchFilterUserState> for SearchFilterUserStateData {
+    fn from(state: SearchFilterUserState) -> Self {
+        Self {
+            matched: state.matched,
+            hidden: state.hidden,
+            user_search_filter_id: state.user_search_filter_id,
+            user_search_filter_name: state.user_search_filter_name,
+            match_reason: state.match_reason.map(|reason| reason.to_string()),
+            match_feedback: state.match_feedback,
         }
     }
 }

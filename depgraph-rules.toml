@@ -105,8 +105,8 @@ product-pipeline-embed-text = ["common", "fxrate", "product", "shop"]
 # Depends on: common, fxrate, product, shop
 product-pipeline-translate = ["common", "fxrate", "product", "shop"]
 
-# Depends on: common, geo, product-core
-product-service = ["common", "geo", "product-core"]
+# Depends on: common, geo, notification-service, product-core
+product-service = ["common", "geo", "notification-service", "product-core"]
 
 # Depends on: common, product, user
 product-watchlist = ["common", "product", "user"]
@@ -210,8 +210,8 @@ shop-partner-postgres = ["common", "shop-core", "shop-partner-core", "shop-partn
 # Depends on: common, product-watchlist, search-filter, user
 user-lambda-tier-update = ["common", "product-watchlist", "search-filter", "user"]
 
-# Depends on: common, geo, oauth-core, oauth-dynamodb, oauth-service, product-core, product-opensearch, product-postgres, product-service, shop-core, shop-partner-core, shop-partner-postgres, shop-partner-service, shop-postgres, shop-service, user-core, user-dynamodb, user-postgres, user-service, watchlist-core, watchlist-postgres, watchlist-service
-aura-historia-api = ["common", "geo", "oauth-core", "oauth-dynamodb", "oauth-service", "product-core", "product-opensearch", "product-postgres", "product-service", "shop-core", "shop-partner-core", "shop-partner-postgres", "shop-partner-service", "shop-postgres", "shop-service", "user-core", "user-dynamodb", "user-postgres", "user-service", "watchlist-core", "watchlist-postgres", "watchlist-service"]
+# Depends on: common, geo, notification-dynamodb, oauth-core, oauth-dynamodb, oauth-service, product-core, product-opensearch, product-postgres, product-service, shop-core, shop-partner-core, shop-partner-postgres, shop-partner-service, shop-postgres, shop-service, user-core, user-dynamodb, user-postgres, user-service, watchlist-core, watchlist-postgres, watchlist-service
+aura-historia-api = ["common", "geo", "notification-dynamodb", "oauth-core", "oauth-dynamodb", "oauth-service", "product-core", "product-opensearch", "product-postgres", "product-service", "shop-core", "shop-partner-core", "shop-partner-postgres", "shop-partner-service", "shop-postgres", "shop-service", "user-core", "user-dynamodb", "user-postgres", "user-service", "watchlist-core", "watchlist-postgres", "watchlist-service"]
 
 # Depends on: common, notification, product, product-watchlist, search-filter, shop, user
 aws-tests-common = ["common", "notification", "product", "product-watchlist", "search-filter", "shop", "user"]

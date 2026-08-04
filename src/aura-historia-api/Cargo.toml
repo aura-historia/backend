@@ -18,6 +18,7 @@ oauth-service = { workspace = true }
 opensearch = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }
+notification-dynamodb = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde-email = { workspace = true }

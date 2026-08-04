@@ -69,11 +69,14 @@ pub async fn get_product_by_id(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
+    use crate::auth::{
+        AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
+    };
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
     use common::currency::domain::Currency;
+    use common::enhanced_match_reason::EnhancedMatchReason;
     use common::event_id::EventId;
     use common::language::domain::Language;
     use common::localized::Localized;
@@ -86,10 +89,15 @@ mod tests {
     use common::shop_name::ShopName;
     use common::shop_slug_id::ShopSlugId;
     use common::shops_product_id::ShopsProductId;
-
+    use common::user_id::UserId;
+    use common::user_search_filter_id::UserSearchFilterId;
+    use common::user_search_filter_name::UserSearchFilterName;
     use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
-
     use product_core::title::Title;
+    use product_core::user_state::{
+        NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
+        WatchlistUserState,
+    };
     use product_service::use_cases::{
         GetProductError, GetProductUseCase, GetSimilarProductsError, GetSimilarProductsRequest,
         GetSimilarProductsResult, GetSimilarProductsUseCase, ProductDetailsView,
@@ -148,6 +156,7 @@ mod tests {
 
     struct FakeAuthenticator {
         reject: bool,
+        user_id: Option<UserId>,
     }
 
     #[async_trait::async_trait]
@@ -160,7 +169,14 @@ mod tests {
             if self.reject {
                 Err(AuthError::InvalidCredentials)
             } else {
-                Ok(TransportPrincipal::Anonymous)
+                Ok(match self.user_id {
+                    Some(user_id) => TransportPrincipal::User {
+                        user_id,
+                        auth_method: AuthMethod::CognitoJwt,
+                        capabilities: Default::default(),
+                    },
+                    None => TransportPrincipal::Anonymous,
+                })
             }
         }
     }
@@ -171,7 +187,7 @@ mod tests {
         let view = product_details_view()?;
         let product_id = view.product_id;
         let event_id = view.event_id;
-        let (app, calls) = app(view, false);
+        let (app, calls) = app(view, false, None);
 
         let response = app
             .oneshot(Request::get(format!("/api/v1/products/{product_id}")).body(Body::empty())?)
@@ -192,6 +208,7 @@ mod tests {
         assert_eq!(json!(product_id.to_string()), body["productId"]);
         assert!(body.get("createdBy").is_none());
         assert!(body.get("updatedBy").is_none());
+        assert!(body.get("userState").is_none());
         assert!(matches!(
             lock(&calls)[0].1,
             GetProductRequest {
@@ -207,7 +224,7 @@ mod tests {
     {
         let view = product_details_view()?;
         let product_id = view.product_id;
-        let (app, calls) = app(view, false);
+        let (app, calls) = app(view, false, None);
 
         let response = app
             .oneshot(
@@ -231,7 +248,7 @@ mod tests {
     async fn should_reject_invalid_language_before_calling_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
         let product_id = ProductId::new();
-        let (app, calls) = app(product_details_view()?, false);
+        let (app, calls) = app(product_details_view()?, false, None);
 
         let response = app
             .oneshot(
@@ -252,7 +269,7 @@ mod tests {
     #[tokio::test]
     async fn should_reject_invalid_product_id_before_calling_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
-        let (app, calls) = app(product_details_view()?, false);
+        let (app, calls) = app(product_details_view()?, false, None);
 
         let response = app
             .oneshot(Request::get("/api/v1/products/not-a-uuid").body(Body::empty())?)
@@ -264,11 +281,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_serialize_user_state_and_disable_cache_for_authenticated_user()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let origin_event_id = EventId::new();
+        let search_filter_id = UserSearchFilterId::new();
+        let mut view = product_details_view()?;
+        let product_id = view.product_id;
+        view.user_state = Some(ProductUserState {
+            watchlist: WatchlistUserState {
+                watching: true,
+                notifications: false,
+            },
+            prohibited_content: ProhibitedContentUserState { consent: false },
+            notification: NotificationUserState {
+                seen: false,
+                origin_event_id: Some(origin_event_id),
+            },
+            search_filter: SearchFilterUserState {
+                matched: true,
+                hidden: false,
+                user_search_filter_id: Some(search_filter_id),
+                user_search_filter_name: Some(UserSearchFilterName::from("Vintage furniture")),
+                match_reason: Some(EnhancedMatchReason::from("Matched the material.")),
+                match_feedback: Some(false),
+            },
+        });
+        let (app, calls) = app(view, false, Some(user_id));
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/v1/products/{product_id}"))
+                    .header(header::AUTHORIZATION, "Bearer valid")
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        let body = body_json(response).await?;
+        assert_eq!(true, body["userState"]["watchlist"]["watching"]);
+        assert_eq!(false, body["userState"]["watchlist"]["notifications"]);
+        assert_eq!(false, body["userState"]["prohibitedContent"]["consent"]);
+        assert_eq!(false, body["userState"]["notification"]["seen"]);
+        assert_eq!(
+            json!(origin_event_id.to_string()),
+            body["userState"]["notification"]["originEventId"]
+        );
+        assert_eq!(true, body["userState"]["searchFilter"]["matched"]);
+        assert_eq!(
+            json!(search_filter_id.to_string()),
+            body["userState"]["searchFilter"]["userSearchFilterId"]
+        );
+        assert_eq!(
+            "Vintage furniture",
+            body["userState"]["searchFilter"]["userSearchFilterName"]
+        );
+        assert_eq!(
+            "Matched the material.",
+            body["userState"]["searchFilter"]["matchReason"]
+        );
+        assert_eq!(false, body["userState"]["searchFilter"]["matchFeedback"]);
+        assert!(matches!(
+            lock(&calls)[0].0.principal,
+            common::operation_context::Principal::User(actual) if actual == user_id
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_reject_invalid_optional_token_before_calling_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
         let view = product_details_view()?;
         let product_id = view.product_id;
-        let (app, calls) = app(view, true);
+        let (app, calls) = app(view, true, None);
 
         let response = app
             .oneshot(
@@ -283,7 +369,11 @@ mod tests {
         Ok(())
     }
 
-    fn app(view: ProductDetailsView, reject_token: bool) -> (Router, GetProductCalls) {
+    fn app(
+        view: ProductDetailsView,
+        reject_token: bool,
+        user_id: Option<UserId>,
+    ) -> (Router, GetProductCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let state = ProductsState::new(
             Arc::new(FakeGetProductUseCase {
@@ -294,6 +384,7 @@ mod tests {
             Arc::new(UnusedSearchProductsUseCase),
             Arc::new(FakeAuthenticator {
                 reject: reject_token,
+                user_id,
             }),
         );
         (
@@ -345,6 +436,7 @@ mod tests {
             auction: ProductAuction::default(),
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
+            user_state: None,
         })
     }
 
