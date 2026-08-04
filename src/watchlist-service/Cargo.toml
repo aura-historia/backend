@@ -6,7 +6,10 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true }
+notification-core = { workspace = true }
+notification-service = { workspace = true }
 product-core = { workspace = true }
+product-service = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
@@ -14,3 +17,4 @@ watchlist-core = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+url = { workspace = true }

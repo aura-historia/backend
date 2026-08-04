@@ -206,7 +206,7 @@ fn product_notification_read_error(error: ProductNotificationsReadError) -> GetP
     }
 }
 
-fn redact_hidden_product(details: &mut ProductDetailsView) -> Result<(), GetProductError> {
+pub fn redact_hidden_product(details: &mut ProductDetailsView) -> Result<(), GetProductError> {
     let nil = uuid::Uuid::nil();
     let language = details
         .title

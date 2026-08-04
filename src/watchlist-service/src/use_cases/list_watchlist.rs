@@ -1,21 +1,32 @@
-use crate::ports::{
-    WatchlistProductView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
-};
+use common::error::boxed::{BoxError, box_error};
+use common::language::domain::Language;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
+use common::pagination::cursor::{Cursor, CursoredResult};
+use common::product_id::ProductId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use notification_core::notification::NotificationPayload;
+use notification_service::ports::all_notifications_reader::{
+    AllNotificationsReadError, AllNotificationsReader,
+};
+use product_core::user_state::NotificationUserState;
+use product_service::ports::{
+    ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
+    ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
+};
+use product_service::use_cases::{ProductDetailsView, redact_hidden_product};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListWatchlistRequest {
     pub user_id: UserId,
+    pub language: Language,
+    pub cursor: Cursor<ProductWatchlistDetailsCursor>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ListWatchlistResult {
-    pub entries: Vec<WatchlistProductView>,
-}
+pub type ListWatchlistResult = CursoredResult<ProductDetailsView, ProductWatchlistDetailsCursor>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListWatchlistError {
@@ -27,6 +38,11 @@ pub enum ListWatchlistError {
     TemporarilyUnavailable,
     #[error("invalid persisted watchlist state")]
     InvalidPersistedState,
+    #[error("watchlist notification read failed")]
+    NotificationReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to begin watchlist transaction")]
     BeginTransactionFailed,
     #[error("failed to commit watchlist transaction")]
@@ -42,25 +58,28 @@ pub trait ListWatchlistUseCase: Send + Sync {
     ) -> Result<ListWatchlistResult, ListWatchlistError>;
 }
 
-pub struct ListWatchlistHandler<U, R> {
+pub struct ListWatchlistHandler<U, D, N> {
     unit_of_work: U,
-    watchlist: R,
+    details_reader: D,
+    notifications_reader: N,
 }
 
-impl<U, R> ListWatchlistHandler<U, R> {
-    pub fn new(unit_of_work: U, watchlist: R) -> Self {
+impl<U, D, N> ListWatchlistHandler<U, D, N> {
+    pub fn new(unit_of_work: U, details_reader: D, notifications_reader: N) -> Self {
         Self {
             unit_of_work,
-            watchlist,
+            details_reader,
+            notifications_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> ListWatchlistUseCase for ListWatchlistHandler<U, R>
+impl<U, D, N> ListWatchlistUseCase for ListWatchlistHandler<U, D, N>
 where
     U: UnitOfWork,
-    R: WatchlistReaderFactory<U::Tx>,
+    D: ProductWatchlistDetailsReaderFactory<U::Tx>,
+    N: AllNotificationsReader,
 {
     #[tracing::instrument(name = "list_watchlist", skip_all, fields(user_id = %request.user_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -75,16 +94,85 @@ where
             .begin()
             .await
             .map_err(|_| ListWatchlistError::BeginTransactionFailed)?;
-        let entries = self
-            .watchlist
+        let cursor = Cursor {
+            size: request.cursor.size.clamp(1, 100),
+            search_after: request.cursor.search_after,
+        };
+        let mut page = self
+            .details_reader
             .in_transaction(&mut tx)
-            .find_for_user(request.user_id)
+            .find_for_user(&ProductWatchlistDetailsRequest {
+                user_id: request.user_id,
+                language: request.language,
+                cursor,
+            })
             .await?;
         tx.commit()
             .await
             .map_err(|_| ListWatchlistError::CommitTransactionFailed)?;
 
-        Ok(ListWatchlistResult { entries })
+        if page.items.is_empty() {
+            return Ok(page);
+        }
+
+        let newest_notifications = newest_notifications_by_product(
+            self.notifications_reader
+                .list_all_by_user(&request.user_id)
+                .await
+                .map_err(notification_read_error)?,
+        );
+
+        for product in &mut page.items {
+            let user_state = product
+                .user_state
+                .as_mut()
+                .ok_or(ListWatchlistError::InvalidPersistedState)?;
+            user_state.notification = newest_notifications
+                .get(&product.product_id)
+                .copied()
+                .unwrap_or_default();
+            if user_state.search_filter.hidden {
+                redact_hidden_product(product)
+                    .map_err(|_| ListWatchlistError::InvalidPersistedState)?;
+            }
+        }
+
+        Ok(page)
+    }
+}
+
+fn newest_notifications_by_product(
+    notifications: Vec<
+        notification_service::ports::all_notifications_reader::AllNotificationsReadItem,
+    >,
+) -> HashMap<ProductId, NotificationUserState> {
+    let mut newest = HashMap::new();
+
+    for notification in notifications {
+        let product_id = match notification.notification_payload {
+            NotificationPayload::Watchlist { product_id, .. }
+            | NotificationPayload::SearchFilter { product_id, .. } => product_id,
+            NotificationPayload::PartnerApplication { .. } => continue,
+        };
+        let state = NotificationUserState {
+            seen: notification.seen,
+            origin_event_id: Some(notification.origin_event_id),
+        };
+        let replace = newest
+            .get(&product_id)
+            .and_then(|current: &NotificationUserState| current.origin_event_id)
+            .is_none_or(|current_event_id| notification.origin_event_id > current_event_id);
+        if replace {
+            newest.insert(product_id, state);
+        }
+    }
+
+    newest
+}
+
+fn notification_read_error(error: AllNotificationsReadError) -> ListWatchlistError {
+    ListWatchlistError::NotificationReadFailed {
+        source: box_error(error),
     }
 }
 
@@ -109,261 +197,155 @@ impl From<OperationAuthorizationError> for ListWatchlistError {
     }
 }
 
-impl From<WatchlistReadError> for ListWatchlistError {
-    fn from(error: WatchlistReadError) -> Self {
+impl From<ProductWatchlistDetailsReadError> for ListWatchlistError {
+    fn from(error: ProductWatchlistDetailsReadError) -> Self {
         match error {
-            WatchlistReadError::ReadFailed => Self::TemporarilyUnavailable,
-            WatchlistReadError::InvalidPersistedState => Self::InvalidPersistedState,
+            ProductWatchlistDetailsReadError::QueryFailed => Self::TemporarilyUnavailable,
+            ProductWatchlistDetailsReadError::InvalidReadModel => Self::InvalidPersistedState,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #![allow(dead_code)]
-
     use super::*;
+    use common::event_id::EventId;
+    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::product_lifecycle::domain::ProductLifecycle;
+    use common::product_slug_id::ProductSlugId;
+    use common::product_state::domain::ProductState;
+    use common::shop_id::ShopId;
+    use common::shop_name::ShopName;
+    use common::shop_slug_id::ShopSlugId;
+    use common::shops_product_id::ShopsProductId;
+    use common::transaction::TransactionError;
+    use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
+    use notification_core::notification_id::NotificationId;
+    use notification_service::ports::all_notifications_reader::AllNotificationsReadItem;
+    use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+    use product_core::user_state::{ProductUserState, SearchFilterUserState};
 
-    use crate::ports::{
-        WatchlistProductView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
-        WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
-    };
-    use common::operation_context::{
-        CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
-    };
-    use common::product_id::ProductId;
-    use common::resource_state::domain::ResourceState;
-    use common::transaction::{Transaction, TransactionError, UnitOfWork};
-    use std::collections::BTreeSet;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, MutexGuard};
     use time::OffsetDateTime;
-    use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
+    use url::Url;
 
-    #[derive(Clone, Default)]
-    struct TestUnitOfWork {
-        state: SharedState,
-        fail_begin: bool,
-        fail_commit: bool,
+    #[derive(Default)]
+    struct FakeState {
+        begin_fails: bool,
+        commit_fails: bool,
+        details_result: Option<Result<Vec<ProductDetailsView>, ProductWatchlistDetailsReadError>>,
+        notifications_result:
+            Option<Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError>>,
+        commit_count: usize,
+        details_requests: Vec<ProductWatchlistDetailsRequest>,
+        notification_requests: usize,
+        notification_after_commit: bool,
     }
 
-    struct TestTransaction {
-        state: SharedState,
-        fail_commit: bool,
+    type SharedState = Arc<Mutex<FakeState>>;
+
+    #[derive(Clone)]
+    struct FakeUnitOfWork(SharedState);
+    #[derive(Clone)]
+    struct FakeDetailsReaderFactory(SharedState);
+    #[derive(Clone)]
+    struct FakeNotificationsReader(SharedState);
+    struct FakeTransaction(SharedState);
+    struct FakeDetailsReader(SharedState);
+
+    fn state() -> SharedState {
+        Arc::new(Mutex::new(FakeState::default()))
     }
 
-    #[derive(Clone, Default)]
-    struct TestWatchlistFactory {
-        state: SharedState,
-    }
-
-    #[derive(Clone, Default)]
-    struct SharedState {
-        entries: Arc<Mutex<Vec<WatchlistProduct>>>,
-        committed: Arc<Mutex<bool>>,
-        updated: Arc<Mutex<usize>>,
-        deleted: Arc<Mutex<usize>>,
-    }
-
-    struct TestWatchlistPort {
-        state: SharedState,
-    }
-
-    impl SharedState {
-        fn with_entry(entry: WatchlistProduct) -> Self {
-            let state = Self::default();
-            state.push(entry);
-            state
-        }
-
-        fn push(&self, entry: WatchlistProduct) {
-            if let Ok(mut entries) = self.entries.lock() {
-                entries.push(entry);
-            }
-        }
-
-        fn committed(&self) -> bool {
-            self.committed.lock().map(|value| *value).unwrap_or(false)
-        }
-
-        fn updated(&self) -> usize {
-            self.updated.lock().map(|value| *value).unwrap_or(0)
-        }
-
-        fn deleted(&self) -> usize {
-            self.deleted.lock().map(|value| *value).unwrap_or(0)
+    fn lock(state: &SharedState) -> MutexGuard<'_, FakeState> {
+        match state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
         }
     }
 
     #[async_trait::async_trait]
-    impl Transaction for TestTransaction {
-        async fn commit(self) -> Result<(), TransactionError> {
-            if self.fail_commit {
-                return Err(TransactionError::CommitFailed);
-            }
-            self.state
-                .committed
-                .lock()
-                .map(|mut committed| *committed = true)
-                .map_err(|_| TransactionError::CommitFailed)
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl UnitOfWork for TestUnitOfWork {
-        type Tx = TestTransaction;
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTransaction;
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
-            if self.fail_begin {
-                return Err(TransactionError::BeginFailed);
-            }
-            Ok(TestTransaction {
-                state: self.state.clone(),
-                fail_commit: self.fail_commit,
-            })
-        }
-    }
-
-    impl<Tx> WatchlistRepositoryFactory<Tx> for TestWatchlistFactory {
-        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl WatchlistRepository + 'tx {
-            TestWatchlistPort {
-                state: self.state.clone(),
-            }
-        }
-    }
-
-    impl<Tx> WatchlistReaderFactory<Tx> for TestWatchlistFactory {
-        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl WatchlistReader + 'tx {
-            TestWatchlistPort {
-                state: self.state.clone(),
+            if lock(&self.0).begin_fails {
+                Err(TransactionError::BeginFailed)
+            } else {
+                Ok(FakeTransaction(Arc::clone(&self.0)))
             }
         }
     }
 
     #[async_trait::async_trait]
-    impl WatchlistRepository for TestWatchlistPort {
-        async fn find_by_user_and_product(
-            &mut self,
-            user_id: UserId,
-            product_id: ProductId,
-        ) -> Result<Option<WatchlistProduct>, WatchlistRepositoryError> {
-            self.state
-                .entries
-                .lock()
-                .map_err(|_| WatchlistRepositoryError::LookupFailed)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .find(|entry| {
-                            entry.user_id() == user_id && entry.product_id() == product_id
-                        })
-                        .cloned()
-                })
-        }
-
-        async fn insert(
-            &mut self,
-            entry: &WatchlistProduct,
-        ) -> Result<WatchlistProduct, WatchlistRepositoryError> {
-            let mut entries = self
-                .state
-                .entries
-                .lock()
-                .map_err(|_| WatchlistRepositoryError::InsertFailed)?;
-            if entries.iter().any(|existing| {
-                existing.user_id() == entry.user_id() && existing.product_id() == entry.product_id()
-            }) {
-                return Err(WatchlistRepositoryError::AlreadyExists);
+    impl Transaction for FakeTransaction {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let mut state = lock(&self.0);
+            state.commit_count += 1;
+            if state.commit_fails {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
             }
-            entries.push(entry.clone());
-            Ok(entry.clone())
         }
+    }
 
-        async fn update(
-            &mut self,
-            entry: &WatchlistProduct,
-        ) -> Result<WatchlistProduct, WatchlistRepositoryError> {
-            let mut entries = self
-                .state
-                .entries
-                .lock()
-                .map_err(|_| WatchlistRepositoryError::UpdateFailed)?;
-            let Some(existing) = entries.iter_mut().find(|existing| {
-                existing.user_id() == entry.user_id() && existing.product_id() == entry.product_id()
-            }) else {
-                return Err(WatchlistRepositoryError::UpdateFailed);
-            };
-            *existing = entry.clone();
-            self.state
-                .updated
-                .lock()
-                .map(|mut updated| *updated += 1)
-                .map_err(|_| WatchlistRepositoryError::UpdateFailed)?;
-            Ok(entry.clone())
-        }
-
-        async fn delete(
-            &mut self,
-            user_id: UserId,
-            product_id: ProductId,
-        ) -> Result<(), WatchlistRepositoryError> {
-            self.state
-                .entries
-                .lock()
-                .map_err(|_| WatchlistRepositoryError::DeleteFailed)?
-                .retain(|entry| entry.user_id() != user_id || entry.product_id() != product_id);
-            self.state
-                .deleted
-                .lock()
-                .map(|mut deleted| *deleted += 1)
-                .map_err(|_| WatchlistRepositoryError::DeleteFailed)
+    impl ProductWatchlistDetailsReaderFactory<FakeTransaction> for FakeDetailsReaderFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl ProductWatchlistDetailsReader + 'tx {
+            FakeDetailsReader(Arc::clone(&self.0))
         }
     }
 
     #[async_trait::async_trait]
-    impl WatchlistReader for TestWatchlistPort {
+    impl ProductWatchlistDetailsReader for FakeDetailsReader {
         async fn find_for_user(
             &mut self,
-            user_id: UserId,
-        ) -> Result<Vec<WatchlistProductView>, WatchlistReadError> {
-            self.state
-                .entries
-                .lock()
-                .map_err(|_| WatchlistReadError::ReadFailed)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .filter(|entry| entry.user_id() == user_id)
-                        .map(|entry| WatchlistProductView {
-                            user_id: entry.user_id(),
-                            product_id: entry.product_id(),
-                            notifications: entry.notifications(),
-                            state: entry.state(),
-                            created: OffsetDateTime::UNIX_EPOCH,
-                            updated: OffsetDateTime::UNIX_EPOCH,
-                        })
-                        .collect()
-                })
-        }
-
-        async fn find_user_ids_for_product(
-            &mut self,
-            product_id: ProductId,
-        ) -> Result<Vec<UserId>, WatchlistReadError> {
-            self.state
-                .entries
-                .lock()
-                .map_err(|_| WatchlistReadError::ReadFailed)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .filter(|entry| entry.product_id() == product_id)
-                        .map(WatchlistProduct::user_id)
-                        .collect()
-                })
+            request: &ProductWatchlistDetailsRequest,
+        ) -> Result<
+            CursoredResult<ProductDetailsView, ProductWatchlistDetailsCursor>,
+            ProductWatchlistDetailsReadError,
+        > {
+            let mut state = lock(&self.0);
+            state.details_requests.push(request.clone());
+            match state.details_result.take().unwrap_or(Ok(Vec::new())) {
+                Ok(items) => Ok(CursoredResult {
+                    items,
+                    cursor: request.cursor,
+                    total: None,
+                }),
+                Err(error) => Err(error),
+            }
         }
     }
 
-    fn context_for_user(user_id: UserId) -> OperationContext {
+    #[async_trait::async_trait]
+    impl AllNotificationsReader for FakeNotificationsReader {
+        async fn list_all_by_user(
+            &self,
+            _user_id: &UserId,
+        ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
+            let mut state = lock(&self.0);
+            state.notification_requests += 1;
+            state.notification_after_commit = state.commit_count == 1;
+            state.notifications_result.take().unwrap_or(Ok(Vec::new()))
+        }
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> ListWatchlistHandler<FakeUnitOfWork, FakeDetailsReaderFactory, FakeNotificationsReader>
+    {
+        ListWatchlistHandler::new(
+            FakeUnitOfWork(Arc::clone(state)),
+            FakeDetailsReaderFactory(Arc::clone(state)),
+            FakeNotificationsReader(Arc::clone(state)),
+        )
+    }
+
+    fn context(user_id: UserId) -> OperationContext {
         OperationContext {
             principal: Principal::User(user_id),
             request_id: RequestId::new("request"),
@@ -371,10 +353,20 @@ mod tests {
         }
     }
 
-    fn delegated_context(
-        user_id: UserId,
-        capabilities: BTreeSet<CredentialCapability>,
-    ) -> OperationContext {
+    fn request(user_id: UserId, language: Language) -> ListWatchlistRequest {
+        ListWatchlistRequest {
+            user_id,
+            language,
+            cursor: Cursor::default(),
+        }
+    }
+
+    fn delegated_context(user_id: UserId, capability: bool) -> OperationContext {
+        let capabilities = if capability {
+            [CredentialCapability::WatchlistRead].into_iter().collect()
+        } else {
+            Default::default()
+        };
         OperationContext {
             principal: Principal::DelegatedUser {
                 user_id,
@@ -385,61 +377,288 @@ mod tests {
         }
     }
 
-    fn entry(user_id: UserId, product_id: ProductId, notifications: bool) -> WatchlistProduct {
-        WatchlistProduct::create(NewWatchlistProduct {
-            user_id,
+    fn details(product_id: ProductId) -> Result<ProductDetailsView, url::ParseError> {
+        let url = Url::parse("https://example.test/product")?;
+        Ok(ProductDetailsView {
             product_id,
-            notifications,
-            state: ResourceState::Active,
+            product_slug_id: ProductSlugId::from("product"),
+            event_id: EventId::new(),
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::from("product"),
+            shop_name: ShopName::from("Shop"),
+            seller_name: ShopName::from("Seller"),
+            shop_slug_id: ShopSlugId::from("shop"),
+            seller_slug_id: ShopSlugId::from("seller"),
+            address: ProductAddress::default(),
+            product_title: None,
+            product_description: None,
+            title: None,
+            description: None,
+            pricing: ProductPricing::default(),
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            currency: None,
+            state: ProductState::Available,
+            lifecycle: ProductLifecycle::Active,
+            url: url.clone(),
+            view_url: url,
+            images: Default::default(),
+            auction: ProductAuction::default(),
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
+            user_state: Some(ProductUserState::default()),
+        })
+    }
+
+    fn notification(
+        user_id: UserId,
+        product_id: ProductId,
+        event_id: EventId,
+        seen: bool,
+    ) -> Result<AllNotificationsReadItem, url::ParseError> {
+        let url = Url::parse("https://example.test/product")?;
+        Ok(AllNotificationsReadItem {
+            user_id,
+            origin_event_id: event_id,
+            notification_id: NotificationId::new(),
+            notification_type: None,
+            notification_payload: NotificationPayload::Watchlist {
+                product_id,
+                shop_id: ShopId::new(),
+                shops_product_id: ShopsProductId::from("product"),
+                shop_slug_id: ShopSlugId::from("shop"),
+                product_slug_id: ProductSlugId::from("product"),
+                shop_name: ShopName::from("Shop"),
+                title: None,
+                image: None,
+                url: url.clone(),
+                view_url: url,
+                watchlist_payload: NotificationWatchlistPayload::StateChange {
+                    old_state: ProductState::Listed,
+                    new_state: ProductState::Available,
+                },
+            },
+            seen,
+            external: false,
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
         })
     }
 
     #[tokio::test]
-    async fn should_list_watchlist_for_owner() -> Result<(), String> {
+    async fn should_list_personalized_products_and_batch_notifications()
+    -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let entry = entry(user_id, ProductId::new(), true);
-        let state = SharedState::with_entry(entry.clone());
+        let first_product_id = ProductId::new();
+        let second_product_id = ProductId::new();
+        let old_event_id = EventId::new();
+        let new_event_id = EventId::new();
+        let state = state();
+        lock(&state).details_result = Some(Ok(vec![
+            details(first_product_id)?,
+            details(second_product_id)?,
+        ]));
+        lock(&state).notifications_result = Some(Ok(vec![
+            notification(user_id, first_product_id, old_event_id, true)?,
+            notification(user_id, first_product_id, new_event_id, false)?,
+        ]));
 
-        let result = ListWatchlistHandler::new(
-            TestUnitOfWork {
-                state: state.clone(),
-                ..Default::default()
-            },
-            TestWatchlistFactory {
-                state: state.clone(),
-            },
-        )
-        .execute(&context_for_user(user_id), ListWatchlistRequest { user_id })
-        .await;
+        let result = handler(&state)
+            .execute(&context(user_id), request(user_id, Language::De))
+            .await?;
 
-        let result = result.map_err(|error| error.to_string())?;
-        assert_eq!(1, result.entries.len());
-        assert_eq!(entry.user_id(), result.entries[0].user_id);
-        assert_eq!(entry.product_id(), result.entries[0].product_id);
-        assert_eq!(entry.notifications(), result.entries[0].notifications);
-        assert_eq!(entry.state(), result.entries[0].state);
-        assert!(state.committed());
+        assert_eq!(
+            vec![first_product_id, second_product_id],
+            result
+                .items
+                .iter()
+                .map(|product| product.product_id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            Some(new_event_id),
+            result.items[0]
+                .user_state
+                .as_ref()
+                .and_then(|state| state.notification.origin_event_id)
+        );
+        assert!(
+            !result.items[0]
+                .user_state
+                .as_ref()
+                .map(|state| state.notification.seen)
+                .unwrap_or(true)
+        );
+        assert_eq!(
+            Some(true),
+            result.items[1]
+                .user_state
+                .as_ref()
+                .map(|state| state.notification.seen)
+        );
+        let state = lock(&state);
+        assert_eq!(1, state.details_requests.len());
+        assert_eq!(user_id, state.details_requests[0].user_id);
+        assert_eq!(Language::De, state.details_requests[0].language);
+        assert_eq!(21, state.details_requests[0].cursor.size);
+        assert!(state.details_requests[0].cursor.search_after.is_none());
+        assert_eq!(1, state.notification_requests);
+        assert!(state.notification_after_commit);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_forbid_delegated_user_without_watchlist_capability() {
+    async fn should_not_read_notifications_when_watchlist_is_empty()
+    -> Result<(), ListWatchlistError> {
         let user_id = UserId::new();
-        let state = SharedState::default();
+        let state = state();
 
-        let result = ListWatchlistHandler::new(
-            TestUnitOfWork {
-                state: state.clone(),
+        let result = handler(&state)
+            .execute(&context(user_id), request(user_id, Language::En))
+            .await?;
+
+        assert!(result.items.is_empty());
+        assert_eq!(0, lock(&state).notification_requests);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_redact_hidden_product_after_notification_hydration()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let product_id = ProductId::new();
+        let mut product = details(product_id)?;
+        product.user_state = Some(ProductUserState {
+            search_filter: SearchFilterUserState {
+                hidden: true,
                 ..Default::default()
             },
-            TestWatchlistFactory { state },
-        )
-        .execute(
-            &delegated_context(user_id, BTreeSet::new()),
-            ListWatchlistRequest { user_id },
-        )
-        .await;
+            ..Default::default()
+        });
+        let state = state();
+        lock(&state).details_result = Some(Ok(vec![product]));
+
+        let result = handler(&state)
+            .execute(&context(user_id), request(user_id, Language::En))
+            .await?;
+
+        assert_ne!(product_id, result.items[0].product_id);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_notification_read_fails() -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let state = state();
+        lock(&state).details_result = Some(Ok(vec![details(ProductId::new())?]));
+        lock(&state).notifications_result = Some(Err(AllNotificationsReadError::OperationFailed {
+            source: box_error(std::io::Error::other("unavailable")),
+        }));
+
+        let result = handler(&state)
+            .execute(&context(user_id), request(user_id, Language::En))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ListWatchlistError::NotificationReadFailed { .. })
+        ));
+        assert_eq!(1, lock(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_commit_or_read_notifications_when_details_read_fails() {
+        let user_id = UserId::new();
+        let state = state();
+        lock(&state).details_result = Some(Err(ProductWatchlistDetailsReadError::QueryFailed));
+
+        let result = handler(&state)
+            .execute(&context(user_id), request(user_id, Language::En))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ListWatchlistError::TemporarilyUnavailable)
+        ));
+        let state = lock(&state);
+        assert_eq!(0, state.commit_count);
+        assert_eq!(0, state.notification_requests);
+    }
+
+    #[tokio::test]
+    async fn should_not_read_notifications_when_commit_fails()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let state = state();
+        lock(&state).commit_fails = true;
+        lock(&state).details_result = Some(Ok(vec![details(ProductId::new())?]));
+
+        let result = handler(&state)
+            .execute(&context(user_id), request(user_id, Language::En))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ListWatchlistError::CommitTransactionFailed)
+        ));
+        assert_eq!(0, lock(&state).notification_requests);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_missing_user_state_from_details_reader()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let mut product = details(ProductId::new())?;
+        product.user_state = None;
+        let state = state();
+        lock(&state).details_result = Some(Ok(vec![product]));
+
+        let result = handler(&state)
+            .execute(&context(user_id), request(user_id, Language::En))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ListWatchlistError::InvalidPersistedState)
+        ));
+        assert_eq!(1, lock(&state).notification_requests);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_begin_transaction_when_delegated_user_lacks_capability() {
+        let user_id = UserId::new();
+        let state = state();
+
+        let result = handler(&state)
+            .execute(
+                &delegated_context(user_id, false),
+                request(user_id, Language::En),
+            )
+            .await;
 
         assert!(matches!(result, Err(ListWatchlistError::Forbidden)));
+        assert_eq!(0, lock(&state).commit_count);
+    }
+
+    #[tokio::test]
+    async fn should_allow_delegated_user_with_watchlist_read_capability()
+    -> Result<(), ListWatchlistError> {
+        let user_id = UserId::new();
+        let state = state();
+
+        handler(&state)
+            .execute(
+                &delegated_context(user_id, true),
+                request(user_id, Language::En),
+            )
+            .await?;
+
+        assert_eq!(1, lock(&state).commit_count);
+        Ok(())
     }
 }

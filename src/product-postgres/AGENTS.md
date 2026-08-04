@@ -8,10 +8,11 @@
 ## Core Design
 
 - Depends on `product-core`, `product-service`, and shared `common` Postgres UoW primitives.
-- Exports public SQLx repository, event-store, product-details, product-history, and product-embedding reader factories only.
+- Exports public SQLx repository, event-store, product-details, product-history, product-embedding, and batch watchlist-details reader factories only.
 - Keeps SQL rows, SQL, mappings, repositories, event stores, and reader internals private.
 - Product row and `product_events` append bind to caller-owned transactions through service factory ports.
 - Product repository writes return storage-neutral persisted product state.
+- Batch watchlist details use a tie-safe `created DESC, product_id ASC` cursor page with one joined query.
 - Real Postgres integration tests live under `tests/` by implementation file, with helpers inline per file.
 
 ## Ownership

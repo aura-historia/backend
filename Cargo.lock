@@ -9767,11 +9767,15 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "notification-core",
+ "notification-service",
  "product-core",
+ "product-service",
  "thiserror 2.0.19",
  "time",
  "tokio",
  "tracing",
+ "url",
  "watchlist-core",
 ]
 

@@ -726,6 +726,7 @@ impl From<ListWatchlistError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             ListWatchlistError::TemporarilyUnavailable
+            | ListWatchlistError::NotificationReadFailed { .. }
             | ListWatchlistError::BeginTransactionFailed
             | ListWatchlistError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)

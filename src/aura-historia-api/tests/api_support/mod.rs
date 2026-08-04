@@ -14,6 +14,7 @@ use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -21,6 +22,7 @@ use oauth_service::use_cases::{
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
+use product_postgres::SqlxProductWatchlistDetailsReaderFactory;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
 use shop_core::shop_type::ShopType;
@@ -65,7 +67,7 @@ use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
 use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
-use watchlist_postgres::{SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory};
+use watchlist_postgres::SqlxWatchlistRepositoryFactory;
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
@@ -190,6 +192,7 @@ pub async fn seed_shop() -> Shop {
 pub async fn seed_product() -> ProductId {
     let shop = seed_shop().await;
     let product_id = ProductId::new();
+    let product_slug_id = common::product_slug_id::ProductSlugId::from("acceptance-product");
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     let mut tx = pool
@@ -207,11 +210,11 @@ pub async fn seed_product() -> ProductId {
         INSERT INTO products (
             product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id,
             state, lifecycle, url
-        ) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'PUBLISHED', $6)
+        ) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
     .bind(uuid::Uuid::from(product_id))
-    .bind(format!("acceptance-product-{product_id}"))
+    .bind(product_slug_id.as_ref())
     .bind(event_id)
     .bind(uuid::Uuid::from(shop.id()))
     .bind(format!("shops-product-{product_id}"))
@@ -349,7 +352,8 @@ async fn test_state() -> AppState {
     let watchlist_state = WatchlistState::new(
         Arc::new(ListWatchlistHandler::new(
             unit_of_work.clone(),
-            SqlxWatchlistReaderFactory,
+            SqlxProductWatchlistDetailsReaderFactory::new(),
+            DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(WatchProductHandler::new(
             unit_of_work.clone(),

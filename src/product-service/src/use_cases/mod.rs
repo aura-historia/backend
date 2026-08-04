@@ -15,7 +15,7 @@ pub use commands::update_product::{
 };
 pub use queries::get_product::{
     GetProductError, GetProductHandler, GetProductRequest, GetProductUseCase, ProductDetailsView,
-    ProductLookup,
+    ProductLookup, redact_hidden_product,
 };
 pub use queries::get_product_events::{
     GetProductEventsError, GetProductEventsHandler, GetProductEventsRequest,

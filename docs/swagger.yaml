@@ -3379,65 +3379,36 @@ paths:
     get:
       summary: List user's watchlist products
       description: |
-        Retrieves all products in the authenticated user's watchlist.
-        Results are paginated using search-after cursor-based pagination with timestamp.
+        Retrieves all products in the authenticated user's watchlist in watchlist creation order.
+        Each result contains current product data and complete user-specific state.
         Accepts Cognito JWT authentication or an Aura Historia access token with `watchlist:read`.
       operationId: getWatchlistProducts
       tags:
         - Watchlist
       parameters:
-        - name: currency
+        - name: language
           in: query
           required: false
-          description: Currency for price display
+          description: Preferred language for localized content. Defaults to `en` when omitted.
           schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
-        - name: sort
-          in: query
-          required: false
-          description: Field to sort results by
-          schema:
-            $ref: "#/components/schemas/SortWatchlistProductFieldData"
-          example: created
-        - name: order
-          in: query
-          required: false
-          description: Sort order (only valid when sort is specified)
-          schema:
-            type: string
-            enum: [asc, desc]
-          example: desc
-        - name: searchAfter
-          in: query
-          required: false
-          description: |
-            RFC3339 timestamp for cursor-based pagination (search-after).
-            Depending on sort-order, returns watchlist-products created, either after this timestamp for asc (oldest first) or before this timestamp for desc (latest first).
-            In general you do not have to worry about determining this key. It's given with `searchAfter` in the preceding response if more entries are present.
-          schema:
-            type: string
-            format: date-time
-          example: "2024-01-01T10:00:00Z"
+            $ref: "#/components/schemas/LanguageData"
+          example: de
         - name: size
           in: query
           required: false
-          description: Number of products to return per page
+          description: Products per page. Defaults to 21; values are clamped to 1..100.
           schema:
             type: integer
             minimum: 1
             maximum: 100
             default: 21
-          example: 21
-        - name: language
+        - name: searchAfter
           in: query
           required: false
-          description: |
-            Preferred language for localized content.
-            Defaults to `en` when omitted.
+          description: "JSON array cursor returned by the preceding page: [RFC3339 timestamp, product UUID]."
           schema:
-            $ref: "#/components/schemas/LanguageData"
-          example: de
+            type: string
+          example: '["2026-08-04T12:34:56Z", "550e8400-e29b-41d4-a716-446655440000"]'
       security:
         - BearerAuth: []
       responses:
@@ -3452,40 +3423,43 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WatchlistCollectionData"
+                type: object
+                required: [items, size]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GetProductData"
+                  size:
+                    type: integer
+                    minimum: 1
+                    maximum: 100
+                  searchAfter:
+                    type: array
+                    items:
+                      type: string
+                    minItems: 2
+                    maxItems: 2
+                    nullable: true
               example:
                 items:
-                  - item:
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      productSlugId: "smartphone-case-a1b2c3"
-                      shopSlugId: "tech-store"
-                      eventId: "550e8400-e29b-41d4-a716-446655440001"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "6ba7b810"
-                      shopName: "Tech Store"
-                      shopType: "COMMERCIAL_DEALER"
-                      title:
-                        text: "Smartphone Case"
-                        language: "en"
-                      price:
-                        offer:
-                          currency: "EUR"
-                          amount: 2999
-                        estimate:
-                          min:
-                            currency: "EUR"
-                            amount: 2700
-                          max:
-                            currency: "EUR"
-                            amount: 3300
-                      state: "AVAILABLE"
-                      url: "https://tech-store.com/smartphone-case"
-                      viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
-                      images:
-                        - url: "https://tech-store.com/images/case-1.jpg"
-                          prohibitedContent: "NONE"
-                      created: "2024-01-01T10:00:00Z"
-                      updated: "2024-01-01T12:00:00Z"
+                  - productId: "550e8400-e29b-41d4-a716-446655440000"
+                    productSlugId: "smartphone-case-a1b2c3"
+                    eventId: "550e8400-e29b-41d4-a716-446655440001"
+                    shopId: "550e8400-e29b-41d4-a716-446655440000"
+                    shopsProductId: "6ba7b810"
+                    shopName: "Tech Store"
+                    title:
+                      text: "Smartphone Case"
+                      language: "en"
+                    state: "AVAILABLE"
+                    lifecycle: "ACTIVE"
+                    url: "https://tech-store.com/smartphone-case"
+                    viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
+                    images:
+                      - url: "https://tech-store.com/images/case-1.jpg"
+                    created: "2024-01-01T10:00:00Z"
+                    updated: "2024-01-01T12:00:00Z"
                     userState:
                       watchlist:
                         watching: true
@@ -3494,8 +3468,10 @@ paths:
                         consent: false
                       notification:
                         seen: true
-                size: 1
-                total: 1
+                      searchFilter:
+                        matched: false
+                        hidden: false
+                size: 21
                 searchAfter: null
         "400":
           description: Bad request - invalid parameters
@@ -3503,37 +3479,11 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                invalid_sort_field:
-                  summary: Invalid sort field
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "sort"
-                      sourceType: "query"
-                    detail: "Expected any of: 'created'. Got: 'invalid'"
-                invalid_order:
-                  summary: Invalid sort order
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "order"
-                      sourceType: "query"
-                    detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
-                invalid_from_timestamp:
-                  summary: Invalid from timestamp
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "INVALID_RFC3339_TIMESTAMP"
-                    source:
-                      field: "from"
-                      sourceType: "query"
-                    detail: "Invalid RFC3339 timestamp format"
+              example:
+                status: 400
+                title: "Bad Request"
+                error: "BAD_QUERY_PARAMETER_VALUE"
+                detail: "Query parameters are invalid."
         "401":
           description: Unauthorized - invalid or missing JWT token
           content:
@@ -13563,36 +13513,6 @@ components:
           type: string
           description: Shop's unique identifier for the product. Can be any arbitrary string.
           example: "6ba7b810"
-
-    WatchlistCollectionData:
-      type: object
-      description: Paginated collection of personalized watchlist products using cursor-based pagination
-      required:
-        - items
-        - size
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/PersonalizedGetProductData"
-          description: Array of personalized watchlist products in the current page
-        size:
-          type: integer
-          minimum: 0
-          description: Number of products in the current page
-          example: 21
-        searchAfter:
-          type: string
-          format: date-time
-          description: Cursor for the next page (RFC3339 timestamp). Present when there are more results.
-          nullable: true
-          example: "2024-01-15T08:00:00Z"
-        total:
-          type: integer
-          minimum: 0
-          description: Total number of products (optional, may not be available for cursor-based pagination)
-          nullable: true
-          example: 127
 
     WatchlistProductPatch:
       type: object

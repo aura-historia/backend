@@ -144,8 +144,8 @@ user-lambda-index-opensearch = ["common", "user"]
 # Depends on: common, geo, user-core, user-service
 user-postgres = ["common", "geo", "user-core", "user-service"]
 
-# Depends on: common, product-core, watchlist-core
-watchlist-service = ["common", "product-core", "watchlist-core"]
+# Depends on: common, notification-core, notification-service, product-core, product-service, watchlist-core
+watchlist-service = ["common", "notification-core", "notification-service", "product-core", "product-service", "watchlist-core"]
 
 # Depends on: common, notification-core
 notification-service = ["common", "notification-core"]

@@ -6,6 +6,13 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-08-04 - Personalize Canonical Watchlist Products
+
+### Changed
+
+- `GET /api/v1/me/watchlist` now returns the authenticated user's full canonical Product data with `userState`, not bare watchlist rows. It accepts optional `language` (default `en`) plus `size` and stable JSON-array `searchAfter` infinite-scroll pagination; it preserves watchlist creation order.
+- The read uses one joined PostgreSQL query for product, localization, and relational user state, then one DynamoDB read for all user notifications. The newest notification per product supplies `userState.notification`; DynamoDB failure returns `503` rather than a partial response.
+
 ## 2026-08-04 - Document Deferred Product Currency Conversion (`backend#1466`)
 
 ### Changed

@@ -12,6 +12,7 @@
 - Write handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/event-store factories.
 - Repository writes return persisted product state; handlers must not read after write for responses.
 - OpenSearch-backed search is an ordinary reader. Do not model it as transactional.
+- `ProductWatchlistDetailsReader` is a transaction-scoped, cursor-paged batch read contract for full localized Product views and relational user state. Its cursor uses watchlist creation time plus Product ID.
 - Ports are public because adapter crates implement them.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
 - No SQLx, DynamoDB, OpenSearch, transport, or legacy `product` dependency.

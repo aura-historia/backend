@@ -19,6 +19,7 @@ use crate::state::{
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
+use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
@@ -35,7 +36,7 @@ use opensearch::{
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
     SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
-    SqlxProductEventReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductWatchlistDetailsReaderFactory,
 };
 use product_service::use_cases::{
     GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
@@ -84,7 +85,7 @@ use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
 use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
-use watchlist_postgres::{SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory};
+use watchlist_postgres::SqlxWatchlistRepositoryFactory;
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
@@ -378,8 +379,6 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let list_watchlist =
-        ListWatchlistHandler::new(unit_of_work.clone(), SqlxWatchlistReaderFactory);
     let watch_product =
         WatchProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
     let update_watchlist_product =
@@ -439,6 +438,11 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         unit_of_work.clone(),
         SqlxProductDetailsReaderFactory::new(),
         DynamoDbProductNotificationsReader::new(dynamodb_client, table_name_ref),
+    );
+    let list_watchlist = ListWatchlistHandler::new(
+        unit_of_work.clone(),
+        SqlxProductWatchlistDetailsReaderFactory::new(),
+        DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
     );
     let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name_ref);
     let oauth_store = OAuthDynamoDbStore::new(dynamodb_client, table_name_ref);
