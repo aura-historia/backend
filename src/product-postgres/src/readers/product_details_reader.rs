@@ -3,7 +3,7 @@ use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::{ProductId, ProductKey};
+use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
@@ -59,12 +59,12 @@ struct ProductDetailsRow {
     title_language: Option<String>,
     description_text: Option<String>,
     description_language: Option<String>,
-    price_native_amount: Option<i64>,
-    price_native_currency: Option<String>,
-    price_estimate_min_native_amount: Option<i64>,
-    price_estimate_min_native_currency: Option<String>,
-    price_estimate_max_native_amount: Option<i64>,
-    price_estimate_max_native_currency: Option<String>,
+    price_amount: Option<i64>,
+    price_currency: Option<String>,
+    price_estimate_min_amount: Option<i64>,
+    price_estimate_min_currency: Option<String>,
+    price_estimate_max_amount: Option<i64>,
+    price_estimate_max_currency: Option<String>,
     fx_rate_id: Option<uuid::Uuid>,
     state: String,
     lifecycle: String,
@@ -116,18 +116,7 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
                 .fetch_optional(&mut *self.connection)
                 .await
             }
-            GetProductRequest::ByKey(ProductKey {
-                shop_id,
-                shops_product_id,
-            }) => {
-                sqlx::query_as::<_, ProductDetailsRow>(&format!(
-                    "{SELECT_PRODUCT_DETAILS} WHERE p.shop_id = $1 AND p.shops_product_id = $2"
-                ))
-                .bind(uuid::Uuid::from(*shop_id))
-                .bind(shops_product_id.as_ref())
-                .fetch_optional(&mut *self.connection)
-                .await
-            }
+
             GetProductRequest::BySlug {
                 shop_slug_id,
                 product_slug_id,
@@ -155,10 +144,10 @@ const SELECT_PRODUCT_DETAILS: &str = r#"
         p.structured_address_addressline, p.structured_address_addressline_extra,
         p.structured_address_locality, p.structured_address_region, p.structured_address_postal_code,
         p.structured_address_country, p.geo_address_lat, p.geo_address_lon, p.title_text,
-        p.title_language, p.description_text, p.description_language, p.price_native_amount,
-        p.price_native_currency, p.price_estimate_min_native_amount,
-        p.price_estimate_min_native_currency, p.price_estimate_max_native_amount,
-        p.price_estimate_max_native_currency, p.fx_rate_id, p.state, p.lifecycle, p.url,
+        p.title_language, p.description_text, p.description_language, p.price_amount,
+        p.price_currency, p.price_estimate_min_amount,
+        p.price_estimate_min_currency, p.price_estimate_max_amount,
+        p.price_estimate_max_currency, p.fx_rate_id, p.state, p.lifecycle, p.url,
         p.product_images, p.auction_start, p.auction_end, p.created, p.updated
     FROM products p
     JOIN shops shop ON shop.shop_id = p.shop_id
@@ -173,14 +162,14 @@ impl TryFrom<ProductDetailsRow> for ProductDetailsView {
         let product_title = localized_title(row.title_text, row.title_language)?;
         let product_description =
             localized_description(row.description_text, row.description_language)?;
-        let product_price = price(row.price_native_amount, row.price_native_currency)?;
+        let product_price = price(row.price_amount, row.price_currency)?;
         let product_price_estimate_min = price(
-            row.price_estimate_min_native_amount,
-            row.price_estimate_min_native_currency,
+            row.price_estimate_min_amount,
+            row.price_estimate_min_currency,
         )?;
         let product_price_estimate_max = price(
-            row.price_estimate_max_native_amount,
-            row.price_estimate_max_native_currency,
+            row.price_estimate_max_amount,
+            row.price_estimate_max_currency,
         )?;
         let url = Url::parse(&row.url).map_err(|_| ())?;
         let currency = product_price

@@ -335,7 +335,6 @@ mod tests {
     use common::currency::domain::Currency;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::{MonetaryAmount, Price};
-    use common::product_id::ProductKey;
     use common::transaction::TransactionError;
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -454,14 +453,6 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ProductId,
-        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
-        {
-            Ok(None)
-        }
-
-        async fn find_by_key(
-            &mut self,
-            _key: &ProductKey,
         ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
         {
             Ok(None)

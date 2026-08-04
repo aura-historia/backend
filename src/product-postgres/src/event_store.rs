@@ -48,8 +48,8 @@ impl ProductEventStore for SqlxProductEventStore<'_> {
         sqlx::query(
             r#"
             INSERT INTO product_events (
-                event_id, product_id, event_type, event_group, event_type_schema_version, payload, event_time
-            ) VALUES ($1, $2, $3, 'DOMAIN', 2, $4, $5)
+                event_id, product_id, event_type, event_group, payload, event_time
+            ) VALUES ($1, $2, $3, 'DOMAIN', $4, $5)
             "#,
         )
         .bind(uuid::Uuid::from(event.event_id))
@@ -69,7 +69,7 @@ impl ProductEventStore for SqlxProductEventStore<'_> {
         product_id: ProductId,
     ) -> Result<Option<EventId>, ProductEventStoreError> {
         let event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM products WHERE product_id = $1",
+            "SELECT event_id FROM product_events WHERE product_id = $1 ORDER BY event_time DESC, event_id DESC LIMIT 1",
         )
         .bind(uuid::Uuid::from(product_id))
         .fetch_optional(&mut *self.connection)
@@ -105,7 +105,6 @@ impl From<ProductCurrentEventLookupSqlxError> for ProductEventStoreError {
 fn event_payload_json(payload: &ProductDomainEventPayload) -> Value {
     match payload {
         ProductDomainEventPayload::Created(payload) => json!({
-            "version": 2,
             "kind": "created",
             "title": payload.title.as_ref().map(localized_title_json),
             "description": payload.description.as_ref().map(localized_description_json),
@@ -117,40 +116,33 @@ fn event_payload_json(payload: &ProductDomainEventPayload) -> Value {
             "auction": auction_json(payload.auction),
         }),
         ProductDomainEventPayload::StateChanged(payload) => json!({
-            "version": 2,
             "kind": "stateChanged",
             "oldState": format!("{:?}", payload.old_state),
             "newState": format!("{:?}", payload.new_state),
         }),
         ProductDomainEventPayload::AddressChanged(payload) => json!({
-            "version": 2,
             "kind": "addressChanged",
             "address": address_json(&payload.address),
         }),
         ProductDomainEventPayload::PriceChanged(payload) => json!({
-            "version": 2,
             "kind": "priceChanged",
             "oldPricing": pricing_json(payload.old_pricing),
             "newPricing": pricing_json(payload.new_pricing),
         }),
         ProductDomainEventPayload::UrlChanged(payload) => json!({
-            "version": 2,
             "kind": "urlChanged",
             "oldUrl": payload.old_url.as_str(),
             "newUrl": payload.new_url.as_str(),
         }),
         ProductDomainEventPayload::ImagesChanged(payload) => json!({
-            "version": 2,
             "kind": "imagesChanged",
             "images": images_json(&payload.images),
         }),
         ProductDomainEventPayload::AuctionChanged(payload) => json!({
-            "version": 2,
             "kind": "auctionChanged",
             "auction": auction_json(payload.auction),
         }),
         ProductDomainEventPayload::Deleted(payload) => json!({
-            "version": 2,
             "kind": "deleted",
             "oldLifecycle": format!("{:?}", payload.old_lifecycle),
             "newLifecycle": format!("{:?}", payload.new_lifecycle),
@@ -288,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn should_write_lossless_v2_created_payload() {
+    fn should_write_lossless_created_payload() {
         let fx_rate_id = FxRateId::new();
         let payload = ProductDomainEventPayload::Created(Box::new(ProductCreated {
             title: Some(Localized::new(Language::En, Title::from("Bronze vase"))),
@@ -312,7 +304,6 @@ mod tests {
 
         let json = event_payload_json(&payload);
 
-        assert_eq!(Some(2), json.get("version").and_then(Value::as_i64));
         assert_eq!(Some("created"), json.get("kind").and_then(Value::as_str));
         assert_eq!(
             Some("Bronze vase"),
@@ -379,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn should_write_v2_payload_for_every_product_event_type() {
+    fn should_write_payload_for_every_product_event_type() {
         let event_types = [
             ProductDomainEventPayload::StateChanged(ProductStateChanged {
                 old_state: ProductState::Listed,
@@ -407,7 +398,6 @@ mod tests {
         for event in event_types {
             let json = event_payload_json(&event);
 
-            assert_eq!(Some(2), json.get("version").and_then(Value::as_i64));
             assert!(json.get("kind").and_then(Value::as_str).is_some());
         }
     }

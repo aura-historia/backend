@@ -33,11 +33,11 @@ use opensearch::{
 };
 use product_opensearch::OpenSearchProductSearchReader;
 use product_postgres::{
-    SqlxProductDetailsReaderFactory, SqlxProductHistoryReaderFactory,
-    SqlxProductSimilarityReaderFactory,
+    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
+    SqlxProductEventReaderFactory,
 };
 use product_service::use_cases::{
-    GetProductHandler, GetProductHistoryHandler, GetSimilarProductsHandler, SearchProductsHandler,
+    GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
 };
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
@@ -173,20 +173,24 @@ pub fn app(state: AppState) -> Router {
                     get(products::get_product_by_id::get_product_by_id),
                 )
                 .route(
-                    "/api/v1/shops/{shop_id}/products/{shops_product_id}",
-                    get(products::get_product_by_key::get_product_by_key),
+                    "/api/v1/products/{product_id}/history",
+                    get(products::get_product_history::get_product_events_by_id),
                 )
                 .route(
-                    "/api/v1/shops/{shop_id}/products/{shops_product_id}/history",
-                    get(products::get_product_history::get_product_history),
-                )
-                .route(
-                    "/api/v1/shops/{shop_id}/products/{shops_product_id}/similar",
-                    get(products::get_similar_products::get_similar_products),
+                    "/api/v1/products/{product_id}/similar",
+                    get(products::get_similar_products::get_similar_products_by_id),
                 )
                 .route(
                     "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}",
                     get(products::get_product_by_slug::get_product_by_slug),
+                )
+                .route(
+                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/history",
+                    get(products::get_product_history::get_product_events_by_slug),
+                )
+                .route(
+                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar",
+                    get(products::get_similar_products::get_similar_products_by_slug),
                 )
                 .with_state(products),
         );
@@ -313,11 +317,11 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let get_product =
         GetProductHandler::new(unit_of_work.clone(), SqlxProductDetailsReaderFactory::new());
-    let get_product_history =
-        GetProductHistoryHandler::new(unit_of_work.clone(), SqlxProductHistoryReaderFactory::new());
+    let get_product_events =
+        GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
     let get_similar_products = GetSimilarProductsHandler::new(
         unit_of_work.clone(),
-        SqlxProductSimilarityReaderFactory::new(),
+        SqlxProductEmbeddingReaderFactory::new(),
     );
     let search_products = SearchProductsHandler::new(OpenSearchProductSearchReader::new(
         opensearch_client_from_env()?,
@@ -520,7 +524,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
             Arc::new(search_products),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         )
-        .with_product_history(Arc::new(get_product_history)),
+        .with_product_events(Arc::new(get_product_events)),
     )
     .with_oauth(oauth_state))
 }

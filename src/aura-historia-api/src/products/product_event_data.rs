@@ -7,27 +7,25 @@ use common::product_state::domain::ProductState;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
 use product_core::product_image::ProductImage;
-use product_service::use_cases::{
-    ProductHistoryEvent, ProductHistoryEventType, ProductHistoryPayload,
-};
+use product_service::use_cases::{ProductEvent, ProductEventPayload, ProductEventType};
 use serde::Serialize;
 use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProductHistoryEventData {
-    event_type: ProductHistoryEventTypeData,
+pub(crate) struct ProductEventData {
+    event_type: ProductEventTypeData,
     product_id: ProductId,
     event_id: EventId,
-    payload: ProductHistoryPayloadData,
+    payload: ProductEventPayloadData,
     #[serde(with = "time::serde::rfc3339")]
     timestamp: OffsetDateTime,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ProductHistoryEventTypeData {
+enum ProductEventTypeData {
     Created,
     StateChanged,
     AddressChanged,
@@ -41,7 +39,7 @@ enum ProductHistoryEventTypeData {
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 #[allow(clippy::large_enum_variant)]
-enum ProductHistoryPayloadData {
+enum ProductEventPayloadData {
     Created(ProductCreatedHistoryPayloadData),
     StateChanged(ProductStateChangedHistoryPayloadData),
     AddressChanged(ProductAddressChangedHistoryPayloadData),
@@ -162,8 +160,8 @@ enum ProductLifecycleData {
     Deleted,
 }
 
-impl From<ProductHistoryEvent> for ProductHistoryEventData {
-    fn from(event: ProductHistoryEvent) -> Self {
+impl From<ProductEvent> for ProductEventData {
+    fn from(event: ProductEvent) -> Self {
         Self {
             event_type: event.event_type.into(),
             product_id: event.product_id,
@@ -174,25 +172,25 @@ impl From<ProductHistoryEvent> for ProductHistoryEventData {
     }
 }
 
-impl From<ProductHistoryEventType> for ProductHistoryEventTypeData {
-    fn from(value: ProductHistoryEventType) -> Self {
+impl From<ProductEventType> for ProductEventTypeData {
+    fn from(value: ProductEventType) -> Self {
         match value {
-            ProductHistoryEventType::Created => Self::Created,
-            ProductHistoryEventType::StateChanged => Self::StateChanged,
-            ProductHistoryEventType::AddressChanged => Self::AddressChanged,
-            ProductHistoryEventType::PriceChanged => Self::PriceChanged,
-            ProductHistoryEventType::UrlChanged => Self::UrlChanged,
-            ProductHistoryEventType::ImagesChanged => Self::ImagesChanged,
-            ProductHistoryEventType::AuctionChanged => Self::AuctionChanged,
-            ProductHistoryEventType::Deleted => Self::Deleted,
+            ProductEventType::Created => Self::Created,
+            ProductEventType::StateChanged => Self::StateChanged,
+            ProductEventType::AddressChanged => Self::AddressChanged,
+            ProductEventType::PriceChanged => Self::PriceChanged,
+            ProductEventType::UrlChanged => Self::UrlChanged,
+            ProductEventType::ImagesChanged => Self::ImagesChanged,
+            ProductEventType::AuctionChanged => Self::AuctionChanged,
+            ProductEventType::Deleted => Self::Deleted,
         }
     }
 }
 
-impl From<ProductHistoryPayload> for ProductHistoryPayloadData {
-    fn from(value: ProductHistoryPayload) -> Self {
+impl From<ProductEventPayload> for ProductEventPayloadData {
+    fn from(value: ProductEventPayload) -> Self {
         match value {
-            ProductHistoryPayload::Created(value) => {
+            ProductEventPayload::Created(value) => {
                 Self::Created(ProductCreatedHistoryPayloadData {
                     title: value.title.map(Into::into),
                     description: value.description.map(Into::into),
@@ -205,38 +203,38 @@ impl From<ProductHistoryPayload> for ProductHistoryPayloadData {
                     auction: value.auction.into(),
                 })
             }
-            ProductHistoryPayload::StateChanged(value) => {
+            ProductEventPayload::StateChanged(value) => {
                 Self::StateChanged(ProductStateChangedHistoryPayloadData {
                     old_state: value.old_state.into(),
                     new_state: value.new_state.into(),
                 })
             }
-            ProductHistoryPayload::AddressChanged(value) => {
+            ProductEventPayload::AddressChanged(value) => {
                 Self::AddressChanged(ProductAddressChangedHistoryPayloadData::from(value.address))
             }
-            ProductHistoryPayload::PriceChanged(value) => {
+            ProductEventPayload::PriceChanged(value) => {
                 Self::PriceChanged(ProductPriceChangedHistoryPayloadData {
                     old_pricing: value.old_pricing.into(),
                     new_pricing: value.new_pricing.into(),
                 })
             }
-            ProductHistoryPayload::UrlChanged(value) => {
+            ProductEventPayload::UrlChanged(value) => {
                 Self::UrlChanged(ProductUrlChangedHistoryPayloadData {
                     old_url: value.old_url,
                     new_url: value.new_url,
                 })
             }
-            ProductHistoryPayload::ImagesChanged(value) => {
+            ProductEventPayload::ImagesChanged(value) => {
                 Self::ImagesChanged(ProductImagesChangedHistoryPayloadData {
                     images: images(value.images),
                 })
             }
-            ProductHistoryPayload::AuctionChanged(value) => {
+            ProductEventPayload::AuctionChanged(value) => {
                 Self::AuctionChanged(ProductAuctionChangedHistoryPayloadData {
                     auction: value.auction.into(),
                 })
             }
-            ProductHistoryPayload::Deleted(value) => {
+            ProductEventPayload::Deleted(value) => {
                 Self::Deleted(ProductDeletedHistoryPayloadData {
                     old_lifecycle: value.old_lifecycle.into(),
                     new_lifecycle: value.new_lifecycle.into(),

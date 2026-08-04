@@ -5,7 +5,7 @@ use common::language::domain::Language;
 use common::localized::Localized;
 use common::operation_context::OperationContext;
 use common::price::domain::Price;
-use common::product_id::{ProductId, ProductKey};
+use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
@@ -25,7 +25,6 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub enum GetProductRequest {
     ById(ProductId),
-    ByKey(ProductKey),
     BySlug {
         shop_slug_id: ShopSlugId,
         product_slug_id: ProductSlugId,

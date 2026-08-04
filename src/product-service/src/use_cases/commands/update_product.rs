@@ -367,7 +367,6 @@ mod tests {
     use common::localized::Localized;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::{MonetaryAmount, Price};
-    use common::product_id::ProductKey;
 
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
@@ -497,13 +496,6 @@ mod tests {
                 Some(result) => result,
                 None => Ok(None),
             }
-        }
-
-        async fn find_by_key(
-            &mut self,
-            _key: &ProductKey,
-        ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
-            Ok(None)
         }
 
         async fn insert(

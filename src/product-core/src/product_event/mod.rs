@@ -7,9 +7,7 @@ use common::{
     event_id::EventId,
     has_key::HasKey,
     logging::{LogEventType, LogWriteSource},
-    product_id::{ProductId, ProductKey},
-    shop_id::ShopId,
-    shops_product_id::ShopsProductId,
+    product_id::ProductId,
 };
 
 pub mod domain;
@@ -33,19 +31,6 @@ pub enum ProductEventPayload {
 }
 
 pub type ProductEvent = Event<ProductId, ProductEventPayload>;
-
-impl HasKey for ProductEventPayload {
-    type Key = ProductKey;
-
-    fn key(&self) -> Self::Key {
-        match self {
-            ProductEventPayload::ProductDomainEvent(event_payload) => event_payload.key(),
-            ProductEventPayload::ProductEnrichmentEvent(event_payload) => event_payload.key(),
-            ProductEventPayload::ProductLifecycleEvent(event_payload) => event_payload.key(),
-            ProductEventPayload::ProductPolicyEvent(event_payload) => event_payload.key(),
-        }
-    }
-}
 
 impl From<ProductDomainEventPayload> for ProductEventPayload {
     fn from(payload: ProductDomainEventPayload) -> Self {
@@ -118,8 +103,6 @@ pub struct ProductEventLog {
     pub event_type: Option<LogEventType>,
     pub write_source: Option<LogWriteSource>,
     pub product_id: ProductId,
-    pub shop_id: ShopId,
-    pub shops_product_id: ShopsProductId,
     pub event_id: EventId,
     pub product_event_type: String,
     pub decision: Option<String>,
@@ -148,8 +131,6 @@ impl ProductEventLog {
         let event = tracing::info_span!(
             "product_event",
             product_id = %self.product_id,
-            shop_id = %self.shop_id,
-            shops_product_id = %self.shops_product_id,
             event_id = %self.event_id,
             product_event_type = %self.product_event_type,
         );
@@ -177,7 +158,6 @@ impl ProductEventLog {
 
 impl From<&ProductEvent> for ProductEventLog {
     fn from(event: &ProductEvent) -> Self {
-        let key = event.payload.key();
         let (decision, reason, class) = match event.payload {
             ProductEventPayload::ProductDomainEvent(_) => (None, None, None),
             ProductEventPayload::ProductEnrichmentEvent(_) => (None, None, None),
@@ -195,8 +175,6 @@ impl From<&ProductEvent> for ProductEventLog {
             event_type: None,
             write_source: None,
             product_id: event.aggregate_id,
-            shop_id: key.shop_id,
-            shops_product_id: key.shops_product_id,
             event_id: event.event_id,
             product_event_type: event.payload.event_type().to_owned(),
             decision,
@@ -208,13 +186,10 @@ impl From<&ProductEvent> for ProductEventLog {
 }
 
 impl HasKey for ProductEventLog {
-    type Key = ProductKey;
+    type Key = ProductId;
 
     fn key(&self) -> Self::Key {
-        ProductKey {
-            shop_id: self.shop_id,
-            shops_product_id: self.shops_product_id.clone(),
-        }
+        self.product_id
     }
 }
 
@@ -222,14 +197,12 @@ impl HasKey for ProductEventLog {
 mod tests {
     use super::*;
     use crate::prohibited_content::{ProhibitedContent, ProhibitedContentReason};
+    use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_state::domain::ProductState;
     use time::OffsetDateTime;
 
     fn domain_payload() -> ProductDomainEventPayload {
         ProductDomainEventPayload::StateChanged(domain::ProductStateChangeDomainEventPayload {
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shops_product_id: ShopsProductId::from("sku-1"),
             old_state: ProductState::Listed,
             new_state: ProductState::Available,
         })
@@ -237,20 +210,14 @@ mod tests {
 
     fn lifecycle_payload() -> ProductLifecycleEventPayload {
         ProductLifecycleEventPayload::Deleted(lifecycle::ProductDeletedLifecycleEventPayload {
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shops_product_id: ShopsProductId::from("sku-1"),
-            old_lifecycle: common::product_lifecycle::domain::ProductLifecycle::Active,
-            new_lifecycle: common::product_lifecycle::domain::ProductLifecycle::Deleted,
+            old_lifecycle: ProductLifecycle::Active,
+            new_lifecycle: ProductLifecycle::Deleted,
         })
     }
 
     fn policy_payload() -> ProductPolicyEventPayload {
         ProductPolicyEventPayload::ProhibitedContentDecision(
             policy::ProhibitedContentProductPolicyEventPayload {
-                shop_id: ShopId::new(),
-                seller_id: ShopId::new(),
-                shops_product_id: ShopsProductId::from("sku-1"),
                 decision: ProhibitedContent::NaziGermany,
                 reason: ProhibitedContentReason::ProductText,
             },
@@ -270,16 +237,14 @@ mod tests {
     }
 
     #[test]
-    fn should_delegate_event_type_and_key() {
+    fn should_delegate_event_type() {
         let payload = ProductEventPayload::from(domain_payload());
-        let key = payload.key();
 
         assert_eq!("DOMAIN_STATE_CHANGED", payload.event_type());
-        assert_eq!(key, payload.key());
     }
 
     #[test]
-    fn should_create_log_from_policy_event_with_decision_context() {
+    fn should_create_log_from_policy_event_with_envelope_product_id() {
         let event = ProductEvent {
             aggregate_id: ProductId::new(),
             event_id: EventId::new(),
@@ -297,10 +262,7 @@ mod tests {
         assert_eq!("POLICY_PROHIBITED_CONTENT_DECISION", log.product_event_type);
         assert_eq!(Some("NAZI_GERMANY".to_owned()), log.decision);
         assert_eq!(Some("PRODUCT_TEXT".to_owned()), log.reason);
-        assert_eq!(
-            ProductKey::new(log.shop_id, log.shops_product_id.clone()),
-            log.key()
-        );
+        assert_eq!(event.aggregate_id, log.key());
         assert_eq!(Some("done"), log.msg);
     }
 }

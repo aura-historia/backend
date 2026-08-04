@@ -61,7 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `DELETE /api/v1/me/partner-applications/{partnerApplicationId}` now withdraws the application instead of physically deleting it.
 - `GetShopData` no longer includes `createdBy` or `updatedBy` because canonical shop storage has no audit actor columns.
 - Canonical product detail and search responses omit `createdBy` and `updatedBy`. Product user-state personalization remains on legacy routes.
-- `GET /api/v1/shops/{shopId}/products/{shopsProductId}/history` now uses canonical Product service/Postgres reads. It returns ordered, immutable schema-v2 snapshots and no longer accepts language or currency conversion parameters. Price snapshots expose `price`, estimate bounds, and `fxRateId`; old `native*` / multi-currency payload fields are removed.
+- `GET /api/v1/shops/{shopId}/products/{shopsProductId}/history` now uses canonical Product service/Postgres reads. It returns ordered, immutable event snapshots and no longer accepts language or currency conversion parameters. Price snapshots expose `price`, estimate bounds, and `fxRateId`; old `native*` / multi-currency payload fields are removed.
 - Canonical Product pricing fields are `price`, `priceEstimateMin`, and `priceEstimateMax`; the old public `native*` names are removed. Similar-product discovery returns `202 Accepted` while canonical embeddings are pending.
 - Migrated API errors use `application/problem+json` and stable `ApiErrorCode` constants.
 

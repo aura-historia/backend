@@ -4,7 +4,7 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use oauth_service::error::OAuthServiceError;
 use product_service::use_cases::{
-    GetProductError, GetProductHistoryError, GetSimilarProductsError, SearchProductsError,
+    GetProductError, GetProductEventsError, GetSimilarProductsError, SearchProductsError,
 };
 use serde::Serialize;
 use shop_partner_service::use_cases::{
@@ -283,20 +283,19 @@ impl From<GetProductError> for ApiError {
     }
 }
 
-impl From<GetProductHistoryError> for ApiError {
-    fn from(error: GetProductHistoryError) -> Self {
+impl From<GetProductEventsError> for ApiError {
+    fn from(error: GetProductEventsError) -> Self {
         match error {
-            GetProductHistoryError::NotFound => {
+            GetProductEventsError::NotFound => {
                 ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
             }
-            GetProductHistoryError::ProductHistoryQueryFailed
-            | GetProductHistoryError::BeginTransactionFailed
-            | GetProductHistoryError::CommitTransactionFailed => {
+            GetProductEventsError::ProductEventQueryFailed
+            | GetProductEventsError::BeginTransactionFailed
+            | GetProductEventsError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product history is temporarily unavailable.")
             }
-            GetProductHistoryError::ProductHistoryReadModelInvalid
-            | GetProductHistoryError::UnsupportedProductHistoryEventSchema => {
+            GetProductEventsError::ProductEventReadModelInvalid => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
                     .with_detail("Product history contains invalid event data.")
             }
@@ -310,7 +309,7 @@ impl From<GetSimilarProductsError> for ApiError {
             GetSimilarProductsError::NotFound => {
                 ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
             }
-            GetSimilarProductsError::ProductSimilarityQueryFailed { .. }
+            GetSimilarProductsError::ProductEmbeddingQueryFailed { .. }
             | GetSimilarProductsError::SimilaritySearchUnavailable
             | GetSimilarProductsError::BeginTransactionFailed
             | GetSimilarProductsError::CommitTransactionFailed => {

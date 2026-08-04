@@ -5,7 +5,7 @@ use oauth_service::use_cases::{
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
 use product_service::use_cases::{
-    GetProductHistoryUseCase, GetProductUseCase, GetSimilarProductsUseCase, SearchProductsUseCase,
+    GetProductEventsUseCase, GetProductUseCase, GetSimilarProductsUseCase, SearchProductsUseCase,
 };
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationUseCase, AdminGetPartnerShopApplicationUseCase,
@@ -163,7 +163,7 @@ impl ShopsState {
 #[derive(Clone)]
 pub struct ProductsState {
     pub(crate) get_product: Arc<dyn GetProductUseCase>,
-    pub(crate) get_product_history: Option<Arc<dyn GetProductHistoryUseCase>>,
+    pub(crate) get_product_events: Option<Arc<dyn GetProductEventsUseCase>>,
     pub(crate) get_similar_products: Arc<dyn GetSimilarProductsUseCase>,
     pub(crate) search_products: Arc<dyn SearchProductsUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
@@ -178,18 +178,18 @@ impl ProductsState {
     ) -> Self {
         Self {
             get_product,
-            get_product_history: None,
+            get_product_events: None,
             get_similar_products,
             search_products,
             authenticator,
         }
     }
 
-    pub fn with_product_history(
+    pub fn with_product_events(
         mut self,
-        get_product_history: Arc<dyn GetProductHistoryUseCase>,
+        get_product_events: Arc<dyn GetProductEventsUseCase>,
     ) -> Self {
-        self.get_product_history = Some(get_product_history);
+        self.get_product_events = Some(get_product_events);
         self
     }
 }

@@ -1,70 +1,97 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, INVALID_UUID, PRODUCT_INTERNAL_ERROR};
-use crate::products::product_history_data::ProductHistoryEventData;
+use crate::products::product_event_data::ProductEventData;
 use crate::state::ProductsState;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::product_id::ProductKey;
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
-use product_service::use_cases::GetProductHistoryRequest;
+use common::product_id::ProductId;
+use common::product_slug_id::ProductSlugId;
+use common::shop_slug_id::ShopSlugId;
+use product_service::use_cases::{GetProductEventsRequest, ProductEventLookup};
 
 const HISTORY_CACHE_CONTROL: &str = "public, max-age=180, s-maxage=900";
 
-pub async fn get_product_history(
+pub async fn get_product_events_by_id(
     State(state): State<ProductsState>,
     headers: HeaderMap,
-    Path((raw_shop_id, raw_shops_product_id)): Path<(String, String)>,
+    Path(raw_product_id): Path<String>,
+) -> Response {
+    let product_id = match ProductId::try_from(raw_product_id.as_str()) {
+        Ok(id) => id,
+        Err(_) => {
+            return ApiError::bad_request(INVALID_UUID)
+                .with_path_field("productId")
+                .with_detail("Path parameter 'productId' must be a UUID.")
+                .into_response();
+        }
+    };
+    history_response(state, headers, ProductEventLookup::ById(product_id)).await
+}
+
+pub async fn get_product_events_by_slug(
+    State(state): State<ProductsState>,
+    headers: HeaderMap,
+    Path((raw_shop_slug_id, raw_product_slug_id)): Path<(String, String)>,
+) -> Response {
+    let shop_slug_id = match ShopSlugId::raw(&raw_shop_slug_id) {
+        Ok(value) => value,
+        Err(_) => {
+            return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
+                .with_path_field("shopSlugId")
+                .with_detail("Path parameter 'shopSlugId' is invalid.")
+                .into_response();
+        }
+    };
+    let product_slug_id = match ProductSlugId::raw(&raw_product_slug_id) {
+        Ok(value) => value,
+        Err(_) => {
+            return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
+                .with_path_field("productSlugId")
+                .with_detail("Path parameter 'productSlugId' is invalid.")
+                .into_response();
+        }
+    };
+    history_response(
+        state,
+        headers,
+        ProductEventLookup::BySlug {
+            shop_slug_id,
+            product_slug_id,
+        },
+    )
+    .await
+}
+
+async fn history_response(
+    state: ProductsState,
+    headers: HeaderMap,
+    lookup: ProductEventLookup,
 ) -> Response {
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
         .extract(&headers, &metadata)
         .await
     {
-        Ok(principal) => principal,
+        Ok(value) => value,
         Err(error) => return ApiError::from(error).into_response(),
     };
-    let shop_id = match ShopId::try_from(raw_shop_id.as_str()) {
-        Ok(shop_id) => shop_id,
-        Err(_) => {
-            return ApiError::bad_request(INVALID_UUID)
-                .with_path_field("shopId")
-                .with_detail("Path parameter 'shopId' must be a UUID.")
-                .into_response();
-        }
-    };
-    let shops_product_id = match ShopsProductId::raw(&raw_shops_product_id) {
-        Ok(shops_product_id) => shops_product_id,
-        Err(_) => {
-            return ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-                .with_path_field("shopsProductId")
-                .with_detail("Path parameter 'shopsProductId' is invalid.")
-                .into_response();
-        }
-    };
-    let Some(use_case) = state.get_product_history.as_ref() else {
+    let Some(use_case) = state.get_product_events.as_ref() else {
         return ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
-            .with_detail("Product history is not configured.")
+            .with_detail("Product events are not configured.")
             .into_response();
     };
-
     let context = principal.operation_context(metadata);
     match use_case
-        .execute(
-            &context,
-            GetProductHistoryRequest {
-                product_key: ProductKey::new(shop_id, shops_product_id),
-            },
-        )
+        .execute(&context, GetProductEventsRequest { lookup })
         .await
     {
         Ok(events) => {
             let mut response = Json(
                 events
                     .into_iter()
-                    .map(ProductHistoryEventData::from)
+                    .map(ProductEventData::from)
                     .collect::<Vec<_>>(),
             )
             .into_response();

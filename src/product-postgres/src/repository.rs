@@ -5,7 +5,7 @@ use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::{ProductId, ProductKey};
+use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
@@ -57,12 +57,12 @@ struct ProductRow {
     title_language: Option<String>,
     description_text: Option<String>,
     description_language: Option<String>,
-    price_native_amount: Option<i64>,
-    price_native_currency: Option<String>,
-    price_estimate_min_native_amount: Option<i64>,
-    price_estimate_min_native_currency: Option<String>,
-    price_estimate_max_native_amount: Option<i64>,
-    price_estimate_max_native_currency: Option<String>,
+    price_amount: Option<i64>,
+    price_currency: Option<String>,
+    price_estimate_min_amount: Option<i64>,
+    price_estimate_min_currency: Option<String>,
+    price_estimate_max_amount: Option<i64>,
+    price_estimate_max_currency: Option<String>,
     fx_rate_id: Option<uuid::Uuid>,
     state: String,
     lifecycle: String,
@@ -118,9 +118,9 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 structured_address_locality, structured_address_region, structured_address_postal_code,
                 structured_address_country, geo_address_lat, geo_address_lon, title_text,
                 title_language, description_text, description_language,
-                price_native_amount, price_native_currency, price_estimate_min_native_amount,
-                price_estimate_min_native_currency, price_estimate_max_native_amount,
-                price_estimate_max_native_currency, fx_rate_id, state, lifecycle, url, product_images,
+                price_amount, price_currency, price_estimate_min_amount,
+                price_estimate_min_currency, price_estimate_max_amount,
+                price_estimate_max_currency, fx_rate_id, state, lifecycle, url, product_images,
                 embedding, auction_start, auction_end, created, updated
             FROM products
             WHERE product_id = $1
@@ -130,35 +130,6 @@ impl ProductRepository for SqlxProductRepository<'_> {
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductLookupByIdSqlxError)?;
-
-        row.map(TryInto::try_into).transpose()
-    }
-
-    async fn find_by_key(
-        &mut self,
-        key: &ProductKey,
-    ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
-        let row = sqlx::query_as::<_, ProductRow>(
-            r#"
-            SELECT
-                product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id,
-                structured_address_addressline, structured_address_addressline_extra,
-                structured_address_locality, structured_address_region, structured_address_postal_code,
-                structured_address_country, geo_address_lat, geo_address_lon, title_text,
-                title_language, description_text, description_language,
-                price_native_amount, price_native_currency, price_estimate_min_native_amount,
-                price_estimate_min_native_currency, price_estimate_max_native_amount,
-                price_estimate_max_native_currency, fx_rate_id, state, lifecycle, url, product_images,
-                embedding, auction_start, auction_end, created, updated
-            FROM products
-            WHERE shop_id = $1 AND shops_product_id = $2
-            "#,
-        )
-        .bind(uuid::Uuid::from(key.shop_id))
-        .bind(key.shops_product_id.as_ref())
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(ProductLookupByKeySqlxError)?;
 
         row.map(TryInto::try_into).transpose()
     }
@@ -198,9 +169,9 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 structured_address_locality, structured_address_region, structured_address_postal_code,
                 structured_address_country, geo_address_lat, geo_address_lon, title_text,
                 title_language, description_text, description_language,
-                price_native_amount, price_native_currency, price_estimate_min_native_amount,
-                price_estimate_min_native_currency, price_estimate_max_native_amount,
-                price_estimate_max_native_currency, fx_rate_id, state, lifecycle, url, product_images,
+                price_amount, price_currency, price_estimate_min_amount,
+                price_estimate_min_currency, price_estimate_max_amount,
+                price_estimate_max_currency, fx_rate_id, state, lifecycle, url, product_images,
                 auction_start, auction_end
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
@@ -303,12 +274,12 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 title_language = $15,
                 description_text = $16,
                 description_language = $17,
-                price_native_amount = $18,
-                price_native_currency = $19,
-                price_estimate_min_native_amount = $20,
-                price_estimate_min_native_currency = $21,
-                price_estimate_max_native_amount = $22,
-                price_estimate_max_native_currency = $23,
+                price_amount = $18,
+                price_currency = $19,
+                price_estimate_min_amount = $20,
+                price_estimate_min_currency = $21,
+                price_estimate_max_amount = $22,
+                price_estimate_max_currency = $23,
                 fx_rate_id = $24,
                 state = $25,
                 lifecycle = $26,
@@ -429,14 +400,14 @@ impl TryFrom<ProductRow> for Versioned<Product, EventId> {
             title,
             description,
             pricing: ProductPricing {
-                price: price_from_parts(row.price_native_amount, row.price_native_currency)?,
+                price: price_from_parts(row.price_amount, row.price_currency)?,
                 price_estimate_min: price_from_parts(
-                    row.price_estimate_min_native_amount,
-                    row.price_estimate_min_native_currency,
+                    row.price_estimate_min_amount,
+                    row.price_estimate_min_currency,
                 )?,
                 price_estimate_max: price_from_parts(
-                    row.price_estimate_max_native_amount,
-                    row.price_estimate_max_native_currency,
+                    row.price_estimate_max_amount,
+                    row.price_estimate_max_currency,
                 )?,
                 fx_rate_id: row.fx_rate_id.map(FxRateId::from),
             },
@@ -932,12 +903,12 @@ mod tests {
             title_language: Some("en".to_owned()),
             description_text: Some("description".to_owned()),
             description_language: Some("de".to_owned()),
-            price_native_amount: Some(1_200),
-            price_native_currency: Some("EUR".to_owned()),
-            price_estimate_min_native_amount: None,
-            price_estimate_min_native_currency: None,
-            price_estimate_max_native_amount: None,
-            price_estimate_max_native_currency: None,
+            price_amount: Some(1_200),
+            price_currency: Some("EUR".to_owned()),
+            price_estimate_min_amount: None,
+            price_estimate_min_currency: None,
+            price_estimate_max_amount: None,
+            price_estimate_max_currency: None,
             fx_rate_id: None,
             state: "LISTED".to_owned(),
             lifecycle: "ACTIVE".to_owned(),

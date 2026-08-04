@@ -3,7 +3,7 @@ use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::{ProductId, ProductKey};
+use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_state::domain::ProductState;
 
@@ -15,14 +15,14 @@ use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
 use product_service::ports::{
-    ProductHistoryReadError, ProductHistoryReader, ProductHistoryReaderFactory,
+    ProductEventReadError, ProductEventReader, ProductEventReaderFactory,
 };
 use product_service::use_cases::{
-    ProductAddressChangedHistoryPayload, ProductAuctionChangedHistoryPayload,
-    ProductCreatedHistoryPayload, ProductDeletedHistoryPayload, ProductHistoryEvent,
-    ProductHistoryEventType, ProductHistoryPayload, ProductImagesChangedHistoryPayload,
-    ProductPriceChangedHistoryPayload, ProductStateChangedHistoryPayload,
-    ProductUrlChangedHistoryPayload,
+    ProductAddressChangedEventPayload, ProductAuctionChangedEventPayload,
+    ProductCreatedEventPayload, ProductDeletedEventPayload, ProductEvent, ProductEventLookup,
+    ProductEventPayload, ProductEventType, ProductImagesChangedEventPayload,
+    ProductPriceChangedEventPayload, ProductStateChangedEventPayload,
+    ProductUrlChangedEventPayload,
 };
 use serde_json::Value;
 use sqlx::PgConnection;
@@ -30,63 +30,70 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SqlxProductHistoryReaderFactory;
+pub struct SqlxProductEventReaderFactory;
 
-struct SqlxProductHistoryReader<'tx> {
+struct SqlxProductEventReader<'tx> {
     connection: &'tx mut PgConnection,
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct ProductHistoryRow {
+struct ProductEventRow {
     product_id: uuid::Uuid,
     event_id: uuid::Uuid,
     event_type: String,
-    event_type_schema_version: i32,
     payload: Value,
     event_time: OffsetDateTime,
 }
 
-impl SqlxProductHistoryReaderFactory {
+impl SqlxProductEventReaderFactory {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl ProductHistoryReaderFactory<common::postgres::SqlxTransaction>
-    for SqlxProductHistoryReaderFactory
+impl ProductEventReaderFactory<common::postgres::SqlxTransaction>
+    for SqlxProductEventReaderFactory
 {
     fn in_transaction<'tx>(
         &'tx self,
         tx: &'tx mut common::postgres::SqlxTransaction,
-    ) -> impl ProductHistoryReader + 'tx {
-        SqlxProductHistoryReader {
+    ) -> impl ProductEventReader + 'tx {
+        SqlxProductEventReader {
             connection: tx.connection(),
         }
     }
 }
 
 #[async_trait::async_trait]
-impl ProductHistoryReader for SqlxProductHistoryReader<'_> {
-    async fn find_history(
+impl ProductEventReader for SqlxProductEventReader<'_> {
+    async fn find_events(
         &mut self,
-        product_key: &ProductKey,
-    ) -> Result<Option<Vec<ProductHistoryEvent>>, ProductHistoryReadError> {
-        let product_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT product_id FROM products WHERE shop_id = $1 AND shops_product_id = $2",
-        )
-        .bind(uuid::Uuid::from(product_key.shop_id))
-        .bind(product_key.shops_product_id.as_ref())
-        .fetch_optional(&mut *self.connection)
-        .await
-        .map_err(|_| ProductHistoryReadError::ProductHistoryQueryFailed)?;
+        lookup: &ProductEventLookup,
+    ) -> Result<Option<Vec<ProductEvent>>, ProductEventReadError> {
+        let product_id = match lookup {
+            ProductEventLookup::ById(product_id) => sqlx::query_scalar::<_, uuid::Uuid>(
+                "SELECT product_id FROM products WHERE product_id = $1",
+            )
+            .bind(uuid::Uuid::from(*product_id))
+            .fetch_optional(&mut *self.connection)
+            .await,
+            ProductEventLookup::BySlug { shop_slug_id, product_slug_id } => sqlx::query_scalar::<_, uuid::Uuid>(
+                "SELECT p.product_id FROM products p JOIN shops s ON s.shop_id = p.shop_id WHERE s.shop_slug_id = $1 AND p.product_slug_id = $2",
+            )
+            .bind(shop_slug_id.as_ref())
+            .bind(product_slug_id.as_ref())
+            .fetch_optional(&mut *self.connection)
+            .await,
+        }
+        .map_err(|_| ProductEventReadError::ProductEventQueryFailed)?;
 
         let Some(product_id) = product_id else {
             return Ok(None);
         };
 
-        let rows = sqlx::query_as::<_, ProductHistoryRow>(
+        let rows = sqlx::query_as::<_, ProductEventRow>(
             r#"
-            SELECT event_id, product_id, event_type, event_type_schema_version, payload, event_time
+            SELECT event_id, product_id, event_type, payload, event_time
             FROM product_events
             WHERE product_id = $1
             ORDER BY event_time ASC, event_id ASC
@@ -95,7 +102,7 @@ impl ProductHistoryReader for SqlxProductHistoryReader<'_> {
         .bind(product_id)
         .fetch_all(&mut *self.connection)
         .await
-        .map_err(|_| ProductHistoryReadError::ProductHistoryQueryFailed)?;
+        .map_err(|_| ProductEventReadError::ProductEventQueryFailed)?;
 
         rows.into_iter()
             .map(TryInto::try_into)
@@ -104,16 +111,12 @@ impl ProductHistoryReader for SqlxProductHistoryReader<'_> {
     }
 }
 
-impl TryFrom<ProductHistoryRow> for ProductHistoryEvent {
-    type Error = ProductHistoryReadError;
+impl TryFrom<ProductEventRow> for ProductEvent {
+    type Error = ProductEventReadError;
 
-    fn try_from(row: ProductHistoryRow) -> Result<Self, Self::Error> {
-        if row.event_type_schema_version != 2 || payload_version(&row.payload) != Some(2) {
-            return Err(ProductHistoryReadError::UnsupportedProductHistoryEventSchema);
-        }
-
+    fn try_from(row: ProductEventRow) -> Result<Self, Self::Error> {
         let (event_type, payload) = parse_payload(&row.event_type, &row.payload)?;
-        Ok(ProductHistoryEvent {
+        Ok(ProductEvent {
             product_id: ProductId::from(row.product_id),
             event_id: EventId::from(row.event_id),
             event_type,
@@ -123,18 +126,14 @@ impl TryFrom<ProductHistoryRow> for ProductHistoryEvent {
     }
 }
 
-fn payload_version(payload: &Value) -> Option<i64> {
-    payload.get("version").and_then(Value::as_i64)
-}
-
 fn parse_payload(
     event_type: &str,
     payload: &Value,
-) -> Result<(ProductHistoryEventType, ProductHistoryPayload), ProductHistoryReadError> {
+) -> Result<(ProductEventType, ProductEventPayload), ProductEventReadError> {
     match event_type {
         "PRODUCT_CREATED" => Ok((
-            ProductHistoryEventType::Created,
-            ProductHistoryPayload::Created(ProductCreatedHistoryPayload {
+            ProductEventType::Created,
+            ProductEventPayload::Created(ProductCreatedEventPayload {
                 title: localized_title(payload.get("title"))?,
                 description: localized_description(payload.get("description"))?,
                 address: address(payload.get("address"))?,
@@ -146,84 +145,82 @@ fn parse_payload(
             }),
         )),
         "PRODUCT_STATE_CHANGED" => Ok((
-            ProductHistoryEventType::StateChanged,
-            ProductHistoryPayload::StateChanged(ProductStateChangedHistoryPayload {
+            ProductEventType::StateChanged,
+            ProductEventPayload::StateChanged(ProductStateChangedEventPayload {
                 old_state: state(string(payload, "oldState")?)?,
                 new_state: state(string(payload, "newState")?)?,
             }),
         )),
         "PRODUCT_ADDRESS_CHANGED" => Ok((
-            ProductHistoryEventType::AddressChanged,
-            ProductHistoryPayload::AddressChanged(ProductAddressChangedHistoryPayload {
+            ProductEventType::AddressChanged,
+            ProductEventPayload::AddressChanged(ProductAddressChangedEventPayload {
                 address: address(payload.get("address"))?,
             }),
         )),
         "PRODUCT_PRICE_CHANGED" => Ok((
-            ProductHistoryEventType::PriceChanged,
-            ProductHistoryPayload::PriceChanged(ProductPriceChangedHistoryPayload {
+            ProductEventType::PriceChanged,
+            ProductEventPayload::PriceChanged(ProductPriceChangedEventPayload {
                 old_pricing: pricing(payload.get("oldPricing"))?,
                 new_pricing: pricing(payload.get("newPricing"))?,
             }),
         )),
         "PRODUCT_URL_CHANGED" => Ok((
-            ProductHistoryEventType::UrlChanged,
-            ProductHistoryPayload::UrlChanged(ProductUrlChangedHistoryPayload {
+            ProductEventType::UrlChanged,
+            ProductEventPayload::UrlChanged(ProductUrlChangedEventPayload {
                 old_url: url(string(payload, "oldUrl")?)?,
                 new_url: url(string(payload, "newUrl")?)?,
             }),
         )),
         "PRODUCT_IMAGES_CHANGED" => Ok((
-            ProductHistoryEventType::ImagesChanged,
-            ProductHistoryPayload::ImagesChanged(ProductImagesChangedHistoryPayload {
+            ProductEventType::ImagesChanged,
+            ProductEventPayload::ImagesChanged(ProductImagesChangedEventPayload {
                 images: images(payload.get("images"))?,
             }),
         )),
         "PRODUCT_AUCTION_CHANGED" => Ok((
-            ProductHistoryEventType::AuctionChanged,
-            ProductHistoryPayload::AuctionChanged(ProductAuctionChangedHistoryPayload {
+            ProductEventType::AuctionChanged,
+            ProductEventPayload::AuctionChanged(ProductAuctionChangedEventPayload {
                 auction: auction(payload.get("auction"))?,
             }),
         )),
         "PRODUCT_DELETED" => Ok((
-            ProductHistoryEventType::Deleted,
-            ProductHistoryPayload::Deleted(ProductDeletedHistoryPayload {
+            ProductEventType::Deleted,
+            ProductEventPayload::Deleted(ProductDeletedEventPayload {
                 old_lifecycle: lifecycle(string(payload, "oldLifecycle")?)?,
                 new_lifecycle: lifecycle(string(payload, "newLifecycle")?)?,
             }),
         )),
-        _ => Err(ProductHistoryReadError::ProductHistoryReadModelInvalid),
+        _ => Err(ProductEventReadError::ProductEventReadModelInvalid),
     }
 }
 
-fn object(
-    value: Option<&Value>,
-) -> Result<&serde_json::Map<String, Value>, ProductHistoryReadError> {
+fn object(value: Option<&Value>) -> Result<&serde_json::Map<String, Value>, ProductEventReadError> {
     value
         .and_then(Value::as_object)
-        .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)
+        .ok_or(ProductEventReadError::ProductEventReadModelInvalid)
 }
 
-fn string<'a>(value: &'a Value, name: &str) -> Result<&'a str, ProductHistoryReadError> {
+fn string<'a>(value: &'a Value, name: &str) -> Result<&'a str, ProductEventReadError> {
     value
         .get(name)
         .and_then(Value::as_str)
-        .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)
+        .ok_or(ProductEventReadError::ProductEventReadModelInvalid)
 }
 
 fn optional_string<'a>(
     value: &'a serde_json::Map<String, Value>,
     name: &str,
-) -> Result<Option<&'a str>, ProductHistoryReadError> {
+) -> Result<Option<&'a str>, ProductEventReadError> {
     match value.get(name) {
         Some(Value::String(value)) => Ok(Some(value)),
         Some(Value::Null) | None => Ok(None),
-        _ => Err(ProductHistoryReadError::ProductHistoryReadModelInvalid),
+        _ => Err(ProductEventReadError::ProductEventReadModelInvalid),
     }
 }
 
 fn localized_title(
     value: Option<&Value>,
-) -> Result<Option<Localized<Language, Title>>, ProductHistoryReadError> {
+) -> Result<Option<Localized<Language, Title>>, ProductEventReadError> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -234,18 +231,18 @@ fn localized_title(
     Ok(Some(Localized::new(
         language(
             optional_string(value, "language")?
-                .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+                .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?,
         )?,
         Title::from(
             optional_string(value, "text")?
-                .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+                .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?,
         ),
     )))
 }
 
 fn localized_description(
     value: Option<&Value>,
-) -> Result<Option<Localized<Language, Description>>, ProductHistoryReadError> {
+) -> Result<Option<Localized<Language, Description>>, ProductEventReadError> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -256,16 +253,16 @@ fn localized_description(
     Ok(Some(Localized::new(
         language(
             optional_string(value, "language")?
-                .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+                .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?,
         )?,
         Description::from(
             optional_string(value, "text")?
-                .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+                .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?,
         ),
     )))
 }
 
-fn pricing(value: Option<&Value>) -> Result<ProductPricing, ProductHistoryReadError> {
+fn pricing(value: Option<&Value>) -> Result<ProductPricing, ProductEventReadError> {
     let value = object(value)?;
     Ok(ProductPricing {
         price: price(value.get("price"))?,
@@ -274,11 +271,11 @@ fn pricing(value: Option<&Value>) -> Result<ProductPricing, ProductHistoryReadEr
         fx_rate_id: optional_string(value, "fxRateId")?
             .map(|value| value.parse::<uuid::Uuid>().map(FxRateId::from))
             .transpose()
-            .map_err(|_| ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+            .map_err(|_| ProductEventReadError::ProductEventReadModelInvalid)?,
     })
 }
 
-fn price(value: Option<&Value>) -> Result<Option<Price>, ProductHistoryReadError> {
+fn price(value: Option<&Value>) -> Result<Option<Price>, ProductEventReadError> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -289,16 +286,16 @@ fn price(value: Option<&Value>) -> Result<Option<Price>, ProductHistoryReadError
     let amount = value
         .get("amount")
         .and_then(Value::as_u64)
-        .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?;
+        .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?;
     let currency_code = optional_string(value, "currency")?
-        .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?;
+        .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?;
     Ok(Some(Price::new(
         MonetaryAmount::from(amount),
         currency(currency_code)?,
     )))
 }
 
-fn address(value: Option<&Value>) -> Result<ProductAddress, ProductHistoryReadError> {
+fn address(value: Option<&Value>) -> Result<ProductAddress, ProductEventReadError> {
     let value = object(value)?;
     let structured = match value.get("structured") {
         Some(Value::Null) | None => None,
@@ -307,7 +304,7 @@ fn address(value: Option<&Value>) -> Result<ProductAddress, ProductHistoryReadEr
             let country = optional_string(structured, "country")?
                 .map(isocountry::CountryCode::for_alpha3)
                 .transpose()
-                .map_err(|_| ProductHistoryReadError::ProductHistoryReadModelInvalid)?;
+                .map_err(|_| ProductEventReadError::ProductEventReadModelInvalid)?;
             Some(geo::core::address::StructuredAddress {
                 addressline: optional_string(structured, "addressline")?.map(str::to_owned),
                 addressline_extra: optional_string(structured, "addresslineExtra")?
@@ -328,55 +325,55 @@ fn address(value: Option<&Value>) -> Result<ProductAddress, ProductHistoryReadEr
                 lat: geo
                     .get("lat")
                     .and_then(Value::as_f64)
-                    .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+                    .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?,
                 lon: geo
                     .get("lon")
                     .and_then(Value::as_f64)
-                    .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+                    .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?,
             })
         }
     };
     Ok(ProductAddress { structured, geo })
 }
 
-fn images(value: Option<&Value>) -> Result<IndexSet<ProductImage>, ProductHistoryReadError> {
+fn images(value: Option<&Value>) -> Result<IndexSet<ProductImage>, ProductEventReadError> {
     value
         .and_then(Value::as_array)
-        .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?
+        .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?
         .iter()
         .map(|image| {
             let image = object(Some(image))?;
             Ok(ProductImage {
                 url: url(optional_string(image, "url")?
-                    .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?)?,
+                    .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?)?,
                 prohibited_content: prohibited_content(
                     optional_string(image, "prohibitedContent")?
-                        .ok_or(ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+                        .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?,
                 )?,
             })
         })
         .collect()
 }
 
-fn auction(value: Option<&Value>) -> Result<ProductAuction, ProductHistoryReadError> {
+fn auction(value: Option<&Value>) -> Result<ProductAuction, ProductEventReadError> {
     let value = object(value)?;
     Ok(ProductAuction {
         start: optional_string(value, "start")?
             .map(|value| OffsetDateTime::parse(value, &Rfc3339))
             .transpose()
-            .map_err(|_| ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+            .map_err(|_| ProductEventReadError::ProductEventReadModelInvalid)?,
         end: optional_string(value, "end")?
             .map(|value| OffsetDateTime::parse(value, &Rfc3339))
             .transpose()
-            .map_err(|_| ProductHistoryReadError::ProductHistoryReadModelInvalid)?,
+            .map_err(|_| ProductEventReadError::ProductEventReadModelInvalid)?,
     })
 }
 
-fn url(value: &str) -> Result<Url, ProductHistoryReadError> {
-    Url::parse(value).map_err(|_| ProductHistoryReadError::ProductHistoryReadModelInvalid)
+fn url(value: &str) -> Result<Url, ProductEventReadError> {
+    Url::parse(value).map_err(|_| ProductEventReadError::ProductEventReadModelInvalid)
 }
 
-fn language(value: &str) -> Result<Language, ProductHistoryReadError> {
+fn language(value: &str) -> Result<Language, ProductEventReadError> {
     match value.to_ascii_lowercase().as_str() {
         "de" => Ok(Language::De),
         "en" => Ok(Language::En),
@@ -392,11 +389,11 @@ fn language(value: &str) -> Result<Language, ProductHistoryReadError> {
         "ja" => Ok(Language::Ja),
         "ru" => Ok(Language::Ru),
         "ar" => Ok(Language::Ar),
-        _ => Err(ProductHistoryReadError::ProductHistoryReadModelInvalid),
+        _ => Err(ProductEventReadError::ProductEventReadModelInvalid),
     }
 }
 
-fn currency(value: &str) -> Result<Currency, ProductHistoryReadError> {
+fn currency(value: &str) -> Result<Currency, ProductEventReadError> {
     match value.to_ascii_uppercase().as_str() {
         "EUR" => Ok(Currency::Eur),
         "GBP" => Ok(Currency::Gbp),
@@ -416,11 +413,11 @@ fn currency(value: &str) -> Result<Currency, ProductHistoryReadError> {
         "HKD" => Ok(Currency::Hkd),
         "SGD" => Ok(Currency::Sgd),
         "CHF" => Ok(Currency::Chf),
-        _ => Err(ProductHistoryReadError::ProductHistoryReadModelInvalid),
+        _ => Err(ProductEventReadError::ProductEventReadModelInvalid),
     }
 }
 
-fn state(value: &str) -> Result<ProductState, ProductHistoryReadError> {
+fn state(value: &str) -> Result<ProductState, ProductEventReadError> {
     match value {
         "Listed" => Ok(ProductState::Listed),
         "Available" => Ok(ProductState::Available),
@@ -428,23 +425,23 @@ fn state(value: &str) -> Result<ProductState, ProductHistoryReadError> {
         "Sold" => Ok(ProductState::Sold),
         "Removed" => Ok(ProductState::Removed),
         "Unknown" => Ok(ProductState::Unknown),
-        _ => Err(ProductHistoryReadError::ProductHistoryReadModelInvalid),
+        _ => Err(ProductEventReadError::ProductEventReadModelInvalid),
     }
 }
 
-fn lifecycle(value: &str) -> Result<ProductLifecycle, ProductHistoryReadError> {
+fn lifecycle(value: &str) -> Result<ProductLifecycle, ProductEventReadError> {
     match value {
         "Active" => Ok(ProductLifecycle::Active),
         "Deleted" => Ok(ProductLifecycle::Deleted),
-        _ => Err(ProductHistoryReadError::ProductHistoryReadModelInvalid),
+        _ => Err(ProductEventReadError::ProductEventReadModelInvalid),
     }
 }
 
-fn prohibited_content(value: &str) -> Result<ProhibitedContent, ProductHistoryReadError> {
+fn prohibited_content(value: &str) -> Result<ProhibitedContent, ProductEventReadError> {
     match value {
         "UNKNOWN" => Ok(ProhibitedContent::Unknown),
         "NONE" => Ok(ProhibitedContent::None),
         "NAZI_GERMANY" => Ok(ProhibitedContent::NaziGermany),
-        _ => Err(ProductHistoryReadError::ProductHistoryReadModelInvalid),
+        _ => Err(ProductEventReadError::ProductEventReadModelInvalid),
     }
 }

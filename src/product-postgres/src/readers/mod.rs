@@ -1,7 +1,7 @@
 mod product_details_reader;
-mod product_history_reader;
-mod product_similarity_reader;
+mod product_embedding_reader;
+mod product_event_reader;
 
 pub use product_details_reader::SqlxProductDetailsReaderFactory;
-pub use product_history_reader::SqlxProductHistoryReaderFactory;
-pub use product_similarity_reader::SqlxProductSimilarityReaderFactory;
+pub use product_embedding_reader::SqlxProductEmbeddingReaderFactory;
+pub use product_event_reader::SqlxProductEventReaderFactory;
