@@ -31,10 +31,10 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
-use product_opensearch::OpenSearchProductSearchReader;
+use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
     SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
-    SqlxProductEventReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductTranslationReaderFactory,
 };
 use product_service::use_cases::{
     GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
@@ -315,17 +315,21 @@ async fn ready() -> &'static str {
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let pool = common::postgres::connect_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let get_product =
-        GetProductHandler::new(unit_of_work.clone(), SqlxProductDetailsReaderFactory::new());
+    let get_product = GetProductHandler::new(
+        unit_of_work.clone(),
+        SqlxProductDetailsReaderFactory::new(),
+        SqlxProductTranslationReaderFactory::new(),
+    );
     let get_product_events =
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
+    let opensearch_client = opensearch_client_from_env()?;
     let get_similar_products = GetSimilarProductsHandler::new(
         unit_of_work.clone(),
         SqlxProductEmbeddingReaderFactory::new(),
+        OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
     );
-    let search_products = SearchProductsHandler::new(OpenSearchProductSearchReader::new(
-        opensearch_client_from_env()?,
-    ));
+    let search_products =
+        SearchProductsHandler::new(OpenSearchProductSearchReader::new(opensearch_client));
     let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
     let search_shops =
         SearchShopsHandler::new(unit_of_work.clone(), SqlxShopSearchReaderFactory::new());

@@ -9,14 +9,12 @@ use product_core::product::Product;
 pub enum ProductRepositoryError {
     #[error("product current event id did not match expected event id")]
     ProductCurrentEventIdConflict,
-    #[error("product already exists for shop product key")]
-    ProductKeyAlreadyExists,
+    #[error("product already exists for shop product identity")]
+    ShopProductAlreadyExists,
     #[error("product slug already exists")]
     ProductSlugAlreadyExists,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
-    #[error("product lookup by natural key failed")]
-    ProductLookupByKeyFailed,
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]

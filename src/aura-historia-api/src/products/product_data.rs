@@ -238,6 +238,7 @@ pub(crate) fn product_response(view: ProductDetailsView, principal: &Principal) 
     let event_id = view.event_id;
     let updated = view.updated;
     let state = view.state;
+    let content_language = view.title.as_ref().map(|title| title.localization.as_str());
     let mut response = Json(ProductDetailsData::from(view)).into_response();
     let cache_control = match principal {
         Principal::Anonymous if matches!(state, ProductState::Sold | ProductState::Removed) => {
@@ -254,6 +255,9 @@ pub(crate) fn product_response(view: ProductDetailsView, principal: &Principal) 
         header::CACHE_CONTROL,
         HeaderValue::from_static(cache_control),
     );
+    if let Some(language) = content_language {
+        headers.insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(language));
+    }
     if let Ok(value) = HeaderValue::from_str(&event_id.to_string()) {
         headers.insert(header::ETAG, value);
     }

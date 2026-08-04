@@ -1,21 +1,33 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, INVALID_UUID, PRODUCT_INTERNAL_ERROR};
+use crate::products::product_data::ProductSummaryData;
 use crate::state::ProductsState;
-use axum::extract::{Path, State};
+use axum::Json;
+use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use common::language::data::LanguageData;
 use common::product_id::ProductId;
 use common::product_slug_id::ProductSlugId;
 use common::shop_slug_id::ShopSlugId;
 use product_service::ports::ProductEmbeddingLookup;
 use product_service::use_cases::{GetSimilarProductsRequest, GetSimilarProductsResult};
+use serde::Deserialize;
 
+#[derive(Debug, Deserialize)]
+struct SimilarProductsQuery {
+    #[serde(default)]
+    language: LanguageData,
+}
+
+const READY_CACHE_CONTROL: &str = "public, max-age=180, s-maxage=900";
 const PENDING_CACHE_CONTROL: &str = "public, max-age=300, s-maxage=900";
 
 pub async fn get_similar_products_by_id(
     State(state): State<ProductsState>,
     headers: HeaderMap,
     Path(raw_product_id): Path<String>,
+    RawQuery(raw_query): RawQuery,
 ) -> Response {
     let product_id = match ProductId::try_from(raw_product_id.as_str()) {
         Ok(value) => value,
@@ -26,13 +38,24 @@ pub async fn get_similar_products_by_id(
                 .into_response();
         }
     };
-    similar_response(state, headers, ProductEmbeddingLookup::ById(product_id)).await
+    let language = match query_language(raw_query.as_deref()) {
+        Ok(language) => language,
+        Err(error) => return error.into_response(),
+    };
+    similar_response(
+        state,
+        headers,
+        ProductEmbeddingLookup::ById(product_id),
+        language,
+    )
+    .await
 }
 
 pub async fn get_similar_products_by_slug(
     State(state): State<ProductsState>,
     headers: HeaderMap,
     Path((raw_shop_slug_id, raw_product_slug_id)): Path<(String, String)>,
+    RawQuery(raw_query): RawQuery,
 ) -> Response {
     let shop_slug_id = match ShopSlugId::raw(&raw_shop_slug_id) {
         Ok(value) => value,
@@ -52,6 +75,10 @@ pub async fn get_similar_products_by_slug(
                 .into_response();
         }
     };
+    let language = match query_language(raw_query.as_deref()) {
+        Ok(language) => language,
+        Err(error) => return error.into_response(),
+    };
     similar_response(
         state,
         headers,
@@ -59,32 +86,68 @@ pub async fn get_similar_products_by_slug(
             shop_slug_id,
             product_slug_id,
         },
+        language,
     )
     .await
+}
+
+fn query_language(raw_query: Option<&str>) -> Result<common::language::domain::Language, ApiError> {
+    serde_qs::from_str::<SimilarProductsQuery>(raw_query.unwrap_or_default())
+        .map(|query| query.language.into())
+        .map_err(|error| {
+            ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
+                .with_detail(error.to_string())
+        })
 }
 
 async fn similar_response(
     state: ProductsState,
     headers: HeaderMap,
     lookup: ProductEmbeddingLookup,
+    language: common::language::domain::Language,
 ) -> Response {
     let metadata = request_metadata(&headers);
-    if let Err(error) = OptionalAuthExtractor::new(state.authenticator.as_ref())
+    let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
         .extract(&headers, &metadata)
         .await
     {
-        return ApiError::from(error).into_response();
-    }
+        Ok(principal) => principal,
+        Err(error) => return ApiError::from(error).into_response(),
+    };
     match state
         .get_similar_products
         .execute(GetSimilarProductsRequest {
             lookup: lookup.clone(),
+            language,
         })
         .await
     {
+        Ok(GetSimilarProductsResult::Ready(products)) => ready_response(products, &principal),
         Ok(GetSimilarProductsResult::EmbeddingPending) => pending_response(lookup),
         Err(error) => ApiError::from(error).into_response(),
     }
+}
+
+fn ready_response(
+    products: Vec<product_service::use_cases::ProductSummary>,
+    principal: &crate::auth::TransportPrincipal,
+) -> Response {
+    let mut response = Json(
+        products
+            .into_iter()
+            .map(ProductSummaryData::from)
+            .collect::<Vec<_>>(),
+    )
+    .into_response();
+    let cache_control = match principal {
+        crate::auth::TransportPrincipal::Anonymous => READY_CACHE_CONTROL,
+        crate::auth::TransportPrincipal::User { .. } => "no-store",
+    };
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_control),
+    );
+    response
 }
 
 fn pending_response(lookup: ProductEmbeddingLookup) -> Response {
@@ -112,4 +175,335 @@ fn pending_response(lookup: ProductEmbeddingLookup) -> Response {
         HeaderValue::from_static(PENDING_CACHE_CONTROL),
     );
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::{
+        AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
+    };
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use common::currency::domain::Currency;
+    use common::event_id::EventId;
+    use common::language::domain::Language;
+    use common::localized::Localized;
+    use common::operation_context::OperationContext;
+    use common::price::domain::{MonetaryAmount, Price};
+    use common::product_lifecycle::domain::ProductLifecycle;
+    use common::product_slug_id::ProductSlugId;
+    use common::product_state::domain::ProductState;
+    use common::shop_id::ShopId;
+    use common::shop_name::ShopName;
+    use common::shop_slug_id::ShopSlugId;
+    use common::shops_product_id::ShopsProductId;
+    use common::user_id::UserId;
+    use product_core::title::Title;
+    use product_service::use_cases::{
+        GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
+        GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
+        ProductDetailsView, ProductSummary, SearchProductsError, SearchProductsRequest,
+        SearchProductsResult, SearchProductsUseCase,
+    };
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+    use time::OffsetDateTime;
+    use tower::ServiceExt;
+    use url::Url;
+
+    #[derive(Clone)]
+    enum FakeSimilarProductsResult {
+        Ready(Vec<ProductSummary>),
+        Pending,
+        NotFound,
+        Unavailable,
+    }
+
+    struct FakeSimilarProductsUseCase {
+        result: FakeSimilarProductsResult,
+    }
+
+    #[async_trait::async_trait]
+    impl GetSimilarProductsUseCase for FakeSimilarProductsUseCase {
+        async fn execute(
+            &self,
+            _request: GetSimilarProductsRequest,
+        ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
+            match &self.result {
+                FakeSimilarProductsResult::Ready(products) => {
+                    Ok(GetSimilarProductsResult::Ready(products.clone()))
+                }
+                FakeSimilarProductsResult::Pending => {
+                    Ok(GetSimilarProductsResult::EmbeddingPending)
+                }
+                FakeSimilarProductsResult::NotFound => Err(GetSimilarProductsError::NotFound),
+                FakeSimilarProductsResult::Unavailable => {
+                    Err(GetSimilarProductsError::SimilaritySearchUnavailable)
+                }
+            }
+        }
+    }
+
+    struct UnusedGetProductUseCase;
+
+    #[async_trait::async_trait]
+    impl GetProductUseCase for UnusedGetProductUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _request: GetProductRequest,
+        ) -> Result<ProductDetailsView, GetProductError> {
+            Err(GetProductError::NotFound)
+        }
+    }
+
+    struct UnusedSearchProductsUseCase;
+
+    #[async_trait::async_trait]
+    impl SearchProductsUseCase for UnusedSearchProductsUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _request: SearchProductsRequest,
+        ) -> Result<SearchProductsResult, SearchProductsError> {
+            Ok(SearchProductsResult::default())
+        }
+    }
+
+    struct FakeAuthenticator {
+        principal: TransportPrincipal,
+    }
+
+    #[async_trait::async_trait]
+    impl TokenAuthenticator for FakeAuthenticator {
+        async fn authenticate(
+            &self,
+            _bearer_token: &str,
+            _metadata: &RequestMetadata,
+        ) -> Result<TransportPrincipal, AuthError> {
+            Ok(self.principal.clone())
+        }
+    }
+
+    #[test]
+    fn should_parse_similar_products_language() {
+        assert!(matches!(
+            query_language(Some("language=de")),
+            Ok(Language::De)
+        ));
+        assert!(matches!(query_language(None), Ok(Language::En)));
+    }
+
+    #[test]
+    fn should_reject_invalid_similar_products_language() {
+        assert!(query_language(Some("language=invalid")).is_err());
+    }
+
+    #[tokio::test]
+    async fn should_return_ready_similar_products_as_json_with_public_cache_header()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product = product_summary()?;
+        let product_id = product.product_id;
+        let app = app(
+            FakeSimilarProductsResult::Ready(vec![product]),
+            TransportPrincipal::Anonymous,
+        );
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/v1/products/{product_id}/similar"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            READY_CACHE_CONTROL,
+            response.headers()[header::CACHE_CONTROL]
+        );
+        let body = body_json(response).await?;
+        assert_eq!(product_id.to_string(), body[0]["productId"]);
+        assert_eq!("Cabinet", body[0]["title"]["text"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_cache_ready_similar_products_for_authenticated_request()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product_id = ProductId::new();
+        let app = app(
+            FakeSimilarProductsResult::Ready(vec![product_summary()?]),
+            TransportPrincipal::User {
+                user_id: UserId::new(),
+                auth_method: AuthMethod::CognitoJwt,
+                capabilities: BTreeSet::new(),
+            },
+        );
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/v1/products/{product_id}/similar"))
+                    .header(header::AUTHORIZATION, "Bearer token")
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_pending_response_with_id_location_and_cache_header()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product_id = ProductId::new();
+        let app = app(
+            FakeSimilarProductsResult::Pending,
+            TransportPrincipal::Anonymous,
+        );
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/v1/products/{product_id}/similar"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::ACCEPTED, response.status());
+        assert_eq!(
+            format!("/api/v1/products/{product_id}/similar"),
+            response.headers()[header::LOCATION]
+        );
+        assert_eq!(
+            PENDING_CACHE_CONTROL,
+            response.headers()[header::CACHE_CONTROL]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_pending_response_with_slug_location_and_cache_header()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let shop_slug_id = "antique-depot";
+        let product_slug_id = "cabinet-a1b2c3";
+        let app = app(
+            FakeSimilarProductsResult::Pending,
+            TransportPrincipal::Anonymous,
+        );
+
+        let response = app
+            .oneshot(
+                Request::get(format!(
+                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"
+                ))
+                .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::ACCEPTED, response.status());
+        assert_eq!(
+            format!("/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"),
+            response.headers()[header::LOCATION]
+        );
+        assert_eq!(
+            PENDING_CACHE_CONTROL,
+            response.headers()[header::CACHE_CONTROL]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_similar_product_not_found_error() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let app = app(
+            FakeSimilarProductsResult::NotFound,
+            TransportPrincipal::Anonymous,
+        );
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/v1/products/{}/similar", ProductId::new()))
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::NOT_FOUND, response.status());
+        assert_eq!("PRODUCT_NOT_FOUND", body_json(response).await?["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_similarity_service_unavailable_error()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = app(
+            FakeSimilarProductsResult::Unavailable,
+            TransportPrincipal::Anonymous,
+        );
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/v1/products/{}/similar", ProductId::new()))
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
+        assert_eq!(
+            "PRODUCT_TEMPORARILY_UNAVAILABLE",
+            body_json(response).await?["error"]
+        );
+        Ok(())
+    }
+
+    fn app(result: FakeSimilarProductsResult, principal: TransportPrincipal) -> Router {
+        let state = ProductsState::new(
+            Arc::new(UnusedGetProductUseCase),
+            Arc::new(FakeSimilarProductsUseCase { result }),
+            Arc::new(UnusedSearchProductsUseCase),
+            Arc::new(FakeAuthenticator { principal }),
+        );
+        Router::new()
+            .route(
+                "/api/v1/products/{product_id}/similar",
+                axum::routing::get(get_similar_products_by_id),
+            )
+            .route(
+                "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar",
+                axum::routing::get(get_similar_products_by_slug),
+            )
+            .with_state(state)
+    }
+
+    async fn body_json(
+        response: Response,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    fn product_summary() -> Result<ProductSummary, url::ParseError> {
+        Ok(ProductSummary {
+            product_id: ProductId::new(),
+            product_slug_id: ProductSlugId::from("cabinet-abcdef"),
+            event_id: EventId::new(),
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::new(),
+            shop_name: ShopName::from("Shop"),
+            shop_slug_id: ShopSlugId::from("shop"),
+            title: Some(Localized {
+                localization: Language::En,
+                payload: Title::from("Cabinet"),
+            }),
+            price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+            state: ProductState::Listed,
+            lifecycle: ProductLifecycle::Active,
+            url: Url::parse("https://shop.example/products/1")?,
+            view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
+            images: Default::default(),
+            updated: OffsetDateTime::UNIX_EPOCH,
+        })
+    }
 }

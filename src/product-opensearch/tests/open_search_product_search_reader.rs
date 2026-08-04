@@ -588,7 +588,7 @@ fn product_doc(seed: ProductSeed) -> Result<IndexedProduct, time::error::Format>
         "structuredAddressCountry": seed.country,
         "structuredAddressContinent": seed.continent,
         "geoAddress": seed.geo_address,
-        "titleNative": {
+        "title": {
             "text": seed.title_en,
             "language": "EN"
         },

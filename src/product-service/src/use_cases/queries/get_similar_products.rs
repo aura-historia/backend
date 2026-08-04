@@ -1,18 +1,23 @@
 use crate::ports::{
     ProductEmbeddingLookup, ProductEmbeddingReadError, ProductEmbeddingReader,
-    ProductEmbeddingReaderFactory,
+    ProductEmbeddingReaderFactory, ProductSimilarProductsReadError, ProductSimilarProductsReader,
+    ProductSimilarProductsRequest,
 };
+use crate::use_cases::ProductSummary;
 use common::error::boxed::BoxError;
+use common::language::domain::Language;
 use common::transaction::{Transaction, UnitOfWork};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetSimilarProductsRequest {
     pub lookup: ProductEmbeddingLookup,
+    pub language: Language,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum GetSimilarProductsResult {
     EmbeddingPending,
+    Ready(Vec<ProductSummary>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,25 +45,28 @@ pub trait GetSimilarProductsUseCase: Send + Sync {
     ) -> Result<GetSimilarProductsResult, GetSimilarProductsError>;
 }
 
-pub struct GetSimilarProductsHandler<U, R> {
+pub struct GetSimilarProductsHandler<U, E, S> {
     unit_of_work: U,
-    reader: R,
+    embedding_reader: E,
+    similar_products_reader: S,
 }
 
-impl<U, R> GetSimilarProductsHandler<U, R> {
-    pub fn new(unit_of_work: U, reader: R) -> Self {
+impl<U, E, S> GetSimilarProductsHandler<U, E, S> {
+    pub fn new(unit_of_work: U, embedding_reader: E, similar_products_reader: S) -> Self {
         Self {
             unit_of_work,
-            reader,
+            embedding_reader,
+            similar_products_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> GetSimilarProductsUseCase for GetSimilarProductsHandler<U, R>
+impl<U, E, S> GetSimilarProductsUseCase for GetSimilarProductsHandler<U, E, S>
 where
     U: UnitOfWork,
-    R: ProductEmbeddingReaderFactory<U::Tx>,
+    E: ProductEmbeddingReaderFactory<U::Tx>,
+    S: ProductSimilarProductsReader,
 {
     #[tracing::instrument(name = "get_similar_products", skip_all, fields())]
     async fn execute(
@@ -71,21 +79,34 @@ where
             .await
             .map_err(|_| GetSimilarProductsError::BeginTransactionFailed)?;
         let seed = self
-            .reader
+            .embedding_reader
             .in_transaction(&mut tx)
             .find_embedding(&request.lookup)
             .await?
             .ok_or(GetSimilarProductsError::NotFound)?;
 
-        if seed.embedding.is_some() {
-            return Err(GetSimilarProductsError::SimilaritySearchUnavailable);
-        }
+        let Some(embedding) = seed.embedding else {
+            tx.commit()
+                .await
+                .map_err(|_| GetSimilarProductsError::CommitTransactionFailed)?;
+
+            return Ok(GetSimilarProductsResult::EmbeddingPending);
+        };
 
         tx.commit()
             .await
             .map_err(|_| GetSimilarProductsError::CommitTransactionFailed)?;
 
-        Ok(GetSimilarProductsResult::EmbeddingPending)
+        let products = self
+            .similar_products_reader
+            .find_similar_products(&ProductSimilarProductsRequest::new(
+                seed.product_id,
+                embedding,
+                request.language,
+            ))
+            .await?;
+
+        Ok(GetSimilarProductsResult::Ready(products))
     }
 }
 
@@ -99,10 +120,16 @@ impl From<ProductEmbeddingReadError> for GetSimilarProductsError {
     }
 }
 
+impl From<ProductSimilarProductsReadError> for GetSimilarProductsError {
+    fn from(_: ProductSimilarProductsReadError) -> Self {
+        Self::SimilaritySearchUnavailable
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::ProductEmbedding;
+    use crate::ports::{ProductEmbedding, ProductSimilarProductsReadError};
     use common::error::boxed::box_error;
     use common::product_id::ProductId;
     use common::transaction::TransactionError;
@@ -113,7 +140,10 @@ mod tests {
         begin_error: bool,
         commit_error: bool,
         find_embedding_result: Option<Result<Option<ProductEmbedding>, ProductEmbeddingReadError>>,
+        find_similar_products_result:
+            Option<Result<Vec<ProductSummary>, ProductSimilarProductsReadError>>,
         requested_product_ids: Vec<ProductId>,
+        requested_similar_products: Vec<ProductSimilarProductsRequest>,
         commit_count: usize,
     }
 
@@ -134,6 +164,11 @@ mod tests {
     }
 
     struct FakeEmbeddingReader {
+        state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct FakeSimilarProductsReader {
         state: SharedState,
     }
 
@@ -206,14 +241,36 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    impl ProductSimilarProductsReader for FakeSimilarProductsReader {
+        async fn find_similar_products(
+            &self,
+            request: &ProductSimilarProductsRequest,
+        ) -> Result<Vec<ProductSummary>, ProductSimilarProductsReadError> {
+            let mut state = lock_state(&self.state);
+            state.requested_similar_products.push(request.clone());
+            match state.find_similar_products_result.take() {
+                Some(result) => result,
+                None => Ok(Vec::new()),
+            }
+        }
+    }
+
     fn handler(
         state: &SharedState,
-    ) -> GetSimilarProductsHandler<FakeUnitOfWork, FakeEmbeddingReaderFactory> {
+    ) -> GetSimilarProductsHandler<
+        FakeUnitOfWork,
+        FakeEmbeddingReaderFactory,
+        FakeSimilarProductsReader,
+    > {
         GetSimilarProductsHandler::new(
             FakeUnitOfWork {
                 state: Arc::clone(state),
             },
             FakeEmbeddingReaderFactory {
+                state: Arc::clone(state),
+            },
+            FakeSimilarProductsReader {
                 state: Arc::clone(state),
             },
         )
@@ -222,6 +279,7 @@ mod tests {
     fn request() -> GetSimilarProductsRequest {
         GetSimilarProductsRequest {
             lookup: ProductEmbeddingLookup::ById(ProductId::new()),
+            language: Language::En,
         }
     }
 
@@ -261,12 +319,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_not_report_pending_when_embedding_is_available() {
+    async fn should_return_ready_products_when_embedding_is_available() {
+        let state = state();
+        let product_id = ProductId::new();
+        lock_state(&state).find_embedding_result = Some(Ok(Some(ProductEmbedding {
+            product_id,
+            embedding: Some(vec![0.1_f32]),
+        })));
+
+        let result = handler(&state).execute(request()).await;
+
+        assert!(
+            matches!(result, Ok(GetSimilarProductsResult::Ready(products)) if products.is_empty())
+        );
+        let state = lock_state(&state);
+        assert_eq!(1, state.commit_count);
+        assert_eq!(1, state.requested_similar_products.len());
+        assert_eq!(product_id, state.requested_similar_products[0].product_id);
+        assert_eq!(vec![0.1_f32], state.requested_similar_products[0].embedding);
+        assert_eq!(Language::En, state.requested_similar_products[0].language);
+    }
+
+    #[tokio::test]
+    async fn should_map_similar_products_reader_failure_to_unavailable_after_commit() {
         let state = state();
         lock_state(&state).find_embedding_result = Some(Ok(Some(ProductEmbedding {
             product_id: ProductId::new(),
             embedding: Some(vec![0.1_f32]),
         })));
+        lock_state(&state).find_similar_products_result = Some(Err(
+            ProductSimilarProductsReadError::SimilarProductsQueryFailed {
+                source: box_error(std::io::Error::other("boom")),
+            },
+        ));
 
         let result = handler(&state).execute(request()).await;
 
@@ -274,7 +359,7 @@ mod tests {
             result,
             Err(GetSimilarProductsError::SimilaritySearchUnavailable)
         ));
-        assert_eq!(0, lock_state(&state).commit_count);
+        assert_eq!(1, lock_state(&state).commit_count);
     }
 
     #[tokio::test]

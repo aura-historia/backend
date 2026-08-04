@@ -22,7 +22,9 @@ use product_core::title::Title;
 use product_service::ports::{
     ProductDetailsReadError, ProductDetailsReader, ProductDetailsReaderFactory,
 };
-use product_service::use_cases::queries::get_product::{GetProductRequest, ProductDetailsView};
+use product_service::use_cases::queries::get_product::{
+    GetProductRequest, ProductDetailsView, ProductLookup,
+};
 use serde::Deserialize;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
@@ -107,8 +109,8 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
         &mut self,
         request: &GetProductRequest,
     ) -> Result<Option<ProductDetailsView>, ProductDetailsReadError> {
-        let row = match request {
-            GetProductRequest::ById(product_id) => {
+        let row = match &request.lookup {
+            ProductLookup::ById(product_id) => {
                 sqlx::query_as::<_, ProductDetailsRow>(&format!(
                     "{SELECT_PRODUCT_DETAILS} WHERE p.product_id = $1"
                 ))
@@ -117,7 +119,7 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
                 .await
             }
 
-            GetProductRequest::BySlug {
+            ProductLookup::BySlug {
                 shop_slug_id,
                 product_slug_id,
             } => sqlx::query_as::<_, ProductDetailsRow>(&format!(

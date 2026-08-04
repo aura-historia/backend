@@ -639,7 +639,6 @@ fn parse_prohibited_content(value: &str) -> Result<ProhibitedContent, ProductRep
 }
 
 struct ProductLookupByIdSqlxError(sqlx::Error);
-struct ProductLookupByKeySqlxError(sqlx::Error);
 struct ProductInsertSqlxError(sqlx::Error);
 struct ProductUpdateSqlxError(sqlx::Error);
 
@@ -650,13 +649,6 @@ impl From<ProductLookupByIdSqlxError> for ProductRepositoryError {
     }
 }
 
-impl From<ProductLookupByKeySqlxError> for ProductRepositoryError {
-    fn from(value: ProductLookupByKeySqlxError) -> Self {
-        let ProductLookupByKeySqlxError(_error) = value;
-        Self::ProductLookupByKeyFailed
-    }
-}
-
 impl From<ProductInsertSqlxError> for ProductRepositoryError {
     fn from(value: ProductInsertSqlxError) -> Self {
         let ProductInsertSqlxError(error) = value;
@@ -664,7 +656,7 @@ impl From<ProductInsertSqlxError> for ProductRepositoryError {
             sqlx::Error::Database(db_error)
                 if db_error.constraint() == Some("products_shop_product_unique") =>
             {
-                Self::ProductKeyAlreadyExists
+                Self::ShopProductAlreadyExists
             }
             sqlx::Error::Database(db_error)
                 if db_error.constraint() == Some("products_slug_unique") =>
@@ -683,7 +675,7 @@ impl From<ProductUpdateSqlxError> for ProductRepositoryError {
             sqlx::Error::Database(db_error)
                 if db_error.constraint() == Some("products_shop_product_unique") =>
             {
-                Self::ProductKeyAlreadyExists
+                Self::ShopProductAlreadyExists
             }
             sqlx::Error::Database(db_error)
                 if db_error.constraint() == Some("products_slug_unique") =>

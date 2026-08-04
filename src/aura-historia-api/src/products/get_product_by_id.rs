@@ -1,18 +1,36 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
-use crate::error::{ApiError, INVALID_UUID};
+use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, INVALID_UUID};
 use crate::products::product_data::product_response;
 use crate::state::ProductsState;
-use axum::extract::{Path, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use common::language::data::LanguageData;
 use common::product_id::ProductId;
-use product_service::use_cases::GetProductRequest;
+use product_service::use_cases::{GetProductRequest, ProductLookup};
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct ProductDetailsQuery {
+    #[serde(default)]
+    language: LanguageData,
+}
 
 pub async fn get_product_by_id(
     State(state): State<ProductsState>,
     headers: HeaderMap,
     Path(raw_product_id): Path<String>,
+    RawQuery(raw_query): RawQuery,
 ) -> Response {
+    let query: ProductDetailsQuery =
+        match serde_qs::from_str(raw_query.as_deref().unwrap_or_default()) {
+            Ok(query) => query,
+            Err(error) => {
+                return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                    .with_detail(error.to_string())
+                    .into_response();
+            }
+        };
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
         .extract(&headers, &metadata)
@@ -34,7 +52,13 @@ pub async fn get_product_by_id(
     let context = principal.operation_context(metadata);
     match state
         .get_product
-        .execute(&context, GetProductRequest::ById(product_id))
+        .execute(
+            &context,
+            GetProductRequest {
+                lookup: ProductLookup::ById(product_id),
+                language: query.language.into(),
+            },
+        )
         .await
     {
         Ok(view) => product_response(view, &context.principal),
@@ -158,6 +182,7 @@ mod tests {
             "public, max-age=180, s-maxage=900",
             response.headers()[header::CACHE_CONTROL]
         );
+        assert_eq!("en", response.headers()[header::CONTENT_LANGUAGE]);
         assert_eq!(event_id.to_string(), response.headers()[header::ETAG]);
         assert_eq!(
             "Thu, 01 Jan 1970 00:00:00 GMT",
@@ -167,9 +192,60 @@ mod tests {
         assert_eq!(json!(product_id.to_string()), body["productId"]);
         assert!(body.get("createdBy").is_none());
         assert!(body.get("updatedBy").is_none());
-        assert!(
-            matches!(lock(&calls)[0].1, GetProductRequest::ById(actual) if actual == product_id)
+        assert!(matches!(
+            lock(&calls)[0].1,
+            GetProductRequest {
+                lookup: ProductLookup::ById(actual),
+                language: Language::En,
+            } if actual == product_id
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_pass_requested_language_to_use_case() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let view = product_details_view()?;
+        let product_id = view.product_id;
+        let (app, calls) = app(view, false);
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/v1/products/{product_id}?language=de"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert!(matches!(
+            lock(&calls)[0].1,
+            GetProductRequest {
+                lookup: ProductLookup::ById(actual),
+                language: Language::De,
+            } if actual == product_id
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_language_before_calling_use_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let product_id = ProductId::new();
+        let (app, calls) = app(product_details_view()?, false);
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/v1/products/{product_id}?language=invalid"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!(
+            "BAD_QUERY_PARAMETER_VALUE",
+            body_json(response).await?["error"]
         );
+        assert!(lock(&calls).is_empty());
         Ok(())
     }
 

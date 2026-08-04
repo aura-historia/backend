@@ -2,9 +2,8 @@ use crate::product_image_document::ProductImageDocument;
 use crate::product_state_document::ProductStateDocument;
 use crate::shop_type_document::ShopTypeDocument;
 use common::event_id::EventId;
-use common::has_key::HasKey;
 use common::language::document::TextDocument;
-use common::product_id::{ProductId, ProductKey};
+use common::product_id::ProductId;
 use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::product_slug_id::ProductSlugId;
 use common::seller_slug_id::SellerSlugId;
@@ -48,7 +47,7 @@ pub(crate) struct ProductDocument {
     pub structured_address_continent: Option<crate::continent_document::ContinentDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub geo_address: Option<String>,
-    pub title_native: TextDocument,
+    pub title: TextDocument,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_de: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -199,17 +198,6 @@ impl ProductDocument {
     }
 }
 
-impl HasKey for ProductDocument {
-    type Key = ProductKey;
-
-    fn key(&self) -> Self::Key {
-        ProductKey {
-            shop_id: self.shop_id,
-            shops_product_id: self.shops_product_id.clone(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,7 +230,7 @@ mod tests {
                 crate::continent_document::ContinentDocument::Europe,
             ),
             geo_address: Some("52.52,13.405".to_owned()),
-            title_native: TextDocument::new("Vase", LanguageDocument::En),
+            title: TextDocument::new("Vase", LanguageDocument::En),
             title_de: Some("Vase".to_owned()),
             title_en: Some("Vase".to_owned()),
             title_fr: None,
@@ -342,12 +330,10 @@ mod tests {
     }
 
     #[test]
-    fn should_return_document_id_and_key() -> Result<(), url::ParseError> {
+    fn should_return_product_document_id() -> Result<(), url::ParseError> {
         let document = document()?;
 
         assert_eq!(document.product_id, document._id());
-        assert_eq!(document.shop_id, document.key().shop_id);
-        assert_eq!(document.shops_product_id, document.key().shops_product_id);
         Ok(())
     }
 }

@@ -31,7 +31,7 @@ use url::Url;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_insert_append_find_update_and_find_product_by_key_in_postgres() {
+async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let products = SqlxProductRepositoryFactory::new();
@@ -153,7 +153,7 @@ async fn should_return_none_when_product_is_missing_in_postgres() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_product_insert_conflict_when_shop_product_key_or_slug_duplicate() {
+async fn should_report_product_insert_conflict_when_shop_product_identity_or_slug_duplicates() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let products = SqlxProductRepositoryFactory::new();
@@ -172,7 +172,7 @@ async fn should_report_product_insert_conflict_when_shop_product_key_or_slug_dup
         .await;
     assert!(matches!(
         duplicate_product,
-        Err(ProductRepositoryError::ProductKeyAlreadyExists)
+        Err(ProductRepositoryError::ShopProductAlreadyExists)
             | Err(ProductRepositoryError::ProductSlugAlreadyExists)
             | Err(ProductRepositoryError::ProductInsertFailed)
     ));
@@ -229,7 +229,7 @@ async fn should_report_product_update_conflict_when_event_id_is_stale() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_key_conflict_when_update_would_duplicate_shop_product_key() {
+async fn should_report_identity_conflict_when_update_would_duplicate_shop_product_identity() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let products = SqlxProductRepositoryFactory::new();
@@ -261,7 +261,7 @@ async fn should_report_key_conflict_when_update_would_duplicate_shop_product_key
 
     assert!(matches!(
         result,
-        Err(ProductRepositoryError::ProductKeyAlreadyExists)
+        Err(ProductRepositoryError::ShopProductAlreadyExists)
     ));
 }
 

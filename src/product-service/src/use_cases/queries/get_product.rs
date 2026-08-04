@@ -1,4 +1,7 @@
-use crate::ports::{ProductDetailsReadError, ProductDetailsReader, ProductDetailsReaderFactory};
+use crate::ports::{
+    ProductDetailsReadError, ProductDetailsReader, ProductDetailsReaderFactory,
+    ProductTranslationReadError, ProductTranslationReader, ProductTranslationReaderFactory,
+};
 use common::currency::domain::Currency;
 use common::event_id::EventId;
 use common::language::domain::Language;
@@ -23,12 +26,18 @@ use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum GetProductRequest {
+pub enum ProductLookup {
     ById(ProductId),
     BySlug {
         shop_slug_id: ShopSlugId,
         product_slug_id: ProductSlugId,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetProductRequest {
+    pub lookup: ProductLookup,
+    pub language: Language,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,25 +99,28 @@ pub trait GetProductUseCase: Send + Sync {
     ) -> Result<ProductDetailsView, GetProductError>;
 }
 
-pub struct GetProductHandler<U, R> {
+pub struct GetProductHandler<U, D, T> {
     unit_of_work: U,
-    reader: R,
+    details_reader: D,
+    translation_reader: T,
 }
 
-impl<U, R> GetProductHandler<U, R> {
-    pub fn new(unit_of_work: U, reader: R) -> Self {
+impl<U, D, T> GetProductHandler<U, D, T> {
+    pub fn new(unit_of_work: U, details_reader: D, translation_reader: T) -> Self {
         Self {
             unit_of_work,
-            reader,
+            details_reader,
+            translation_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> GetProductUseCase for GetProductHandler<U, R>
+impl<U, D, T> GetProductUseCase for GetProductHandler<U, D, T>
 where
     U: UnitOfWork,
-    R: ProductDetailsReaderFactory<U::Tx>,
+    D: ProductDetailsReaderFactory<U::Tx>,
+    T: ProductTranslationReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "get_product",
@@ -129,17 +141,28 @@ where
             .begin()
             .await
             .map_err(|_| GetProductError::BeginTransactionFailed)?;
-        let result = self
-            .reader
+        let mut details = self
+            .details_reader
             .in_transaction(&mut tx)
             .find_details(&request)
             .await?
             .ok_or(GetProductError::NotFound)?;
+        let translations = self
+            .translation_reader
+            .in_transaction(&mut tx)
+            .find_for_product(details.product_id)
+            .await?;
+
+        details.title =
+            translations.resolve_title(details.product_title.clone(), &[request.language]);
+        details.description = translations
+            .resolve_description(details.product_description.clone(), &[request.language]);
+
         tx.commit()
             .await
             .map_err(|_| GetProductError::CommitTransactionFailed)?;
 
-        Ok(result)
+        Ok(details)
     }
 }
 
@@ -154,12 +177,27 @@ impl From<ProductDetailsReadError> for GetProductError {
     }
 }
 
+impl From<ProductTranslationReadError> for GetProductError {
+    fn from(error: ProductTranslationReadError) -> Self {
+        match error {
+            ProductTranslationReadError::ProductTranslationLookupFailed => {
+                Self::ProductTranslationLookupFailed
+            }
+            ProductTranslationReadError::ProductTranslationReadModelInvalid => {
+                Self::ProductTranslationReadModelInvalid
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::ProductTranslationsView;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::MonetaryAmount;
     use common::transaction::TransactionError;
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
 
     #[derive(Debug, Default)]
@@ -167,6 +205,9 @@ mod tests {
         begin_error: bool,
         commit_error: bool,
         find_details_result: Option<Result<Option<ProductDetailsView>, ProductDetailsReadError>>,
+        find_translations_result:
+            Option<Result<ProductTranslationsView, ProductTranslationReadError>>,
+        requested_translation_product_ids: Vec<ProductId>,
         commit_count: usize,
     }
 
@@ -182,11 +223,20 @@ mod tests {
         state: SharedState,
     }
 
+    #[derive(Clone)]
+    struct FakeTranslationReaderFactory {
+        state: SharedState,
+    }
+
     struct FakeTx {
         state: SharedState,
     }
 
     struct FakeDetailsReader {
+        state: SharedState,
+    }
+
+    struct FakeTranslationReader {
         state: SharedState,
     }
 
@@ -201,25 +251,12 @@ mod tests {
         }
     }
 
-    fn uow(state: &SharedState) -> FakeUnitOfWork {
-        FakeUnitOfWork {
-            state: Arc::clone(state),
-        }
-    }
-
-    fn details_reader_factory(state: &SharedState) -> FakeDetailsReaderFactory {
-        FakeDetailsReaderFactory {
-            state: Arc::clone(state),
-        }
-    }
-
     #[async_trait::async_trait]
     impl UnitOfWork for FakeUnitOfWork {
         type Tx = FakeTx;
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
-            let state = lock_state(&self.state);
-            if state.begin_error {
+            if lock_state(&self.state).begin_error {
                 Err(TransactionError::BeginFailed)
             } else {
                 Ok(FakeTx {
@@ -250,6 +287,17 @@ mod tests {
         }
     }
 
+    impl ProductTranslationReaderFactory<FakeTx> for FakeTranslationReaderFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl ProductTranslationReader + 'tx {
+            FakeTranslationReader {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
     #[async_trait::async_trait]
     impl ProductDetailsReader for FakeDetailsReader {
         async fn find_details(
@@ -264,8 +312,40 @@ mod tests {
         }
     }
 
-    fn handler(state: &SharedState) -> GetProductHandler<FakeUnitOfWork, FakeDetailsReaderFactory> {
-        GetProductHandler::new(uow(state), details_reader_factory(state))
+    #[async_trait::async_trait]
+    impl ProductTranslationReader for FakeTranslationReader {
+        async fn find_for_product(
+            &mut self,
+            product_id: ProductId,
+        ) -> Result<ProductTranslationsView, ProductTranslationReadError> {
+            let mut state = lock_state(&self.state);
+            state.requested_translation_product_ids.push(product_id);
+            match state.find_translations_result.take() {
+                Some(result) => result,
+                None => Ok(ProductTranslationsView {
+                    product_id,
+                    titles: HashMap::new(),
+                    descriptions: HashMap::new(),
+                }),
+            }
+        }
+    }
+
+    fn handler(
+        state: &SharedState,
+    ) -> GetProductHandler<FakeUnitOfWork, FakeDetailsReaderFactory, FakeTranslationReaderFactory>
+    {
+        GetProductHandler::new(
+            FakeUnitOfWork {
+                state: Arc::clone(state),
+            },
+            FakeDetailsReaderFactory {
+                state: Arc::clone(state),
+            },
+            FakeTranslationReaderFactory {
+                state: Arc::clone(state),
+            },
+        )
     }
 
     fn context() -> OperationContext {
@@ -273,6 +353,13 @@ mod tests {
             principal: Principal::System,
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
+    fn request(language: Language) -> GetProductRequest {
+        GetProductRequest {
+            lookup: ProductLookup::ById(ProductId::new()),
+            language,
         }
     }
 
@@ -294,12 +381,9 @@ mod tests {
             shop_slug_id: ShopSlugId::from("shop"),
             seller_slug_id: ShopSlugId::from("seller"),
             address: ProductAddress::default(),
-            product_title: None,
-            product_description: None,
-            title: Some(Localized {
-                localization: Language::En,
-                payload: Title::from("Cabinet"),
-            }),
+            product_title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
+            product_description: Some(Localized::new(Language::En, Description::from("Native"))),
+            title: None,
             description: None,
             pricing: ProductPricing::default(),
             price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
@@ -317,76 +401,82 @@ mod tests {
         })
     }
 
+    fn translations(product_id: ProductId) -> ProductTranslationsView {
+        ProductTranslationsView {
+            product_id,
+            titles: HashMap::from([(Language::De, Title::from("Schrank"))]),
+            descriptions: HashMap::from([(Language::De, Description::from("Deutsch"))]),
+        }
+    }
+
     #[tokio::test]
-    async fn should_get_product_when_found() -> Result<(), url::ParseError> {
+    async fn should_resolve_requested_current_product_translation() -> Result<(), url::ParseError> {
         let state = state();
         let view = details_view()?;
         let product_id = view.product_id;
-        lock_state(&state).find_details_result = Some(Ok(Some(view.clone())));
+        lock_state(&state).find_details_result = Some(Ok(Some(view)));
+        lock_state(&state).find_translations_result = Some(Ok(translations(product_id)));
 
         let result = handler(&state)
-            .execute(&context(), GetProductRequest::ById(product_id))
+            .execute(&context(), request(Language::De))
             .await;
 
-        assert!(matches!(result, Ok(actual) if actual == view));
+        assert!(
+            matches!(result, Ok(view) if view.title == Some(Localized::new(Language::De, Title::from("Schrank")))
+            && view.description == Some(Localized::new(Language::De, Description::from("Deutsch"))))
+        );
+        assert_eq!(
+            vec![product_id],
+            lock_state(&state).requested_translation_product_ids
+        );
         assert_eq!(1, lock_state(&state).commit_count);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_return_not_found_when_get_product_missing() {
-        let state = state();
-
-        let result = handler(&state)
-            .execute(&context(), GetProductRequest::ById(ProductId::new()))
-            .await;
-
-        assert!(matches!(result, Err(GetProductError::NotFound)));
-        assert_eq!(0, lock_state(&state).commit_count);
-    }
-
-    #[tokio::test]
-    async fn should_map_begin_error_when_get_product_begin_fails() {
-        let state = state();
-        lock_state(&state).begin_error = true;
-
-        let result = handler(&state)
-            .execute(&context(), GetProductRequest::ById(ProductId::new()))
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(GetProductError::BeginTransactionFailed)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_map_commit_error_when_get_product_commit_fails() -> Result<(), url::ParseError>
-    {
+    async fn should_fall_back_to_stored_current_product_content_when_translation_is_missing()
+    -> Result<(), url::ParseError> {
         let state = state();
         let view = details_view()?;
-        lock_state(&state).commit_error = true;
         lock_state(&state).find_details_result = Some(Ok(Some(view)));
 
         let result = handler(&state)
-            .execute(&context(), GetProductRequest::ById(ProductId::new()))
+            .execute(&context(), request(Language::Fr))
             .await;
 
-        assert!(matches!(
-            result,
-            Err(GetProductError::CommitTransactionFailed)
-        ));
+        assert!(
+            matches!(result, Ok(view) if view.title == Some(Localized::new(Language::En, Title::from("Cabinet")))
+            && view.description == Some(Localized::new(Language::En, Description::from("Native"))))
+        );
+        assert_eq!(1, lock_state(&state).commit_count);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_not_commit_when_get_product_read_fails() {
+    async fn should_return_not_found_without_translation_lookup_or_commit() {
+        let state = state();
+
+        let result = handler(&state)
+            .execute(&context(), request(Language::En))
+            .await;
+
+        assert!(matches!(result, Err(GetProductError::NotFound)));
+        assert!(
+            lock_state(&state)
+                .requested_translation_product_ids
+                .is_empty()
+        );
+        assert_eq!(0, lock_state(&state).commit_count);
+    }
+
+    #[tokio::test]
+    async fn should_map_detail_read_failure_without_commit() {
         let state = state();
         lock_state(&state).find_details_result =
             Some(Err(ProductDetailsReadError::ProductDetailsQueryFailed));
 
         let result = handler(&state)
-            .execute(&context(), GetProductRequest::ById(ProductId::new()))
+            .execute(&context(), request(Language::En))
             .await;
 
         assert!(matches!(
@@ -396,15 +486,68 @@ mod tests {
         assert_eq!(0, lock_state(&state).commit_count);
     }
 
-    #[test]
-    fn should_map_all_get_product_read_errors() {
-        assert!(matches!(
-            GetProductError::from(ProductDetailsReadError::ProductDetailsQueryFailed),
-            GetProductError::ProductDetailsQueryFailed
+    #[tokio::test]
+    async fn should_map_translation_read_failure_without_commit() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).find_details_result = Some(Ok(Some(details_view()?)));
+        lock_state(&state).find_translations_result = Some(Err(
+            ProductTranslationReadError::ProductTranslationLookupFailed,
         ));
+
+        let result = handler(&state)
+            .execute(&context(), request(Language::En))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(GetProductError::ProductTranslationLookupFailed)
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_begin_failure() {
+        let state = state();
+        lock_state(&state).begin_error = true;
+
+        let result = handler(&state)
+            .execute(&context(), request(Language::En))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(GetProductError::BeginTransactionFailed)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_map_commit_failure_after_localizing() -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).commit_error = true;
+        lock_state(&state).find_details_result = Some(Ok(Some(details_view()?)));
+
+        let result = handler(&state)
+            .execute(&context(), request(Language::En))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(GetProductError::CommitTransactionFailed)
+        ));
+        assert_eq!(1, lock_state(&state).commit_count);
+        Ok(())
+    }
+
+    #[test]
+    fn should_map_all_get_product_reader_errors() {
         assert!(matches!(
             GetProductError::from(ProductDetailsReadError::ProductDetailsReadModelInvalid),
             GetProductError::ProductDetailsReadModelInvalid
+        ));
+        assert!(matches!(
+            GetProductError::from(ProductTranslationReadError::ProductTranslationReadModelInvalid),
+            GetProductError::ProductTranslationReadModelInvalid
         ));
     }
 }

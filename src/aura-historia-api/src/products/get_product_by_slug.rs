@@ -1,19 +1,37 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
-use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE};
+use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE};
 use crate::products::product_data::product_response;
 use crate::state::ProductsState;
-use axum::extract::{Path, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use common::language::data::LanguageData;
 use common::product_slug_id::ProductSlugId;
 use common::shop_slug_id::ShopSlugId;
-use product_service::use_cases::GetProductRequest;
+use product_service::use_cases::{GetProductRequest, ProductLookup};
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct ProductDetailsQuery {
+    #[serde(default)]
+    language: LanguageData,
+}
 
 pub async fn get_product_by_slug(
     State(state): State<ProductsState>,
     headers: HeaderMap,
     Path((raw_shop_slug_id, raw_product_slug_id)): Path<(String, String)>,
+    RawQuery(raw_query): RawQuery,
 ) -> Response {
+    let query: ProductDetailsQuery =
+        match serde_qs::from_str(raw_query.as_deref().unwrap_or_default()) {
+            Ok(query) => query,
+            Err(error) => {
+                return ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                    .with_detail(error.to_string())
+                    .into_response();
+            }
+        };
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
         .extract(&headers, &metadata)
@@ -47,9 +65,12 @@ pub async fn get_product_by_slug(
         .get_product
         .execute(
             &context,
-            GetProductRequest::BySlug {
-                shop_slug_id,
-                product_slug_id,
+            GetProductRequest {
+                lookup: ProductLookup::BySlug {
+                    shop_slug_id,
+                    product_slug_id,
+                },
+                language: query.language.into(),
             },
         )
         .await
@@ -66,6 +87,7 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use common::language::domain::Language;
     use common::operation_context::OperationContext;
     use product_service::use_cases::{
         GetProductError, GetProductUseCase, GetSimilarProductsError, GetSimilarProductsRequest,
@@ -150,11 +172,37 @@ mod tests {
         assert_eq!(StatusCode::NOT_FOUND, response.status());
         assert!(matches!(
             lock(&calls).as_slice(),
-            [GetProductRequest::BySlug {
-                shop_slug_id,
-                product_slug_id,
+            [GetProductRequest {
+                lookup: ProductLookup::BySlug {
+                    shop_slug_id,
+                    product_slug_id,
+                },
+                language: Language::En,
             }] if shop_slug_id.as_ref() == raw_shop_slug_id
                 && product_slug_id.as_ref() == raw_product_slug_id
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_pass_requested_language_for_slug_lookup()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (app, calls) = app();
+
+        let response = app
+            .oneshot(
+                Request::get("/api/v1/by-slug/shops/antique-depot/products/louis-xvi-commode-a1b2c3?language=de")
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::NOT_FOUND, response.status());
+        assert!(matches!(
+            lock(&calls).as_slice(),
+            [GetProductRequest {
+                lookup: ProductLookup::BySlug { .. },
+                language: Language::De,
+            }]
         ));
         Ok(())
     }

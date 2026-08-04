@@ -51,8 +51,8 @@ pub enum CreateProductError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("product already exists for shop product key")]
-    ProductKeyAlreadyExists,
+    #[error("product already exists for shop product identity")]
+    ShopProductAlreadyExists,
     #[error("product slug already exists")]
     ProductSlugAlreadyExists,
     #[error("product state is invalid")]
@@ -63,8 +63,6 @@ pub enum CreateProductError {
     ProductCurrentEventIdConflict,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
-    #[error("product lookup by natural key failed")]
-    ProductLookupByKeyFailed,
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -268,10 +266,9 @@ impl From<ProductRepositoryError> for CreateProductError {
             ProductRepositoryError::ProductCurrentEventIdConflict => {
                 Self::ProductCurrentEventIdConflict
             }
-            ProductRepositoryError::ProductKeyAlreadyExists => Self::ProductKeyAlreadyExists,
+            ProductRepositoryError::ShopProductAlreadyExists => Self::ShopProductAlreadyExists,
             ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
             ProductRepositoryError::ProductLookupByIdFailed => Self::ProductLookupByIdFailed,
-            ProductRepositoryError::ProductLookupByKeyFailed => Self::ProductLookupByKeyFailed,
             ProductRepositoryError::ProductInsertFailed => Self::ProductInsertFailed,
             ProductRepositoryError::ProductUpdateFailed => Self::ProductUpdateFailed,
             ProductRepositoryError::InvalidProductSlugPersisted => {
