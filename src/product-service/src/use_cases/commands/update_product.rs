@@ -604,7 +604,7 @@ mod tests {
                 payload: Description::from("Old cabinet"),
             }),
             pricing: ProductPricing {
-                native_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 ..Default::default()
             },
             state: ProductState::Listed,

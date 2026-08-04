@@ -16,6 +16,18 @@ pub use commands::update_product::{
 pub use queries::get_product::{
     GetProductError, GetProductHandler, GetProductRequest, GetProductUseCase, ProductDetailsView,
 };
+pub use queries::get_product_history::{
+    GetProductHistoryError, GetProductHistoryHandler, GetProductHistoryRequest,
+    GetProductHistoryUseCase, ProductAddressChangedHistoryPayload,
+    ProductAuctionChangedHistoryPayload, ProductCreatedHistoryPayload,
+    ProductDeletedHistoryPayload, ProductHistoryEvent, ProductHistoryEventType,
+    ProductHistoryPayload, ProductImagesChangedHistoryPayload, ProductPriceChangedHistoryPayload,
+    ProductStateChangedHistoryPayload, ProductUrlChangedHistoryPayload,
+};
+pub use queries::get_similar_products::{
+    GetSimilarProductsError, GetSimilarProductsHandler, GetSimilarProductsRequest,
+    GetSimilarProductsResult, GetSimilarProductsUseCase,
+};
 pub use queries::search_products::{
     ProductSummary, SearchProductsError, SearchProductsHandler, SearchProductsRequest,
     SearchProductsResult, SearchProductsUseCase,

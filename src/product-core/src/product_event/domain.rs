@@ -1,11 +1,11 @@
 use crate::description::Description;
+use crate::fx_rate_id::FxRateId;
 use crate::product_image::ProductImage;
 use crate::title::Title;
-use common::currency::domain::Currency;
 use common::has_key::HasKey;
 use common::language::domain::Language;
 use common::localized::Localized;
-use common::price::domain::{MonetaryAmount, Price};
+use common::price::domain::Price;
 use common::product_id::ProductKey;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
@@ -17,7 +17,6 @@ use common::shops_product_id::ShopsProductId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use shop_core::shop_type::ShopType;
-use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -80,133 +79,6 @@ impl ProductDomainEventPayload {
         match self {
             ProductDomainEventPayload::PriceChanged(payload) => Some(payload),
             _ => None,
-        }
-    }
-
-    pub fn localized(self, currency: &Currency) -> LocalizedProductDomainEventPayloadView {
-        match self {
-            ProductDomainEventPayload::Created(payload) => {
-                let mut prices = payload.other_price;
-                if let Some(native_price) = payload.native_price {
-                    prices.insert(native_price.currency, native_price.monetary_amount);
-                }
-                LocalizedProductDomainEventPayloadView::Created(
-                    LocalizedProductCreatedDomainEventPayloadView {
-                        shop_id: payload.shop_id,
-                        seller_id: payload.seller_id,
-                        shops_product_id: payload.shops_product_id,
-                        shop_name: payload.shop_name,
-                        seller_name: payload.seller_name,
-                        shop_type: payload.shop_type,
-                        title: payload.native_title,
-                        description: payload.native_description,
-                        price: prices
-                            .remove(currency)
-                            .map(|amount| Price::new(amount, *currency)),
-                        state: payload.state,
-                        url: payload.url,
-                        images: payload.images,
-                    },
-                )
-            }
-            ProductDomainEventPayload::StateChanged(payload) => {
-                LocalizedProductDomainEventPayloadView::StateChanged(
-                    LocalizedProductStateChangeDomainEventPayloadView {
-                        shop_id: payload.shop_id,
-                        seller_id: payload.seller_id,
-                        shops_product_id: payload.shops_product_id,
-                        old_state: payload.old_state,
-                        new_state: payload.new_state,
-                    },
-                )
-            }
-            ProductDomainEventPayload::PriceChanged(payload) => {
-                let old_price = match payload.old_native_price {
-                    Some(old_native_price) => {
-                        let mut old_prices = payload.old_other_price;
-                        old_prices
-                            .insert(old_native_price.currency, old_native_price.monetary_amount);
-                        Currency::resolve(&[*currency], old_prices)
-                    }
-                    None => None,
-                };
-                let new_price = match payload.new_native_price {
-                    Some(new_native_price) => {
-                        let mut new_prices = payload.new_other_price;
-                        new_prices
-                            .insert(new_native_price.currency, new_native_price.monetary_amount);
-                        Currency::resolve(&[*currency], new_prices)
-                    }
-                    None => None,
-                };
-                LocalizedProductDomainEventPayloadView::PriceChanged(
-                    LocalizedProductPriceChangeDomainEventPayloadView {
-                        shop_id: payload.shop_id,
-                        seller_id: payload.seller_id,
-                        shops_product_id: payload.shops_product_id,
-                        old_price,
-                        new_price,
-                    },
-                )
-            }
-            ProductDomainEventPayload::EstimatePriceChanged(payload) => {
-                let price_estimate_min = match payload.native_price_estimate_min {
-                    Some(native_min) => {
-                        let mut min_prices = payload.other_price_estimate_min;
-                        min_prices.insert(native_min.currency, native_min.monetary_amount);
-                        Currency::resolve(&[*currency], min_prices)
-                    }
-                    None => None,
-                };
-                let price_estimate_max = match payload.native_price_estimate_max {
-                    Some(native_max) => {
-                        let mut max_prices = payload.other_price_estimate_max;
-                        max_prices.insert(native_max.currency, native_max.monetary_amount);
-                        Currency::resolve(&[*currency], max_prices)
-                    }
-                    None => None,
-                };
-                LocalizedProductDomainEventPayloadView::EstimatePriceChanged(
-                    LocalizedProductEstimatePriceChangeDomainEventPayloadView {
-                        shop_id: payload.shop_id,
-                        seller_id: payload.seller_id,
-                        shops_product_id: payload.shops_product_id,
-                        price_estimate_min,
-                        price_estimate_max,
-                    },
-                )
-            }
-            ProductDomainEventPayload::UrlChanged(payload) => {
-                LocalizedProductDomainEventPayloadView::UrlChanged(
-                    LocalizedProductUrlChangeDomainEventPayloadView {
-                        shop_id: payload.shop_id,
-                        seller_id: payload.seller_id,
-                        shops_product_id: payload.shops_product_id,
-                        url: payload.url,
-                    },
-                )
-            }
-            ProductDomainEventPayload::ImagesChanged(payload) => {
-                LocalizedProductDomainEventPayloadView::ImagesChanged(
-                    LocalizedProductImagesChangeDomainEventPayloadView {
-                        shop_id: payload.shop_id,
-                        seller_id: payload.seller_id,
-                        shops_product_id: payload.shops_product_id,
-                        images: payload.images,
-                    },
-                )
-            }
-            ProductDomainEventPayload::AuctionTimeChanged(payload) => {
-                LocalizedProductDomainEventPayloadView::AuctionTimeChanged(
-                    LocalizedProductAuctionTimeChangeDomainEventPayloadView {
-                        shop_id: payload.shop_id,
-                        seller_id: payload.seller_id,
-                        shops_product_id: payload.shops_product_id,
-                        auction_start: payload.auction_start,
-                        auction_end: payload.auction_end,
-                    },
-                )
-            }
         }
     }
 }
@@ -278,12 +150,10 @@ pub struct ProductCreatedDomainEventPayload {
     pub geo_address: Option<GeoAddress>,
     pub native_title: Localized<Language, Title>,
     pub native_description: Option<Localized<Language, Description>>,
-    pub native_price: Option<Price>,
-    pub other_price: HashMap<Currency, MonetaryAmount>,
-    pub native_price_estimate_min: Option<Price>,
-    pub other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
-    pub native_price_estimate_max: Option<Price>,
-    pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
+    pub price: Option<Price>,
+    pub price_estimate_min: Option<Price>,
+    pub price_estimate_max: Option<Price>,
+    pub fx_rate_id: Option<FxRateId>,
     pub state: ProductState,
     pub url: Url,
     pub view_url: Url,
@@ -306,8 +176,8 @@ impl ProductCommonEventPayload for ProductCreatedDomainEventPayload {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProductStateChangeDomainEventPayload {
     pub shop_id: ShopId,
     pub seller_id: ShopId,
@@ -331,15 +201,14 @@ impl ProductCommonEventPayload for ProductStateChangeDomainEventPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 pub struct ProductPriceChangeDomainEventPayload {
     pub shop_id: ShopId,
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
-    pub old_native_price: Option<Price>,
-    pub old_other_price: HashMap<Currency, MonetaryAmount>,
-    pub new_native_price: Option<Price>,
-    pub new_other_price: HashMap<Currency, MonetaryAmount>,
+    pub old_price: Option<Price>,
+    pub new_price: Option<Price>,
+    pub old_fx_rate_id: Option<FxRateId>,
+    pub new_fx_rate_id: Option<FxRateId>,
 }
 
 impl ProductCommonEventPayload for ProductPriceChangeDomainEventPayload {
@@ -356,34 +225,17 @@ impl ProductCommonEventPayload for ProductPriceChangeDomainEventPayload {
     }
 }
 
-impl ProductPriceChangeDomainEventPayload {
-    pub fn old_prices(&self) -> HashMap<Currency, MonetaryAmount> {
-        let mut prices = self.old_other_price.clone();
-        if let Some(price) = self.old_native_price {
-            prices.insert(price.currency, price.monetary_amount);
-        }
-        prices
-    }
-
-    pub fn new_prices(&self) -> HashMap<Currency, MonetaryAmount> {
-        let mut prices = self.new_other_price.clone();
-        if let Some(price) = self.new_native_price {
-            prices.insert(price.currency, price.monetary_amount);
-        }
-        prices
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 pub struct ProductEstimatePriceChangeDomainEventPayload {
     pub shop_id: ShopId,
     pub seller_id: ShopId,
     pub shops_product_id: ShopsProductId,
-    pub native_price_estimate_min: Option<Price>,
-    pub other_price_estimate_min: HashMap<Currency, MonetaryAmount>,
-    pub native_price_estimate_max: Option<Price>,
-    pub other_price_estimate_max: HashMap<Currency, MonetaryAmount>,
+    pub old_price_estimate_min: Option<Price>,
+    pub old_price_estimate_max: Option<Price>,
+    pub new_price_estimate_min: Option<Price>,
+    pub new_price_estimate_max: Option<Price>,
+    pub old_fx_rate_id: Option<FxRateId>,
+    pub new_fx_rate_id: Option<FxRateId>,
 }
 
 impl ProductCommonEventPayload for ProductEstimatePriceChangeDomainEventPayload {
@@ -401,7 +253,6 @@ impl ProductCommonEventPayload for ProductEstimatePriceChangeDomainEventPayload 
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 pub struct ProductUrlChangeDomainEventPayload {
     pub shop_id: ShopId,
     pub seller_id: ShopId,
@@ -474,6 +325,13 @@ mod faker_payloads {
     use super::*;
     use fake::{Dummy, Fake, Faker, RngExt};
 
+    fn test_url(path: &str) -> Url {
+        match Url::parse(path) {
+            Ok(url) => url,
+            Err(error) => panic!("invalid faker URL: {error}"),
+        }
+    }
+
     impl Dummy<Faker> for ProductCreatedDomainEventPayload {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
             ProductCreatedDomainEventPayload {
@@ -490,50 +348,61 @@ mod faker_payloads {
                 geo_address: config.fake_with_rng(rng),
                 native_title: config.fake_with_rng(rng),
                 native_description: config.fake_with_rng(rng),
-                native_price: config.fake_with_rng(rng),
-                other_price: config.fake_with_rng(rng),
-                native_price_estimate_min: config.fake_with_rng(rng),
-                other_price_estimate_min: config.fake_with_rng(rng),
-                native_price_estimate_max: config.fake_with_rng(rng),
-                other_price_estimate_max: config.fake_with_rng(rng),
+                price: config.fake_with_rng(rng),
+                price_estimate_min: config.fake_with_rng(rng),
+                price_estimate_max: config.fake_with_rng(rng),
+                fx_rate_id: Some(FxRateId::new()),
                 state: config.fake_with_rng(rng),
-                url: Url::parse("https://www.example.com/product").unwrap(),
-                view_url: Url::parse("https://www.example.com/product?utm_source=aura-historia")
-                    .unwrap(),
+                url: test_url("https://www.example.com/product"),
+                view_url: test_url("https://www.example.com/product?utm_source=aura-historia"),
                 images: config
                     .fake_with_rng::<Vec<ProductImage>, _>(rng)
                     .into_iter()
                     .collect(),
-                auction_start: if config.fake_with_rng(rng) {
-                    Some(OffsetDateTime::now_utc())
-                } else {
-                    None
-                },
-                auction_end: if config.fake_with_rng(rng) {
-                    Some(OffsetDateTime::now_utc())
-                } else {
-                    None
-                },
+                auction_start: config.fake_with_rng(rng),
+                auction_end: config.fake_with_rng(rng),
             }
         }
     }
 
-    impl Dummy<Faker> for ProductAuctionTimeChangeDomainEventPayload {
+    impl Dummy<Faker> for ProductPriceChangeDomainEventPayload {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
-            ProductAuctionTimeChangeDomainEventPayload {
+            ProductPriceChangeDomainEventPayload {
                 shop_id: config.fake_with_rng(rng),
                 seller_id: config.fake_with_rng(rng),
                 shops_product_id: config.fake_with_rng(rng),
-                auction_start: if config.fake_with_rng(rng) {
-                    Some(OffsetDateTime::now_utc())
-                } else {
-                    None
-                },
-                auction_end: if config.fake_with_rng(rng) {
-                    Some(OffsetDateTime::now_utc())
-                } else {
-                    None
-                },
+                old_price: config.fake_with_rng(rng),
+                new_price: config.fake_with_rng(rng),
+                old_fx_rate_id: Some(FxRateId::new()),
+                new_fx_rate_id: Some(FxRateId::new()),
+            }
+        }
+    }
+
+    impl Dummy<Faker> for ProductEstimatePriceChangeDomainEventPayload {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            ProductEstimatePriceChangeDomainEventPayload {
+                shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
+                shops_product_id: config.fake_with_rng(rng),
+                old_price_estimate_min: config.fake_with_rng(rng),
+                old_price_estimate_max: config.fake_with_rng(rng),
+                new_price_estimate_min: config.fake_with_rng(rng),
+                new_price_estimate_max: config.fake_with_rng(rng),
+                old_fx_rate_id: Some(FxRateId::new()),
+                new_fx_rate_id: Some(FxRateId::new()),
+            }
+        }
+    }
+
+    impl Dummy<Faker> for ProductUrlChangeDomainEventPayload {
+        fn dummy_with_rng<R: RngExt + ?Sized>(_config: &Faker, _rng: &mut R) -> Self {
+            ProductUrlChangeDomainEventPayload {
+                shop_id: ShopId::new(),
+                seller_id: ShopId::new(),
+                shops_product_id: ShopsProductId::new(),
+                url: test_url("https://www.example.com/product"),
+                view_url: test_url("https://www.example.com/product?utm_source=aura-historia"),
             }
         }
     }
@@ -551,99 +420,35 @@ mod faker_payloads {
             }
         }
     }
-}
 
-#[derive(Debug, Clone, PartialEq)]
-#[allow(clippy::large_enum_variant)]
-pub enum LocalizedProductDomainEventPayloadView {
-    Created(LocalizedProductCreatedDomainEventPayloadView),
-    StateChanged(LocalizedProductStateChangeDomainEventPayloadView),
-    PriceChanged(LocalizedProductPriceChangeDomainEventPayloadView),
-    EstimatePriceChanged(LocalizedProductEstimatePriceChangeDomainEventPayloadView),
-    UrlChanged(LocalizedProductUrlChangeDomainEventPayloadView),
-    ImagesChanged(LocalizedProductImagesChangeDomainEventPayloadView),
-    AuctionTimeChanged(LocalizedProductAuctionTimeChangeDomainEventPayloadView),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductCreatedDomainEventPayloadView {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shops_product_id: ShopsProductId,
-    pub shop_name: ShopName,
-    pub seller_name: ShopName,
-    pub shop_type: ShopType,
-    pub title: Localized<Language, Title>,
-    pub description: Option<Localized<Language, Description>>,
-    pub price: Option<Price>,
-    pub state: ProductState,
-    pub url: Url,
-    pub images: IndexSet<ProductImage>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductStateChangeDomainEventPayloadView {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shops_product_id: ShopsProductId,
-    pub old_state: ProductState,
-    pub new_state: ProductState,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductPriceChangeDomainEventPayloadView {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shops_product_id: ShopsProductId,
-    pub old_price: Option<Price>,
-    pub new_price: Option<Price>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductEstimatePriceChangeDomainEventPayloadView {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shops_product_id: ShopsProductId,
-    pub price_estimate_min: Option<Price>,
-    pub price_estimate_max: Option<Price>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductUrlChangeDomainEventPayloadView {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shops_product_id: ShopsProductId,
-    pub url: Url,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductImagesChangeDomainEventPayloadView {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shops_product_id: ShopsProductId,
-    pub images: IndexSet<ProductImage>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LocalizedProductAuctionTimeChangeDomainEventPayloadView {
-    pub shop_id: ShopId,
-    pub seller_id: ShopId,
-    pub shops_product_id: ShopsProductId,
-    pub auction_start: Option<OffsetDateTime>,
-    pub auction_end: Option<OffsetDateTime>,
+    impl Dummy<Faker> for ProductAuctionTimeChangeDomainEventPayload {
+        fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            ProductAuctionTimeChangeDomainEventPayload {
+                shop_id: config.fake_with_rng(rng),
+                seller_id: config.fake_with_rng(rng),
+                shops_product_id: config.fake_with_rng(rng),
+                auction_start: config.fake_with_rng(rng),
+                auction_end: config.fake_with_rng(rng),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::currency::domain::Currency;
+    use common::price::domain::MonetaryAmount;
 
     fn price(amount: u64, currency: Currency) -> Price {
         Price::new(MonetaryAmount::from(amount), currency)
     }
 
     fn url(path: &str) -> Url {
-        Url::parse(&format!("https://shop.example/{path}"))
-            .unwrap_or_else(|error| panic!("invalid test URL: {error}"))
+        match Url::parse(&format!("https://shop.example/{path}")) {
+            Ok(url) => url,
+            Err(error) => panic!("invalid test URL: {error}"),
+        }
     }
 
     fn ids() -> (ShopId, ShopId, ShopsProductId) {
@@ -666,12 +471,10 @@ mod tests {
             geo_address: None,
             native_title: Localized::new(Language::De, Title::from("Bronze Vase")),
             native_description: Some(Localized::new(Language::De, Description::from("Alt"))),
-            native_price: Some(price(100, Currency::Eur)),
-            other_price: [(Currency::Usd, MonetaryAmount::from(110_u64))].into(),
-            native_price_estimate_min: Some(price(90, Currency::Eur)),
-            other_price_estimate_min: [(Currency::Usd, MonetaryAmount::from(99_u64))].into(),
-            native_price_estimate_max: Some(price(120, Currency::Eur)),
-            other_price_estimate_max: [(Currency::Usd, MonetaryAmount::from(132_u64))].into(),
+            price: Some(price(100, Currency::Eur)),
+            price_estimate_min: Some(price(90, Currency::Eur)),
+            price_estimate_max: Some(price(120, Currency::Eur)),
+            fx_rate_id: Some(FxRateId::new()),
             state: ProductState::Listed,
             url: url("product"),
             view_url: url("product?utm_source=aura_historia"),
@@ -698,10 +501,10 @@ mod tests {
             shop_id,
             seller_id,
             shops_product_id,
-            old_native_price: Some(price(100, Currency::Eur)),
-            old_other_price: [(Currency::Usd, MonetaryAmount::from(110_u64))].into(),
-            new_native_price: Some(price(200, Currency::Eur)),
-            new_other_price: [(Currency::Usd, MonetaryAmount::from(220_u64))].into(),
+            old_price: Some(price(100, Currency::Eur)),
+            new_price: Some(price(200, Currency::Eur)),
+            old_fx_rate_id: Some(FxRateId::new()),
+            new_fx_rate_id: Some(FxRateId::new()),
         }
     }
 
@@ -711,10 +514,12 @@ mod tests {
             shop_id,
             seller_id,
             shops_product_id,
-            native_price_estimate_min: Some(price(90, Currency::Eur)),
-            other_price_estimate_min: [(Currency::Usd, MonetaryAmount::from(99_u64))].into(),
-            native_price_estimate_max: Some(price(120, Currency::Eur)),
-            other_price_estimate_max: [(Currency::Usd, MonetaryAmount::from(132_u64))].into(),
+            old_price_estimate_min: Some(price(90, Currency::Eur)),
+            old_price_estimate_max: Some(price(120, Currency::Eur)),
+            new_price_estimate_min: Some(price(99, Currency::Usd)),
+            new_price_estimate_max: Some(price(132, Currency::Usd)),
+            old_fx_rate_id: Some(FxRateId::new()),
+            new_fx_rate_id: Some(FxRateId::new()),
         }
     }
 
@@ -810,85 +615,34 @@ mod tests {
     }
 
     #[test]
-    fn should_merge_native_prices_into_price_maps() {
-        let payload = price_payload();
+    fn should_keep_pricing_and_fx_rate_snapshots_for_price_events() {
+        let price_change = price_payload();
+        let estimate_change = estimate_payload();
 
+        assert_eq!(Some(price(100, Currency::Eur)), price_change.old_price);
+        assert_eq!(Some(price(200, Currency::Eur)), price_change.new_price);
+        assert_ne!(price_change.old_fx_rate_id, price_change.new_fx_rate_id);
         assert_eq!(
-            Some(&MonetaryAmount::from(100_u64)),
-            payload.old_prices().get(&Currency::Eur)
+            Some(price(90, Currency::Eur)),
+            estimate_change.old_price_estimate_min
         );
         assert_eq!(
-            Some(&MonetaryAmount::from(110_u64)),
-            payload.old_prices().get(&Currency::Usd)
+            Some(price(132, Currency::Usd)),
+            estimate_change.new_price_estimate_max
         );
-        assert_eq!(
-            Some(&MonetaryAmount::from(200_u64)),
-            payload.new_prices().get(&Currency::Eur)
-        );
-        assert_eq!(
-            Some(&MonetaryAmount::from(220_u64)),
-            payload.new_prices().get(&Currency::Usd)
+        assert_ne!(
+            estimate_change.old_fx_rate_id,
+            estimate_change.new_fx_rate_id
         );
     }
 
     #[test]
-    fn should_localize_created_to_requested_currency() {
-        let view = ProductDomainEventPayload::Created(created_payload()).localized(&Currency::Usd);
+    fn should_keep_pricing_and_fx_rate_in_created_snapshot() {
+        let payload = created_payload();
 
-        assert!(matches!(
-            view,
-            LocalizedProductDomainEventPayloadView::Created(payload)
-                if payload.price == Some(price(110, Currency::Usd))
-                    && payload.title.payload == Title::from("Bronze Vase")
-        ));
-    }
-
-    #[test]
-    fn should_localize_price_and_estimate_changes() {
-        let price_view =
-            ProductDomainEventPayload::PriceChanged(price_payload()).localized(&Currency::Usd);
-        let estimate_view = ProductDomainEventPayload::EstimatePriceChanged(estimate_payload())
-            .localized(&Currency::Usd);
-
-        assert!(matches!(
-            price_view,
-            LocalizedProductDomainEventPayloadView::PriceChanged(payload)
-                if payload.old_price == Some(price(110, Currency::Usd))
-                    && payload.new_price == Some(price(220, Currency::Usd))
-        ));
-        assert!(matches!(
-            estimate_view,
-            LocalizedProductDomainEventPayloadView::EstimatePriceChanged(payload)
-                if payload.price_estimate_min == Some(price(99, Currency::Usd))
-                    && payload.price_estimate_max == Some(price(132, Currency::Usd))
-        ));
-    }
-
-    #[test]
-    fn should_localize_non_price_events() {
-        let state =
-            ProductDomainEventPayload::StateChanged(state_payload()).localized(&Currency::Eur);
-        let url = ProductDomainEventPayload::UrlChanged(url_payload()).localized(&Currency::Eur);
-        let images =
-            ProductDomainEventPayload::ImagesChanged(images_payload()).localized(&Currency::Eur);
-        let auction = ProductDomainEventPayload::AuctionTimeChanged(auction_payload())
-            .localized(&Currency::Eur);
-
-        assert!(matches!(
-            state,
-            LocalizedProductDomainEventPayloadView::StateChanged(_)
-        ));
-        assert!(matches!(
-            url,
-            LocalizedProductDomainEventPayloadView::UrlChanged(_)
-        ));
-        assert!(matches!(
-            images,
-            LocalizedProductDomainEventPayloadView::ImagesChanged(_)
-        ));
-        assert!(matches!(
-            auction,
-            LocalizedProductDomainEventPayloadView::AuctionTimeChanged(_)
-        ));
+        assert_eq!(Some(price(100, Currency::Eur)), payload.price);
+        assert_eq!(Some(price(90, Currency::Eur)), payload.price_estimate_min);
+        assert_eq!(Some(price(120, Currency::Eur)), payload.price_estimate_max);
+        assert!(payload.fx_rate_id.is_some());
     }
 }

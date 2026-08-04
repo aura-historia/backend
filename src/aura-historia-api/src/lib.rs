@@ -2,6 +2,7 @@ pub mod auth;
 pub mod error;
 pub mod oauth;
 pub mod partner_applications;
+pub mod products;
 pub mod shops;
 pub mod state;
 pub mod users;
@@ -12,7 +13,8 @@ use crate::auth::{
     TransportPrincipal,
 };
 use crate::state::{
-    AppState, OAuthState, PartnerApplicationsState, ShopsState, UsersState, WatchlistState,
+    AppState, OAuthState, PartnerApplicationsState, ProductsState, ShopsState, UsersState,
+    WatchlistState,
 };
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
@@ -23,6 +25,19 @@ use oauth_service::use_cases::{
     AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
+};
+use opensearch::{
+    OpenSearch,
+    auth::Credentials,
+    http::transport::{SingleNodeConnectionPool, TransportBuilder},
+};
+use product_opensearch::OpenSearchProductSearchReader;
+use product_postgres::{
+    SqlxProductDetailsReaderFactory, SqlxProductHistoryReaderFactory,
+    SqlxProductSimilarityReaderFactory,
+};
+use product_service::use_cases::{
+    GetProductHandler, GetProductHistoryHandler, GetSimilarProductsHandler, SearchProductsHandler,
 };
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
@@ -141,6 +156,41 @@ pub fn app(state: AppState) -> Router {
         )
         .with_state(state.shops);
     let mut routes = health_routes.merge(shop_routes);
+
+    if let Some(products) = state.products {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/products",
+                    get(products::search_products::get_products),
+                )
+                .route(
+                    "/api/v1/products/search",
+                    post(products::search_products::post_search_products),
+                )
+                .route(
+                    "/api/v1/products/{product_id}",
+                    get(products::get_product_by_id::get_product_by_id),
+                )
+                .route(
+                    "/api/v1/shops/{shop_id}/products/{shops_product_id}",
+                    get(products::get_product_by_key::get_product_by_key),
+                )
+                .route(
+                    "/api/v1/shops/{shop_id}/products/{shops_product_id}/history",
+                    get(products::get_product_history::get_product_history),
+                )
+                .route(
+                    "/api/v1/shops/{shop_id}/products/{shops_product_id}/similar",
+                    get(products::get_similar_products::get_similar_products),
+                )
+                .route(
+                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}",
+                    get(products::get_product_by_slug::get_product_by_slug),
+                )
+                .with_state(products),
+        );
+    }
 
     if let Some(oauth) = state.oauth {
         routes = routes.merge(
@@ -261,6 +311,17 @@ async fn ready() -> &'static str {
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let pool = common::postgres::connect_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool);
+    let get_product =
+        GetProductHandler::new(unit_of_work.clone(), SqlxProductDetailsReaderFactory::new());
+    let get_product_history =
+        GetProductHistoryHandler::new(unit_of_work.clone(), SqlxProductHistoryReaderFactory::new());
+    let get_similar_products = GetSimilarProductsHandler::new(
+        unit_of_work.clone(),
+        SqlxProductSimilarityReaderFactory::new(),
+    );
+    let search_products = SearchProductsHandler::new(OpenSearchProductSearchReader::new(
+        opensearch_client_from_env()?,
+    ));
     let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
     let search_shops =
         SearchShopsHandler::new(unit_of_work.clone(), SqlxShopSearchReaderFactory::new());
@@ -446,13 +507,52 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
             Arc::new(create_shop),
             Arc::new(update_shop),
             Arc::new(list_user_partner_shops),
-            authenticator,
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ),
         users_state,
         watchlist_state,
         partner_state,
     )
+    .with_products(
+        ProductsState::new(
+            Arc::new(get_product),
+            Arc::new(get_similar_products),
+            Arc::new(search_products),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        )
+        .with_product_history(Arc::new(get_product_history)),
+    )
     .with_oauth(oauth_state))
+}
+
+fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
+    let endpoint =
+        std::env::var("OPENSEARCH_ENDPOINT_URL").map_err(|_| ApiStateError::MissingEnv {
+            name: "OPENSEARCH_ENDPOINT_URL",
+        })?;
+    let endpoint = url::Url::parse(&endpoint).map_err(|error| ApiStateError::OpenSearch {
+        detail: error.to_string(),
+    })?;
+    let stage = std::env::var("STAGE").unwrap_or_else(|_| "prod".to_owned());
+    let transport = if stage == "ephemeral" {
+        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint)).build()
+    } else {
+        let username =
+            std::env::var("OPENSEARCH_USERNAME").map_err(|_| ApiStateError::MissingEnv {
+                name: "OPENSEARCH_USERNAME",
+            })?;
+        let password =
+            std::env::var("OPENSEARCH_PASSWORD").map_err(|_| ApiStateError::MissingEnv {
+                name: "OPENSEARCH_PASSWORD",
+            })?;
+        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint))
+            .auth(Credentials::Basic(username, password))
+            .build()
+    }
+    .map_err(|error| ApiStateError::OpenSearch {
+        detail: error.to_string(),
+    })?;
+    Ok(OpenSearch::new(transport))
 }
 
 #[derive(Clone, Copy)]
@@ -487,6 +587,8 @@ pub enum ApiStateError {
     Postgres(#[from] PostgresConnectError),
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
+    #[error("failed to configure OpenSearch: {detail}")]
+    OpenSearch { detail: String },
 }
 
 pub async fn run_until_shutdown<S>(config: ApiConfig, shutdown: S) -> Result<(), ApiRunError>

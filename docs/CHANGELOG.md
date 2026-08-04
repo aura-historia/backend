@@ -11,6 +11,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - **REST API migration epic** now has `aura-historia-api` route implementations backed by canonical service use cases and Postgres/DynamoDB adapters for:
+  - Product routes:
+    - `GET /api/v1/products/{productId}`
+    - `GET /api/v1/shops/{shopId}/products/{shopsProductId}`
+    - `GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}`
+    - `GET /api/v1/products`
+    - `POST /api/v1/products/search`
   - Shop routes:
     - `GET /api/v1/shops/{shopId}`
     - `GET /api/v1/by-slug/shops/{shopSlugId}`
@@ -54,6 +60,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Partner-application payload responses now use camelCase `shopId`, matching `swagger.yaml`.
 - `DELETE /api/v1/me/partner-applications/{partnerApplicationId}` now withdraws the application instead of physically deleting it.
 - `GetShopData` no longer includes `createdBy` or `updatedBy` because canonical shop storage has no audit actor columns.
+- Canonical product detail and search responses omit `createdBy` and `updatedBy`. Product user-state personalization remains on legacy routes.
+- `GET /api/v1/shops/{shopId}/products/{shopsProductId}/history` now uses canonical Product service/Postgres reads. It returns ordered, immutable schema-v2 snapshots and no longer accepts language or currency conversion parameters. Price snapshots expose `price`, estimate bounds, and `fxRateId`; old `native*` / multi-currency payload fields are removed.
+- Canonical Product pricing fields are `price`, `priceEstimateMin`, and `priceEstimateMax`; the old public `native*` names are removed. Similar-product discovery returns `202 Accepted` while canonical embeddings are pending.
 - Migrated API errors use `application/problem+json` and stable `ApiErrorCode` constants.
 
 ## 2026-07-15 - Add User Measurement Unit Preference

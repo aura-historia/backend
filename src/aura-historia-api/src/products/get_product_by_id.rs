@@ -1,0 +1,281 @@
+use crate::auth::{OptionalAuthExtractor, request_metadata};
+use crate::error::{ApiError, INVALID_UUID};
+use crate::products::product_data::product_response;
+use crate::state::ProductsState;
+use axum::extract::{Path, State};
+use axum::http::HeaderMap;
+use axum::response::{IntoResponse, Response};
+use common::product_id::ProductId;
+use product_service::use_cases::GetProductRequest;
+
+pub async fn get_product_by_id(
+    State(state): State<ProductsState>,
+    headers: HeaderMap,
+    Path(raw_product_id): Path<String>,
+) -> Response {
+    let metadata = request_metadata(&headers);
+    let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
+        .extract(&headers, &metadata)
+        .await
+    {
+        Ok(principal) => principal,
+        Err(error) => return ApiError::from(error).into_response(),
+    };
+    let product_id = match ProductId::try_from(raw_product_id.as_str()) {
+        Ok(product_id) => product_id,
+        Err(_) => {
+            return ApiError::bad_request(INVALID_UUID)
+                .with_path_field("productId")
+                .with_detail("Path parameter 'productId' must be a UUID.")
+                .into_response();
+        }
+    };
+
+    let context = principal.operation_context(metadata);
+    match state
+        .get_product
+        .execute(&context, GetProductRequest::ById(product_id))
+        .await
+    {
+        Ok(view) => product_response(view, &context.principal),
+        Err(error) => ApiError::from(error).into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use common::currency::domain::Currency;
+    use common::event_id::EventId;
+    use common::language::domain::Language;
+    use common::localized::Localized;
+    use common::operation_context::OperationContext;
+    use common::price::domain::{MonetaryAmount, Price};
+    use common::product_lifecycle::domain::ProductLifecycle;
+    use common::product_slug_id::ProductSlugId;
+    use common::product_state::domain::ProductState;
+    use common::shop_id::ShopId;
+    use common::shop_name::ShopName;
+    use common::shop_slug_id::ShopSlugId;
+    use common::shops_product_id::ShopsProductId;
+
+    use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+
+    use product_core::title::Title;
+    use product_service::use_cases::{
+        GetProductError, GetProductUseCase, GetSimilarProductsError, GetSimilarProductsRequest,
+        GetSimilarProductsResult, GetSimilarProductsUseCase, ProductDetailsView,
+        SearchProductsError, SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
+    };
+    use serde_json::{Value, json};
+    use std::sync::{Arc, Mutex, MutexGuard};
+    use time::OffsetDateTime;
+    use tower::ServiceExt;
+    use url::Url;
+
+    type GetProductCalls = Arc<Mutex<Vec<(OperationContext, GetProductRequest)>>>;
+
+    #[derive(Clone)]
+    struct FakeGetProductUseCase {
+        result: ProductDetailsView,
+        calls: GetProductCalls,
+    }
+
+    #[async_trait::async_trait]
+    impl GetProductUseCase for FakeGetProductUseCase {
+        async fn execute(
+            &self,
+            context: &OperationContext,
+            request: GetProductRequest,
+        ) -> Result<ProductDetailsView, GetProductError> {
+            lock(&self.calls).push((context.clone(), request));
+            Ok(self.result.clone())
+        }
+    }
+
+    struct UnusedSimilarProductsUseCase;
+
+    #[async_trait::async_trait]
+    impl GetSimilarProductsUseCase for UnusedSimilarProductsUseCase {
+        async fn execute(
+            &self,
+            _request: GetSimilarProductsRequest,
+        ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
+            Err(GetSimilarProductsError::SimilaritySearchUnavailable)
+        }
+    }
+
+    struct UnusedSearchProductsUseCase;
+
+    #[async_trait::async_trait]
+    impl SearchProductsUseCase for UnusedSearchProductsUseCase {
+        async fn execute(
+            &self,
+            _context: &OperationContext,
+            _request: SearchProductsRequest,
+        ) -> Result<SearchProductsResult, SearchProductsError> {
+            Ok(SearchProductsResult::default())
+        }
+    }
+
+    struct FakeAuthenticator {
+        reject: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl TokenAuthenticator for FakeAuthenticator {
+        async fn authenticate(
+            &self,
+            _bearer_token: &str,
+            _metadata: &RequestMetadata,
+        ) -> Result<TransportPrincipal, AuthError> {
+            if self.reject {
+                Err(AuthError::InvalidCredentials)
+            } else {
+                Ok(TransportPrincipal::Anonymous)
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn should_return_product_details_headers_and_omit_audit_actors()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let view = product_details_view()?;
+        let product_id = view.product_id;
+        let event_id = view.event_id;
+        let (app, calls) = app(view, false);
+
+        let response = app
+            .oneshot(Request::get(format!("/api/v1/products/{product_id}")).body(Body::empty())?)
+            .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            "public, max-age=180, s-maxage=900",
+            response.headers()[header::CACHE_CONTROL]
+        );
+        assert_eq!(event_id.to_string(), response.headers()[header::ETAG]);
+        assert_eq!(
+            "Thu, 01 Jan 1970 00:00:00 GMT",
+            response.headers()[header::LAST_MODIFIED]
+        );
+        let body = body_json(response).await?;
+        assert_eq!(json!(product_id.to_string()), body["productId"]);
+        assert!(body.get("createdBy").is_none());
+        assert!(body.get("updatedBy").is_none());
+        assert!(
+            matches!(lock(&calls)[0].1, GetProductRequest::ById(actual) if actual == product_id)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_product_id_before_calling_use_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (app, calls) = app(product_details_view()?, false);
+
+        let response = app
+            .oneshot(Request::get("/api/v1/products/not-a-uuid").body(Body::empty())?)
+            .await?;
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert!(lock(&calls).is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_invalid_optional_token_before_calling_use_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let view = product_details_view()?;
+        let product_id = view.product_id;
+        let (app, calls) = app(view, true);
+
+        let response = app
+            .oneshot(
+                Request::get(format!("/api/v1/products/{product_id}"))
+                    .header(header::AUTHORIZATION, "Bearer invalid")
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(StatusCode::UNAUTHORIZED, response.status());
+        assert!(lock(&calls).is_empty());
+        Ok(())
+    }
+
+    fn app(view: ProductDetailsView, reject_token: bool) -> (Router, GetProductCalls) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let state = ProductsState::new(
+            Arc::new(FakeGetProductUseCase {
+                result: view,
+                calls: Arc::clone(&calls),
+            }),
+            Arc::new(UnusedSimilarProductsUseCase),
+            Arc::new(UnusedSearchProductsUseCase),
+            Arc::new(FakeAuthenticator {
+                reject: reject_token,
+            }),
+        );
+        (
+            Router::new()
+                .route(
+                    "/api/v1/products/{product_id}",
+                    axum::routing::get(get_product_by_id),
+                )
+                .with_state(state),
+            calls,
+        )
+    }
+
+    async fn body_json(response: Response) -> Result<Value, Box<dyn std::error::Error>> {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    fn product_details_view() -> Result<ProductDetailsView, url::ParseError> {
+        Ok(ProductDetailsView {
+            product_id: ProductId::new(),
+            product_slug_id: ProductSlugId::from("cabinet-abcdef"),
+            event_id: EventId::new(),
+            shop_id: ShopId::new(),
+            seller_id: ShopId::new(),
+            shops_product_id: ShopsProductId::new(),
+            shop_name: ShopName::from("Shop"),
+            seller_name: ShopName::from("Seller"),
+            shop_slug_id: ShopSlugId::from("shop"),
+            seller_slug_id: ShopSlugId::from("seller"),
+            address: ProductAddress::default(),
+            product_title: None,
+            product_description: None,
+            title: Some(Localized {
+                localization: Language::En,
+                payload: Title::from("Cabinet"),
+            }),
+            description: None,
+            pricing: ProductPricing::default(),
+            price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+            price_estimate_min: None,
+            price_estimate_max: None,
+            currency: Some(Currency::Eur),
+            state: ProductState::Listed,
+            lifecycle: ProductLifecycle::Active,
+            url: Url::parse("https://shop.example/products/1")?,
+            view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
+            images: Default::default(),
+            auction: ProductAuction::default(),
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
+        })
+    }
+
+    fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+}

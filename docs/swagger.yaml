@@ -1327,8 +1327,8 @@ paths:
         Returns an array of events representing state changes, price changes, and other significant
         product lifecycle events, ordered chronologically.
 
-        Returns localized content based on the optional `language` query parameter and currency preferences for
-        price information in the event payloads.
+        Returns immutable schema-v2 event snapshots in their original language and currency.
+        Price snapshots include the FX-rate identifier that was current when the event was written.
       operationId: getProductHistory
       tags:
         - Products
@@ -1348,36 +1348,14 @@ paths:
           schema:
             type: string
             example: "6ba7b810"
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display in event payloads
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
-        - name: language
-          in: query
-          required: false
-          description: |
-            Preferred language for localized content.
-            Defaults to `en` when omitted.
-          schema:
-            $ref: "#/components/schemas/LanguageData"
-          example: de
       responses:
         "200":
           description: Product history retrieved successfully
           headers:
-            Content-Language:
-              description: The language of the returned content
-              schema:
-                $ref: "#/components/schemas/LanguageData"
-              example: "de"
-            Access-Control-Allow-Origin:
-              description: CORS header
+            Cache-Control:
               schema:
                 type: string
-              example: "*"
+              example: "public, max-age=180, s-maxage=900"
           content:
             application/json:
               schema:
@@ -1391,38 +1369,31 @@ paths:
                     - eventType: "CREATED"
                       productId: "550e8400-e29b-41d4-a716-446655440000"
                       eventId: "650e8400-e29b-41d4-a716-446655440001"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      sellerId: "750e8400-e29b-41d4-a716-446655440010"
-                      shopsProductId: "6ba7b810"
                       payload:
-                        price:
-                          currency: "EUR"
-                          amount: 3000
+                        pricing:
+                          price:
+                            currency: "EUR"
+                            amount: 3000
+                          fxRateId: "750e8400-e29b-41d4-a716-446655440010"
                         state: "LISTED"
+                        url: "https://shop.example/products/6ba7b810"
+                        images: []
+                        auction: {}
                       timestamp: "2024-01-01T10:00:00Z"
-                    - eventType: "STATE_CHANGED"
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      eventId: "650e8400-e29b-41d4-a716-446655440002"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      sellerId: "750e8400-e29b-41d4-a716-446655440010"
-                      shopsProductId: "6ba7b810"
-                      payload:
-                        oldState: "LISTED"
-                        newState: "AVAILABLE"
-                      timestamp: "2024-01-02T14:30:00Z"
                     - eventType: "PRICE_CHANGED"
                       productId: "550e8400-e29b-41d4-a716-446655440000"
                       eventId: "650e8400-e29b-41d4-a716-446655440003"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      sellerId: "750e8400-e29b-41d4-a716-446655440010"
-                      shopsProductId: "6ba7b810"
                       payload:
-                        oldPrice:
-                          currency: "EUR"
-                          amount: 3000
-                        newPrice:
-                          currency: "EUR"
-                          amount: 2999
+                        oldPricing:
+                          price:
+                            currency: "EUR"
+                            amount: 3000
+                          fxRateId: "750e8400-e29b-41d4-a716-446655440010"
+                        newPricing:
+                          price:
+                            currency: "EUR"
+                            amount: 2999
+                          fxRateId: "850e8400-e29b-41d4-a716-446655440010"
                       timestamp: "2024-01-15T09:15:00Z"
         "400":
           description: Bad request - Invalid parameters
@@ -10698,10 +10669,6 @@ components:
             Optional auction time window information.
             Only present for products from auction houses with scheduled auction times.
             Contains start and/or end timestamps for the auction.
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
         created:
           type: string
           format: date-time
@@ -10733,8 +10700,6 @@ components:
         - url
         - viewUrl
         - images
-        - createdBy
-        - updatedBy
         - created
         - updated
       properties:
@@ -10807,10 +10772,6 @@ components:
             Optional auction time window information.
             Only present for products from auction houses with scheduled auction times.
             Contains start and/or end timestamps for the auction.
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
         created:
           type: string
           format: date-time
@@ -11160,14 +11121,23 @@ components:
         - eventType
         - productId
         - eventId
-        - shopId
-        - sellerId
-        - shopsProductId
+
         - payload
         - timestamp
       properties:
         eventType:
-          $ref: "#/components/schemas/ProductEventTypeData"
+          type: string
+          enum:
+            [
+              CREATED,
+              STATE_CHANGED,
+              ADDRESS_CHANGED,
+              PRICE_CHANGED,
+              URL_CHANGED,
+              IMAGES_CHANGED,
+              AUCTION_CHANGED,
+              DELETED,
+            ]
         productId:
           type: string
           format: uuid
@@ -11176,19 +11146,9 @@ components:
           type: string
           format: uuid
           description: Unique identifier for this event
-        shopId:
-          type: string
-          format: uuid
-          description: Unique identifier of the shop
-        sellerId:
-          type: string
-          format: uuid
-          description: Unique identifier of the seller associated with the product event
-        shopsProductId:
-          type: string
-          description: Shop's unique identifier for the product. Can be any arbitrary string.
         payload:
-          $ref: "#/components/schemas/ProductEventPayloadData"
+          type: object
+          description: Immutable event snapshot. Created and price-change snapshots expose `pricing` / `oldPricing` / `newPricing` with `price`, estimate bounds, and `fxRateId`.
         timestamp:
           type: string
           format: date-time

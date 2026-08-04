@@ -18,9 +18,11 @@
 - `shops/` owns shop REST controllers.
 - `users/` owns account, admin user, and access-token REST controllers.
 - `watchlist/` owns watchlist REST controllers. Product watchlist paths now use `{productId}` only.
+- `products/` owns canonical product detail, search, immutable schema-v2 history, and similar-product pending REST controllers. It uses Postgres detail/history/similarity-seed reads and OpenSearch search reads; KNN ready results and user-state personalization await canonical service use cases.
 - `partner_applications/` owns own/admin partner-shop application REST controllers.
 - `oauth/` owns OAuth REST controllers for client registration, authorization code, token, revoke, and introspection flows.
 - Runtime shop and partner-shop create/update geocoding is not wired yet; structured-address writes return temporary failure until a geocoder adapter is added.
+- Product search runtime needs `OPENSEARCH_ENDPOINT_URL`; outside `STAGE=ephemeral`, it also needs `OPENSEARCH_USERNAME` and `OPENSEARCH_PASSWORD`.
 
 ## Ownership
 
@@ -51,3 +53,4 @@
 - `watchlist/` — watchlist REST controllers.
 - `partner_applications/` — partner-shop application REST controllers.
 - `oauth/` — OAuth REST controllers.
+- `products/` — canonical product detail and search REST controllers.

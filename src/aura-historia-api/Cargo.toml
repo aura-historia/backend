@@ -15,6 +15,7 @@ httpdate = { workspace = true }
 oauth-core = { workspace = true }
 oauth-dynamodb = { workspace = true }
 oauth-service = { workspace = true }
+opensearch = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
@@ -28,6 +29,10 @@ shop-partner-postgres = { workspace = true }
 shop-partner-service = { workspace = true }
 shop-postgres = { workspace = true }
 shop-service = { workspace = true }
+product-core = { workspace = true }
+product-opensearch = { workspace = true }
+product-postgres = { workspace = true }
+product-service = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true, features = ["formatting"] }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }

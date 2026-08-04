@@ -4,6 +4,9 @@ use oauth_service::use_cases::{
     IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
+use product_service::use_cases::{
+    GetProductHistoryUseCase, GetProductUseCase, GetSimilarProductsUseCase, SearchProductsUseCase,
+};
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationUseCase, AdminGetPartnerShopApplicationUseCase,
     AdminListPartnerShopApplicationsUseCase, AdminUpdatePartnerShopApplicationUseCase,
@@ -35,6 +38,7 @@ use watchlist_service::use_cases::{
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) shops: ShopsState,
+    pub(crate) products: Option<ProductsState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partner_applications: Option<PartnerApplicationsState>,
@@ -50,6 +54,7 @@ impl AppState {
     ) -> Self {
         Self {
             shops,
+            products: None,
             users: Some(users),
             watchlist: Some(watchlist),
             partner_applications: Some(partner_applications),
@@ -60,11 +65,17 @@ impl AppState {
     pub fn with_shops_only(shops: ShopsState) -> Self {
         Self {
             shops,
+            products: None,
             users: None,
             watchlist: None,
             partner_applications: None,
             oauth: None,
         }
+    }
+
+    pub fn with_products(mut self, products: ProductsState) -> Self {
+        self.products = Some(products);
+        self
     }
 
     pub fn with_oauth(mut self, oauth: OAuthState) -> Self {
@@ -146,6 +157,40 @@ impl ShopsState {
             list_user_partner_shops,
             authenticator,
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct ProductsState {
+    pub(crate) get_product: Arc<dyn GetProductUseCase>,
+    pub(crate) get_product_history: Option<Arc<dyn GetProductHistoryUseCase>>,
+    pub(crate) get_similar_products: Arc<dyn GetSimilarProductsUseCase>,
+    pub(crate) search_products: Arc<dyn SearchProductsUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl ProductsState {
+    pub fn new(
+        get_product: Arc<dyn GetProductUseCase>,
+        get_similar_products: Arc<dyn GetSimilarProductsUseCase>,
+        search_products: Arc<dyn SearchProductsUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            get_product,
+            get_product_history: None,
+            get_similar_products,
+            search_products,
+            authenticator,
+        }
+    }
+
+    pub fn with_product_history(
+        mut self,
+        get_product_history: Arc<dyn GetProductHistoryUseCase>,
+    ) -> Self {
+        self.get_product_history = Some(get_product_history);
+        self
     }
 }
 

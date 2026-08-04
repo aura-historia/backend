@@ -72,7 +72,7 @@ flowchart TD
 
 ## Product write flow
 
-Product writes are synchronous.
+Product writes are synchronous. Canonical Product domain events use schema version 2 and persist full immutable payload snapshots. Pricing uses `price`, `price_estimate_min`, `price_estimate_max`, and `fx_rate_id`; historical old/new pricing snapshots retain their own FX-rate IDs. No converted `other` price maps are persisted.
 
 ```mermaid
 sequenceDiagram

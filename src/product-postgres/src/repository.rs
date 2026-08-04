@@ -173,6 +173,23 @@ impl ProductRepository for SqlxProductRepository<'_> {
         let auction = product.auction();
         let title = product.title();
         let description = product.description();
+        let price_amount = pricing
+            .price
+            .map(|value| amount_to_i64(value.monetary_amount))
+            .transpose()
+            .map_err(|_| ProductRepositoryError::ProductInsertFailed)?;
+        let price_estimate_min_amount = pricing
+            .price_estimate_min
+            .map(|value| amount_to_i64(value.monetary_amount))
+            .transpose()
+            .map_err(|_| ProductRepositoryError::ProductInsertFailed)?;
+        let price_estimate_max_amount = pricing
+            .price_estimate_max
+            .map(|value| amount_to_i64(value.monetary_amount))
+            .transpose()
+            .map_err(|_| ProductRepositoryError::ProductInsertFailed)?;
+        let product_images = images_to_json(product.images())
+            .map_err(|_| ProductRepositoryError::ProductInsertFailed)?;
         sqlx::query(
             r#"
             INSERT INTO products (
@@ -209,17 +226,25 @@ impl ProductRepository for SqlxProductRepository<'_> {
         .bind(title.map(|value| value.localization.as_str().to_owned()))
         .bind(description.map(|value| value.payload.as_ref().to_owned()))
         .bind(description.map(|value| value.localization.as_str().to_owned()))
-        .bind(pricing.native_price.map(|value| amount_to_i64(value.monetary_amount)))
-        .bind(pricing.native_price.map(|value| value.currency.as_str().to_owned()))
-        .bind(pricing.native_price_estimate_min.map(|value| amount_to_i64(value.monetary_amount)))
-        .bind(pricing.native_price_estimate_min.map(|value| value.currency.as_str().to_owned()))
-        .bind(pricing.native_price_estimate_max.map(|value| amount_to_i64(value.monetary_amount)))
-        .bind(pricing.native_price_estimate_max.map(|value| value.currency.as_str().to_owned()))
+        .bind(price_amount)
+        .bind(pricing.price.map(|value| value.currency.as_str().to_owned()))
+        .bind(price_estimate_min_amount)
+        .bind(
+            pricing
+                .price_estimate_min
+                .map(|value| value.currency.as_str().to_owned()),
+        )
+        .bind(price_estimate_max_amount)
+        .bind(
+            pricing
+                .price_estimate_max
+                .map(|value| value.currency.as_str().to_owned()),
+        )
         .bind(pricing.fx_rate_id.map(uuid::Uuid::from))
         .bind(product_state_as_str(product.state()))
         .bind(product_lifecycle_as_str(product.lifecycle()))
         .bind(product.url().to_string())
-        .bind(images_to_json(product.images()))
+        .bind(product_images)
         .bind(auction.start)
         .bind(auction.end)
         .execute(&mut *self.connection)
@@ -240,6 +265,23 @@ impl ProductRepository for SqlxProductRepository<'_> {
         let auction = product.auction();
         let title = product.title();
         let description = product.description();
+        let price_amount = pricing
+            .price
+            .map(|value| amount_to_i64(value.monetary_amount))
+            .transpose()
+            .map_err(|_| ProductRepositoryError::ProductUpdateFailed)?;
+        let price_estimate_min_amount = pricing
+            .price_estimate_min
+            .map(|value| amount_to_i64(value.monetary_amount))
+            .transpose()
+            .map_err(|_| ProductRepositoryError::ProductUpdateFailed)?;
+        let price_estimate_max_amount = pricing
+            .price_estimate_max
+            .map(|value| amount_to_i64(value.monetary_amount))
+            .transpose()
+            .map_err(|_| ProductRepositoryError::ProductUpdateFailed)?;
+        let product_images = images_to_json(product.images())
+            .map_err(|_| ProductRepositoryError::ProductUpdateFailed)?;
         let result = sqlx::query(
             r#"
             UPDATE products
@@ -325,41 +367,29 @@ impl ProductRepository for SqlxProductRepository<'_> {
         .bind(title.map(|value| value.localization.as_str().to_owned()))
         .bind(description.map(|value| value.payload.as_ref().to_owned()))
         .bind(description.map(|value| value.localization.as_str().to_owned()))
+        .bind(price_amount)
         .bind(
             pricing
-                .native_price
-                .map(|value| amount_to_i64(value.monetary_amount)),
-        )
-        .bind(
-            pricing
-                .native_price
+                .price
                 .map(|value| value.currency.as_str().to_owned()),
         )
+        .bind(price_estimate_min_amount)
         .bind(
             pricing
-                .native_price_estimate_min
-                .map(|value| amount_to_i64(value.monetary_amount)),
-        )
-        .bind(
-            pricing
-                .native_price_estimate_min
+                .price_estimate_min
                 .map(|value| value.currency.as_str().to_owned()),
         )
+        .bind(price_estimate_max_amount)
         .bind(
             pricing
-                .native_price_estimate_max
-                .map(|value| amount_to_i64(value.monetary_amount)),
-        )
-        .bind(
-            pricing
-                .native_price_estimate_max
+                .price_estimate_max
                 .map(|value| value.currency.as_str().to_owned()),
         )
         .bind(pricing.fx_rate_id.map(uuid::Uuid::from))
         .bind(product_state_as_str(product.state()))
         .bind(product_lifecycle_as_str(product.lifecycle()))
         .bind(product.url().to_string())
-        .bind(images_to_json(product.images()))
+        .bind(product_images)
         .bind(auction.start)
         .bind(auction.end)
         .bind(uuid::Uuid::from(product.id()))
@@ -399,12 +429,12 @@ impl TryFrom<ProductRow> for Versioned<Product, EventId> {
             title,
             description,
             pricing: ProductPricing {
-                native_price: price_from_parts(row.price_native_amount, row.price_native_currency)?,
-                native_price_estimate_min: price_from_parts(
+                price: price_from_parts(row.price_native_amount, row.price_native_currency)?,
+                price_estimate_min: price_from_parts(
                     row.price_estimate_min_native_amount,
                     row.price_estimate_min_native_currency,
                 )?,
-                native_price_estimate_max: price_from_parts(
+                price_estimate_max: price_from_parts(
                     row.price_estimate_max_native_amount,
                     row.price_estimate_max_native_currency,
                 )?,
@@ -429,8 +459,8 @@ impl TryFrom<ProductRow> for Versioned<Product, EventId> {
     }
 }
 
-fn amount_to_i64(amount: MonetaryAmount) -> i64 {
-    i64::try_from(u64::from(amount)).unwrap_or(i64::MAX)
+fn amount_to_i64(amount: MonetaryAmount) -> Result<i64, ()> {
+    i64::try_from(u64::from(amount)).map_err(|_| ())
 }
 
 fn price_from_parts(
@@ -504,7 +534,7 @@ fn localized_description_from_row(
     }
 }
 
-fn images_to_json(images: &IndexSet<ProductImage>) -> serde_json::Value {
+fn images_to_json(images: &IndexSet<ProductImage>) -> Result<serde_json::Value, ()> {
     let images = images
         .iter()
         .map(|image| ProductImageJson {
@@ -512,7 +542,7 @@ fn images_to_json(images: &IndexSet<ProductImage>) -> serde_json::Value {
             prohibited_content: image.prohibited_content.as_str().to_owned(),
         })
         .collect::<Vec<_>>();
-    serde_json::to_value(images).unwrap_or_else(|_| serde_json::json!([]))
+    serde_json::to_value(images).map_err(|_| ())
 }
 
 fn images_from_json(

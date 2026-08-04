@@ -451,9 +451,9 @@ fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> Product {
             Description::from("Nice product"),
         )),
         pricing: ProductPricing {
-            native_price: Some(Price::new(MonetaryAmount::from(1_200_u64), Currency::Eur)),
-            native_price_estimate_min: None,
-            native_price_estimate_max: None,
+            price: Some(Price::new(MonetaryAmount::from(1_200_u64), Currency::Eur)),
+            price_estimate_min: None,
+            price_estimate_max: None,
             fx_rate_id: None,
         },
         state: ProductState::Listed,
