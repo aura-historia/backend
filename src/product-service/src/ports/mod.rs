@@ -5,8 +5,6 @@ pub mod product_event_store;
 pub mod product_repository;
 pub mod product_search_reader;
 pub mod product_similar_products_reader;
-pub mod product_translation_reader;
-
 pub use product_details_reader::{
     ProductDetailsReadError, ProductDetailsReader, ProductDetailsReaderFactory,
 };
@@ -24,8 +22,4 @@ pub use product_repository::{ProductRepository, ProductRepositoryError, ProductR
 pub use product_search_reader::{ProductSearchReadError, ProductSearchReader};
 pub use product_similar_products_reader::{
     ProductSimilarProductsReadError, ProductSimilarProductsReader, ProductSimilarProductsRequest,
-};
-pub use product_translation_reader::{
-    ProductTranslationReadError, ProductTranslationReader, ProductTranslationReaderFactory,
-    ProductTranslationsView,
 };

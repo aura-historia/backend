@@ -57,6 +57,10 @@ struct ProductDetailsRow {
     structured_address_country: Option<String>,
     geo_address_lat: Option<f64>,
     geo_address_lon: Option<f64>,
+    product_title_text: Option<String>,
+    product_title_language: Option<String>,
+    product_description_text: Option<String>,
+    product_description_language: Option<String>,
     title_text: Option<String>,
     title_language: Option<String>,
     description_text: Option<String>,
@@ -109,11 +113,13 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
         &mut self,
         request: &GetProductRequest,
     ) -> Result<Option<ProductDetailsView>, ProductDetailsReadError> {
+        let requested_language = request.language.as_str();
         let row = match &request.lookup {
             ProductLookup::ById(product_id) => {
                 sqlx::query_as::<_, ProductDetailsRow>(&format!(
-                    "{SELECT_PRODUCT_DETAILS} WHERE p.product_id = $1"
+                    "{SELECT_PRODUCT_DETAILS} WHERE p.product_id = $2"
                 ))
+                .bind(requested_language)
                 .bind(uuid::Uuid::from(*product_id))
                 .fetch_optional(&mut *self.connection)
                 .await
@@ -123,8 +129,9 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
                 shop_slug_id,
                 product_slug_id,
             } => sqlx::query_as::<_, ProductDetailsRow>(&format!(
-                "{SELECT_PRODUCT_DETAILS} WHERE shop.shop_slug_id = $1 AND p.product_slug_id = $2"
+                "{SELECT_PRODUCT_DETAILS} WHERE shop.shop_slug_id = $2 AND p.product_slug_id = $3"
             ))
+            .bind(requested_language)
             .bind(shop_slug_id.as_ref())
             .bind(product_slug_id.as_ref())
             .fetch_optional(&mut *self.connection)
@@ -145,15 +152,111 @@ const SELECT_PRODUCT_DETAILS: &str = r#"
         seller.name AS seller_name, seller.shop_slug_id AS seller_slug_id,
         p.structured_address_addressline, p.structured_address_addressline_extra,
         p.structured_address_locality, p.structured_address_region, p.structured_address_postal_code,
-        p.structured_address_country, p.geo_address_lat, p.geo_address_lon, p.title_text,
-        p.title_language, p.description_text, p.description_language, p.price_amount,
-        p.price_currency, p.price_estimate_min_amount,
+        p.structured_address_country, p.geo_address_lat, p.geo_address_lon,
+        p.title_text AS product_title_text, p.title_language AS product_title_language,
+        p.description_text AS product_description_text,
+        p.description_language AS product_description_language,
+        selected_text.title_text, selected_text.title_language,
+        selected_text.description_text, selected_text.description_language,
+        p.price_amount, p.price_currency, p.price_estimate_min_amount,
         p.price_estimate_min_currency, p.price_estimate_max_amount,
         p.price_estimate_max_currency, p.fx_rate_id, p.state, p.lifecycle, p.url,
         p.product_images, p.auction_start, p.auction_end, p.created, p.updated
     FROM products p
     JOIN shops shop ON shop.shop_id = p.shop_id
     JOIN shops seller ON seller.shop_id = p.seller_id
+    LEFT JOIN LATERAL (
+        SELECT
+            (
+                array_agg(
+                    candidates.title_text
+                    ORDER BY
+                        CASE lower(candidates.title_language)
+                            WHEN lower($1) THEN 0
+                            WHEN 'en' THEN 1
+                            WHEN 'de' THEN 2
+                            ELSE 3
+                        END,
+                        lower(candidates.title_language),
+                        candidates.source_priority,
+                        candidates.title_language,
+                        candidates.title_text
+                ) FILTER (WHERE candidates.title_text IS NOT NULL AND candidates.title_language IS NOT NULL)
+            )[1] AS title_text,
+            (
+                array_agg(
+                    candidates.title_language
+                    ORDER BY
+                        CASE lower(candidates.title_language)
+                            WHEN lower($1) THEN 0
+                            WHEN 'en' THEN 1
+                            WHEN 'de' THEN 2
+                            ELSE 3
+                        END,
+                        lower(candidates.title_language),
+                        candidates.source_priority,
+                        candidates.title_language,
+                        candidates.title_text
+                ) FILTER (WHERE candidates.title_text IS NOT NULL AND candidates.title_language IS NOT NULL)
+            )[1] AS title_language,
+            (
+                array_agg(
+                    candidates.description_text
+                    ORDER BY
+                        CASE lower(candidates.description_language)
+                            WHEN lower($1) THEN 0
+                            WHEN 'en' THEN 1
+                            WHEN 'de' THEN 2
+                            ELSE 3
+                        END,
+                        lower(candidates.description_language),
+                        candidates.source_priority,
+                        candidates.description_language,
+                        candidates.description_text
+                ) FILTER (
+                    WHERE candidates.description_text IS NOT NULL
+                        AND candidates.description_language IS NOT NULL
+                )
+            )[1] AS description_text,
+            (
+                array_agg(
+                    candidates.description_language
+                    ORDER BY
+                        CASE lower(candidates.description_language)
+                            WHEN lower($1) THEN 0
+                            WHEN 'en' THEN 1
+                            WHEN 'de' THEN 2
+                            ELSE 3
+                        END,
+                        lower(candidates.description_language),
+                        candidates.source_priority,
+                        candidates.description_language,
+                        candidates.description_text
+                ) FILTER (
+                    WHERE candidates.description_text IS NOT NULL
+                        AND candidates.description_language IS NOT NULL
+                )
+            )[1] AS description_language
+        FROM (
+            SELECT
+                translation.title AS title_text,
+                translation.language AS title_language,
+                translation.description AS description_text,
+                translation.language AS description_language,
+                0 AS source_priority
+            FROM product_translations translation
+            WHERE translation.product_id = p.product_id
+
+            UNION ALL
+
+            SELECT
+                p.title_text,
+                p.title_language,
+                p.description_text,
+                p.description_language,
+                1 AS source_priority
+        ) AS candidates
+    ) AS selected_text ON TRUE
 "#;
 
 impl TryFrom<ProductDetailsRow> for ProductDetailsView {
@@ -161,9 +264,13 @@ impl TryFrom<ProductDetailsRow> for ProductDetailsView {
 
     fn try_from(row: ProductDetailsRow) -> Result<Self, Self::Error> {
         let address = address(&row)?;
-        let product_title = localized_title(row.title_text, row.title_language)?;
-        let product_description =
-            localized_description(row.description_text, row.description_language)?;
+        let product_title = localized_title(row.product_title_text, row.product_title_language)?;
+        let product_description = localized_description(
+            row.product_description_text,
+            row.product_description_language,
+        )?;
+        let title = localized_title(row.title_text, row.title_language)?;
+        let description = localized_description(row.description_text, row.description_language)?;
         let product_price = price(row.price_amount, row.price_currency)?;
         let product_price_estimate_min = price(
             row.price_estimate_min_amount,
@@ -191,10 +298,10 @@ impl TryFrom<ProductDetailsRow> for ProductDetailsView {
             shop_slug_id: ShopSlugId::raw(&row.shop_slug_id).map_err(|_| ())?,
             seller_slug_id: ShopSlugId::raw(&row.seller_slug_id).map_err(|_| ())?,
             address,
-            product_title: product_title.clone(),
-            product_description: product_description.clone(),
-            title: product_title,
-            description: product_description,
+            product_title,
+            product_description,
+            title,
+            description,
             pricing: ProductPricing {
                 price: product_price,
                 price_estimate_min: product_price_estimate_min,
@@ -266,10 +373,13 @@ fn localized_title(
     language: Option<String>,
 ) -> Result<Option<Localized<Language, Title>>, ()> {
     match (text, language) {
-        (Some(text), Some(language)) => Ok(Some(Localized::new(
-            parse_language(&language)?,
-            Title::from(text.as_str()),
-        ))),
+        (Some(text), Some(language)) => {
+            let title = Title::from(text.as_str());
+            if title.as_ref().is_empty() || title.as_ref() != text.as_str() {
+                return Err(());
+            }
+            Ok(Some(Localized::new(parse_language(&language)?, title)))
+        }
         (None, None) => Ok(None),
         _ => Err(()),
     }
@@ -280,10 +390,16 @@ fn localized_description(
     language: Option<String>,
 ) -> Result<Option<Localized<Language, Description>>, ()> {
     match (text, language) {
-        (Some(text), Some(language)) => Ok(Some(Localized::new(
-            parse_language(&language)?,
-            Description::from(text.as_str()),
-        ))),
+        (Some(text), Some(language)) => {
+            let description = Description::from(text.as_str());
+            if description.as_ref().is_empty() || description.as_ref() != text.as_str() {
+                return Err(());
+            }
+            Ok(Some(Localized::new(
+                parse_language(&language)?,
+                description,
+            )))
+        }
         (None, None) => Ok(None),
         _ => Err(()),
     }
@@ -379,5 +495,31 @@ fn lifecycle(value: &str) -> Result<ProductLifecycle, ()> {
         "ACTIVE" => Ok(ProductLifecycle::Active),
         "DELETED" => Ok(ProductLifecycle::Deleted),
         _ => Err(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_reject_selected_title_when_text_is_not_canonical() {
+        let result = localized_title(Some("title".to_owned()), Some("en".to_owned()));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn should_reject_selected_description_when_text_is_empty() {
+        let result = localized_description(Some(" ".to_owned()), Some("en".to_owned()));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn should_reject_selected_text_when_language_is_unrecognized() {
+        let result = localized_title(Some("Title".to_owned()), Some("xx".to_owned()));
+
+        assert!(result.is_err());
     }
 }

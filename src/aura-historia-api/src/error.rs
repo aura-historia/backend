@@ -268,14 +268,12 @@ impl From<GetProductError> for ApiError {
                 ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
             }
             GetProductError::ProductDetailsQueryFailed
-            | GetProductError::ProductTranslationLookupFailed
             | GetProductError::BeginTransactionFailed
             | GetProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product details are temporarily unavailable.")
             }
-            GetProductError::ProductDetailsReadModelInvalid
-            | GetProductError::ProductTranslationReadModelInvalid => {
+            GetProductError::ProductDetailsReadModelInvalid => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
                     .with_detail("Product details failed internally.")
             }

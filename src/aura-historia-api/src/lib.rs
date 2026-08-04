@@ -34,7 +34,7 @@ use opensearch::{
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
     SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
-    SqlxProductEventReaderFactory, SqlxProductTranslationReaderFactory,
+    SqlxProductEventReaderFactory,
 };
 use product_service::use_cases::{
     GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
@@ -315,11 +315,8 @@ async fn ready() -> &'static str {
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let pool = common::postgres::connect_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool);
-    let get_product = GetProductHandler::new(
-        unit_of_work.clone(),
-        SqlxProductDetailsReaderFactory::new(),
-        SqlxProductTranslationReaderFactory::new(),
-    );
+    let get_product =
+        GetProductHandler::new(unit_of_work.clone(), SqlxProductDetailsReaderFactory::new());
     let get_product_events =
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
     let opensearch_client = opensearch_client_from_env()?;

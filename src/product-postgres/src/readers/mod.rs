@@ -1,9 +1,6 @@
 mod product_details_reader;
 mod product_embedding_reader;
 mod product_event_reader;
-mod product_translation_reader;
-
 pub use product_details_reader::SqlxProductDetailsReaderFactory;
 pub use product_embedding_reader::SqlxProductEmbeddingReaderFactory;
 pub use product_event_reader::SqlxProductEventReaderFactory;
-pub use product_translation_reader::SqlxProductTranslationReaderFactory;
