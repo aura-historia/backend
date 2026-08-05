@@ -5,10 +5,7 @@ use crawler::spider::classification::url_metadata_repository::{
 };
 use test_api::*;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 use url::Url;
 
 /// Helper: inserts a shop + domain and returns the generated domain_id.

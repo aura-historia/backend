@@ -6,10 +6,7 @@ use crawler::spider::classification::url_pattern_repository::{
 
 use test_api::*;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 // ---------------------------------------------------------------------------
 // find_pattern

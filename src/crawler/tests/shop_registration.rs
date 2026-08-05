@@ -8,10 +8,7 @@ use std::collections::HashSet;
 
 use test_api::*;
 
-const POSTGRES: Postgres = Postgres {
-    migrations_dir: "src/crawler/migrations",
-    setup_script: None,
-};
+const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
 // ---------------------------------------------------------------------------
 // Helper

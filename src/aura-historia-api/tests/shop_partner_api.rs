@@ -9,7 +9,7 @@ use test_api::{
 };
 use user_core::access_token::Scope;
 
-const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 const DYNAMODB: DynamoDB = DynamoDB();
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
