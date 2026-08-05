@@ -2755,12 +2755,12 @@ paths:
 
   /api/v1/me/search-filters/{userSearchFilterId}/matches:
     get:
-      summary: List products matched by a search filter
+      summary: List persisted matches for a search filter
       description: |
-        Retrieves the persisted matched-product list for the given saved search filter and authenticated user.
-        Results are paginated using search-after cursor-based pagination sorted by match creation time.
-        Mirrors the behavior of `GET /api/v1/me/watchlist`.
-        Requires valid Cognito JWT authentication.
+        Retrieves persisted match records for the given saved search filter and authenticated user.
+        Results are paginated by match creation time using the RFC3339 `from` cursor.
+        This canonical route does not hydrate product representations.
+        Requires a Cognito JWT or an Aura access token with `search-filters:write`.
       operationId: getSearchFilterMatches
       tags:
         - Search Filters
@@ -2773,13 +2773,6 @@ paths:
             type: string
             format: uuid
           example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
         - name: sort
           in: query
           required: false
@@ -2795,13 +2788,10 @@ paths:
             type: string
             enum: [asc, desc]
           example: desc
-        - name: searchAfter
+        - name: from
           in: query
           required: false
-          description: |
-            RFC3339 timestamp for cursor-based pagination (search-after).
-            Depending on sort-order, returns matched products created either after this timestamp for asc (oldest first) or before this timestamp for desc (latest first).
-            In general you do not have to worry about determining this key. It's given with `searchAfter` in the preceding response if more entries are present.
+          description: RFC3339 match-creation timestamp used as the pagination cursor.
           schema:
             type: string
             format: date-time
@@ -2809,27 +2799,18 @@ paths:
         - name: size
           in: query
           required: false
-          description: Number of products to return per page
+          description: Number of match records to return per page
           schema:
             type: integer
             minimum: 1
             maximum: 100
             default: 21
           example: 21
-        - name: language
-          in: query
-          required: false
-          description: |
-            Preferred language for localized content.
-            Defaults to `en` when omitted.
-          schema:
-            $ref: "#/components/schemas/LanguageData"
-          example: de
       security:
         - BearerAuth: []
       responses:
         "200":
-          description: Matched products retrieved successfully
+          description: Search-filter match records retrieved successfully
           headers:
             Cache-Control:
               description: Cache control directive — always set to `no-store`
@@ -2847,54 +2828,14 @@ paths:
                 $ref: "#/components/schemas/SearchFilterMatchProductCollectionData"
               example:
                 items:
-                  - item:
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      productSlugId: "golden-cufflinks-a1b2c3"
-                      shopSlugId: "curated-antiques"
-                      eventId: "550e8400-e29b-41d4-a716-446655440001"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "6ba7b810"
-                      shopName: "Curated Antiques"
-                      sellerName: "Curated Antiques"
-                      shopType: "COMMERCIAL_DEALER"
-                      title:
-                        text: "Pair of Golden Cufflinks"
-                        language: "en"
-                      description:
-                        text: "A vintage pair of golden cufflinks in original case."
-                        language: "en"
-                      price:
-                        offer:
-                          currency: "EUR"
-                          amount: 2999
-                        estimate:
-                          min:
-                            currency: "EUR"
-                            amount: 2700
-                          max:
-                            currency: "EUR"
-                            amount: 3300
-                      state: "AVAILABLE"
-                      url: "https://curated-antiques.example/products/golden-cufflinks"
-                      viewUrl: "https://curated-antiques.example/products/golden-cufflinks?utm_source=aura_historia&utm_medium=referral"
-                      images:
-                        - url: "https://curated-antiques.example/images/golden-cufflinks-1.jpg"
-                          prohibitedContent: "NONE"
-                      created: "2024-01-01T10:00:00Z"
-                      updated: "2024-01-01T12:00:00Z"
-                    userState:
-                      watchlist:
-                        watching: true
-                        notifications: false
-                      prohibitedContent:
-                        consent: false
-                      notification:
-                        seen: true
-                      searchFilter:
-                        matched: true
-                        hidden: false
-                        userSearchFilterId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                        userSearchFilterName: "Golden Accessories"
+                  - userId: "550e8400-e29b-41d4-a716-446655440000"
+                    userSearchFilterId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+                    userSearchFilterName: "Golden Accessories"
+                    productId: "550e8400-e29b-41d4-a716-446655440111"
+                    originEventId: "550e8400-e29b-41d4-a716-446655440222"
+                    feedback: true
+                    created: "2024-01-01T10:00:00Z"
+                    updated: "2024-01-01T12:00:00Z"
                 size: 1
                 total: 1
                 searchAfter: null
@@ -3074,9 +3015,8 @@ paths:
                   value:
                     userId: "550e8400-e29b-41d4-a716-446655440000"
                     userSearchFilterId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                    shopId: "550e8400-e29b-41d4-a716-446655440000"
-                    shopsProductId: "6ba7b810"
                     productId: "550e8400-e29b-41d4-a716-446655440111"
+                    originEventId: "550e8400-e29b-41d4-a716-446655440222"
                     feedback: true
                     created: "2024-01-01T10:00:00Z"
                     updated: "2024-01-01T12:30:00Z"
@@ -3085,9 +3025,8 @@ paths:
                   value:
                     userId: "550e8400-e29b-41d4-a716-446655440000"
                     userSearchFilterId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                    shopId: "550e8400-e29b-41d4-a716-446655440000"
-                    shopsProductId: "6ba7b810"
                     productId: "550e8400-e29b-41d4-a716-446655440111"
+                    originEventId: "550e8400-e29b-41d4-a716-446655440222"
                     feedback: true
                     created: "2024-01-01T10:00:00Z"
                     updated: "2024-01-01T10:00:00Z"
@@ -11674,15 +11613,12 @@ components:
 
     SearchFilterProductMatchData:
       type: object
-      description: Stored product-match record for one of a user's saved search filters.
+      description: Persisted match record for one of a user's saved search filters.
       required:
         - userId
         - userSearchFilterId
-        - shopId
-        - shopsProductId
         - productId
-        - createdBy
-        - updatedBy
+        - originEventId
         - created
         - updated
       properties:
@@ -11696,30 +11632,28 @@ components:
           format: uuid
           description: Unique identifier of the saved search filter that matched the product.
           example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-        shopId:
+        userSearchFilterName:
           type: string
-          format: uuid
-          description: Unique identifier of the shop that owns the matched product.
-          example: "550e8400-e29b-41d4-a716-446655440000"
-        shopsProductId:
-          type: string
-          description: Shop's own identifier for the matched product.
-          example: "6ba7b810"
+          description: Saved-search name captured with the match, when available.
+          example: "Golden Accessories"
         productId:
           type: string
           format: uuid
           description: Unique internal identifier of the matched product.
           example: "550e8400-e29b-41d4-a716-446655440111"
+        originEventId:
+          type: string
+          format: uuid
+          description: Product event that produced this match.
+          example: "550e8400-e29b-41d4-a716-446655440222"
+        enhancedMatchReason:
+          type: string
+          description: Enhanced-match explanation, when matching supplied one.
+          example: "The product matches the saved enhanced description."
         feedback:
           type: boolean
-          description: |
-            Optional feedback recorded by the user for this saved-search match.
-            Present only after the user has explicitly marked the match as relevant or not relevant.
+          description: Optional feedback recorded by the user for this saved-search match.
           example: true
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
         created:
           type: string
           format: date-time
@@ -13400,7 +13334,7 @@ components:
 
     SearchFilterMatchProductCollectionData:
       type: object
-      description: Paginated collection of personalized products matched by a search filter, using cursor-based pagination
+      description: Cursor-paginated persisted match records for a search filter.
       required:
         - items
         - size
@@ -13408,23 +13342,23 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/PersonalizedGetProductData"
-          description: Array of personalized matched products in the current page
+            $ref: "#/components/schemas/SearchFilterProductMatchData"
+          description: Match records in the current page.
         size:
           type: integer
           minimum: 0
-          description: Number of products in the current page
+          description: Number of match records in the current page.
           example: 21
         searchAfter:
           type: string
           format: date-time
-          description: Cursor for the next page (RFC3339 timestamp). Present when there are more results.
+          description: RFC3339 cursor for the next page, when present.
           nullable: true
           example: "2024-01-15T08:00:00Z"
         total:
           type: integer
           minimum: 0
-          description: Total number of matched products
+          description: Total number of persisted match records, when available.
           nullable: true
           example: 127
 

@@ -7,7 +7,6 @@ use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use product_core::product_search::ProductSearch;
-use search_filter_core::{NewSearchFilter, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_service::ports::{SearchFilterIndex, SearchFilterIndexQuery, SearchFilterView};
 use serde_json::json;
@@ -43,7 +42,7 @@ async fn should_index_query_percolate_and_delete_search_filter_document() {
         query_result
             .items
             .iter()
-            .any(|item| item.filter.id() == view.filter.id())
+            .any(|item| item.search_filter_id == view.search_filter_id)
     );
 
     let percolate_result = index
@@ -53,11 +52,11 @@ async fn should_index_query_percolate_and_delete_search_filter_document() {
     assert!(
         percolate_result
             .iter()
-            .any(|item| item.filter.id() == view.filter.id())
+            .any(|item| item.search_filter_id == view.search_filter_id)
     );
 
     index
-        .delete(view.filter.id())
+        .delete(view.search_filter_id)
         .await
         .unwrap_or_else(|error| panic!("delete failed: {error:?}"));
     refresh_index("user_search_filters").await;
@@ -69,7 +68,7 @@ async fn should_index_query_percolate_and_delete_search_filter_document() {
     assert!(
         !after_delete
             .iter()
-            .any(|item| item.filter.id() == view.filter.id())
+            .any(|item| item.search_filter_id == view.search_filter_id)
     );
 }
 
@@ -101,22 +100,20 @@ async fn should_filter_query_by_enhanced_description_presence() {
         query_result
             .items
             .iter()
-            .any(|item| item.filter.id() == view.filter.id())
+            .any(|item| item.search_filter_id == view.search_filter_id)
     );
 }
 
 fn sample_view(query_text: &str) -> SearchFilterView {
-    let text_query = text_query(query_text);
     SearchFilterView {
-        filter: SearchFilter::create(NewSearchFilter {
-            user_search_filter_id: UserSearchFilterId::new(),
-            user_id: UserId::new(),
-            name: UserSearchFilterName::from("canonical search"),
-            notifications: true,
-            state: ResourceState::Active,
-            search: ProductSearch::new(Language::En, Currency::Eur).with_product_query(text_query),
-            embedding: None,
-        }),
+        search_filter_id: UserSearchFilterId::new(),
+        user_id: UserId::new(),
+        name: UserSearchFilterName::from("canonical search"),
+        notifications: true,
+        state: ResourceState::Active,
+        search: ProductSearch::new(Language::En, Currency::Eur)
+            .with_product_query(text_query(query_text)),
+        embedding: None,
         created: datetime!(2026-01-01 00:00:00 UTC),
         updated: datetime!(2026-01-01 00:00:00 UTC),
         last_hybrid_search_matched: datetime!(2026-01-01 00:00:00 UTC),
@@ -124,14 +121,12 @@ fn sample_view(query_text: &str) -> SearchFilterView {
 }
 
 fn sample_view_with_enhanced_description(query_text: &str) -> SearchFilterView {
-    let mut view = sample_view(query_text);
-    view.filter.replace_search(
-        ProductSearch::new(Language::En, Currency::Eur)
+    SearchFilterView {
+        search: ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query(text_query(query_text))
             .with_enhanced_search_description("brass lamp".into()),
-        None,
-    );
-    view
+        ..sample_view(query_text)
+    }
 }
 
 fn text_query(value: &str) -> TextQuery<1> {

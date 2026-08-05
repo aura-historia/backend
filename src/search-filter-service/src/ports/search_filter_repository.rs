@@ -1,6 +1,16 @@
 use common::product_id::ProductId;
 use common::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};
+use time::OffsetDateTime;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedSearchFilter {
+    pub filter: SearchFilter,
+    pub created: OffsetDateTime,
+    pub updated: OffsetDateTime,
+    pub last_hybrid_search_matched: OffsetDateTime,
+    pub version: i64,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterRepositoryError {
@@ -12,6 +22,8 @@ pub enum SearchFilterRepositoryError {
     InsertFailed,
     #[error("search filter update failed")]
     UpdateFailed,
+    #[error("search filter update conflicted with a concurrent write")]
+    ConcurrencyConflict,
     #[error("search filter delete failed")]
     DeleteFailed,
     #[error("persisted search filter state is invalid")]
@@ -23,15 +35,16 @@ pub trait SearchFilterRepository: Send {
     async fn find_by_id(
         &mut self,
         id: UserSearchFilterId,
-    ) -> Result<Option<SearchFilter>, SearchFilterRepositoryError>;
+    ) -> Result<Option<PersistedSearchFilter>, SearchFilterRepositoryError>;
     async fn insert(
         &mut self,
         filter: &SearchFilter,
-    ) -> Result<SearchFilter, SearchFilterRepositoryError>;
+    ) -> Result<PersistedSearchFilter, SearchFilterRepositoryError>;
     async fn update(
         &mut self,
         filter: &SearchFilter,
-    ) -> Result<SearchFilter, SearchFilterRepositoryError>;
+        expected_version: i64,
+    ) -> Result<PersistedSearchFilter, SearchFilterRepositoryError>;
     async fn delete(&mut self, id: UserSearchFilterId) -> Result<(), SearchFilterRepositoryError>;
 }
 

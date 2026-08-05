@@ -42,10 +42,14 @@ async fn should_insert_find_update_read_and_delete_search_filter() {
         .find_by_id(filter.id())
         .await
         .unwrap_or_else(|error| panic!("find failed: {error:?}"));
-    assert!(matches!(loaded, Some(ref value) if value.notifications()));
+    assert!(matches!(loaded, Some(ref value) if value.filter.notifications()));
+    let expected_version = match loaded {
+        Some(value) => value.version,
+        None => panic!("inserted filter was not found"),
+    };
     filter.change_notifications(false);
     repo.in_transaction(&mut tx)
-        .update(&filter)
+        .update(&filter, expected_version)
         .await
         .unwrap_or_else(|error| panic!("update failed: {error:?}"));
     commit(tx).await;
@@ -55,7 +59,7 @@ async fn should_insert_find_update_read_and_delete_search_filter() {
         .await
         .unwrap_or_else(|error| panic!("list failed: {error:?}"));
     assert_eq!(1, filters.len());
-    assert!(!filters[0].filter.notifications());
+    assert!(!filters[0].notifications);
     assert!(filters[0].updated >= filters[0].created);
 
     let mut tx = begin(&unit).await;

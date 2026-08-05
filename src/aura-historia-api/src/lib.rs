@@ -3,6 +3,7 @@ pub mod error;
 pub mod oauth;
 pub mod partner_applications;
 pub mod products;
+pub mod search_filters;
 pub mod shops;
 pub mod state;
 pub mod users;
@@ -13,8 +14,8 @@ use crate::auth::{
     TransportPrincipal,
 };
 use crate::state::{
-    AppState, OAuthState, PartnerApplicationsState, ProductsState, ShopsState, UsersState,
-    WatchlistState,
+    AppState, OAuthState, PartnerApplicationsState, ProductsState, SearchFiltersState, ShopsState,
+    UsersState, WatchlistState,
 };
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
@@ -41,6 +42,18 @@ use product_postgres::{
 };
 use product_service::use_cases::{
     GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
+};
+use search_filter_postgres::{
+    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterReader,
+    SqlxSearchFilterRepositoryFactory,
+};
+use search_filter_service::ports::{
+    SearchFilterEmbeddingGenerationError, SearchFilterEmbeddingGenerator,
+};
+use search_filter_service::use_cases::{
+    CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
+    ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
+    UpdateSearchFilterMatchFeedbackHandler,
 };
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
@@ -270,6 +283,10 @@ pub fn app(state: AppState) -> Router {
         );
     }
 
+    if let Some(search_filters) = state.search_filters {
+        routes = routes.merge(search_filters::router(search_filters));
+    }
+
     if let Some(partner_applications) = state.partner_applications {
         routes = routes.merge(
             Router::new()
@@ -316,6 +333,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let get_product_events =
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
+    let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let opensearch_client = opensearch_client_from_env()?;
 
     let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
@@ -471,6 +489,38 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         delete_access_token: Arc::new(DeleteAccessTokenHandler::new(access_token_store)),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    let search_filters_state = SearchFiltersState::new(
+        Arc::new(ListOwnedSearchFiltersHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(CreateSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            NoopSearchFilterEmbeddingGenerator,
+        )),
+        Arc::new(GetOwnedSearchFilterHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(UpdateOwnedSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            NoopSearchFilterEmbeddingGenerator,
+        )),
+        Arc::new(DeleteOwnedSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+        )),
+        Arc::new(ListSearchFilterMatchesHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            SqlxSearchFilterMatchRepositoryFactory,
+            search_filter_reader,
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let watchlist_state = WatchlistState {
         list_watchlist: Arc::new(list_watchlist),
         watch_product: Arc::new(watch_product),
@@ -539,7 +589,8 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         )
         .with_product_events(Arc::new(get_product_events)),
     )
-    .with_oauth(oauth_state))
+    .with_oauth(oauth_state)
+    .with_search_filters(search_filters_state))
 }
 
 fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
@@ -570,6 +621,19 @@ fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
         detail: error.to_string(),
     })?;
     Ok(OpenSearch::new(transport))
+}
+
+#[derive(Clone, Copy)]
+struct NoopSearchFilterEmbeddingGenerator;
+
+#[async_trait::async_trait]
+impl SearchFilterEmbeddingGenerator for NoopSearchFilterEmbeddingGenerator {
+    async fn generate(
+        &self,
+        _search: &product_core::product_search::ProductSearch,
+    ) -> Result<Option<Vec<f32>>, SearchFilterEmbeddingGenerationError> {
+        Ok(None)
+    }
 }
 
 #[derive(Clone, Copy)]

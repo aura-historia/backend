@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `search-filter-core` and common ports only.
+- Depends on `search-filter-core`, common, and public ProductSearch field types from `geo`, `isocountry`, and `shop-core`.
 - Write use cases own transactions.
 - Postgres and OpenSearch hidden behind ports.
 - Repository writes return persisted search-filter state.

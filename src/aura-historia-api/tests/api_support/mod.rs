@@ -5,8 +5,8 @@ use aura_historia_api::auth::{
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, OAuthState, PartnerApplicationsState, ProductsState, ShopsState, UsersState,
-    WatchlistState,
+    AppState, OAuthState, PartnerApplicationsState, ProductsState, SearchFiltersState, ShopsState,
+    UsersState, WatchlistState,
 };
 use aura_historia_api::{app, state};
 use common::domain::Domain;
@@ -32,6 +32,18 @@ use product_postgres::{
 };
 use product_service::use_cases::{
     GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
+};
+use search_filter_postgres::{
+    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterReader,
+    SqlxSearchFilterRepositoryFactory,
+};
+use search_filter_service::ports::{
+    SearchFilterEmbeddingGenerationError, SearchFilterEmbeddingGenerator,
+};
+use search_filter_service::use_cases::{
+    CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
+    ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
+    UpdateSearchFilterMatchFeedbackHandler,
 };
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
@@ -81,6 +93,19 @@ use watchlist_postgres::SqlxWatchlistRepositoryFactory;
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
+
+#[derive(Clone, Copy)]
+struct NoopSearchFilterEmbeddingGenerator;
+
+#[async_trait::async_trait]
+impl SearchFilterEmbeddingGenerator for NoopSearchFilterEmbeddingGenerator {
+    async fn generate(
+        &self,
+        _search: &product_core::product_search::ProductSearch,
+    ) -> Result<Option<Vec<f32>>, SearchFilterEmbeddingGenerationError> {
+        Ok(None)
+    }
+}
 
 #[derive(Clone, Copy)]
 struct RejectGeocoder;
@@ -403,6 +428,40 @@ async fn test_state() -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
+    let search_filter_reader = SqlxSearchFilterReader::new(get_postgres_client().await);
+    let search_filters_state = SearchFiltersState::new(
+        Arc::new(ListOwnedSearchFiltersHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(CreateSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            NoopSearchFilterEmbeddingGenerator,
+        )),
+        Arc::new(GetOwnedSearchFilterHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(UpdateOwnedSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            NoopSearchFilterEmbeddingGenerator,
+        )),
+        Arc::new(DeleteOwnedSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+        )),
+        Arc::new(ListSearchFilterMatchesHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            SqlxSearchFilterMatchRepositoryFactory,
+            search_filter_reader,
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
+
     let watchlist_state = WatchlistState::new(
         Arc::new(ListWatchlistHandler::new(
             unit_of_work.clone(),
@@ -496,6 +555,7 @@ async fn test_state() -> AppState {
     state::AppState::new(shops_state, users_state, watchlist_state, partner_state)
         .with_products(products_state)
         .with_oauth(oauth_state)
+        .with_search_filters(search_filters_state)
 }
 
 struct RejectJwtAuthenticator;

@@ -7,6 +7,11 @@ use oauth_service::use_cases::{
 use product_service::use_cases::{
     GetProductEventsUseCase, GetProductUseCase, GetSimilarProductsUseCase, SearchProductsUseCase,
 };
+use search_filter_service::use_cases::{
+    CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
+    ListOwnedSearchFiltersUseCase, ListSearchFilterMatchesUseCase, UpdateOwnedSearchFilterUseCase,
+    UpdateSearchFilterMatchFeedbackUseCase,
+};
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationUseCase, AdminGetPartnerShopApplicationUseCase,
     AdminListPartnerShopApplicationsUseCase, AdminUpdatePartnerShopApplicationUseCase,
@@ -43,6 +48,7 @@ pub struct AppState {
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partner_applications: Option<PartnerApplicationsState>,
     pub(crate) oauth: Option<OAuthState>,
+    pub(crate) search_filters: Option<SearchFiltersState>,
 }
 
 impl AppState {
@@ -59,6 +65,7 @@ impl AppState {
             watchlist: Some(watchlist),
             partner_applications: Some(partner_applications),
             oauth: None,
+            search_filters: None,
         }
     }
 
@@ -70,6 +77,7 @@ impl AppState {
             watchlist: None,
             partner_applications: None,
             oauth: None,
+            search_filters: None,
         }
     }
 
@@ -81,6 +89,48 @@ impl AppState {
     pub fn with_oauth(mut self, oauth: OAuthState) -> Self {
         self.oauth = Some(oauth);
         self
+    }
+
+    pub fn with_search_filters(mut self, search_filters: SearchFiltersState) -> Self {
+        self.search_filters = Some(search_filters);
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct SearchFiltersState {
+    pub(crate) list_owned_search_filters: Arc<dyn ListOwnedSearchFiltersUseCase>,
+    pub(crate) create_search_filter: Arc<dyn CreateSearchFilterUseCase>,
+    pub(crate) get_owned_search_filter: Arc<dyn GetOwnedSearchFilterUseCase>,
+    pub(crate) update_owned_search_filter: Arc<dyn UpdateOwnedSearchFilterUseCase>,
+    pub(crate) delete_owned_search_filter: Arc<dyn DeleteOwnedSearchFilterUseCase>,
+    pub(crate) list_search_filter_matches: Arc<dyn ListSearchFilterMatchesUseCase>,
+    pub(crate) update_search_filter_match_feedback: Arc<dyn UpdateSearchFilterMatchFeedbackUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl SearchFiltersState {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        list_owned_search_filters: Arc<dyn ListOwnedSearchFiltersUseCase>,
+        create_search_filter: Arc<dyn CreateSearchFilterUseCase>,
+        get_owned_search_filter: Arc<dyn GetOwnedSearchFilterUseCase>,
+        update_owned_search_filter: Arc<dyn UpdateOwnedSearchFilterUseCase>,
+        delete_owned_search_filter: Arc<dyn DeleteOwnedSearchFilterUseCase>,
+        list_search_filter_matches: Arc<dyn ListSearchFilterMatchesUseCase>,
+        update_search_filter_match_feedback: Arc<dyn UpdateSearchFilterMatchFeedbackUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            list_owned_search_filters,
+            create_search_filter,
+            get_owned_search_filter,
+            update_owned_search_filter,
+            delete_owned_search_filter,
+            list_search_filter_matches,
+            update_search_filter_match_feedback,
+            authenticator,
+        }
     }
 }
 

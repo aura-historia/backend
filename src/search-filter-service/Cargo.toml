@@ -6,7 +6,10 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true }
+geo = { workspace = true }
+isocountry = { workspace = true }
 product-core = { workspace = true }
+shop-core = { workspace = true }
 search-filter-core = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }

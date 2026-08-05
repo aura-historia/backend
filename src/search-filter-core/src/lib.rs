@@ -1,3 +1,4 @@
+use common::change_outcome::ChangeOutcome;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::product_id::ProductId;
@@ -63,18 +64,41 @@ impl SearchFilter {
         }
     }
 
-    pub fn rename(&mut self, name: UserSearchFilterName) {
+    pub fn rename(&mut self, name: UserSearchFilterName) -> ChangeOutcome {
+        if self.name == name {
+            return ChangeOutcome::Unchanged;
+        }
         self.name = name;
+        ChangeOutcome::Changed
     }
-    pub fn change_notifications(&mut self, notifications: bool) {
+
+    pub fn change_notifications(&mut self, notifications: bool) -> ChangeOutcome {
+        if self.notifications == notifications {
+            return ChangeOutcome::Unchanged;
+        }
         self.notifications = notifications;
+        ChangeOutcome::Changed
     }
-    pub fn change_state(&mut self, state: ResourceState) {
+
+    pub fn change_state(&mut self, state: ResourceState) -> ChangeOutcome {
+        if self.state == state {
+            return ChangeOutcome::Unchanged;
+        }
         self.state = state;
+        ChangeOutcome::Changed
     }
-    pub fn replace_search(&mut self, search: ProductSearch, embedding: Option<Vec<f32>>) {
+
+    pub fn replace_search(
+        &mut self,
+        search: ProductSearch,
+        embedding: Option<Vec<f32>>,
+    ) -> ChangeOutcome {
+        if self.search == search && self.embedding == embedding {
+            return ChangeOutcome::Unchanged;
+        }
         self.search = search;
         self.embedding = embedding;
+        ChangeOutcome::Changed
     }
 
     pub fn id(&self) -> UserSearchFilterId {
@@ -113,6 +137,21 @@ pub struct SearchFilterProductMatch {
     pub updated: OffsetDateTime,
 }
 
+impl SearchFilterProductMatch {
+    pub fn change_feedback(
+        &mut self,
+        feedback: Option<bool>,
+        updated: OffsetDateTime,
+    ) -> ChangeOutcome {
+        if self.feedback == feedback {
+            return ChangeOutcome::Unchanged;
+        }
+        self.feedback = feedback;
+        self.updated = updated;
+        ChangeOutcome::Changed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,8 +180,20 @@ mod tests {
     #[test]
     fn should_rename_search_filter() {
         let mut filter = sample_filter();
-        filter.rename(UserSearchFilterName::from("weekly"));
+        assert_eq!(
+            ChangeOutcome::Changed,
+            filter.rename(UserSearchFilterName::from("weekly"))
+        );
         assert_eq!("weekly", filter.name().as_ref());
+    }
+
+    #[test]
+    fn should_not_change_search_filter_when_name_is_unchanged() {
+        let mut filter = sample_filter();
+        assert_eq!(
+            ChangeOutcome::Unchanged,
+            filter.rename(UserSearchFilterName::from("daily"))
+        );
     }
 
     #[test]
@@ -155,11 +206,36 @@ mod tests {
     #[test]
     fn should_replace_search_and_embedding() {
         let mut filter = sample_filter();
-        filter.replace_search(
-            ProductSearch::new(Language::De, Currency::Usd),
-            Some(vec![1.0, 2.0]),
+        assert_eq!(
+            ChangeOutcome::Changed,
+            filter.replace_search(
+                ProductSearch::new(Language::De, Currency::Usd),
+                Some(vec![1.0, 2.0]),
+            )
         );
         assert_eq!(Language::De, filter.search().language);
         assert_eq!(Some(&vec![1.0, 2.0]), filter.embedding());
+    }
+
+    #[test]
+    fn should_not_change_match_feedback_when_value_is_unchanged() {
+        let now = OffsetDateTime::now_utc();
+        let mut product_match = SearchFilterProductMatch {
+            user_id: UserId::new(),
+            user_search_filter_id: UserSearchFilterId::new(),
+            user_search_filter_name: None,
+            product_id: ProductId::new(),
+            origin_event_id: EventId::new(),
+            enhanced_match_reason: None,
+            feedback: Some(true),
+            created: now,
+            updated: now,
+        };
+
+        assert_eq!(
+            ChangeOutcome::Unchanged,
+            product_match.change_feedback(Some(true), now + time::Duration::seconds(1))
+        );
+        assert_eq!(now, product_match.updated);
     }
 }

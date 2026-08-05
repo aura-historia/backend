@@ -6,6 +6,19 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-08-05 - Migrate Saved Search Filters to `aura-historia-api` (`backend#1341`)
+
+### Changed
+
+- `aura-historia-api` now serves saved-search filter CRUD and persisted match-feedback routes through canonical search-filter service use cases and Postgres adapters:
+  - `GET` and `POST /api/v1/me/search-filters`
+  - `GET`, `PATCH`, and `DELETE /api/v1/me/search-filters/{userSearchFilterId}`
+  - `GET /api/v1/me/search-filters/{userSearchFilterId}/matches`
+  - `PATCH /api/v1/me/search-filters/{userSearchFilterId}/matches/{shopId}/{shopsProductId}`
+- These routes accept Cognito JWTs or Aura access tokens. Delegated access tokens require `search-filters:write`.
+- Filter and match reads return `Cache-Control: no-store`; creation returns relative `Location` and `Content-Language` headers.
+- Match-list responses are persisted search-filter match records, not hydrated product results. The legacy `/products` preview route is intentionally not migrated to `aura-historia-api`.
+
 ## 2026-08-04 - Personalize Canonical Watchlist Products
 
 ### Changed
