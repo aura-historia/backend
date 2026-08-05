@@ -8,7 +8,7 @@ use test_api::{
     get_opensearch_client, refresh_index,
 };
 
-const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 const DYNAMODB: DynamoDB = DynamoDB();
 const OPENSEARCH: OpenSearch = OpenSearch();
 const PRODUCTS_INDEX: &str = "products";

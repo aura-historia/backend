@@ -1,7 +1,7 @@
 use aws_config::{BehaviorVersion, SdkConfig};
 use std::collections::HashMap;
 use std::net::TcpListener;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use testcontainers::core::{IntoContainerPort, Mount};
 use testcontainers::runners::AsyncRunner;
@@ -101,17 +101,25 @@ pub async fn get_localstack(
         .await
 }
 
+fn docker_remove(name: &str) -> std::io::Result<std::process::ExitStatus> {
+    Command::new("docker")
+        .args(["rm", "-f", name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+}
+
 extern "C" fn cleanup() {
     let name = localstack_container_name();
-    let _ = Command::new("docker").args(["rm", "-f", &name]).status();
+    let _ = docker_remove(&name);
 
-    // remove ephemeral containers spawned by localstack
+    // Remove ephemeral containers spawned by LocalStack without emitting expected absence errors.
     if let Ok(out) = Command::new("docker")
         .args(["ps", "-aq", "--filter", &format!("name=^/{name}")])
         .output()
     {
         for id in String::from_utf8_lossy(&out.stdout).lines() {
-            let _ = Command::new("docker").args(["rm", "-f", id]).status();
+            let _ = docker_remove(id);
         }
     }
 }

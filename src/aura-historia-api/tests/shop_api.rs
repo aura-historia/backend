@@ -39,7 +39,7 @@ use user_service::ports::AccessTokenStore;
 use user_service::use_cases::AuthenticateAccessTokenHandler;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 
-const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 const DYNAMODB: DynamoDB = DynamoDB();
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(aura_api_app);
 
