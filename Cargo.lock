@@ -229,10 +229,16 @@ dependencies = [
  "httpdate",
  "isocountry",
  "jsonwebtokens",
+ "notification-dynamodb",
  "oauth-core",
  "oauth-dynamodb",
  "oauth-service",
+ "opensearch",
  "openssl",
+ "product-core",
+ "product-opensearch",
+ "product-postgres",
+ "product-service",
  "reqwest 0.12.28",
  "rstest",
  "serde",
@@ -6088,6 +6094,8 @@ dependencies = [
  "fake",
  "geo",
  "indexmap 2.14.0",
+ "notification-core",
+ "notification-service",
  "product-core",
  "serde_json",
  "thiserror 2.0.19",
@@ -6095,6 +6103,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -9758,11 +9767,15 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "notification-core",
+ "notification-service",
  "product-core",
+ "product-service",
  "thiserror 2.0.19",
  "time",
  "tokio",
  "tracing",
+ "url",
  "watchlist-core",
 ]
 

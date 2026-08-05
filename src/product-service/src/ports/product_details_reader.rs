@@ -1,6 +1,15 @@
 #![allow(dead_code)]
 
-use crate::use_cases::queries::get_product::{GetProductRequest, ProductDetailsView};
+use crate::use_cases::queries::get_product::{PersonalizedProductDetailsView, ProductLookup};
+use common::language::domain::Language;
+use common::user_id::UserId;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductDetailsReadRequest {
+    pub lookup: ProductLookup,
+    pub language: Language,
+    pub user_id: Option<UserId>,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductDetailsReadError {
@@ -14,8 +23,8 @@ pub enum ProductDetailsReadError {
 pub trait ProductDetailsReader: Send {
     async fn find_details(
         &mut self,
-        request: &GetProductRequest,
-    ) -> Result<Option<ProductDetailsView>, ProductDetailsReadError>;
+        request: &ProductDetailsReadRequest,
+    ) -> Result<Option<PersonalizedProductDetailsView>, ProductDetailsReadError>;
 }
 
 pub trait ProductDetailsReaderFactory<Tx>: Send + Sync {

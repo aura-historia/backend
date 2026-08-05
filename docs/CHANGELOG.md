@@ -6,11 +6,37 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-08-04 - Personalize Canonical Watchlist Products
+
+### Changed
+
+- `GET /api/v1/me/watchlist` now returns the authenticated user's full canonical Product data with `userState`, not bare watchlist rows. It accepts optional `language` (default `en`) plus `size` and stable JSON-array `searchAfter` infinite-scroll pagination; it preserves watchlist creation order.
+- The read uses one joined PostgreSQL query for product, localization, and relational user state, then one DynamoDB read for all user notifications. The newest notification per product supplies `userState.notification`; DynamoDB failure returns `503` rather than a partial response.
+
+## 2026-08-04 - Document Deferred Product Currency Conversion (`backend#1466`)
+
+### Changed
+
+- Canonical Product detail, history, and similarity routes use either `productId` or the shop/product slug pair.
+- Product prices and event-price snapshots remain stored source amounts and currencies. `pricing`, `oldPricing`, and `newPricing` retain `fxRateId`; no response currency conversion occurs.
+- Source → EUR → requested-currency conversion is deferred to [#1466](https://github.com/aura-historia/backend/issues/1466). No new response parameters are exposed before that work ships.
+- Similar-product KNN retrieval returns ready matches when an embedding exists; only a missing embedding returns `202 Accepted` with a polling location.
+- Canonical Product detail and similar reads accept optional `language` (default `en`). Detail resolves current title/description from `product_translations`; similar reads resolve projected titles; immutable history stays in its recorded language.
+
 ## 2026-07-31 - Migrate REST APIs to `aura-historia-api` (`backend#1341`)
 
 ### Changed
 
 - **REST API migration epic** now has `aura-historia-api` route implementations backed by canonical service use cases and Postgres/DynamoDB adapters for:
+  - Product routes:
+    - `GET /api/v1/products/{productId}`
+    - `GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}`
+    - `GET /api/v1/products/{productId}/history`
+    - `GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/history`
+    - `GET /api/v1/products/{productId}/similar`
+    - `GET /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/similar`
+    - `GET /api/v1/products`
+    - `POST /api/v1/products/search`
   - Shop routes:
     - `GET /api/v1/shops/{shopId}`
     - `GET /api/v1/by-slug/shops/{shopSlugId}`
@@ -54,6 +80,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Partner-application payload responses now use camelCase `shopId`, matching `swagger.yaml`.
 - `DELETE /api/v1/me/partner-applications/{partnerApplicationId}` now withdraws the application instead of physically deleting it.
 - `GetShopData` no longer includes `createdBy` or `updatedBy` because canonical shop storage has no audit actor columns.
+- Canonical product detail and search responses omit `createdBy` and `updatedBy`. Product user-state personalization remains on legacy routes.
+- Product history by ID or slug uses canonical Product service/Postgres reads. It returns ordered immutable event snapshots with source `price`, estimate bounds, and `fxRateId`; it has no currency-conversion parameter.
+- Canonical Product pricing fields are `price`, `priceEstimateMin`, and `priceEstimateMax`; the old public `native*` names are removed. Similar-product discovery returns KNN matches when an embedding is ready and `202 Accepted` only while it is pending.
 - Migrated API errors use `application/problem+json` and stable `ApiErrorCode` constants.
 
 ## 2026-07-15 - Add User Measurement Unit Preference
@@ -912,7 +941,7 @@ Backend PR `#1014` splits the old saved-search-filter product endpoints into two
   | Parameter | Type | Required | Description |
   |---|---|---|---|
   | `userSearchFilterId` | `string (uuid)` | Yes | Saved search-filter identifier whose stored search criteria are executed live. |
-  | `currency` | `CurrencyData` | No | Currency used for price normalization in the returned product summaries. |
+  | `currency` | `CurrencyData` | No | Currency used to select indexed product prices; no request-time conversion occurs. |
   | `language` | `LanguageData` | No | Preferred language for localized summary fields. Defaults to `en` when omitted. |
   | `size` | `integer` | No | Maximum number of results to return. Values above `10` are capped to `10`; default is `10`. |
   | `searchAfter` | `array` | No | Must not be provided. Any non-null value is rejected with `BAD_QUERY_PARAMETER_VALUE` because this live-preview endpoint does not allow client-driven pagination. |

@@ -2,6 +2,7 @@ pub mod auth;
 pub mod error;
 pub mod oauth;
 pub mod partner_applications;
+pub mod products;
 pub mod shops;
 pub mod state;
 pub mod users;
@@ -12,17 +13,34 @@ use crate::auth::{
     TransportPrincipal,
 };
 use crate::state::{
-    AppState, OAuthState, PartnerApplicationsState, ShopsState, UsersState, WatchlistState,
+    AppState, OAuthState, PartnerApplicationsState, ProductsState, ShopsState, UsersState,
+    WatchlistState,
 };
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
+use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
+use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
     AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
+};
+use opensearch::{
+    OpenSearch,
+    auth::Credentials,
+    http::transport::{SingleNodeConnectionPool, TransportBuilder},
+};
+use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
+use product_postgres::{
+    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductUserStateReader,
+    SqlxProductWatchlistDetailsReaderFactory,
+};
+use product_service::use_cases::{
+    GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
 };
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
@@ -68,7 +86,7 @@ use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
 use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
-use watchlist_postgres::{SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory};
+use watchlist_postgres::SqlxWatchlistRepositoryFactory;
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
@@ -141,6 +159,41 @@ pub fn app(state: AppState) -> Router {
         )
         .with_state(state.shops);
     let mut routes = health_routes.merge(shop_routes);
+
+    if let Some(products) = state.products {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/products",
+                    get(products::search_products::get_products),
+                )
+                .route(
+                    "/api/v1/products/{product_id}",
+                    get(products::get_product_by_id::get_product_by_id),
+                )
+                .route(
+                    "/api/v1/products/{product_id}/history",
+                    get(products::get_product_history::get_product_events_by_id),
+                )
+                .route(
+                    "/api/v1/products/{product_id}/similar",
+                    get(products::get_similar_products::get_similar_products_by_id),
+                )
+                .route(
+                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}",
+                    get(products::get_product_by_slug::get_product_by_slug),
+                )
+                .route(
+                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/history",
+                    get(products::get_product_history::get_product_events_by_slug),
+                )
+                .route(
+                    "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar",
+                    get(products::get_similar_products::get_similar_products_by_slug),
+                )
+                .with_state(products),
+        );
+    }
 
     if let Some(oauth) = state.oauth {
         routes = routes.merge(
@@ -260,7 +313,11 @@ async fn ready() -> &'static str {
 
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let pool = common::postgres::connect_from_env().await?;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let get_product_events =
+        GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
+    let opensearch_client = opensearch_client_from_env()?;
+
     let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
     let search_shops =
         SearchShopsHandler::new(unit_of_work.clone(), SqlxShopSearchReaderFactory::new());
@@ -313,8 +370,6 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let list_watchlist =
-        ListWatchlistHandler::new(unit_of_work.clone(), SqlxWatchlistReaderFactory);
     let watch_product =
         WatchProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
     let update_watchlist_product =
@@ -370,6 +425,29 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         })?;
     let table_name = Box::leak(table_name.into_boxed_str());
     let table_name_ref: &str = table_name;
+    let product_user_states = SqlxProductUserStateReader::new(pool);
+    let get_similar_products = GetSimilarProductsHandler::new(
+        unit_of_work.clone(),
+        SqlxProductEmbeddingReaderFactory::new(),
+        OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
+        product_user_states.clone(),
+        DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+    );
+    let search_products = SearchProductsHandler::new(
+        OpenSearchProductSearchReader::new(opensearch_client),
+        product_user_states,
+        DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+    );
+    let get_product = GetProductHandler::new(
+        unit_of_work.clone(),
+        SqlxProductDetailsReaderFactory::new(),
+        DynamoDbProductNotificationsReader::new(dynamodb_client, table_name_ref),
+    );
+    let list_watchlist = ListWatchlistHandler::new(
+        unit_of_work.clone(),
+        SqlxProductWatchlistDetailsReaderFactory::new(),
+        DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+    );
     let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name_ref);
     let oauth_store = OAuthDynamoDbStore::new(dynamodb_client, table_name_ref);
     let oauth_access_tokens = StoreOAuthAccessTokenGateway::new(access_token_store.clone());
@@ -446,13 +524,52 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
             Arc::new(create_shop),
             Arc::new(update_shop),
             Arc::new(list_user_partner_shops),
-            authenticator,
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ),
         users_state,
         watchlist_state,
         partner_state,
     )
+    .with_products(
+        ProductsState::new(
+            Arc::new(get_product),
+            Arc::new(get_similar_products),
+            Arc::new(search_products),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        )
+        .with_product_events(Arc::new(get_product_events)),
+    )
     .with_oauth(oauth_state))
+}
+
+fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
+    let endpoint =
+        std::env::var("OPENSEARCH_ENDPOINT_URL").map_err(|_| ApiStateError::MissingEnv {
+            name: "OPENSEARCH_ENDPOINT_URL",
+        })?;
+    let endpoint = url::Url::parse(&endpoint).map_err(|error| ApiStateError::OpenSearch {
+        detail: error.to_string(),
+    })?;
+    let stage = std::env::var("STAGE").unwrap_or_else(|_| "prod".to_owned());
+    let transport = if stage == "ephemeral" {
+        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint)).build()
+    } else {
+        let username =
+            std::env::var("OPENSEARCH_USERNAME").map_err(|_| ApiStateError::MissingEnv {
+                name: "OPENSEARCH_USERNAME",
+            })?;
+        let password =
+            std::env::var("OPENSEARCH_PASSWORD").map_err(|_| ApiStateError::MissingEnv {
+                name: "OPENSEARCH_PASSWORD",
+            })?;
+        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint))
+            .auth(Credentials::Basic(username, password))
+            .build()
+    }
+    .map_err(|error| ApiStateError::OpenSearch {
+        detail: error.to_string(),
+    })?;
+    Ok(OpenSearch::new(transport))
 }
 
 #[derive(Clone, Copy)]
@@ -487,6 +604,8 @@ pub enum ApiStateError {
     Postgres(#[from] PostgresConnectError),
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
+    #[error("failed to configure OpenSearch: {detail}")]
+    OpenSearch { detail: String },
 }
 
 pub async fn run_until_shutdown<S>(config: ApiConfig, shutdown: S) -> Result<(), ApiRunError>

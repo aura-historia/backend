@@ -185,7 +185,7 @@
             "shopType": {
                 "type": "keyword"
             },
-            "titleNative": {
+            "title": {
                 "type": "object",
                 "properties": {
                     "text": {

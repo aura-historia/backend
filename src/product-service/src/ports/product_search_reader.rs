@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::use_cases::queries::search_products::{SearchProductsRequest, SearchProductsResult};
+use crate::use_cases::queries::search_products::{ProductSearchReadResult, SearchProductsRequest};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductSearchReadError {
@@ -15,5 +15,5 @@ pub trait ProductSearchReader: Send + Sync {
     async fn search(
         &self,
         request: &SearchProductsRequest,
-    ) -> Result<SearchProductsResult, ProductSearchReadError>;
+    ) -> Result<ProductSearchReadResult, ProductSearchReadError>;
 }

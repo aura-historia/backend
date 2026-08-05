@@ -4,7 +4,7 @@ use common::language::domain::Language;
 use common::localized::Localized;
 use common::postgres::SqlxUnitOfWork;
 use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::{ProductId, ProductKey};
+use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
@@ -31,7 +31,7 @@ use url::Url;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_insert_append_find_update_and_find_product_by_key_in_postgres() {
+async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let products = SqlxProductRepositoryFactory::new();
@@ -69,18 +69,7 @@ async fn should_insert_append_find_update_and_find_product_by_key_in_postgres() 
         Ok(None) => panic!("missing product by id"),
         Err(error) => panic!("failed to find product by id: {error:?}"),
     };
-    let loaded_by_key = match products
-        .in_transaction(&mut tx)
-        .find_by_key(&ProductKey::new(
-            product.shop_id(),
-            product.shops_product_id().clone(),
-        ))
-        .await
-    {
-        Ok(Some(loaded)) => loaded,
-        Ok(None) => panic!("missing product by key"),
-        Err(error) => panic!("failed to find product by key: {error:?}"),
-    };
+
     let current_event_id = match events
         .in_transaction(&mut tx)
         .find_current_event_id(product.id())
@@ -93,12 +82,11 @@ async fn should_insert_append_find_update_and_find_product_by_key_in_postgres() 
     commit(tx).await;
 
     assert_eq!(product.id(), loaded_by_id.id());
-    assert_eq!(product.id(), loaded_by_key.value.id());
     assert_eq!(created_event.event_id, version);
     assert_eq!(created_event.event_id, current_event_id);
     assert_eq!(ProductLifecycle::Active, loaded_by_id.lifecycle());
 
-    let mut updated = loaded_by_key.value;
+    let mut updated = loaded_by_id;
     updated.change_state(ProductState::Sold);
     let update_event = updated.pending_events()[0].clone();
     let mut tx = begin(&unit_of_work).await;
@@ -148,11 +136,6 @@ async fn should_return_none_when_product_is_missing_in_postgres() {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let products = SqlxProductRepositoryFactory::new();
     let product_id = ProductId::new();
-    let shop_id = ShopId::new();
-    let key = ProductKey::new(
-        shop_id,
-        common::shops_product_id::ShopsProductId::from("missing-product"),
-    );
 
     let mut tx = begin(&unit_of_work).await;
     let by_id = match products
@@ -163,18 +146,14 @@ async fn should_return_none_when_product_is_missing_in_postgres() {
         Ok(value) => value,
         Err(error) => panic!("failed to find missing product by id: {error:?}"),
     };
-    let by_key = match products.in_transaction(&mut tx).find_by_key(&key).await {
-        Ok(value) => value,
-        Err(error) => panic!("failed to find missing product by key: {error:?}"),
-    };
+
     commit(tx).await;
 
     assert!(by_id.is_none());
-    assert!(by_key.is_none());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_product_insert_conflict_when_shop_product_key_or_slug_duplicate() {
+async fn should_report_product_insert_conflict_when_shop_product_identity_or_slug_duplicates() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let products = SqlxProductRepositoryFactory::new();
@@ -193,7 +172,7 @@ async fn should_report_product_insert_conflict_when_shop_product_key_or_slug_dup
         .await;
     assert!(matches!(
         duplicate_product,
-        Err(ProductRepositoryError::ProductKeyAlreadyExists)
+        Err(ProductRepositoryError::ShopProductAlreadyExists)
             | Err(ProductRepositoryError::ProductSlugAlreadyExists)
             | Err(ProductRepositoryError::ProductInsertFailed)
     ));
@@ -250,7 +229,7 @@ async fn should_report_product_update_conflict_when_event_id_is_stale() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_report_key_conflict_when_update_would_duplicate_shop_product_key() {
+async fn should_report_identity_conflict_when_update_would_duplicate_shop_product_identity() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let products = SqlxProductRepositoryFactory::new();
@@ -282,7 +261,7 @@ async fn should_report_key_conflict_when_update_would_duplicate_shop_product_key
 
     assert!(matches!(
         result,
-        Err(ProductRepositoryError::ProductKeyAlreadyExists)
+        Err(ProductRepositoryError::ShopProductAlreadyExists)
     ));
 }
 
@@ -451,9 +430,9 @@ fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> Product {
             Description::from("Nice product"),
         )),
         pricing: ProductPricing {
-            native_price: Some(Price::new(MonetaryAmount::from(1_200_u64), Currency::Eur)),
-            native_price_estimate_min: None,
-            native_price_estimate_max: None,
+            price: Some(Price::new(MonetaryAmount::from(1_200_u64), Currency::Eur)),
+            price_estimate_min: None,
+            price_estimate_max: None,
             fx_rate_id: None,
         },
         state: ProductState::Listed,

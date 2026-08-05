@@ -5,7 +5,8 @@ use aura_historia_api::auth::{
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, OAuthState, PartnerApplicationsState, ShopsState, UsersState, WatchlistState,
+    AppState, OAuthState, PartnerApplicationsState, ProductsState, ShopsState, UsersState,
+    WatchlistState,
 };
 use aura_historia_api::{app, state};
 use common::domain::Domain;
@@ -14,12 +15,23 @@ use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
+use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
     AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
+};
+use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
+use product_postgres::{
+    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductUserStateReader,
+    SqlxProductWatchlistDetailsReaderFactory,
+};
+use product_service::use_cases::{
+    GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
 };
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
@@ -44,7 +56,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use test_api::{get_dynamodb_client, get_postgres_client};
+use test_api::{get_dynamodb_client, get_opensearch_client, get_postgres_client};
 use url::Url;
 use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
@@ -65,7 +77,7 @@ use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
 use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
-use watchlist_postgres::{SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory};
+use watchlist_postgres::SqlxWatchlistRepositoryFactory;
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
@@ -187,9 +199,21 @@ pub async fn seed_shop() -> Shop {
     shop
 }
 
+pub async fn product_route_slugs(product_id: ProductId) -> (String, String) {
+    let pool = get_postgres_client().await;
+    sqlx::query_as(
+        "SELECT shops.shop_slug_id, products.product_slug_id FROM products JOIN shops ON shops.shop_id = products.shop_id WHERE products.product_id = $1",
+    )
+    .bind(uuid::Uuid::from(product_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read seeded product slugs: {error}"))
+}
+
 pub async fn seed_product() -> ProductId {
     let shop = seed_shop().await;
     let product_id = ProductId::new();
+    let product_slug_id = common::product_slug_id::ProductSlugId::from("acceptance-product");
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     let mut tx = pool
@@ -207,11 +231,11 @@ pub async fn seed_product() -> ProductId {
         INSERT INTO products (
             product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id,
             state, lifecycle, url
-        ) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'PUBLISHED', $6)
+        ) VALUES ($1, $2, $3, $4, $4, $5, 'AVAILABLE', 'ACTIVE', $6)
         "#,
     )
     .bind(uuid::Uuid::from(product_id))
-    .bind(format!("acceptance-product-{product_id}"))
+    .bind(product_slug_id.as_ref())
     .bind(event_id)
     .bind(uuid::Uuid::from(shop.id()))
     .bind(format!("shops-product-{product_id}"))
@@ -224,7 +248,14 @@ pub async fn seed_product() -> ProductId {
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time)
-        VALUES ($1, $2, 'CREATED', 'DOMAIN', '{}', now())
+        VALUES (
+            $1,
+            $2,
+            'PRODUCT_CREATED',
+            'DOMAIN',
+            '{"title":null,"description":null,"address":{},"pricing":{},"state":"Available","url":"https://api-acceptance.example/product","images":[],"auction":{}}',
+            now()
+        )
         "#,
     )
     .bind(event_id)
@@ -267,6 +298,32 @@ async fn test_state() -> AppState {
     ));
     let oauth_store = OAuthDynamoDbStore::new(client, "table_1");
     let oauth_access_tokens = StoreOAuthAccessTokenGateway::new(access_token_store.clone());
+    let opensearch_client = get_opensearch_client().await;
+
+    let products_state = ProductsState::new(
+        Arc::new(GetProductHandler::new(
+            unit_of_work.clone(),
+            SqlxProductDetailsReaderFactory::new(),
+            DynamoDbProductNotificationsReader::new(client, "table_1"),
+        )),
+        Arc::new(GetSimilarProductsHandler::new(
+            unit_of_work.clone(),
+            SqlxProductEmbeddingReaderFactory::new(),
+            OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
+            SqlxProductUserStateReader::new(get_postgres_client().await),
+            DynamoDbAllNotificationsReader::new(client, "table_1"),
+        )),
+        Arc::new(SearchProductsHandler::new(
+            OpenSearchProductSearchReader::new(opensearch_client.clone()),
+            SqlxProductUserStateReader::new(get_postgres_client().await),
+            DynamoDbAllNotificationsReader::new(client, "table_1"),
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    )
+    .with_product_events(Arc::new(GetProductEventsHandler::new(
+        unit_of_work.clone(),
+        SqlxProductEventReaderFactory::new(),
+    )));
 
     let shops_state = ShopsState::new(
         Arc::new(GetShopHandler::new(
@@ -349,7 +406,8 @@ async fn test_state() -> AppState {
     let watchlist_state = WatchlistState::new(
         Arc::new(ListWatchlistHandler::new(
             unit_of_work.clone(),
-            SqlxWatchlistReaderFactory,
+            SqlxProductWatchlistDetailsReaderFactory::new(),
+            DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(WatchProductHandler::new(
             unit_of_work.clone(),
@@ -436,6 +494,7 @@ async fn test_state() -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     state::AppState::new(shops_state, users_state, watchlist_state, partner_state)
+        .with_products(products_state)
         .with_oauth(oauth_state)
 }
 

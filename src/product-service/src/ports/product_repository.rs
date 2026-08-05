@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use common::event_id::EventId;
-use common::product_id::{ProductId, ProductKey};
+use common::product_id::ProductId;
 use common::versioned::Versioned;
 use product_core::product::Product;
 
@@ -9,14 +9,12 @@ use product_core::product::Product;
 pub enum ProductRepositoryError {
     #[error("product current event id did not match expected event id")]
     ProductCurrentEventIdConflict,
-    #[error("product already exists for shop product key")]
-    ProductKeyAlreadyExists,
+    #[error("product already exists for shop product identity")]
+    ShopProductAlreadyExists,
     #[error("product slug already exists")]
     ProductSlugAlreadyExists,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
-    #[error("product lookup by natural key failed")]
-    ProductLookupByKeyFailed,
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -58,11 +56,6 @@ pub trait ProductRepository: Send {
     async fn find_by_id(
         &mut self,
         id: ProductId,
-    ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>;
-
-    async fn find_by_key(
-        &mut self,
-        key: &ProductKey,
     ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>;
 
     async fn insert(

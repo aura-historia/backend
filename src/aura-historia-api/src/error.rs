@@ -3,6 +3,9 @@ use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use oauth_service::error::OAuthServiceError;
+use product_service::use_cases::{
+    GetProductError, GetProductEventsError, GetSimilarProductsError, SearchProductsError,
+};
 use serde::Serialize;
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationError, AdminGetPartnerShopApplicationError,
@@ -63,6 +66,7 @@ pub(crate) const ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
 pub(crate) const INVALID_CREDENTIALS: ApiErrorCode = ApiErrorCode("INVALID_CREDENTIALS");
 pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
 pub(crate) const BAD_ORDER_VALUE: ApiErrorCode = ApiErrorCode("BAD_ORDER_VALUE");
+pub(crate) const BAD_PATH_PARAMETER_VALUE: ApiErrorCode = ApiErrorCode("BAD_PATH_PARAMETER_VALUE");
 pub(crate) const BAD_QUERY_PARAMETER_VALUE: ApiErrorCode =
     ApiErrorCode("BAD_QUERY_PARAMETER_VALUE");
 pub(crate) const BAD_SORT_VALUE: ApiErrorCode = ApiErrorCode("BAD_SORT_VALUE");
@@ -74,6 +78,10 @@ pub(crate) const SHOP_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("SHOP_INTERNAL
 pub(crate) const SHOP_NOT_FOUND: ApiErrorCode = ApiErrorCode("SHOP_NOT_FOUND");
 pub(crate) const SHOP_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("SHOP_TEMPORARILY_UNAVAILABLE");
+pub(crate) const PRODUCT_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("PRODUCT_INTERNAL_ERROR");
+pub(crate) const PRODUCT_NOT_FOUND: ApiErrorCode = ApiErrorCode("PRODUCT_NOT_FOUND");
+pub(crate) const PRODUCT_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("PRODUCT_TEMPORARILY_UNAVAILABLE");
 pub(crate) const USER_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("USER_INTERNAL_ERROR");
 pub(crate) const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
 pub(crate) const USER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
@@ -249,6 +257,92 @@ impl From<AuthError> for ApiError {
             | AuthError::JwksFetch(_) => ApiError::unauthorized(INVALID_CREDENTIALS)
                 .with_header_field("Authorization")
                 .with_detail("Bearer token is invalid."),
+        }
+    }
+}
+
+impl From<GetProductError> for ApiError {
+    fn from(error: GetProductError) -> Self {
+        match error {
+            GetProductError::NotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            }
+            GetProductError::ProductDetailsQueryFailed
+            | GetProductError::ProductNotificationReadFailed { .. }
+            | GetProductError::BeginTransactionFailed
+            | GetProductError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Product details are temporarily unavailable.")
+            }
+            GetProductError::ProductDetailsReadModelInvalid => {
+                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                    .with_detail("Product details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<GetProductEventsError> for ApiError {
+    fn from(error: GetProductEventsError) -> Self {
+        match error {
+            GetProductEventsError::NotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            }
+            GetProductEventsError::ProductEventQueryFailed
+            | GetProductEventsError::BeginTransactionFailed
+            | GetProductEventsError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Product history is temporarily unavailable.")
+            }
+            GetProductEventsError::ProductEventReadModelInvalid => {
+                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                    .with_detail("Product history contains invalid event data.")
+            }
+        }
+    }
+}
+
+impl From<GetSimilarProductsError> for ApiError {
+    fn from(error: GetSimilarProductsError) -> Self {
+        match error {
+            GetSimilarProductsError::NotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            }
+            GetSimilarProductsError::ProductEmbeddingQueryFailed { .. }
+            | GetSimilarProductsError::SimilaritySearchUnavailable
+            | GetSimilarProductsError::BeginTransactionFailed
+            | GetSimilarProductsError::CommitTransactionFailed
+            | GetSimilarProductsError::ProductUserStateQueryFailed { .. }
+            | GetSimilarProductsError::ProductNotificationReadFailed { .. } => {
+                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Similar products are temporarily unavailable.")
+            }
+            GetSimilarProductsError::ProductUserStateReadModelInvalid { .. }
+            | GetSimilarProductsError::ProductUserStateMissing
+            | GetSimilarProductsError::HiddenProductSummaryInvalid { .. } => {
+                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                    .with_detail("Similar product personalization failed internally.")
+            }
+        }
+    }
+}
+
+impl From<SearchProductsError> for ApiError {
+    fn from(error: SearchProductsError) -> Self {
+        match error {
+            SearchProductsError::ProductSearchQueryFailed
+            | SearchProductsError::ProductUserStateQueryFailed { .. }
+            | SearchProductsError::ProductNotificationReadFailed { .. } => {
+                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Product search is temporarily unavailable.")
+            }
+            SearchProductsError::ProductSearchReadModelInvalid
+            | SearchProductsError::ProductUserStateReadModelInvalid { .. }
+            | SearchProductsError::ProductUserStateMissing
+            | SearchProductsError::HiddenProductSummaryInvalid { .. } => {
+                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                    .with_detail("Product search failed internally.")
+            }
         }
     }
 }
@@ -645,6 +739,7 @@ impl From<ListWatchlistError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             ListWatchlistError::TemporarilyUnavailable
+            | ListWatchlistError::NotificationReadFailed { .. }
             | ListWatchlistError::BeginTransactionFailed
             | ListWatchlistError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
@@ -1056,6 +1151,21 @@ impl IntoResponse for ApiError {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn should_map_product_notification_read_failure_to_service_unavailable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = ApiError::from(GetProductError::ProductNotificationReadFailed {
+            source: common::error::boxed::box_error(std::io::Error::other("dynamodb unavailable")),
+        })
+        .into_response();
+
+        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(PRODUCT_TEMPORARILY_UNAVAILABLE.to_string(), body["error"]);
+        Ok(())
+    }
 
     #[tokio::test]
     async fn should_render_problem_json_response() -> Result<(), Box<dyn std::error::Error>> {

@@ -2,11 +2,14 @@
 
 use common::event_id::EventId;
 use common::product_id::ProductId;
-use product_core::product::{ProductDomainEvent, ProductDomainEventPayload};
+use product_core::product::{
+    ProductAddress, ProductAuction, ProductDomainEvent, ProductDomainEventPayload, ProductPricing,
+};
+use product_core::product_image::ProductImage;
 use product_service::ports::product_event_store::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use sqlx::PgConnection;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -66,7 +69,7 @@ impl ProductEventStore for SqlxProductEventStore<'_> {
         product_id: ProductId,
     ) -> Result<Option<EventId>, ProductEventStoreError> {
         let event_id = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT event_id FROM products WHERE product_id = $1",
+            "SELECT event_id FROM product_events WHERE product_id = $1 ORDER BY event_time DESC, event_id DESC LIMIT 1",
         )
         .bind(uuid::Uuid::from(product_id))
         .fetch_optional(&mut *self.connection)
@@ -99,13 +102,18 @@ impl From<ProductCurrentEventLookupSqlxError> for ProductEventStoreError {
     }
 }
 
-fn event_payload_json(payload: &ProductDomainEventPayload) -> serde_json::Value {
+fn event_payload_json(payload: &ProductDomainEventPayload) -> Value {
     match payload {
         ProductDomainEventPayload::Created(payload) => json!({
             "kind": "created",
+            "title": payload.title.as_ref().map(localized_title_json),
+            "description": payload.description.as_ref().map(localized_description_json),
+            "address": address_json(&payload.address),
+            "pricing": pricing_json(payload.pricing),
             "state": format!("{:?}", payload.state),
-            "hasTitle": payload.title.is_some(),
-            "hasDescription": payload.description.is_some(),
+            "url": payload.url.as_str(),
+            "images": images_json(&payload.images),
+            "auction": auction_json(payload.auction),
         }),
         ProductDomainEventPayload::StateChanged(payload) => json!({
             "kind": "stateChanged",
@@ -114,13 +122,12 @@ fn event_payload_json(payload: &ProductDomainEventPayload) -> serde_json::Value 
         }),
         ProductDomainEventPayload::AddressChanged(payload) => json!({
             "kind": "addressChanged",
-            "hasStructuredAddress": payload.address.structured.is_some(),
-            "hasGeoAddress": payload.address.geo.is_some(),
+            "address": address_json(&payload.address),
         }),
         ProductDomainEventPayload::PriceChanged(payload) => json!({
             "kind": "priceChanged",
-            "oldFxRateId": payload.old_pricing.fx_rate_id.map(String::from),
-            "newFxRateId": payload.new_pricing.fx_rate_id.map(String::from),
+            "oldPricing": pricing_json(payload.old_pricing),
+            "newPricing": pricing_json(payload.new_pricing),
         }),
         ProductDomainEventPayload::UrlChanged(payload) => json!({
             "kind": "urlChanged",
@@ -129,12 +136,11 @@ fn event_payload_json(payload: &ProductDomainEventPayload) -> serde_json::Value 
         }),
         ProductDomainEventPayload::ImagesChanged(payload) => json!({
             "kind": "imagesChanged",
-            "imageCount": payload.images.len(),
+            "images": images_json(&payload.images),
         }),
         ProductDomainEventPayload::AuctionChanged(payload) => json!({
             "kind": "auctionChanged",
-            "auctionStart": payload.auction.start.map(|value| value.to_string()),
-            "auctionEnd": payload.auction.end.map(|value| value.to_string()),
+            "auction": auction_json(payload.auction),
         }),
         ProductDomainEventPayload::Deleted(payload) => json!({
             "kind": "deleted",
@@ -144,49 +150,255 @@ fn event_payload_json(payload: &ProductDomainEventPayload) -> serde_json::Value 
     }
 }
 
+fn localized_title_json(
+    title: &common::localized::Localized<
+        common::language::domain::Language,
+        product_core::title::Title,
+    >,
+) -> Value {
+    json!({
+        "language": title.localization.as_str(),
+        "text": title.payload.as_ref(),
+    })
+}
+
+fn localized_description_json(
+    description: &common::localized::Localized<
+        common::language::domain::Language,
+        product_core::description::Description,
+    >,
+) -> Value {
+    json!({
+        "language": description.localization.as_str(),
+        "text": description.payload.as_ref(),
+    })
+}
+
+fn address_json(address: &ProductAddress) -> Value {
+    json!({
+        "structured": address.structured.as_ref().map(|structured| json!({
+            "addressline": structured.addressline,
+            "addresslineExtra": structured.addressline_extra,
+            "locality": structured.locality,
+            "region": structured.region,
+            "postalCode": structured.postal_code,
+            "country": structured.country.map(|country| country.alpha3()),
+        })),
+        "geo": address.geo.map(|geo| json!({
+            "lat": geo.lat,
+            "lon": geo.lon,
+        })),
+    })
+}
+
+fn pricing_json(pricing: ProductPricing) -> Value {
+    json!({
+        "price": pricing.price.map(price_json),
+        "priceEstimateMin": pricing.price_estimate_min.map(price_json),
+        "priceEstimateMax": pricing.price_estimate_max.map(price_json),
+        "fxRateId": pricing.fx_rate_id.map(String::from),
+    })
+}
+
+fn price_json(price: common::price::domain::Price) -> Value {
+    json!({
+        "amount": u64::from(price.monetary_amount),
+        "currency": price.currency.as_str(),
+    })
+}
+
+fn images_json(images: &indexmap::IndexSet<ProductImage>) -> Value {
+    Value::Array(
+        images
+            .iter()
+            .map(|image| {
+                json!({
+                    "url": image.url.as_str(),
+                    "prohibitedContent": image.prohibited_content.as_str(),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn auction_json(auction: ProductAuction) -> Value {
+    json!({
+        "start": auction.start.map(|value| value.to_string()),
+        "end": auction.end.map(|value| value.to_string()),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::event::Event;
+    use common::currency::domain::Currency;
+    use common::language::domain::Language;
+    use common::localized::Localized;
+    use common::price::domain::{MonetaryAmount, Price};
+    use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_state::domain::ProductState;
-    use product_core::product::{ProductPricing, ProductStateChanged};
+    use indexmap::IndexSet;
+    use product_core::description::Description;
+    use product_core::fx_rate_id::FxRateId;
+    use product_core::product::{
+        ProductAddressChanged, ProductAuctionChanged, ProductCreated, ProductDeleted,
+        ProductImagesChanged, ProductPriceChanged, ProductStateChanged, ProductUrlChanged,
+    };
+    use product_core::product_image::ProductImage;
+    use product_core::prohibited_content::ProhibitedContent;
+    use product_core::title::Title;
     use time::OffsetDateTime;
+    use url::Url;
+
+    fn url(value: &str) -> Url {
+        match Url::parse(value) {
+            Ok(url) => url,
+            Err(error) => panic!("invalid test URL: {error}"),
+        }
+    }
+
+    fn price(amount: u64, currency: Currency) -> Price {
+        Price::new(MonetaryAmount::from(amount), currency)
+    }
+
+    fn pricing(fx_rate_id: Option<FxRateId>) -> ProductPricing {
+        ProductPricing {
+            price: Some(price(1_200, Currency::Eur)),
+            price_estimate_min: Some(price(1_000, Currency::Eur)),
+            price_estimate_max: Some(price(1_400, Currency::Eur)),
+            fx_rate_id,
+        }
+    }
+
+    fn images() -> IndexSet<ProductImage> {
+        [ProductImage {
+            url: url("https://shop.example/image.jpg"),
+            prohibited_content: ProhibitedContent::None,
+        }]
+        .into_iter()
+        .collect()
+    }
 
     #[test]
-    fn should_map_state_changed_event_to_payload_object() {
-        let event = Event {
-            aggregate_id: ProductId::new(),
-            event_id: EventId::new(),
-            timestamp: OffsetDateTime::now_utc(),
-            payload: ProductDomainEventPayload::StateChanged(ProductStateChanged {
-                old_state: ProductState::Listed,
-                new_state: ProductState::Available,
-            }),
-        };
+    fn should_write_lossless_created_payload() {
+        let fx_rate_id = FxRateId::new();
+        let payload = ProductDomainEventPayload::Created(Box::new(ProductCreated {
+            title: Some(Localized::new(Language::En, Title::from("Bronze vase"))),
+            description: Some(Localized::new(Language::En, Description::from("Ancient"))),
+            address: ProductAddress {
+                structured: None,
+                geo: Some(geo::core::address::GeoAddress {
+                    lat: 47.0,
+                    lon: 8.0,
+                }),
+            },
+            pricing: pricing(Some(fx_rate_id)),
+            state: ProductState::Listed,
+            url: url("https://shop.example/products/1"),
+            images: images(),
+            auction: ProductAuction {
+                start: Some(OffsetDateTime::UNIX_EPOCH),
+                end: None,
+            },
+        }));
 
-        let payload = event_payload_json(&event.payload);
+        let json = event_payload_json(&payload);
 
+        assert_eq!(Some("created"), json.get("kind").and_then(Value::as_str));
         assert_eq!(
-            Some("stateChanged"),
-            payload.get("kind").and_then(|value| value.as_str())
+            Some("Bronze vase"),
+            json.pointer("/title/text").and_then(Value::as_str)
+        );
+        assert_eq!(
+            Some(1_200),
+            json.pointer("/pricing/price/amount")
+                .and_then(Value::as_i64)
+        );
+        assert_eq!(
+            Some("EUR"),
+            json.pointer("/pricing/price/currency")
+                .and_then(Value::as_str)
+        );
+        assert_eq!(
+            Some(fx_rate_id.to_string().as_str()),
+            json.pointer("/pricing/fxRateId").and_then(Value::as_str)
+        );
+        assert_eq!(
+            Some("https://shop.example/image.jpg"),
+            json.pointer("/images/0/url").and_then(Value::as_str)
+        );
+        assert_eq!(
+            Some(47.0),
+            json.pointer("/address/geo/lat").and_then(Value::as_f64)
         );
     }
 
     #[test]
-    fn should_map_price_event_fx_rate_ids() {
-        let old_pricing = ProductPricing::default();
-        let new_pricing = ProductPricing::default();
-
-        let payload = event_payload_json(&ProductDomainEventPayload::PriceChanged(
-            product_core::product::ProductPriceChanged {
-                old_pricing,
-                new_pricing,
+    fn should_write_old_and_new_pricing_snapshots_with_fx_rate_ids() {
+        let old_fx_rate_id = FxRateId::new();
+        let new_fx_rate_id = FxRateId::new();
+        let payload = ProductDomainEventPayload::PriceChanged(ProductPriceChanged {
+            old_pricing: pricing(Some(old_fx_rate_id)),
+            new_pricing: ProductPricing {
+                price: Some(price(1_500, Currency::Usd)),
+                price_estimate_min: None,
+                price_estimate_max: None,
+                fx_rate_id: Some(new_fx_rate_id),
             },
-        ));
+        });
+
+        let json = event_payload_json(&payload);
 
         assert_eq!(
-            Some("priceChanged"),
-            payload.get("kind").and_then(|value| value.as_str())
+            Some(1_200),
+            json.pointer("/oldPricing/price/amount")
+                .and_then(Value::as_i64)
         );
+        assert_eq!(
+            Some("USD"),
+            json.pointer("/newPricing/price/currency")
+                .and_then(Value::as_str)
+        );
+        assert_eq!(
+            Some(old_fx_rate_id.to_string().as_str()),
+            json.pointer("/oldPricing/fxRateId").and_then(Value::as_str)
+        );
+        assert_eq!(
+            Some(new_fx_rate_id.to_string().as_str()),
+            json.pointer("/newPricing/fxRateId").and_then(Value::as_str)
+        );
+    }
+
+    #[test]
+    fn should_write_payload_for_every_product_event_type() {
+        let event_types = [
+            ProductDomainEventPayload::StateChanged(ProductStateChanged {
+                old_state: ProductState::Listed,
+                new_state: ProductState::Available,
+            }),
+            ProductDomainEventPayload::AddressChanged(ProductAddressChanged {
+                address: ProductAddress::default(),
+            }),
+            ProductDomainEventPayload::UrlChanged(ProductUrlChanged {
+                old_url: url("https://shop.example/products/1"),
+                new_url: url("https://shop.example/products/2"),
+            }),
+            ProductDomainEventPayload::ImagesChanged(Box::new(ProductImagesChanged {
+                images: images(),
+            })),
+            ProductDomainEventPayload::AuctionChanged(ProductAuctionChanged {
+                auction: ProductAuction::default(),
+            }),
+            ProductDomainEventPayload::Deleted(ProductDeleted {
+                old_lifecycle: ProductLifecycle::Active,
+                new_lifecycle: ProductLifecycle::Deleted,
+            }),
+        ];
+
+        for event in event_types {
+            let json = event_payload_json(&event);
+
+            assert!(json.get("kind").and_then(Value::as_str).is_some());
+        }
     }
 }

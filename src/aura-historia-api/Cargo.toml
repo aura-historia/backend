@@ -8,15 +8,17 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
-common = { workspace = true, features = ["postgres"] }
+common = { workspace = true, features = ["api", "postgres"] }
 geo = { workspace = true, features = ["data"] }
 http = { workspace = true }
 httpdate = { workspace = true }
 oauth-core = { workspace = true }
 oauth-dynamodb = { workspace = true }
 oauth-service = { workspace = true }
+opensearch = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }
+notification-dynamodb = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde-email = { workspace = true }
@@ -28,6 +30,10 @@ shop-partner-postgres = { workspace = true }
 shop-partner-service = { workspace = true }
 shop-postgres = { workspace = true }
 shop-service = { workspace = true }
+product-core = { workspace = true }
+product-opensearch = { workspace = true }
+product-postgres = { workspace = true }
+product-service = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true, features = ["formatting"] }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
@@ -48,6 +54,6 @@ openssl = { workspace = true, features = ["vendored"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 sqlx = { workspace = true }
-test-api = { workspace = true, features = ["aura-historia-api", "dynamodb", "postgres"] }
+test-api = { workspace = true, features = ["aura-historia-api", "dynamodb", "opensearch", "postgres"] }
 time = { workspace = true }
 tower = { workspace = true, features = ["util"] }

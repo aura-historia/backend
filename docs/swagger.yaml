@@ -40,8 +40,12 @@ info:
 
     ## Data and response conventions
 
-    - Localized resources frequently require **`language`** and **`currency`** parameters so the backend
-      can return localized text and normalized pricing
+    - Product detail and similar-product reads accept an optional **`language`** parameter. Detail resolves
+      current title and description from persisted translations; similar reads resolve projected result titles.
+      Product history remains immutable and is not localized.
+      Detail and history prices remain their stored source amount and currency; their `pricing` snapshots
+      include `fxRateId`, but no currency conversion is performed. Source → EUR → requested-currency conversion is deferred to
+      [#1466](https://github.com/aura-historia/backend/issues/1466).
     - Errors are returned as **`application/problem+json`** using a consistent RFC 9457-style structure
       with `status`, `title`, `error`, optional `source`, and optional `detail`
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`
@@ -915,56 +919,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
+  /api/v1/products/{productId}:
     get:
       summary: Get a single product
       description: |
-        Retrieves a single product by its shop ID and shop's product ID.
-        Returns localized content based on the optional `language` query parameter and currency preferences.
+        Retrieves a single product by its `productId`.
 
-        **Personalization**: When authenticated (via optional Authorization header), the response includes
-        user-specific state such as whether the product is on the user's watchlist and notification preferences.
-        Anonymous requests receive product data without user state.
+        Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
+        `fxRateId`; this endpoint performs no currency conversion.
+
+        Responses always contain `item`, the product data. A valid user or delegated-user bearer token
+        adds optional top-level `userState`; authenticated responses are not cached.
+
       operationId: getProduct
       tags:
         - Products
       parameters:
-        - name: shopId
+        - name: productId
           in: path
           required: true
-          description: Unique identifier of the shop
+          description: Unique identifier of the product
           schema:
             type: string
             format: uuid
             example: "550e8400-e29b-41d4-a716-446655440000"
-        - name: shopsProductId
-          in: path
-          required: true
-          description: Shop's unique identifier for the product. Can be any arbitrary string.
-          schema:
-            type: string
-            example: "6ba7b810"
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
         - name: language
           in: query
           required: false
-          description: |
-            Preferred language for localized content.
-            Defaults to `en` when omitted.
+          description: Requested current title and description language. Defaults to `en`; unavailable translations fall back to stored content.
           schema:
             $ref: "#/components/schemas/LanguageData"
-          example: de
       security:
         - BearerAuth: []
         - {}
       responses:
         "200":
           description: Product found and returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonalizedProductDetailsData"
           headers:
             Content-Language:
               description: The language of the returned content
@@ -988,123 +982,14 @@ paths:
               schema:
                 type: string
               example: "*"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PersonalizedGetProductData"
-              examples:
-                authenticated:
-                  summary: Authenticated user response with watchlist state
-                  value:
-                    item:
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      productSlugId: "amazing-product-fa87c4"
-                      shopSlugId: "my-shop"
-                      eventId: "550e8400-e29b-41d4-a716-446655440001"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "6ba7b810"
-                      shopName: "My Shop"
-                      shopType: "COMMERCIAL_DEALER"
-                      title:
-                        text: "Amazing Product"
-                        language: "en"
-                      description:
-                        text: "This is an amazing product description"
-                        language: "en"
-                      price:
-                        offer:
-                          currency: "EUR"
-                          amount: 2999
-                        estimate:
-                          min:
-                            currency: "EUR"
-                            amount: 2500
-                          max:
-                            currency: "EUR"
-                            amount: 3500
-                      state: "AVAILABLE"
-                      url: "https://my-shop.com/products/amazing-product"
-                      viewUrl: "https://my-shop.com/products/amazing-product?utm_source=aura_historia&utm_medium=referral"
-                      images:
-                        - url: "https://my-shop.com/images/product-1.jpg"
-                          prohibitedContent: "NONE"
-                        - url: "https://my-shop.com/images/product-2.jpg"
-                          prohibitedContent: "NONE"
-                      auction:
-                        start: "2025-05-01T12:00:00Z"
-                        end: "2025-05-10T12:00:00Z"
-                      created: "2024-01-01T10:00:00Z"
-                      updated: "2024-01-01T12:00:00Z"
-                    userState:
-                      watchlist:
-                        watching: true
-                        notifications: true
-                      prohibitedContent:
-                        consent: false
-                anonymous:
-                  summary: Anonymous user response without user state
-                  value:
-                    item:
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      productSlugId: "amazing-product-fa87c4"
-                      shopSlugId: "my-shop"
-                      eventId: "550e8400-e29b-41d4-a716-446655440001"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "6ba7b810"
-                      shopName: "My Shop"
-                      shopType: "COMMERCIAL_DEALER"
-                      title:
-                        text: "Amazing Product"
-                        language: "en"
-                      description:
-                        text: "This is an amazing product description"
-                        language: "en"
-                      price:
-                        offer:
-                          currency: "EUR"
-                          amount: 2999
-                        estimate:
-                          min:
-                            currency: "EUR"
-                            amount: 2800
-                          max:
-                            currency: "EUR"
-                            amount: 3200
-                      state: "AVAILABLE"
-                      url: "https://my-shop.com/products/amazing-product"
-                      viewUrl: "https://my-shop.com/products/amazing-product?utm_source=aura_historia&utm_medium=referral"
-                      images:
-                        - url: "https://my-shop.com/images/product-1.jpg"
-                          prohibitedContent: "NONE"
-                        - url: "https://my-shop.com/images/product-2.jpg"
-                          prohibitedContent: "NONE"
-                      created: "2024-01-01T10:00:00Z"
-                      updated: "2024-01-01T12:00:00Z"
+
         "400":
           description: Bad request - invalid parameters
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_shop_id:
-                  summary: Missing shop ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PARAMETER"
-                    source:
-                      field: "shopId"
-                      sourceType: "path"
-                missing_shops_product_id:
-                  summary: Missing shop's product ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PARAMETER"
-                    source:
-                      field: "shopsProductId"
-                      sourceType: "path"
+
         "404":
           description: Product not found
           content:
@@ -1124,23 +1009,35 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+                error: "PRODUCT_INTERNAL_ERROR"
+        "503":
+          description: Product detail or notification state is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
 
   /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}:
     get:
       summary: Get a single product by slug
       description: |
         Retrieves a single product by its shop slug ID and product slug ID.
-        Returns localized content based on the optional `language` query parameter and currency preferences.
+
+        Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
+        `fxRateId`; this endpoint performs no currency conversion.
+
+        Responses always contain `item`, the product data. A valid user or delegated-user bearer token
+        adds optional top-level `userState`; authenticated responses are not cached.
 
         **Human-Readable Identifiers**: This endpoint uses slug-based identifiers which are human-readable
         kebab-case strings. Shop slugs are derived from the shop name (e.g., "tech-store-premium"),
         while product slugs combine the product title with a unique 6-character hexadecimal suffix
         (e.g., "amazing-product-fa87c4").
 
-        **Personalization**: When authenticated (via optional Authorization header), the response includes
-        user-specific state such as whether the product is on the user's watchlist and notification preferences.
-        Anonymous requests receive product data without user state.
       operationId: getProductBySlug
       tags:
         - Products
@@ -1163,28 +1060,22 @@ paths:
             type: string
             pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[a-f0-9]{6}$"
             example: "amazing-product-fa87c4"
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
         - name: language
           in: query
           required: false
-          description: |
-            Preferred language for localized content.
-            Defaults to `en` when omitted.
+          description: Requested current title and description language. Defaults to `en`; unavailable translations fall back to stored content.
           schema:
             $ref: "#/components/schemas/LanguageData"
-          example: de
       security:
         - BearerAuth: []
         - {}
       responses:
         "200":
           description: Product found and returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonalizedProductDetailsData"
           headers:
             Content-Language:
               description: The language of the returned content
@@ -1208,96 +1099,14 @@ paths:
               schema:
                 type: string
               example: "*"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PersonalizedGetProductData"
-              examples:
-                authenticated:
-                  summary: Authenticated user response with watchlist state
-                  value:
-                    item:
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      productSlugId: "amazing-product-fa87c4"
-                      shopSlugId: "tech-store-premium"
-                      eventId: "550e8400-e29b-41d4-a716-446655440001"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "6ba7b810"
-                      shopName: "Tech Store Premium"
-                      shopType: "COMMERCIAL_DEALER"
-                      title:
-                        text: "Amazing Product"
-                        language: "en"
-                      description:
-                        text: "This is an amazing product description"
-                        language: "en"
-                      price:
-                        offer:
-                          currency: "EUR"
-                          amount: 2999
-                      state: "AVAILABLE"
-                      url: "https://tech-store-premium.com/products/amazing-product"
-                      viewUrl: "https://tech-store-premium.com/products/amazing-product?utm_source=aura_historia&utm_medium=referral"
-                      images:
-                        - url: "https://tech-store-premium.com/images/product-1.jpg"
-                          prohibitedContent: "NONE"
-                      created: "2024-01-01T10:00:00Z"
-                      updated: "2024-01-01T12:00:00Z"
-                    userState:
-                      watchlist:
-                        watching: true
-                        notifications: true
-                      prohibitedContent:
-                        consent: false
-                anonymous:
-                  summary: Anonymous user response without user state
-                  value:
-                    item:
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      productSlugId: "amazing-product-fa87c4"
-                      shopSlugId: "tech-store-premium"
-                      eventId: "550e8400-e29b-41d4-a716-446655440001"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopsProductId: "6ba7b810"
-                      shopName: "Tech Store Premium"
-                      shopType: "COMMERCIAL_DEALER"
-                      title:
-                        text: "Amazing Product"
-                        language: "en"
-                      state: "AVAILABLE"
-                      url: "https://tech-store-premium.com/products/amazing-product"
-                      viewUrl: "https://tech-store-premium.com/products/amazing-product?utm_source=aura_historia&utm_medium=referral"
-                      images: []
-                      created: "2024-01-01T10:00:00Z"
-                      updated: "2024-01-01T12:00:00Z"
-                    userState: null
+
         "400":
           description: Bad request - invalid parameters
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_shop_slug_id:
-                  summary: Missing shop slug ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "shopSlugId"
-                      sourceType: "path"
-                    detail: "Missing field 'shopSlugId'."
-                missing_product_slug_id:
-                  summary: Missing product slug ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "productSlugId"
-                      sourceType: "path"
-                    detail: "Missing field 'productSlugId'."
+
         "404":
           description: Product not found
           content:
@@ -1317,67 +1126,48 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+                error: "PRODUCT_INTERNAL_ERROR"
+        "503":
+          description: Product detail or notification state is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
 
-  /api/v1/shops/{shopId}/products/{shopsProductId}/history:
+  /api/v1/products/{productId}/history:
     get:
       summary: Get product event history
       description: |
-        Retrieves the event history for a specific product by its shop ID and shop's product ID.
-        Returns an array of events representing state changes, price changes, and other significant
+        Retrieves the event history for a specific product by its `productId`.
+        Returns an array of immutable events representing state changes, price changes, and other
         product lifecycle events, ordered chronologically.
 
-        Returns localized content based on the optional `language` query parameter and currency preferences for
-        price information in the event payloads.
+        Price snapshots preserve the stored source amount and currency and include the recorded
+        `fxRateId`. This endpoint performs no currency conversion.
       operationId: getProductHistory
       tags:
         - Products
       parameters:
-        - name: shopId
+        - name: productId
           in: path
           required: true
-          description: Unique identifier of the shop
+          description: Unique identifier of the product
           schema:
             type: string
             format: uuid
             example: "550e8400-e29b-41d4-a716-446655440000"
-        - name: shopsProductId
-          in: path
-          required: true
-          description: Shop's unique identifier for the product. Can be any arbitrary string.
-          schema:
-            type: string
-            example: "6ba7b810"
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display in event payloads
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
-        - name: language
-          in: query
-          required: false
-          description: |
-            Preferred language for localized content.
-            Defaults to `en` when omitted.
-          schema:
-            $ref: "#/components/schemas/LanguageData"
-          example: de
       responses:
         "200":
           description: Product history retrieved successfully
           headers:
-            Content-Language:
-              description: The language of the returned content
-              schema:
-                $ref: "#/components/schemas/LanguageData"
-              example: "de"
-            Access-Control-Allow-Origin:
-              description: CORS header
+            Cache-Control:
               schema:
                 type: string
-              example: "*"
+              example: "public, max-age=180, s-maxage=900"
           content:
             application/json:
               schema:
@@ -1391,38 +1181,31 @@ paths:
                     - eventType: "CREATED"
                       productId: "550e8400-e29b-41d4-a716-446655440000"
                       eventId: "650e8400-e29b-41d4-a716-446655440001"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      sellerId: "750e8400-e29b-41d4-a716-446655440010"
-                      shopsProductId: "6ba7b810"
                       payload:
-                        price:
-                          currency: "EUR"
-                          amount: 3000
+                        pricing:
+                          price:
+                            currency: "EUR"
+                            amount: 3000
+                          fxRateId: "750e8400-e29b-41d4-a716-446655440010"
                         state: "LISTED"
+                        url: "https://shop.example/products/6ba7b810"
+                        images: []
+                        auction: {}
                       timestamp: "2024-01-01T10:00:00Z"
-                    - eventType: "STATE_CHANGED"
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      eventId: "650e8400-e29b-41d4-a716-446655440002"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      sellerId: "750e8400-e29b-41d4-a716-446655440010"
-                      shopsProductId: "6ba7b810"
-                      payload:
-                        oldState: "LISTED"
-                        newState: "AVAILABLE"
-                      timestamp: "2024-01-02T14:30:00Z"
                     - eventType: "PRICE_CHANGED"
                       productId: "550e8400-e29b-41d4-a716-446655440000"
                       eventId: "650e8400-e29b-41d4-a716-446655440003"
-                      shopId: "550e8400-e29b-41d4-a716-446655440000"
-                      sellerId: "750e8400-e29b-41d4-a716-446655440010"
-                      shopsProductId: "6ba7b810"
                       payload:
-                        oldPrice:
-                          currency: "EUR"
-                          amount: 3000
-                        newPrice:
-                          currency: "EUR"
-                          amount: 2999
+                        oldPricing:
+                          price:
+                            currency: "EUR"
+                            amount: 3000
+                          fxRateId: "750e8400-e29b-41d4-a716-446655440010"
+                        newPricing:
+                          price:
+                            currency: "EUR"
+                            amount: 2999
+                          fxRateId: "850e8400-e29b-41d4-a716-446655440010"
                       timestamp: "2024-01-15T09:15:00Z"
         "400":
           description: Bad request - Invalid parameters
@@ -1430,25 +1213,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_shop_id:
-                  summary: Missing shop ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PARAMETER"
-                    source:
-                      field: "shopId"
-                      sourceType: "path"
-                missing_shops_product_id:
-                  summary: Missing shop's product ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PARAMETER"
-                    source:
-                      field: "shopsProductId"
-                      sourceType: "path"
+
         "404":
           description: Product not found
           content:
@@ -1470,55 +1235,35 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
-  /api/v1/shops/{shopId}/products/{shopsProductId}/similar:
+  /api/v1/products/{productId}/similar:
     get:
       summary: Get similar products
       description: |
-        Retrieves products similar to the specified product using semantic search based on text embeddings.
-        Returns localized content based on the optional `language` query parameter and currency preferences.
+        Retrieves products similar to the specified product using KNN search over text embeddings.
+        When the product embedding is ready, the endpoint returns matching products. If it is absent,
+        the endpoint returns `202 Accepted` with a polling location.
 
-        **Personalization**: When authenticated (via optional Authorization header), the response includes
-        user-specific state for each similar product (watchlist status, notifications).
-        Anonymous requests receive product data without user state.
-
-        **Asynchronous Processing**: If the product's text embedding has not yet been computed (typically for
-        products created less than 24 hours ago), the endpoint returns 202 Accepted with a Location header
-        to poll. The embedding generation runs nightly via batch processing.
+        Returned prices remain stored source amounts and currencies; this endpoint performs no currency
+        conversion. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
+        `userState`. Personalized KNN results use `Cache-Control: no-store`.
       operationId: getSimilarProducts
       tags:
         - Products
       parameters:
-        - name: shopId
+        - name: productId
           in: path
           required: true
-          description: Unique identifier of the shop
+          description: Unique identifier of the product
           schema:
             type: string
             format: uuid
             example: "550e8400-e29b-41d4-a716-446655440000"
-        - name: shopsProductId
-          in: path
-          required: true
-          description: Shop's unique identifier for the product
-          schema:
-            type: string
-            example: "6ba7b810"
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
         - name: language
           in: query
           required: false
-          description: |
-            Preferred language for localized content.
-            Defaults to `en` when omitted.
+          description: Language used for localized KNN result titles. Defaults to `en`.
           schema:
             $ref: "#/components/schemas/LanguageData"
-          example: de
       security:
         - BearerAuth: []
         - {}
@@ -1530,144 +1275,24 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/PersonalizedGetProductSummaryData"
-                description: Array of similar products, each with optional user state
-              examples:
-                authenticated:
-                  summary: Authenticated user response with user state for each product
-                  value:
-                    - item:
-                        productId: "660e8400-e29b-41d4-a716-446655440001"
-                        productSlugId: "similar-product-a1b2c3"
-                        shopSlugId: "my-shop"
-                        eventId: "660e8400-e29b-41d4-a716-446655440011"
-                        shopId: "550e8400-e29b-41d4-a716-446655440000"
-                        shopsProductId: "6ba7b811"
-                        shopName: "My Shop"
-                        shopType: "COMMERCIAL_DEALER"
-                        title:
-                          text: "Similar Product"
-                          language: "en"
-                        price:
-                          currency: "EUR"
-                          amount: 2899
-                        state: "AVAILABLE"
-                        url: "https://my-shop.com/products/similar-product"
-                        viewUrl: "https://my-shop.com/products/similar-product?utm_source=aura_historia&utm_medium=referral"
-                        images:
-                          - url: "https://my-shop.com/images/similar-1.jpg"
-                            prohibitedContent: "NONE"
-                        created: "2024-01-01T10:00:00Z"
-                        updated: "2024-01-01T12:00:00Z"
-                      userState:
-                        watchlist:
-                          watching: true
-                          notifications: false
-                        prohibitedContent:
-                          consent: false
-                    - item:
-                        productId: "770e8400-e29b-41d4-a716-446655440002"
-                        productSlugId: "another-similar-item-d4e5f6"
-                        shopSlugId: "my-shop"
-                        eventId: "770e8400-e29b-41d4-a716-446655440012"
-                        shopId: "550e8400-e29b-41d4-a716-446655440000"
-                        shopsProductId: "6ba7b812"
-                        shopName: "My Shop"
-                        shopType: "COMMERCIAL_DEALER"
-                        title:
-                          text: "Another Similar Item"
-                          language: "en"
-                        price:
-                          currency: "EUR"
-                          amount: 3199
-                        state: "AVAILABLE"
-                        url: "https://my-shop.com/products/another-item"
-                        viewUrl: "https://my-shop.com/products/another-item?utm_source=aura_historia&utm_medium=referral"
-                        images: []
-                        created: "2024-01-01T11:00:00Z"
-                        updated: "2024-01-01T13:00:00Z"
-                      userState:
-                        watchlist:
-                          watching: false
-                          notifications: false
-                        prohibitedContent:
-                          consent: false
-                anonymous:
-                  summary: Anonymous user response without user state
-                  value:
-                    - item:
-                        productId: "660e8400-e29b-41d4-a716-446655440001"
-                        productSlugId: "similar-product-a1b2c3"
-                        shopSlugId: "my-shop"
-                        eventId: "660e8400-e29b-41d4-a716-446655440011"
-                        shopId: "550e8400-e29b-41d4-a716-446655440000"
-                        shopsProductId: "6ba7b811"
-                        shopName: "My Shop"
-                        shopType: "COMMERCIAL_DEALER"
-                        title:
-                          text: "Similar Product"
-                          language: "en"
-                        price:
-                          currency: "EUR"
-                          amount: 2899
-                        state: "AVAILABLE"
-                        url: "https://my-shop.com/products/similar-product"
-                        viewUrl: "https://my-shop.com/products/similar-product?utm_source=aura_historia&utm_medium=referral"
-                        images:
-                          - url: "https://my-shop.com/images/similar-1.jpg"
-                            prohibitedContent: "NONE"
-                        created: "2024-01-01T10:00:00Z"
-                        updated: "2024-01-01T12:00:00Z"
-                empty:
-                  summary: No similar products found
-                  value: []
+                  $ref: "#/components/schemas/PersonalizedProductSummaryData"
+
         "202":
-          description: |
-            Accepted - Product embedding not yet computed.
-            The text embedding for this product has not been generated yet (typically for products less than 24 hours old).
-            Embeddings are computed during nightly batch processing.
-            Poll the endpoint again later using the Location header.
+          description: Product embedding is not available yet. Poll the Location URL for KNN results.
           headers:
             Location:
-              description: URL to poll for similar products once embeddings are computed
+              description: URL to poll for similar products once the embedding is available
               schema:
                 type: string
                 format: uri
-              example: "https://api.aura-historia.com/api/v1/shops/550e8400-e29b-41d4-a716-446655440000/products/6ba7b810/similar"
+              example: "/api/v1/products/550e8400-e29b-41d4-a716-446655440000/similar"
         "400":
           description: Bad request - invalid parameters
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_shop_id:
-                  summary: Missing shop ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "shopId"
-                      sourceType: "path"
-                missing_shops_product_id:
-                  summary: Missing shop's product ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "shopsProductId"
-                      sourceType: "path"
-                invalid_uuid:
-                  summary: Invalid UUID format for shop ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "INVALID_UUID"
-                    source:
-                      field: "shopId"
-                      sourceType: "path"
+
         "404":
           description: Product not found
           content:
@@ -1690,17 +1315,95 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
+  /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/history:
+    get:
+      summary: Get product event history by slug
+      description: Returns immutable history for a shop/product slug pair. Price snapshots preserve their stored source amounts and currencies and include `fxRateId`; no conversion is performed.
+      operationId: getProductHistoryBySlug
+      tags:
+        - Products
+      parameters:
+        - name: shopSlugId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+        - name: productSlugId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[a-f0-9]{6}$"
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        "200":
+          description: Product history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GetProductEventData"
+
+  /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/similar:
+    get:
+      summary: Get similar products by slug
+      description: Returns KNN matches when the product embedding is ready, or `202 Accepted` with a polling location when it is absent. Returned prices are stored source amounts and currencies; no conversion is performed. Every ready entry contains `item`; a valid user or delegated-user bearer token adds `userState`. Anonymous responses omit it and remain cacheable.
+      operationId: getSimilarProductsBySlug
+      tags:
+        - Products
+      parameters:
+        - name: shopSlugId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+        - name: productSlugId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[a-f0-9]{6}$"
+        - name: language
+          in: query
+          required: false
+          description: Language used for localized KNN result titles. Defaults to `en`.
+          schema:
+            $ref: "#/components/schemas/LanguageData"
+      security:
+        - BearerAuth: []
+        - {}
+      responses:
+        "200":
+          description: Similar products found and returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PersonalizedProductSummaryData"
+
+        "202":
+          description: Product embedding is not available yet. Poll the Location URL for KNN results.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+
   /api/v1/products:
     get:
       summary: Simple product search via query parameters
       description: |
-        Performs product search using query parameters instead of a JSON request body.
-        This is the cache-friendly equivalent of `POST /api/v1/products/search`.
-        It supports sorting, cursor pagination, and product personalization (when authenticated).
+        Performs canonical product search with query parameters. It supports sorting and cursor pagination.
+        Every result contains `item`; a valid user or delegated-user bearer token adds `userState`.
+        Authenticated responses use `Cache-Control: no-store`.
 
-        Required query parameters for this simple-search mode are:
-        - `language`
-        - `currency`
+        `language` defaults to `en` and `currency` defaults to `EUR`.
 
         Additional optional filters from `ProductSearchData` are also supported as query parameters
         using the same field names:
@@ -1719,6 +1422,7 @@ paths:
         - `geoAddress[lat]`, `geoAddress[lon]`, `geoAddress[distance][amount]`, `geoAddress[distance][unit]`
         - `price[min]`, `price[max]`
         - `state`
+        - `lifecycle`
         - `created[min]`, `created[max]`
         - `updated[min]`, `updated[max]`
         - `auctionStart[min]`, `auctionStart[max]`
@@ -1729,15 +1433,15 @@ paths:
       parameters:
         - name: language
           in: query
-          required: true
-          description: Language used for search matching and localized response fields
+          required: false
+          description: Language used for search matching and localized response fields; defaults to `en`
           schema:
             $ref: "#/components/schemas/LanguageData"
           example: de
         - name: currency
           in: query
-          required: true
-          description: Currency used for price normalization in search
+          required: false
+          description: Currency used to select the indexed price field; defaults to `EUR`; no request-time currency conversion occurs
           schema:
             $ref: "#/components/schemas/CurrencyData"
           example: EUR
@@ -1952,12 +1656,12 @@ paths:
               min:
                 type: integer
                 minimum: 0
-                description: Minimum price (inclusive) in minor currency units for the selected/requested currency
+                description: Minimum price (inclusive) in minor currency units for the selected indexed currency
                 example: 1000
               max:
                 type: integer
                 minimum: 0
-                description: Maximum price (inclusive) in minor currency units for the selected/requested currency
+                description: Maximum price (inclusive) in minor currency units for the selected indexed currency
                 example: 50000
         - name: state
           in: query
@@ -1971,6 +1675,18 @@ paths:
               $ref: "#/components/schemas/ProductStateData"
             uniqueItems: true
           example: ["AVAILABLE"]
+        - name: lifecycle
+          in: query
+          required: false
+          description: Optional filter by product lifecycle. Defaults to `ACTIVE` when omitted.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ProductLifecycleData"
+            uniqueItems: true
+          example: ["ACTIVE"]
 
         - name: created
           in: query
@@ -2113,7 +1829,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonalizedProductSearchResultData"
+                $ref: "#/components/schemas/ProductSearchResultData"
         "400":
           description: Bad request - invalid query parameters
           content:
@@ -2147,226 +1863,16 @@ paths:
                       field: "order"
                       sourceType: "query"
                     detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
-        "500":
-          description: Internal server error
+        "503":
+          description: Product search or required personalized state is temporarily unavailable
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
               example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
-
-  /api/v1/products/search:
-    post:
-      summary: Complex product search
-      description: |
-        Performs an advanced search for products using a comprehensive search filter.
-        This endpoint accepts a ProductSearchData object in the request body,
-        allowing for complex filtering by multiple criteria simultaneously.
-        Returns a paginated collection of products matching the search criteria.
-
-        **Personalization**: When authenticated (via optional Authorization header), the response includes
-        user-specific state for each product such as whether it's on the user's watchlist and notification preferences.
-        Anonymous requests receive product data without user state.
-      operationId: complexSearchProducts
-      tags:
-        - Products
-      parameters:
-        - name: sort
-          in: query
-          required: false
-          description: Field to sort results by
-          schema:
-            $ref: "#/components/schemas/SortProductFieldData"
-          example: price
-        - name: order
-          in: query
-          required: false
-          description: Sort order (only valid when sort is specified)
-          schema:
-            type: string
-            enum: [asc, desc]
-          example: asc
-        - name: searchAfter
-          in: query
-          required: false
-          description: |
-            Cursor value for pagination (search-after pattern).
-            This is a JSON value returned as `searchAfter` in the previous response.
-            Use this to fetch the next page of results.
-            In general you do not have to worry about determining this key. It's given with the `searchAfter` field in the preceding response if more entries are present.
-            This can be ANY heterogeneous array.
-          schema:
-            type: array
-            items: {}
-          example: '[2999, "6ba7b810-9dad-11d1-80b4-00c04fd430c8"]'
-        - name: size
-          in: query
-          required: false
-          description: Number of products to return per page
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 21
-          example: 21
-      security:
-        - BearerAuth: []
-        - {}
-      requestBody:
-        required: true
-        description: |
-          Search filter configuration with all filtering criteria.
-          Unlike the simple text search, this allows filtering by multiple fields,
-          geo filters, price ranges, product states, and date ranges.
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ProductSearchData"
-            example:
-              language: "en"
-              currency: "USD"
-              productQuery: ["antique clock", "vintage clock"]
-              excludeProductId: ["550e8400-e29b-41d4-a716-446655440000"]
-              shopName: ["Antique Store", "Vintage Gallery"]
-              country: ["DE"]
-              continent: ["EUROPE"]
-              geoAddress:
-                lat: 52.52
-                lon: 13.405
-                distance:
-                  amount: 100
-                  unit: KILOMETERS
-              price:
-                min: 1000
-                max: 5000
-              state: ["AVAILABLE"]
-              created:
-                min: "2024-01-01T00:00:00Z"
-                max: "2024-12-31T23:59:59Z"
-      responses:
-        "200":
-          description: Complex search results returned successfully
-          headers:
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PersonalizedProductSearchResultData"
-              examples:
-                authenticated:
-                  summary: Authenticated user response with user state for each product
-                  value:
-                    items:
-                      - item:
-                          productId: "550e8400-e29b-41d4-a716-446655440000"
-                          productSlugId: "premium-smartphone-case-a1b2c3"
-                          shopSlugId: "tech-store"
-                          eventId: "550e8400-e29b-41d4-a716-446655440001"
-                          shopId: "550e8400-e29b-41d4-a716-446655440000"
-                          shopsProductId: "6ba7b810"
-                          shopName: "Tech Store"
-                          shopType: "COMMERCIAL_DEALER"
-                          title:
-                            text: "Premium Smartphone Case"
-                            language: "en"
-                          price:
-                            currency: "USD"
-                            amount: 2999
-                          state: "AVAILABLE"
-                          url: "https://tech-store.com/premium-case"
-                          viewUrl: "https://tech-store.com/premium-case?utm_source=aura_historia&utm_medium=referral"
-                          images:
-                            - url: "https://tech-store.com/images/premium-case-1.jpg"
-                              prohibitedContent: "NONE"
-                          created: "2024-01-15T10:00:00Z"
-                          updated: "2024-01-15T12:00:00Z"
-                        userState:
-                          watchlist:
-                            watching: true
-                            notifications: false
-                          prohibitedContent:
-                            consent: false
-                    size: 21
-                    total: 84
-                    searchAfter: '[2999, "550e8400-e29b-41d4-a716-446655440000"]'
-                anonymous:
-                  summary: Anonymous user response without user state
-                  value:
-                    items:
-                      - item:
-                          productId: "550e8400-e29b-41d4-a716-446655440000"
-                          productSlugId: "premium-smartphone-case-a1b2c3"
-                          shopSlugId: "tech-store"
-                          eventId: "550e8400-e29b-41d4-a716-446655440001"
-                          shopId: "550e8400-e29b-41d4-a716-446655440000"
-                          shopsProductId: "6ba7b810"
-                          shopName: "Tech Store"
-                          shopType: "COMMERCIAL_DEALER"
-                          title:
-                            text: "Premium Smartphone Case"
-                            language: "en"
-                          price:
-                            currency: "USD"
-                            amount: 2999
-                          state: "AVAILABLE"
-                          url: "https://tech-store.com/premium-case"
-                          viewUrl: "https://tech-store.com/premium-case?utm_source=aura_historia&utm_medium=referral"
-                          images:
-                            - url: "https://tech-store.com/images/premium-case-1.jpg"
-                              prohibitedContent: "NONE"
-                          created: "2024-01-15T10:00:00Z"
-                          updated: "2024-01-15T12:00:00Z"
-                    size: 21
-                    total: 84
-                    searchAfter: '[2999, "550e8400-e29b-41d4-a716-446655440000"]'
-        "400":
-          description: Bad request - invalid parameters or body
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_body:
-                  summary: Missing request body
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Body cannot be empty"
-                invalid_json:
-                  summary: Invalid JSON format
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Invalid JSON format"
-                invalid_sort_field:
-                  summary: Invalid sort field
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "sort"
-                      sourceType: "query"
-                    detail: "Expected any of: 'score', 'price', 'updated', 'created'. Got: 'invalid'"
-                invalid_order:
-                  summary: Invalid sort order
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "order"
-                      sourceType: "query"
-                    detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
+                status: 503
+                title: "Service Unavailable"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -3096,7 +2602,7 @@ paths:
         - name: currency
           in: query
           required: false
-          description: Currency used for price normalization in the live search response
+          description: Currency used to select indexed search prices; no request-time currency conversion occurs
           schema:
             $ref: "#/components/schemas/CurrencyData"
           example: EUR
@@ -3687,65 +3193,36 @@ paths:
     get:
       summary: List user's watchlist products
       description: |
-        Retrieves all products in the authenticated user's watchlist.
-        Results are paginated using search-after cursor-based pagination with timestamp.
+        Retrieves all products in the authenticated user's watchlist in watchlist creation order.
+        Each result contains current product data and complete user-specific state.
         Accepts Cognito JWT authentication or an Aura Historia access token with `watchlist:read`.
       operationId: getWatchlistProducts
       tags:
         - Watchlist
       parameters:
-        - name: currency
+        - name: language
           in: query
           required: false
-          description: Currency for price display
+          description: Preferred language for localized content. Defaults to `en` when omitted.
           schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
-        - name: sort
-          in: query
-          required: false
-          description: Field to sort results by
-          schema:
-            $ref: "#/components/schemas/SortWatchlistProductFieldData"
-          example: created
-        - name: order
-          in: query
-          required: false
-          description: Sort order (only valid when sort is specified)
-          schema:
-            type: string
-            enum: [asc, desc]
-          example: desc
-        - name: searchAfter
-          in: query
-          required: false
-          description: |
-            RFC3339 timestamp for cursor-based pagination (search-after).
-            Depending on sort-order, returns watchlist-products created, either after this timestamp for asc (oldest first) or before this timestamp for desc (latest first).
-            In general you do not have to worry about determining this key. It's given with `searchAfter` in the preceding response if more entries are present.
-          schema:
-            type: string
-            format: date-time
-          example: "2024-01-01T10:00:00Z"
+            $ref: "#/components/schemas/LanguageData"
+          example: de
         - name: size
           in: query
           required: false
-          description: Number of products to return per page
+          description: Products per page. Defaults to 21; values are clamped to 1..100.
           schema:
             type: integer
             minimum: 1
             maximum: 100
             default: 21
-          example: 21
-        - name: language
+        - name: searchAfter
           in: query
           required: false
-          description: |
-            Preferred language for localized content.
-            Defaults to `en` when omitted.
+          description: "JSON array cursor returned by the preceding page: [RFC3339 timestamp, product UUID]."
           schema:
-            $ref: "#/components/schemas/LanguageData"
-          example: de
+            type: string
+          example: '["2026-08-04T12:34:56Z", "550e8400-e29b-41d4-a716-446655440000"]'
       security:
         - BearerAuth: []
       responses:
@@ -3760,33 +3237,38 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WatchlistCollectionData"
+                type: object
+                required: [items, size]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PersonalizedProductDetailsData"
+                  size:
+                    type: integer
+                    minimum: 1
+                    maximum: 100
+                  searchAfter:
+                    type: array
+                    items:
+                      type: string
+                    minItems: 2
+                    maxItems: 2
+                    nullable: true
               example:
                 items:
                   - item:
                       productId: "550e8400-e29b-41d4-a716-446655440000"
                       productSlugId: "smartphone-case-a1b2c3"
-                      shopSlugId: "tech-store"
                       eventId: "550e8400-e29b-41d4-a716-446655440001"
                       shopId: "550e8400-e29b-41d4-a716-446655440000"
                       shopsProductId: "6ba7b810"
                       shopName: "Tech Store"
-                      shopType: "COMMERCIAL_DEALER"
                       title:
                         text: "Smartphone Case"
                         language: "en"
-                      price:
-                        offer:
-                          currency: "EUR"
-                          amount: 2999
-                        estimate:
-                          min:
-                            currency: "EUR"
-                            amount: 2700
-                          max:
-                            currency: "EUR"
-                            amount: 3300
                       state: "AVAILABLE"
+                      lifecycle: "ACTIVE"
                       url: "https://tech-store.com/smartphone-case"
                       viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
                       images:
@@ -3802,8 +3284,10 @@ paths:
                         consent: false
                       notification:
                         seen: true
-                size: 1
-                total: 1
+                      searchFilter:
+                        matched: false
+                        hidden: false
+                size: 21
                 searchAfter: null
         "400":
           description: Bad request - invalid parameters
@@ -3811,37 +3295,11 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                invalid_sort_field:
-                  summary: Invalid sort field
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "sort"
-                      sourceType: "query"
-                    detail: "Expected any of: 'created'. Got: 'invalid'"
-                invalid_order:
-                  summary: Invalid sort order
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "order"
-                      sourceType: "query"
-                    detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
-                invalid_from_timestamp:
-                  summary: Invalid from timestamp
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "INVALID_RFC3339_TIMESTAMP"
-                    source:
-                      field: "from"
-                      sourceType: "query"
-                    detail: "Invalid RFC3339 timestamp format"
+              example:
+                status: 400
+                title: "Bad Request"
+                error: "BAD_QUERY_PARAMETER_VALUE"
+                detail: "Query parameters are invalid."
         "401":
           description: Unauthorized - invalid or missing JWT token
           content:
@@ -10698,10 +10156,6 @@ components:
             Optional auction time window information.
             Only present for products from auction houses with scheduled auction times.
             Contains start and/or end timestamps for the auction.
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
         created:
           type: string
           format: date-time
@@ -10713,29 +10167,21 @@ components:
 
     GetProductSummaryData:
       type: object
-      description: |
-        Lightweight product summary information for use in search results and similar products listings.
-        Contains essential product details without extended metadata fields like description, estimates,
-        or history.
+      description: Lightweight product summary for search and similar-product results.
       required:
         - productId
         - productSlugId
-        - shopSlugId
         - eventId
         - shopId
+        - sellerId
         - shopsProductId
         - shopName
-        - sellerName
-        - shopType
-        - title
+        - shopSlugId
         - state
         - lifecycle
         - url
         - viewUrl
         - images
-        - createdBy
-        - updatedBy
-        - created
         - updated
       properties:
         productId:
@@ -10745,42 +10191,38 @@ components:
         productSlugId:
           type: string
           pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[a-f0-9]{6}$"
-          description: |
-            Human-readable slug identifier for the product (kebab-case with 6-character hex suffix).
-            Format: {product-title}-{6-char-hex} where the title is derived from the product name.
-            Example: "amazing-product-fa87c4"
-        shopSlugId:
-          type: string
-          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
-          description: |
-            Human-readable slug identifier of the shop (kebab-case, derived from shop name).
-            Example: "tech-store-premium" or "christies"
+          description: Human-readable product slug.
         eventId:
           type: string
           format: uuid
-          description: Unique identifier for the current state/version of the product
+          description: Identifier of the Product event that produced this state.
         shopId:
           type: string
           format: uuid
-          description: Unique identifier of the shop
+          description: Unique identifier of the shop.
+        sellerId:
+          type: string
+          format: uuid
+          description: Unique identifier of the seller.
         shopsProductId:
           type: string
-          description: Shop's unique identifier for the product. Can be any arbitrary string.
+          description: Shop-provided identifier for the product.
         shopName:
           type: string
-          description: Display name of the shop
-        sellerName:
+          description: Display name of the shop.
+        shopSlugId:
           type: string
-          description: Display name of the seller associated with the product
-        shopType:
-          $ref: "#/components/schemas/ShopTypeData"
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          description: Human-readable shop slug.
         title:
-          $ref: "#/components/schemas/LocalizedTextData"
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
         price:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Optional product price
+          description: Product price in its stored source currency; conversion is not applied.
         state:
           $ref: "#/components/schemas/ProductStateData"
         lifecycle:
@@ -10792,33 +10234,181 @@ components:
         viewUrl:
           type: string
           format: uri
-          description: Tracked or affiliate URL generated by the backend for user-facing navigation to the product.
+          description: Tracked or affiliate URL for user-facing navigation.
         images:
           type: array
           items:
             $ref: "#/components/schemas/ProductImageData"
-          description: Array of product images with prohibited content classification
-          default: []
-        auction:
-          allOf:
-            - $ref: "#/components/schemas/AuctionData"
-          nullable: true
-          description: |
-            Optional auction time window information.
-            Only present for products from auction houses with scheduled auction times.
-            Contains start and/or end timestamps for the auction.
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
-        created:
-          type: string
-          format: date-time
-          description: When the product was first created (RFC3339 format)
+          description: Array of product image URLs.
         updated:
           type: string
           format: date-time
-          description: When the product was last updated (RFC3339 format)
+          description: When the product was last updated (RFC3339 format).
+    ProductDetailsData:
+      type: object
+      description: Canonical Product detail data inside a personalized response wrapper.
+      required:
+        - productId
+        - productSlugId
+        - eventId
+        - shopId
+        - sellerId
+        - shopsProductId
+        - shopName
+        - sellerName
+        - shopSlugId
+        - sellerSlugId
+        - pricing
+        - state
+        - lifecycle
+        - url
+        - viewUrl
+        - images
+        - auction
+        - created
+        - updated
+      properties:
+        productId:
+          type: string
+          format: uuid
+        productSlugId:
+          type: string
+        eventId:
+          type: string
+          format: uuid
+        shopId:
+          type: string
+          format: uuid
+        sellerId:
+          type: string
+          format: uuid
+        shopsProductId:
+          type: string
+        shopName:
+          type: string
+        sellerName:
+          type: string
+        shopSlugId:
+          type: string
+        sellerSlugId:
+          type: string
+        structuredAddress:
+          allOf:
+            - $ref: "#/components/schemas/StructuredAddressData"
+          nullable: true
+        geoAddress:
+          allOf:
+            - $ref: "#/components/schemas/GeoAddressData"
+          nullable: true
+        productTitle:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        productDescription:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        title:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        description:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
+        pricing:
+          type: object
+          description: Stored source pricing. `fxRateId` identifies the source FX snapshot; no conversion occurs.
+          properties:
+            price:
+              allOf:
+                - $ref: "#/components/schemas/PriceData"
+              nullable: true
+            priceEstimateMin:
+              allOf:
+                - $ref: "#/components/schemas/PriceData"
+              nullable: true
+            priceEstimateMax:
+              allOf:
+                - $ref: "#/components/schemas/PriceData"
+              nullable: true
+            fxRateId:
+              type: string
+              format: uuid
+              nullable: true
+        price:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        priceEstimateMin:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        priceEstimateMax:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        currency:
+          allOf:
+            - $ref: "#/components/schemas/CurrencyData"
+          nullable: true
+        state:
+          $ref: "#/components/schemas/ProductStateData"
+        lifecycle:
+          $ref: "#/components/schemas/ProductLifecycleData"
+        url:
+          type: string
+          format: uri
+        viewUrl:
+          type: string
+          format: uri
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductImageData"
+        auction:
+          type: object
+          properties:
+            start:
+              type: string
+              format: date-time
+              nullable: true
+            end:
+              type: string
+              format: date-time
+              nullable: true
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+
+    PersonalizedProductDetailsData:
+      type: object
+      description: Canonical Product detail with optional user-specific state.
+      required: [item]
+      properties:
+        item:
+          $ref: "#/components/schemas/ProductDetailsData"
+        userState:
+          allOf:
+            - $ref: "#/components/schemas/ProductUserStateData"
+          nullable: true
+          description: Present only for a valid user or delegated-user bearer token.
+
+    PersonalizedProductSummaryData:
+      type: object
+      description: Canonical Product summary with optional user-specific state.
+      required: [item]
+      properties:
+        item:
+          $ref: "#/components/schemas/GetProductSummaryData"
+        userState:
+          allOf:
+            - $ref: "#/components/schemas/ProductUserStateData"
+          nullable: true
+          description: Present only for a valid user or delegated-user bearer token.
 
     PersonalizedGetProductData:
       type: object
@@ -10854,6 +10444,37 @@ components:
             - $ref: "#/components/schemas/ProductUserStateData"
           nullable: true
           description: Optional user-specific state for this product (only present when authenticated)
+
+    ProductSearchResultData:
+      type: object
+      description: Cursor-paged canonical Product search response.
+      required:
+        - items
+        - size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonalizedProductSummaryData"
+          description: Personalized Product summaries in OpenSearch result order.
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Requested page size after server-side clamping.
+          example: 21
+        total:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Total matching products when the search backend provides it.
+          example: 127
+        searchAfter:
+          type: array
+          items: {}
+          nullable: true
+          description: Cursor for the next page. Pass it back as `searchAfter` query values.
+          example: [2999, "550e8400-e29b-41d4-a716-446655440000"]
 
     PersonalizedProductSearchResultData:
       type: object
@@ -10927,9 +10548,9 @@ components:
     ProhibitedContentUserStateData:
       type: object
       description: |
-        User's consent state for viewing prohibited content on a product.
-        When `consent` is `true`, image URLs for images with prohibited content are included in the response.
-        When `consent` is `false`, image URLs for images with prohibited content are omitted.
+        Effective user consent for viewing prohibited content on a product. It is `true` when all
+        product images are safe (including no images); otherwise it reflects the user's stored
+        consent. Canonical Product detail currently exposes this state for client-side display policy.
       required:
         - consent
       properties:
@@ -10941,17 +10562,15 @@ components:
     NotificationUserStateData:
       type: object
       description: |
-        User's notification seen-state for a product.
-        When `seen` is `false`, the product has at least one unseen notification for the authenticated user.
-        When `seen` is `true`, there are no unseen notifications (or no notifications at all) for the user on this product.
-        Defaults to `true`.
-        `originEventId` is present whenever at least one notification exists for the user on this product (regardless of `seen` status), and absent when there are no notifications.
+        User's newest notification state for a product. The newest notification is selected from the
+        notification product index; it is not an aggregate "any unseen" flag. `seen` defaults to
+        `true` and `originEventId` is omitted when no notification exists.
       required:
         - seen
       properties:
         seen:
           type: boolean
-          description: Whether the latest notification for this product has been seen by the user. Defaults to `true` when no notifications exist.
+          description: Whether the newest notification for this product has been seen by the user. Defaults to `true` when no notifications exist.
           default: true
           example: true
         originEventId:
@@ -11160,14 +10779,23 @@ components:
         - eventType
         - productId
         - eventId
-        - shopId
-        - sellerId
-        - shopsProductId
+
         - payload
         - timestamp
       properties:
         eventType:
-          $ref: "#/components/schemas/ProductEventTypeData"
+          type: string
+          enum:
+            [
+              CREATED,
+              STATE_CHANGED,
+              ADDRESS_CHANGED,
+              PRICE_CHANGED,
+              URL_CHANGED,
+              IMAGES_CHANGED,
+              AUCTION_CHANGED,
+              DELETED,
+            ]
         productId:
           type: string
           format: uuid
@@ -11176,19 +10804,9 @@ components:
           type: string
           format: uuid
           description: Unique identifier for this event
-        shopId:
-          type: string
-          format: uuid
-          description: Unique identifier of the shop
-        sellerId:
-          type: string
-          format: uuid
-          description: Unique identifier of the seller associated with the product event
-        shopsProductId:
-          type: string
-          description: Shop's unique identifier for the product. Can be any arbitrary string.
         payload:
-          $ref: "#/components/schemas/ProductEventPayloadData"
+          type: object
+          description: Immutable event snapshot. Created and price-change snapshots expose `pricing` / `oldPricing` / `newPricing` with stored source `price`, estimate bounds, and `fxRateId`; no conversion is applied.
         timestamp:
           type: string
           format: date-time
@@ -11396,22 +11014,20 @@ components:
 
     ProductImageData:
       type: object
-      description: |
-        Product image with prohibited content classification.
-        The `url` field is omitted when the image contains prohibited content and the authenticated user has not consented to view such content.
-        For unauthenticated users the `url` is always omitted for any image whose `prohibitedContent` is not `NONE`.
+      description: Product image classification. Unsafe image URLs are omitted unless effective prohibited-content consent is true.
       required:
         - prohibitedContent
       properties:
         url:
           type: string
           format: uri
-          description: |
-            URL to the product image.
-            Absent when the image has prohibited content (`prohibitedContent != "NONE"`) and the user has not given consent (`prohibitedContent.consent == false`).
+          description: URL to the product image. Omitted for unsafe content without effective consent.
           example: "https://my-shop.com/images/product-1.jpg"
         prohibitedContent:
-          $ref: "#/components/schemas/ProhibitedContentData"
+          type: string
+          enum: [UNKNOWN, NONE, NAZI_GERMANY]
+          description: Safety classification of the image.
+          example: NONE
 
     SortProductFieldData:
       type: string
@@ -11676,7 +11292,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/RangeQueryUInt64"
           nullable: true
-          description: Optional price range filter in minor currency units for the selected/requested currency
+          description: Optional price range filter in minor currency units for the selected indexed currency; no request-time conversion occurs
         state:
           type: array
           items:
@@ -11940,7 +11556,7 @@ components:
           allOf:
             - $ref: "#/components/schemas/RangeQueryUInt64"
           nullable: true
-          description: Optional price range filter in minor currency units for the selected/requested currency
+          description: Optional price range filter in minor currency units for the selected indexed currency; no request-time conversion occurs
         state:
           type: array
           items:
@@ -12117,7 +11733,7 @@ components:
 
     RangeQueryUInt64:
       type: object
-      description: Range query for numeric values (prices in minor currency units for the selected/requested currency)
+      description: Range query for numeric values in minor currency units for the selected indexed currency; no request-time conversion occurs
       properties:
         min:
           type: integer
@@ -13732,36 +13348,6 @@ components:
           type: string
           description: Shop's unique identifier for the product. Can be any arbitrary string.
           example: "6ba7b810"
-
-    WatchlistCollectionData:
-      type: object
-      description: Paginated collection of personalized watchlist products using cursor-based pagination
-      required:
-        - items
-        - size
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/PersonalizedGetProductData"
-          description: Array of personalized watchlist products in the current page
-        size:
-          type: integer
-          minimum: 0
-          description: Number of products in the current page
-          example: 21
-        searchAfter:
-          type: string
-          format: date-time
-          description: Cursor for the next page (RFC3339 timestamp). Present when there are more results.
-          nullable: true
-          example: "2024-01-15T08:00:00Z"
-        total:
-          type: integer
-          minimum: 0
-          description: Total number of products (optional, may not be available for cursor-based pagination)
-          nullable: true
-          example: 127
 
     WatchlistProductPatch:
       type: object

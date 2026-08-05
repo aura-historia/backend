@@ -81,9 +81,9 @@ pub struct ProductAddress {
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ProductPricing {
-    pub native_price: Option<Price>,
-    pub native_price_estimate_min: Option<Price>,
-    pub native_price_estimate_max: Option<Price>,
+    pub price: Option<Price>,
+    pub price_estimate_min: Option<Price>,
+    pub price_estimate_max: Option<Price>,
     pub fx_rate_id: Option<FxRateId>,
 }
 
@@ -418,9 +418,10 @@ fn product_slug_id(
     product_id: ProductId,
     title: Option<&Localized<Language, Title>>,
 ) -> ProductSlugId {
-    title
-        .map(|title| ProductSlugId::from(title.payload.as_ref()))
-        .unwrap_or_else(|| ProductSlugId::from(product_id.to_string()))
+    match title {
+        Some(title) => ProductSlugId::from(title.payload.as_ref()),
+        None => ProductSlugId::from(product_id.to_string()),
+    }
 }
 
 fn validate_geo_address(geo_address: Option<GeoAddress>) -> Result<(), RehydrateProductError> {
@@ -468,9 +469,9 @@ mod tests {
             title: Some(Localized::new(Language::En, Title::from("Bronze vase"))),
             description: None,
             pricing: ProductPricing {
-                native_price: Some(Price::new(MonetaryAmount::from(1_500_u64), Currency::Eur)),
-                native_price_estimate_min: None,
-                native_price_estimate_max: None,
+                price: Some(Price::new(MonetaryAmount::from(1_500_u64), Currency::Eur)),
+                price_estimate_min: None,
+                price_estimate_max: None,
                 fx_rate_id: Some(FxRateId::new()),
             },
             state: ProductState::Listed,

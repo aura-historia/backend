@@ -59,14 +59,12 @@ pub enum UpdateProductError {
     UrlRequired,
     #[error("product state is invalid")]
     InvalidProductState,
-    #[error("product already exists for shop product key")]
-    ProductKeyAlreadyExists,
+    #[error("product already exists for shop product identity")]
+    ShopProductAlreadyExists,
     #[error("product slug already exists")]
     ProductSlugAlreadyExists,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
-    #[error("product lookup by natural key failed")]
-    ProductLookupByKeyFailed,
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -298,10 +296,9 @@ impl From<ProductRepositoryError> for UpdateProductError {
             ProductRepositoryError::ProductCurrentEventIdConflict => {
                 Self::ProductCurrentEventIdConflict
             }
-            ProductRepositoryError::ProductKeyAlreadyExists => Self::ProductKeyAlreadyExists,
+            ProductRepositoryError::ShopProductAlreadyExists => Self::ShopProductAlreadyExists,
             ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
             ProductRepositoryError::ProductLookupByIdFailed => Self::ProductLookupByIdFailed,
-            ProductRepositoryError::ProductLookupByKeyFailed => Self::ProductLookupByKeyFailed,
             ProductRepositoryError::ProductInsertFailed => Self::ProductInsertFailed,
             ProductRepositoryError::ProductUpdateFailed => Self::ProductUpdateFailed,
             ProductRepositoryError::InvalidProductSlugPersisted => {
@@ -367,7 +364,6 @@ mod tests {
     use common::localized::Localized;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::{MonetaryAmount, Price};
-    use common::product_id::ProductKey;
 
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
@@ -499,13 +495,6 @@ mod tests {
             }
         }
 
-        async fn find_by_key(
-            &mut self,
-            _key: &ProductKey,
-        ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
-            Ok(None)
-        }
-
         async fn insert(
             &mut self,
             product: &Product,
@@ -604,7 +593,7 @@ mod tests {
                 payload: Description::from("Old cabinet"),
             }),
             pricing: ProductPricing {
-                native_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 ..Default::default()
             },
             state: ProductState::Listed,

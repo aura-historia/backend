@@ -20,7 +20,7 @@ use product_core::sort_product_field::SortProductField;
 use product_core::title::Title;
 use product_service::ports::{ProductSearchReadError, ProductSearchReader};
 use product_service::use_cases::queries::search_products::{
-    ProductSummary, SearchProductsRequest, SearchProductsResult,
+    ProductSearchReadResult, ProductSummary, SearchProductsRequest,
 };
 use serde::ser::Error;
 use serde_json::json;
@@ -60,7 +60,7 @@ impl ProductSearchReader for OpenSearchProductSearchReader {
     async fn search(
         &self,
         request: &SearchProductsRequest,
-    ) -> Result<SearchProductsResult, ProductSearchReadError> {
+    ) -> Result<ProductSearchReadResult, ProductSearchReadError> {
         let sort = request.sort.unwrap_or(Sort {
             sort: SortProductField::Score,
             order: SortOrder::Desc,
@@ -89,10 +89,10 @@ impl ProductSearchReader for OpenSearchProductSearchReader {
     }
 }
 
-fn map_search_response(
+pub(crate) fn map_search_response(
     search: &ProductSearch,
     search_response: SearchResponse<ProductDocument>,
-) -> SearchProductsResult {
+) -> ProductSearchReadResult {
     CursoredResult {
         cursor: Cursor {
             size: search_response.hits.hits.len() as u64,
@@ -147,8 +147,8 @@ fn resolve_title(
     insert_title(&mut titles, Language::Es, &document.title_es);
     insert_title(&mut titles, Language::It, &document.title_it);
     titles
-        .entry(Language::from(document.title_native.language))
-        .or_insert_with(|| Title::from(document.title_native.text.clone()));
+        .entry(Language::from(document.title.language))
+        .or_insert_with(|| Title::from(document.title.text.clone()));
     Language::resolve(&[preferred_language], titles)
 }
 
@@ -303,7 +303,7 @@ fn build_text_match_clause(
                                 "must": [{
                                     "multi_match": {
                                         "query": product_query,
-                                        "fields": ["titleNative.text^3"],
+                                        "fields": ["title.text^3"],
                                         "type": "best_fields",
                                         "operator": "and"
                                     }
@@ -326,7 +326,7 @@ fn build_text_match_clause(
                 },
                 {
                     "match_phrase": {
-                        "titleNative.text": {
+                        "title.text": {
                             "query": product_query,
                             "boost": 3
                         }
@@ -618,7 +618,7 @@ mod tests {
             structured_address_country: None,
             structured_address_continent: None,
             geo_address: None,
-            title_native: TextDocument::new("Native vase", LanguageDocument::En),
+            title: TextDocument::new("Vase", LanguageDocument::En),
             title_de: Some("Deutsche Vase".to_owned()),
             title_en: Some("English vase".to_owned()),
             title_fr: None,
@@ -930,6 +930,66 @@ mod tests {
         assert_eq!(
             actual.pointer("/bool/filter/12/range/updated/lte"),
             Some(&json!("2025-01-02T00:00:00Z"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_preserve_open_search_hit_order_when_mapping_product_summaries()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let first = product_document()?;
+        let second = ProductDocument {
+            product_id: ProductId::new(),
+            ..product_document()?
+        };
+        let first_product_id = first.product_id;
+        let second_product_id = second.product_id;
+        let response = SearchResponse {
+            took: 1,
+            timed_out: false,
+            shards: ShardStats {
+                total: 1,
+                successful: 1,
+                skipped: 0,
+                failed: 0,
+            },
+            hits: HitsMetadata {
+                total: TotalHits {
+                    value: 2,
+                    relation: "eq".to_owned(),
+                },
+                max_score: None,
+                hits: vec![
+                    SearchHit {
+                        index: "products".to_owned(),
+                        id: first_product_id.to_string(),
+                        score: Some(0.9),
+                        sort: None,
+                        matched_queries: Vec::new(),
+                        source: first,
+                    },
+                    SearchHit {
+                        index: "products".to_owned(),
+                        id: second_product_id.to_string(),
+                        score: Some(0.8),
+                        sort: None,
+                        matched_queries: Vec::new(),
+                        source: second,
+                    },
+                ],
+            },
+        };
+
+        let actual =
+            map_search_response(&ProductSearch::new(Language::En, Currency::Eur), response);
+
+        assert_eq!(
+            vec![first_product_id, second_product_id],
+            actual
+                .items
+                .into_iter()
+                .map(|item| item.product_id)
+                .collect::<Vec<_>>()
         );
         Ok(())
     }

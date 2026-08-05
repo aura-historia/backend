@@ -72,7 +72,7 @@ flowchart TD
 
 ## Product write flow
 
-Product writes are synchronous.
+Product writes are synchronous and persist full immutable payload snapshots. Pricing uses `price`, `price_estimate_min`, `price_estimate_max`, and `fx_rate_id`; historical old/new pricing snapshots retain their own FX-rate IDs. Prices remain stored source amounts and currencies: no conversion or converted `other` price maps are persisted. Source → EUR → requested-currency conversion is deferred to [#1466](https://github.com/aura-historia/backend/issues/1466).
 
 ```mermaid
 sequenceDiagram

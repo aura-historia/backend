@@ -51,8 +51,8 @@ pub enum CreateProductError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
-    #[error("product already exists for shop product key")]
-    ProductKeyAlreadyExists,
+    #[error("product already exists for shop product identity")]
+    ShopProductAlreadyExists,
     #[error("product slug already exists")]
     ProductSlugAlreadyExists,
     #[error("product state is invalid")]
@@ -63,8 +63,6 @@ pub enum CreateProductError {
     ProductCurrentEventIdConflict,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
-    #[error("product lookup by natural key failed")]
-    ProductLookupByKeyFailed,
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -268,10 +266,9 @@ impl From<ProductRepositoryError> for CreateProductError {
             ProductRepositoryError::ProductCurrentEventIdConflict => {
                 Self::ProductCurrentEventIdConflict
             }
-            ProductRepositoryError::ProductKeyAlreadyExists => Self::ProductKeyAlreadyExists,
+            ProductRepositoryError::ShopProductAlreadyExists => Self::ShopProductAlreadyExists,
             ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
             ProductRepositoryError::ProductLookupByIdFailed => Self::ProductLookupByIdFailed,
-            ProductRepositoryError::ProductLookupByKeyFailed => Self::ProductLookupByKeyFailed,
             ProductRepositoryError::ProductInsertFailed => Self::ProductInsertFailed,
             ProductRepositoryError::ProductUpdateFailed => Self::ProductUpdateFailed,
             ProductRepositoryError::InvalidProductSlugPersisted => {
@@ -335,7 +332,6 @@ mod tests {
     use common::currency::domain::Currency;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::{MonetaryAmount, Price};
-    use common::product_id::ProductKey;
     use common::transaction::TransactionError;
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -459,14 +455,6 @@ mod tests {
             Ok(None)
         }
 
-        async fn find_by_key(
-            &mut self,
-            _key: &ProductKey,
-        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
-        {
-            Ok(None)
-        }
-
         async fn insert(
             &mut self,
             product: &Product,
@@ -573,7 +561,7 @@ mod tests {
                 payload: Description::from("Old cabinet"),
             }),
             pricing: ProductPricing {
-                native_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 ..Default::default()
             },
             state: ProductState::Listed,
