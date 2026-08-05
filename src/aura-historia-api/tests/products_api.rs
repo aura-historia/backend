@@ -1,0 +1,601 @@
+mod api_support;
+
+use api_support::{assert_problem, json_response, product_route_slugs, seed_product};
+use opensearch::IndexParts;
+use serde_json::{Value, json};
+use test_api::{
+    AuraHistoriaApi, DynamoDB, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
+    get_opensearch_client, refresh_index,
+};
+
+const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+const DYNAMODB: DynamoDB = DynamoDB();
+const OPENSEARCH: OpenSearch = OpenSearch();
+const PRODUCTS_INDEX: &str = "products";
+static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_get_product_details_by_id() {
+    let product_id = seed_product().await;
+
+    let response = get_json(format!("/api/v1/products/{product_id}")).await;
+    let cache_control = response
+        .0
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (status, body) = json_response(response.0).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
+    assert!(body.get("userState").is_none());
+    assert_eq!(
+        Some("public, max-age=180, s-maxage=900".to_owned()),
+        cache_control
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_get_product_details_by_slug() {
+    let product_id = seed_product().await;
+    let (shop_slug_id, product_slug_id) = product_route_slugs(product_id).await;
+
+    let (response, _) = get_json(format!(
+        "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}"
+    ))
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_get_product_history_by_id() {
+    let product_id = seed_product().await;
+
+    let (response, _) = get_json(format!("/api/v1/products/{product_id}/history")).await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert!(body.as_array().is_some_and(|events| !events.is_empty()));
+    assert_eq!(json!(product_id.to_string()), body[0]["productId"]);
+    assert_eq!(
+        Some("public, max-age=180, s-maxage=900".to_owned()),
+        cache_control
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_get_product_history_by_slug() {
+    let product_id = seed_product().await;
+    let (shop_slug_id, product_slug_id) = product_route_slugs(product_id).await;
+
+    let (response, _) = get_json(format!(
+        "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/history"
+    ))
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(json!(product_id.to_string()), body[0]["productId"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_return_pending_similar_products_by_id() {
+    let product_id = seed_product().await;
+
+    let (response, _) = get_json(format!("/api/v1/products/{product_id}/similar")).await;
+
+    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+    assert_eq!(
+        Some(format!("/api/v1/products/{product_id}/similar")),
+        response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned)
+    );
+    assert_eq!(
+        Some("public, max-age=300, s-maxage=900"),
+        response
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok())
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_return_pending_similar_products_by_slug() {
+    let product_id = seed_product().await;
+    let (shop_slug_id, product_slug_id) = product_route_slugs(product_id).await;
+
+    let (response, _) = get_json(format!(
+        "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"
+    ))
+    .await;
+
+    assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+    assert_eq!(
+        Some(format!(
+            "/api/v1/by-slug/shops/{shop_slug_id}/products/{product_slug_id}/similar"
+        )),
+        response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned)
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_page_product_search_by_price_without_duplicates() {
+    let products = [
+        search_document(
+            "Price page cabinet",
+            100,
+            "AVAILABLE",
+            "ACTIVE",
+            "Price Shop",
+            "2025-01-01T00:00:00Z",
+        ),
+        search_document(
+            "Price page cabinet",
+            200,
+            "AVAILABLE",
+            "ACTIVE",
+            "Price Shop",
+            "2025-01-02T00:00:00Z",
+        ),
+        search_document(
+            "Price page cabinet",
+            300,
+            "AVAILABLE",
+            "ACTIVE",
+            "Price Shop",
+            "2025-01-03T00:00:00Z",
+        ),
+        search_document(
+            "Price page cabinet",
+            400,
+            "AVAILABLE",
+            "ACTIVE",
+            "Price Shop",
+            "2025-01-04T00:00:00Z",
+        ),
+    ];
+    index_search_documents(products.iter().map(|(_, document)| document.clone())).await;
+
+    let (first_response, _) = get_json(
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=price&order=asc&size=2".to_owned(),
+    )
+    .await;
+    let cache_control = first_response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (first_status, first_body) = json_response(first_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, first_status);
+    assert_eq!(json!(4), first_body["total"]);
+    assert_eq!(json!(2), first_body["size"]);
+    assert_eq!(
+        vec![products[0].0.clone(), products[1].0.clone()],
+        product_ids(&first_body)
+    );
+    assert!(first_body["searchAfter"].is_array());
+    assert_eq!(
+        Some("public, max-age=60, s-maxage=300".to_owned()),
+        cache_control
+    );
+
+    let search_after = serde_json::to_string(&first_body["searchAfter"])
+        .unwrap_or_else(|error| panic!("failed to encode search cursor: {error}"));
+    let (second_response, _) = get_json(format!(
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=price&order=asc&size=2&searchAfter={}",
+        url_encode(&search_after)
+    ))
+    .await;
+    let (second_status, second_body) = json_response(second_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, second_status);
+    assert_eq!(
+        vec![products[2].0.clone(), products[3].0.clone()],
+        product_ids(&second_body)
+    );
+    assert!(
+        product_ids(&first_body)
+            .iter()
+            .all(|id| !product_ids(&second_body).contains(id))
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_return_matching_product_search_summary() {
+    let target = search_document(
+        "Renaissance walnut cabinet",
+        125,
+        "AVAILABLE",
+        "ACTIVE",
+        "Cabinet Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    let unrelated = search_document(
+        "Bronze garden sculpture",
+        130,
+        "AVAILABLE",
+        "ACTIVE",
+        "Cabinet Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    index_search_documents([target.1.clone(), unrelated.1]).await;
+
+    let (response, _) = get_json(
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Renaissance%20walnut".to_owned(),
+    )
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(json!(1), body["total"]);
+    assert_eq!(vec![target.0], product_ids(&body));
+    assert_eq!(
+        json!("Renaissance walnut cabinet"),
+        body["items"][0]["item"]["title"]["text"]
+    );
+    assert_eq!(json!("USD"), body["items"][0]["item"]["price"]["currency"]);
+    assert_eq!(json!(125), body["items"][0]["item"]["price"]["amount"]);
+    assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["state"]);
+    assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
+    assert!(body["items"][0].get("userState").is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_intersect_product_search_filters() {
+    let target = search_document_with_shop(
+        "Filter cabinet",
+        550,
+        "LISTED",
+        "ACTIVE",
+        "Imperial Antiques",
+        "imperial-antiques",
+        "2025-01-01T00:00:00Z",
+    );
+    let wrong_shop = search_document_with_shop(
+        "Filter cabinet",
+        550,
+        "LISTED",
+        "ACTIVE",
+        "Other Antiques",
+        "other-antiques",
+        "2025-01-01T00:00:00Z",
+    );
+    let wrong_state = search_document_with_shop(
+        "Filter cabinet",
+        550,
+        "AVAILABLE",
+        "ACTIVE",
+        "Imperial Antiques",
+        "imperial-antiques",
+        "2025-01-01T00:00:00Z",
+    );
+    let wrong_price = search_document_with_shop(
+        "Filter cabinet",
+        2_000,
+        "LISTED",
+        "ACTIVE",
+        "Imperial Antiques",
+        "imperial-antiques",
+        "2025-01-01T00:00:00Z",
+    );
+    index_search_documents([target.1.clone(), wrong_shop.1, wrong_state.1, wrong_price.1]).await;
+
+    let (response, _) = get_json(
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Filter%20cabinet&shopName[0]=Imperial%20Antiques&state[0]=LISTED&price[min]=500&price[max]=600".to_owned(),
+    )
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(json!(1), body["total"]);
+    assert_eq!(vec![target.0], product_ids(&body));
+    assert_eq!(
+        json!("Imperial Antiques"),
+        body["items"][0]["item"]["shopName"]
+    );
+    assert_eq!(json!("LISTED"), body["items"][0]["item"]["state"]);
+    assert_eq!(json!(550), body["items"][0]["item"]["price"]["amount"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_hide_deleted_products_from_default_search() {
+    let active = search_document(
+        "Lifecycle fixture",
+        100,
+        "AVAILABLE",
+        "ACTIVE",
+        "Lifecycle Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    let deleted = search_document(
+        "Lifecycle fixture",
+        200,
+        "AVAILABLE",
+        "DELETED",
+        "Lifecycle Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    index_search_documents([active.1.clone(), deleted.1]).await;
+
+    let (response, _) = get_json(
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Lifecycle%20fixture".to_owned(),
+    )
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(vec![active.0], product_ids(&body));
+    assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_return_deleted_products_when_lifecycle_filter_requests_them() {
+    let active = search_document(
+        "Deleted fixture",
+        100,
+        "AVAILABLE",
+        "ACTIVE",
+        "Lifecycle Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    let deleted = search_document(
+        "Deleted fixture",
+        200,
+        "AVAILABLE",
+        "DELETED",
+        "Lifecycle Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    index_search_documents([active.1, deleted.1.clone()]).await;
+
+    let (response, _) = get_json(
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Deleted%20fixture&lifecycle[0]=DELETED".to_owned(),
+    )
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(vec![deleted.0], product_ids(&body));
+    assert_eq!(json!("DELETED"), body["items"][0]["item"]["lifecycle"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_filter_product_search_by_created_date_range() {
+    let january = search_document(
+        "Date fixture",
+        100,
+        "AVAILABLE",
+        "ACTIVE",
+        "Date Shop",
+        "2025-01-15T12:00:00Z",
+    );
+    let june = search_document(
+        "Date fixture",
+        200,
+        "AVAILABLE",
+        "ACTIVE",
+        "Date Shop",
+        "2025-06-15T12:00:00Z",
+    );
+    index_search_documents([january.1.clone(), june.1]).await;
+
+    let (response, _) = get_json(
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Date%20fixture&created[min]=2025-01-01T00%3A00%3A00Z&created[max]=2025-01-31T23%3A59%3A59Z".to_owned(),
+    )
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(vec![january.0], product_ids(&body));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_product_id() {
+    let (response, _) = get_json("/api/v1/products/not-a-uuid".to_owned()).await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "INVALID_UUID",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_product_slug() {
+    let (response, _) =
+        get_json("/api/v1/by-slug/shops/Invalid/products/product-a1b2c3".to_owned()).await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_PATH_PARAMETER_VALUE",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_optional_product_authentication() {
+    let response = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/products/{}",
+            AURA_API.base_url(),
+            common::product_id::ProductId::new()
+        ))
+        .bearer_auth("invalid")
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get product with invalid token: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNAUTHORIZED,
+        "INVALID_CREDENTIALS",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_reject_invalid_product_search_sort() {
+    let (response, _) =
+        get_json("/api/v1/products?language=en&currency=USD&sort=invalid&order=asc".to_owned())
+            .await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_SORT_VALUE",
+    );
+}
+
+async fn get_json(path: String) -> (reqwest::Response, String) {
+    let url = format!("{}{path}", AURA_API.base_url());
+    let response = reqwest::Client::new()
+        .get(&url)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to GET {path}: {error}"));
+    (response, url)
+}
+
+async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
+    let client = get_opensearch_client().await;
+    for document in documents {
+        let product_id = document["productId"]
+            .as_str()
+            .unwrap_or_else(|| panic!("search fixture has no productId"))
+            .to_owned();
+        let response = client
+            .index(IndexParts::IndexId(PRODUCTS_INDEX, &product_id))
+            .body(document)
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to index search fixture: {error}"));
+        if !response.status_code().is_success() {
+            let status = response.status_code();
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|error| panic!("failed to read index failure: {error}"));
+            panic!("failed to index search fixture: {status}: {body}");
+        }
+    }
+    refresh_index(PRODUCTS_INDEX).await;
+}
+
+fn search_document(
+    title: &str,
+    price_usd: u64,
+    state: &str,
+    lifecycle: &str,
+    shop_name: &str,
+    created: &str,
+) -> (String, Value) {
+    search_document_with_shop(
+        title,
+        price_usd,
+        state,
+        lifecycle,
+        shop_name,
+        "search-shop",
+        created,
+    )
+}
+
+fn search_document_with_shop(
+    title: &str,
+    price_usd: u64,
+    state: &str,
+    lifecycle: &str,
+    shop_name: &str,
+    shop_slug_id: &str,
+    created: &str,
+) -> (String, Value) {
+    let product_id = uuid::Uuid::new_v4().to_string();
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let shop_id = uuid::Uuid::new_v4().to_string();
+    let seller_id = uuid::Uuid::new_v4().to_string();
+    let product_slug_id = format!("search-{}", &product_id[..6]);
+    (
+        product_id.clone(),
+        json!({
+            "productId": product_id,
+            "productSlugId": product_slug_id,
+            "shopSlugId": shop_slug_id,
+            "sellerSlugId": "search-seller",
+            "eventId": event_id,
+            "shopId": shop_id,
+            "sellerId": seller_id,
+            "shopsProductId": product_slug_id,
+            "shopName": shop_name,
+            "sellerName": shop_name,
+            "shopType": "COMMERCIAL_DEALER",
+            "structuredAddressAddressline": null,
+            "structuredAddressAddresslineExtra": null,
+            "structuredAddressLocality": null,
+            "structuredAddressRegion": null,
+            "structuredAddressPostalCode": null,
+            "structuredAddressCountry": null,
+            "structuredAddressContinent": null,
+            "geoAddress": null,
+            "title": { "text": title, "language": "EN" },
+            "titleDe": null,
+            "titleEn": title,
+            "titleFr": null,
+            "titleEs": null,
+            "titleIt": null,
+            "priceEur": null,
+            "priceUsd": price_usd,
+            "state": state,
+            "lifecycle": lifecycle,
+            "url": "https://shop.example/product",
+            "viewUrl": "https://aura.example/product",
+            "images": [],
+            "embedding": null,
+            "auctionStart": null,
+            "auctionEnd": null,
+            "created": created,
+            "updated": created
+        }),
+    )
+}
+
+fn product_ids(body: &Value) -> Vec<String> {
+    body["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("search response has no items array"))
+        .iter()
+        .map(|item| {
+            item["item"]["productId"]
+                .as_str()
+                .unwrap_or_else(|| panic!("search item has no product ID"))
+                .to_owned()
+        })
+        .collect()
+}
+
+fn url_encode(value: &str) -> String {
+    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}

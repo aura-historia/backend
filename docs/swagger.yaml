@@ -1399,14 +1399,11 @@ paths:
     get:
       summary: Simple product search via query parameters
       description: |
-        Performs product search using query parameters instead of a JSON request body.
-        This is the cache-friendly equivalent of `POST /api/v1/products/search`.
-        It supports sorting and cursor pagination. Every result contains `item`; a valid user or
-        delegated-user bearer token adds `userState`. Authenticated responses use `Cache-Control: no-store`.
+        Performs canonical product search with query parameters. It supports sorting and cursor pagination.
+        Every result contains `item`; a valid user or delegated-user bearer token adds `userState`.
+        Authenticated responses use `Cache-Control: no-store`.
 
-        Required query parameters for this simple-search mode are:
-        - `language`
-        - `currency`
+        `language` defaults to `en` and `currency` defaults to `EUR`.
 
         Additional optional filters from `ProductSearchData` are also supported as query parameters
         using the same field names:
@@ -1425,6 +1422,7 @@ paths:
         - `geoAddress[lat]`, `geoAddress[lon]`, `geoAddress[distance][amount]`, `geoAddress[distance][unit]`
         - `price[min]`, `price[max]`
         - `state`
+        - `lifecycle`
         - `created[min]`, `created[max]`
         - `updated[min]`, `updated[max]`
         - `auctionStart[min]`, `auctionStart[max]`
@@ -1435,15 +1433,15 @@ paths:
       parameters:
         - name: language
           in: query
-          required: true
-          description: Language used for search matching and localized response fields
+          required: false
+          description: Language used for search matching and localized response fields; defaults to `en`
           schema:
             $ref: "#/components/schemas/LanguageData"
           example: de
         - name: currency
           in: query
-          required: true
-          description: Currency used to select the indexed price field; no request-time currency conversion occurs
+          required: false
+          description: Currency used to select the indexed price field; defaults to `EUR`; no request-time currency conversion occurs
           schema:
             $ref: "#/components/schemas/CurrencyData"
           example: EUR
@@ -1677,6 +1675,18 @@ paths:
               $ref: "#/components/schemas/ProductStateData"
             uniqueItems: true
           example: ["AVAILABLE"]
+        - name: lifecycle
+          in: query
+          required: false
+          description: Optional filter by product lifecycle. Defaults to `ACTIVE` when omitted.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ProductLifecycleData"
+            uniqueItems: true
+          example: ["ACTIVE"]
 
         - name: created
           in: query
@@ -1833,246 +1843,6 @@ paths:
                     status: 400
                     title: "Bad Request"
                     error: "BAD_BODY_VALUE"
-                invalid_sort_field:
-                  summary: Invalid sort field
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "sort"
-                      sourceType: "query"
-                    detail: "Expected any of: 'score', 'price', 'updated', 'created'. Got: 'invalid'"
-                invalid_order:
-                  summary: Invalid sort order
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "order"
-                      sourceType: "query"
-                    detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
-        "503":
-          description: Product search or required personalized state is temporarily unavailable
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 503
-                title: "Service Unavailable"
-                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
-        "500":
-          description: Internal server error
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
-
-  /api/v1/products/search:
-    post:
-      summary: Complex product search
-      description: |
-        Performs an advanced search for products using a comprehensive search filter.
-        This endpoint accepts a ProductSearchData object in the request body,
-        allowing for complex filtering by multiple criteria simultaneously.
-        Returns a paginated collection of products matching the search criteria.
-
-        **Personalization**: Every result contains `item`. A valid user or delegated-user bearer token adds
-        `userState`, including PostgreSQL watchlist, prohibited-content, and search-filter state plus the newest
-        DynamoDB notification state. Both enrichment reads are required; their failure returns `503`, never
-        partial state. Anonymous requests omit `userState`.
-      operationId: complexSearchProducts
-      tags:
-        - Products
-      parameters:
-        - name: sort
-          in: query
-          required: false
-          description: Field to sort results by
-          schema:
-            $ref: "#/components/schemas/SortProductFieldData"
-          example: price
-        - name: order
-          in: query
-          required: false
-          description: Sort order (only valid when sort is specified)
-          schema:
-            type: string
-            enum: [asc, desc]
-          example: asc
-        - name: searchAfter
-          in: query
-          required: false
-          description: |
-            Cursor value for pagination (search-after pattern).
-            This is a JSON value returned as `searchAfter` in the previous response.
-            Use this to fetch the next page of results.
-            In general you do not have to worry about determining this key. It's given with the `searchAfter` field in the preceding response if more entries are present.
-            This can be ANY heterogeneous array.
-          schema:
-            type: array
-            items: {}
-          example: '[2999, "6ba7b810-9dad-11d1-80b4-00c04fd430c8"]'
-        - name: size
-          in: query
-          required: false
-          description: Number of products to return per page
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 21
-          example: 21
-      security:
-        - BearerAuth: []
-        - {}
-      requestBody:
-        required: true
-        description: |
-          Search filter configuration with all filtering criteria.
-          Unlike the simple text search, this allows filtering by multiple fields,
-          geo filters, price ranges, product states, and date ranges.
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ProductSearchData"
-            example:
-              language: "en"
-              currency: "USD"
-              productQuery: ["antique clock", "vintage clock"]
-              excludeProductId: ["550e8400-e29b-41d4-a716-446655440000"]
-              shopName: ["Antique Store", "Vintage Gallery"]
-              country: ["DE"]
-              continent: ["EUROPE"]
-              geoAddress:
-                lat: 52.52
-                lon: 13.405
-                distance:
-                  amount: 100
-                  unit: KILOMETERS
-              price:
-                min: 1000
-                max: 5000
-              state: ["AVAILABLE"]
-              created:
-                min: "2024-01-01T00:00:00Z"
-                max: "2024-12-31T23:59:59Z"
-      responses:
-        "200":
-          description: Complex search results returned successfully
-          headers:
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProductSearchResultData"
-              examples:
-                authenticated:
-                  summary: Authenticated user response with user state for each product
-                  value:
-                    items:
-                      - item:
-                          productId: "550e8400-e29b-41d4-a716-446655440000"
-                          productSlugId: "premium-smartphone-case-a1b2c3"
-                          eventId: "550e8400-e29b-41d4-a716-446655440001"
-                          shopId: "550e8400-e29b-41d4-a716-446655440000"
-                          sellerId: "550e8400-e29b-41d4-a716-446655440002"
-                          shopsProductId: "6ba7b810"
-                          shopName: "Tech Store"
-                          shopSlugId: "tech-store"
-                          title:
-                            text: "Premium Smartphone Case"
-                            language: "en"
-                          price:
-                            currency: "USD"
-                            amount: 2999
-                          state: "AVAILABLE"
-                          lifecycle: "ACTIVE"
-                          url: "https://tech-store.com/premium-case"
-                          viewUrl: "https://tech-store.com/premium-case?utm_source=aura_historia&utm_medium=referral"
-                          images:
-                            - prohibitedContent: "NAZI_GERMANY"
-                          updated: "2024-01-15T12:00:00Z"
-                        userState:
-                          watchlist:
-                            watching: true
-                            notifications: false
-                          prohibitedContent:
-                            consent: false
-                          notification:
-                            seen: false
-                            originEventId: "550e8400-e29b-41d4-a716-446655440001"
-                          searchFilter:
-                            matched: true
-                            hidden: false
-                            userSearchFilterId: "550e8400-e29b-41d4-a716-446655440003"
-                            userSearchFilterName: "Smartphones"
-                            matchReason: "TITLE_MATCH"
-                            matchFeedback: true
-                    size: 21
-                    total: 84
-                    searchAfter: [2999, "550e8400-e29b-41d4-a716-446655440000"]
-                anonymous:
-                  summary: Anonymous user response without user state
-                  value:
-                    items:
-                      - item:
-                          productId: "550e8400-e29b-41d4-a716-446655440000"
-                          productSlugId: "premium-smartphone-case-a1b2c3"
-                          eventId: "550e8400-e29b-41d4-a716-446655440001"
-                          shopId: "550e8400-e29b-41d4-a716-446655440000"
-                          sellerId: "550e8400-e29b-41d4-a716-446655440002"
-                          shopsProductId: "6ba7b810"
-                          shopName: "Tech Store"
-                          shopSlugId: "tech-store"
-                          title:
-                            text: "Premium Smartphone Case"
-                            language: "en"
-                          price:
-                            currency: "USD"
-                            amount: 2999
-                          state: "AVAILABLE"
-                          lifecycle: "ACTIVE"
-                          url: "https://tech-store.com/premium-case"
-                          viewUrl: "https://tech-store.com/premium-case?utm_source=aura_historia&utm_medium=referral"
-                          images:
-                            - url: "https://tech-store.com/images/premium-case-1.jpg"
-                              prohibitedContent: "NONE"
-                          updated: "2024-01-15T12:00:00Z"
-                    size: 21
-                    total: 84
-                    searchAfter: [2999, "550e8400-e29b-41d4-a716-446655440000"]
-        "400":
-          description: Bad request - invalid parameters or body
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_body:
-                  summary: Missing request body
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Body cannot be empty"
-                invalid_json:
-                  summary: Invalid JSON format
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Invalid JSON format"
                 invalid_sort_field:
                   summary: Invalid sort field
                   value:

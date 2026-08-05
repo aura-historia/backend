@@ -168,10 +168,6 @@ pub fn app(state: AppState) -> Router {
                     get(products::search_products::get_products),
                 )
                 .route(
-                    "/api/v1/products/search",
-                    post(products::search_products::post_search_products),
-                )
-                .route(
                     "/api/v1/products/{product_id}",
                     get(products::get_product_by_id::get_product_by_id),
                 )

@@ -54,6 +54,6 @@ openssl = { workspace = true, features = ["vendored"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 sqlx = { workspace = true }
-test-api = { workspace = true, features = ["aura-historia-api", "dynamodb", "postgres"] }
+test-api = { workspace = true, features = ["aura-historia-api", "dynamodb", "opensearch", "postgres"] }
 time = { workspace = true }
 tower = { workspace = true, features = ["util"] }

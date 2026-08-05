@@ -1,7 +1,5 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
-use crate::error::{
-    ApiError, BAD_BODY_VALUE, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE,
-};
+use crate::error::{ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE};
 use crate::products::product_data::{
     PersonalizedProductSummaryData, personalized_product_summary_data,
 };
@@ -239,20 +237,7 @@ pub async fn get_products(
                 .into_response();
         }
     };
-    handle_search(state, headers, raw_query.as_deref(), data, true).await
-}
-
-pub async fn post_search_products(
-    State(state): State<ProductsState>,
-    headers: HeaderMap,
-    RawQuery(raw_query): RawQuery,
-    body: String,
-) -> Response {
-    let data = match parse_body(&body) {
-        Ok(data) => data,
-        Err(error) => return error.into_response(),
-    };
-    handle_search(state, headers, raw_query.as_deref(), data, false).await
+    handle_search(state, headers, raw_query.as_deref(), data).await
 }
 
 async fn handle_search(
@@ -260,7 +245,6 @@ async fn handle_search(
     headers: HeaderMap,
     raw_query: Option<&str>,
     data: ProductSearchData,
-    cacheable: bool,
 ) -> Response {
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
@@ -304,30 +288,20 @@ async fn handle_search(
                 total: result.total,
             })
             .into_response();
-            if cacheable {
-                let value = match context.principal {
-                    Principal::Anonymous => "public, max-age=60, s-maxage=300",
-                    Principal::User(_)
-                    | Principal::DelegatedUser { .. }
-                    | Principal::Service(_)
-                    | Principal::System => "no-store",
-                };
-                response
-                    .headers_mut()
-                    .insert(header::CACHE_CONTROL, HeaderValue::from_static(value));
-            }
+            let value = match context.principal {
+                Principal::Anonymous => "public, max-age=60, s-maxage=300",
+                Principal::User(_)
+                | Principal::DelegatedUser { .. }
+                | Principal::Service(_)
+                | Principal::System => "no-store",
+            };
+            response
+                .headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static(value));
             response
         }
         Err(error) => ApiError::from(error).into_response(),
     }
-}
-
-fn parse_body(body: &str) -> Result<ProductSearchData, ApiError> {
-    if body.trim().is_empty() {
-        return Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail("Body cannot be empty"));
-    }
-    serde_json::from_str(body)
-        .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))
 }
 
 fn parse_sort(raw_query: Option<&str>) -> Result<Option<Sort<SortProductField>>, ApiError> {
@@ -541,25 +515,6 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn should_not_add_cache_header_to_post_search() -> Result<(), Box<dyn std::error::Error>>
-    {
-        let (app, calls) = app();
-
-        let response = app
-            .oneshot(
-                Request::post("/api/v1/products/search")
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"language":"en","currency":"EUR"}"#))?,
-            )
-            .await?;
-
-        assert_eq!(StatusCode::OK, response.status());
-        assert!(response.headers().get(header::CACHE_CONTROL).is_none());
-        assert_eq!(1, lock(&calls).len());
-        Ok(())
-    }
-
     fn app() -> (Router, SearchProductsCalls) {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let state = ProductsState::new(
@@ -573,10 +528,6 @@ mod tests {
         (
             Router::new()
                 .route("/api/v1/products", axum::routing::get(get_products))
-                .route(
-                    "/api/v1/products/search",
-                    axum::routing::post(post_search_products),
-                )
                 .with_state(state),
             calls,
         )
