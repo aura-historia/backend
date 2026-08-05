@@ -20,7 +20,7 @@ use product_core::sort_product_field::SortProductField;
 use product_core::title::Title;
 use product_service::ports::{ProductSearchReadError, ProductSearchReader};
 use product_service::use_cases::queries::search_products::{
-    ProductSummary, SearchProductsRequest, SearchProductsResult,
+    ProductSearchReadResult, ProductSummary, SearchProductsRequest,
 };
 use serde::ser::Error;
 use serde_json::json;
@@ -60,7 +60,7 @@ impl ProductSearchReader for OpenSearchProductSearchReader {
     async fn search(
         &self,
         request: &SearchProductsRequest,
-    ) -> Result<SearchProductsResult, ProductSearchReadError> {
+    ) -> Result<ProductSearchReadResult, ProductSearchReadError> {
         let sort = request.sort.unwrap_or(Sort {
             sort: SortProductField::Score,
             order: SortOrder::Desc,
@@ -92,7 +92,7 @@ impl ProductSearchReader for OpenSearchProductSearchReader {
 pub(crate) fn map_search_response(
     search: &ProductSearch,
     search_response: SearchResponse<ProductDocument>,
-) -> SearchProductsResult {
+) -> ProductSearchReadResult {
     CursoredResult {
         cursor: Cursor {
             size: search_response.hits.hits.len() as u64,

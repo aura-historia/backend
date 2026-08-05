@@ -311,9 +311,17 @@ impl From<GetSimilarProductsError> for ApiError {
             GetSimilarProductsError::ProductEmbeddingQueryFailed { .. }
             | GetSimilarProductsError::SimilaritySearchUnavailable
             | GetSimilarProductsError::BeginTransactionFailed
-            | GetSimilarProductsError::CommitTransactionFailed => {
+            | GetSimilarProductsError::CommitTransactionFailed
+            | GetSimilarProductsError::ProductUserStateQueryFailed { .. }
+            | GetSimilarProductsError::ProductNotificationReadFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Similar products are temporarily unavailable.")
+            }
+            GetSimilarProductsError::ProductUserStateReadModelInvalid { .. }
+            | GetSimilarProductsError::ProductUserStateMissing
+            | GetSimilarProductsError::HiddenProductSummaryInvalid { .. } => {
+                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                    .with_detail("Similar product personalization failed internally.")
             }
         }
     }
@@ -322,11 +330,16 @@ impl From<GetSimilarProductsError> for ApiError {
 impl From<SearchProductsError> for ApiError {
     fn from(error: SearchProductsError) -> Self {
         match error {
-            SearchProductsError::ProductSearchQueryFailed => {
+            SearchProductsError::ProductSearchQueryFailed
+            | SearchProductsError::ProductUserStateQueryFailed { .. }
+            | SearchProductsError::ProductNotificationReadFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product search is temporarily unavailable.")
             }
-            SearchProductsError::ProductSearchReadModelInvalid => {
+            SearchProductsError::ProductSearchReadModelInvalid
+            | SearchProductsError::ProductUserStateReadModelInvalid { .. }
+            | SearchProductsError::ProductUserStateMissing
+            | SearchProductsError::HiddenProductSummaryInvalid { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
                     .with_detail("Product search failed internally.")
             }

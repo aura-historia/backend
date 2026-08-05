@@ -8,6 +8,7 @@ use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::operation_context::{OperationContext, Principal};
+use common::personalized::Personalized;
 use common::price::domain::Price;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
@@ -76,8 +77,9 @@ pub struct ProductDetailsView {
     pub auction: ProductAuction,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
-    pub user_state: Option<ProductUserState>,
 }
+
+pub type PersonalizedProductDetailsView = Personalized<ProductDetailsView, ProductUserState>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GetProductError {
@@ -104,7 +106,7 @@ pub trait GetProductUseCase: Send + Sync {
         &self,
         context: &OperationContext,
         request: GetProductRequest,
-    ) -> Result<ProductDetailsView, GetProductError>;
+    ) -> Result<PersonalizedProductDetailsView, GetProductError>;
 }
 
 pub struct GetProductHandler<U, D, N> {
@@ -143,7 +145,7 @@ where
         &self,
         context: &OperationContext,
         request: GetProductRequest,
-    ) -> Result<ProductDetailsView, GetProductError> {
+    ) -> Result<PersonalizedProductDetailsView, GetProductError> {
         let user_id = personalization_user_id(&context.principal);
         let mut tx = self
             .unit_of_work
@@ -172,7 +174,7 @@ where
                 .ok_or(GetProductError::ProductDetailsReadModelInvalid)?;
             let notification = self
                 .product_notifications
-                .list_by_product(&user_id, &details.product_id, Some(1), true)
+                .list_by_product(&user_id, &details.item.product_id, Some(1), true)
                 .await
                 .map_err(product_notification_read_error)?
                 .into_iter()
@@ -185,7 +187,7 @@ where
             user_state.notification = notification;
 
             if user_state.search_filter.hidden {
-                redact_hidden_product(&mut details)?;
+                redact_hidden_product(&mut details.item)?;
             }
         }
 
@@ -286,7 +288,8 @@ mod tests {
     struct FakeState {
         begin_error: bool,
         commit_error: bool,
-        find_details_result: Option<Result<Option<ProductDetailsView>, ProductDetailsReadError>>,
+        find_details_result:
+            Option<Result<Option<PersonalizedProductDetailsView>, ProductDetailsReadError>>,
         find_details_request: Option<ProductDetailsReadRequest>,
         notification_result:
             Option<Result<Vec<ProductNotificationReadItem>, ProductNotificationsReadError>>,
@@ -372,7 +375,7 @@ mod tests {
         async fn find_details(
             &mut self,
             request: &ProductDetailsReadRequest,
-        ) -> Result<Option<ProductDetailsView>, ProductDetailsReadError> {
+        ) -> Result<Option<PersonalizedProductDetailsView>, ProductDetailsReadError> {
             let mut state = lock_state(&self.state);
             state.find_details_request = Some(request.clone());
             match state.find_details_result.take() {
@@ -439,50 +442,55 @@ mod tests {
         Url::parse(value)
     }
 
-    fn details_view() -> Result<ProductDetailsView, url::ParseError> {
+    fn details_view() -> Result<PersonalizedProductDetailsView, url::ParseError> {
         let product_id = ProductId::new();
-        Ok(ProductDetailsView {
-            product_id,
-            product_slug_id: ProductSlugId::from("cabinet-abcdef"),
-            event_id: EventId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shops_product_id: ShopsProductId::new(),
-            shop_name: ShopName::from("Shop"),
-            seller_name: ShopName::from("Seller"),
-            shop_slug_id: ShopSlugId::from("shop"),
-            seller_slug_id: ShopSlugId::from("seller"),
-            address: ProductAddress::default(),
-            product_title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
-            product_description: Some(Localized::new(Language::En, Description::from("Native"))),
-            title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
-            description: Some(Localized::new(
-                Language::En,
-                Description::from("Description"),
-            )),
-            pricing: ProductPricing {
+        Ok(Personalized {
+            item: ProductDetailsView {
+                product_id,
+                product_slug_id: ProductSlugId::from("cabinet-abcdef"),
+                event_id: EventId::new(),
+                shop_id: ShopId::new(),
+                seller_id: ShopId::new(),
+                shops_product_id: ShopsProductId::new(),
+                shop_name: ShopName::from("Shop"),
+                seller_name: ShopName::from("Seller"),
+                shop_slug_id: ShopSlugId::from("shop"),
+                seller_slug_id: ShopSlugId::from("seller"),
+                address: ProductAddress::default(),
+                product_title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
+                product_description: Some(Localized::new(
+                    Language::En,
+                    Description::from("Native"),
+                )),
+                title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
+                description: Some(Localized::new(
+                    Language::En,
+                    Description::from("Description"),
+                )),
+                pricing: ProductPricing {
+                    price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                    price_estimate_min: None,
+                    price_estimate_max: None,
+                    fx_rate_id: None,
+                },
                 price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 price_estimate_min: None,
                 price_estimate_max: None,
-                fx_rate_id: None,
+                currency: Some(Currency::Eur),
+                state: ProductState::Listed,
+                lifecycle: ProductLifecycle::Active,
+                url: url("https://shop.example/products/1")?,
+                view_url: url("https://aura.example/products/cabinet-abcdef")?,
+                images: IndexSet::<ProductImage>::new(),
+                auction: ProductAuction::default(),
+                created: OffsetDateTime::UNIX_EPOCH,
+                updated: OffsetDateTime::UNIX_EPOCH,
             },
-            price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
-            price_estimate_min: None,
-            price_estimate_max: None,
-            currency: Some(Currency::Eur),
-            state: ProductState::Listed,
-            lifecycle: ProductLifecycle::Active,
-            url: url("https://shop.example/products/1")?,
-            view_url: url("https://aura.example/products/cabinet-abcdef")?,
-            images: IndexSet::<ProductImage>::new(),
-            auction: ProductAuction::default(),
-            created: OffsetDateTime::UNIX_EPOCH,
-            updated: OffsetDateTime::UNIX_EPOCH,
             user_state: None,
         })
     }
 
-    fn personalized_details_view() -> Result<ProductDetailsView, url::ParseError> {
+    fn personalized_details_view() -> Result<PersonalizedProductDetailsView, url::ParseError> {
         let mut view = details_view()?;
         view.user_state = Some(ProductUserState::default());
         Ok(view)
@@ -544,7 +552,7 @@ mod tests {
         let state = state();
         let user_id = UserId::new();
         let view = personalized_details_view()?;
-        let product_id = view.product_id;
+        let product_id = view.item.product_id;
         let oldest_event_id = EventId::new();
         let newest_event_id = EventId::new();
         lock_state(&state).find_details_result = Some(Ok(Some(view)));
@@ -668,7 +676,7 @@ mod tests {
         let user_id = UserId::new();
         let event_id = EventId::new();
         let mut view = personalized_details_view()?;
-        let original_lifecycle = view.lifecycle;
+        let original_lifecycle = view.item.lifecycle;
         if let Some(user_state) = view.user_state.as_mut() {
             user_state.search_filter.hidden = true;
         }
@@ -684,31 +692,34 @@ mod tests {
             Ok(view) => {
                 assert_eq!(
                     "00000000-0000-0000-0000-000000000000",
-                    view.product_id.to_string()
+                    view.item.product_id.to_string()
                 );
-                assert!(view.product_slug_id.as_ref().starts_with("hidden-"));
-                assert_eq!("hidden", view.shop_slug_id.as_ref());
-                assert_eq!("hidden", view.seller_slug_id.as_ref());
-                assert_eq!(ProductState::Unknown, view.state);
-                assert_eq!(original_lifecycle, view.lifecycle);
-                assert!(view.address.structured.is_none());
-                assert!(view.address.geo.is_none());
-                assert!(view.product_title.is_none());
-                assert!(view.product_description.is_none());
+                assert!(view.item.product_slug_id.as_ref().starts_with("hidden-"));
+                assert_eq!("hidden", view.item.shop_slug_id.as_ref());
+                assert_eq!("hidden", view.item.seller_slug_id.as_ref());
+                assert_eq!(ProductState::Unknown, view.item.state);
+                assert_eq!(original_lifecycle, view.item.lifecycle);
+                assert!(view.item.address.structured.is_none());
+                assert!(view.item.address.geo.is_none());
+                assert!(view.item.product_title.is_none());
+                assert!(view.item.product_description.is_none());
                 assert_eq!(
                     Some("Hidden Product Title"),
-                    view.title.as_ref().map(|title| title.payload.as_ref())
+                    view.item.title.as_ref().map(|title| title.payload.as_ref())
                 );
-                assert!(view.description.is_none());
-                assert_eq!(ProductPricing::default(), view.pricing);
-                assert!(view.price.is_none());
-                assert!(view.currency.is_none());
-                assert_eq!("https://aura-historia.com/pricing", view.url.as_str());
-                assert_eq!("https://aura-historia.com/pricing", view.view_url.as_str());
-                assert!(view.images.is_empty());
-                assert_eq!(ProductAuction::default(), view.auction);
-                assert_eq!(OffsetDateTime::UNIX_EPOCH, view.created);
-                assert_eq!(OffsetDateTime::UNIX_EPOCH, view.updated);
+                assert!(view.item.description.is_none());
+                assert_eq!(ProductPricing::default(), view.item.pricing);
+                assert!(view.item.price.is_none());
+                assert!(view.item.currency.is_none());
+                assert_eq!("https://aura-historia.com/pricing", view.item.url.as_str());
+                assert_eq!(
+                    "https://aura-historia.com/pricing",
+                    view.item.view_url.as_str()
+                );
+                assert!(view.item.images.is_empty());
+                assert_eq!(ProductAuction::default(), view.item.auction);
+                assert_eq!(OffsetDateTime::UNIX_EPOCH, view.item.created);
+                assert_eq!(OffsetDateTime::UNIX_EPOCH, view.item.updated);
                 let user_state = view.user_state.unwrap_or_default();
                 assert!(user_state.search_filter.hidden);
                 assert!(!user_state.notification.seen);

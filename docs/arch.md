@@ -1015,7 +1015,7 @@ GetRecordDetailsHandler
     └── RecordUserStateReader      -> PostgreSQL or key-value source
 ```
 
-The handler owns the final result:
+The handler owns the final result. Keep reusable item data and orthogonal per-user state separate with the shared wrapper:
 
 ```rust
 pub struct RecordDetailsView {
@@ -1023,9 +1023,13 @@ pub struct RecordDetailsView {
     pub title: String,
     pub container: ContainerSummary,
     pub metadata: MetadataSection,
-    pub user_state: Option<RecordUserState>,
 }
+
+pub type PersonalizedRecordDetailsView =
+    common::personalized::Personalized<RecordDetailsView, RecordUserState>;
 ```
+
+The API maps that wrapper to a required `item` plus optional `userState`; do not inline `user_state` into the reusable item view.
 
 Partial models belong to the ports that require them:
 

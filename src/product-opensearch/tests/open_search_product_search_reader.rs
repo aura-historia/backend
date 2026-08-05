@@ -21,7 +21,7 @@ use product_core::product_search::ProductSearch;
 use product_core::sort_product_field::SortProductField;
 use product_service::ports::ProductSearchReader;
 use product_service::use_cases::queries::search_products::{
-    SearchProductsRequest, SearchProductsResult,
+    ProductSearchReadResult, SearchProductsRequest,
 };
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -432,7 +432,7 @@ async fn search(
     search: ProductSearch,
     sort: Option<Sort<SortProductField>>,
     cursor: Option<Cursor<Value>>,
-) -> Result<SearchProductsResult, product_service::ports::ProductSearchReadError> {
+) -> Result<ProductSearchReadResult, product_service::ports::ProductSearchReadError> {
     let reader = product_opensearch::OpenSearchProductSearchReader::new(
         get_opensearch_client().await.clone(),
     );
@@ -468,7 +468,7 @@ async fn index_products(products: impl IntoIterator<Item = Value>) -> TestResult
     Ok(())
 }
 
-fn product_ids(result: &SearchProductsResult) -> Vec<ProductId> {
+fn product_ids(result: &ProductSearchReadResult) -> Vec<ProductId> {
     result.items.iter().map(|item| item.product_id).collect()
 }
 

@@ -25,7 +25,7 @@ use product_service::ports::{
     ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
     ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
 };
-use product_service::use_cases::queries::get_product::ProductDetailsView;
+use product_service::use_cases::queries::get_product::PersonalizedProductDetailsView;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
@@ -69,19 +69,23 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
         panic!("expected one watchlisted product");
     };
 
-    assert_eq!(view.product_id, product.id());
-    assert_eq!(view.shops_product_id.as_ref(), "watchlist-joined");
-    assert_eq!(view.shop_name.as_ref(), "watchlist-joined-shop");
-    assert_eq!(view.seller_name.as_ref(), "watchlist-joined-seller");
-    assert_localized_title(view.product_title.as_ref(), Language::En, "Original title");
+    assert_eq!(view.item.product_id, product.id());
+    assert_eq!(view.item.shops_product_id.as_ref(), "watchlist-joined");
+    assert_eq!(view.item.shop_name.as_ref(), "watchlist-joined-shop");
+    assert_eq!(view.item.seller_name.as_ref(), "watchlist-joined-seller");
+    assert_localized_title(
+        view.item.product_title.as_ref(),
+        Language::En,
+        "Original title",
+    );
     assert_localized_description(
-        view.product_description.as_ref(),
+        view.item.product_description.as_ref(),
         Language::En,
         "Original description",
     );
-    assert_localized_title(view.title.as_ref(), Language::De, "Deutscher Titel");
+    assert_localized_title(view.item.title.as_ref(), Language::De, "Deutscher Titel");
     assert_localized_description(
-        view.description.as_ref(),
+        view.item.description.as_ref(),
         Language::De,
         "Deutsche Beschreibung",
     );
@@ -120,7 +124,7 @@ async fn should_order_watchlisted_products_by_created_desc_then_product_id_asc()
     tied_ids.sort_by_key(|product_id| uuid::Uuid::from(*product_id));
     let product_ids = products
         .into_iter()
-        .map(|product| product.product_id)
+        .map(|product| product.item.product_id)
         .collect::<Vec<_>>();
 
     assert_eq!(product_ids, vec![newest.id(), tied_ids[0], tied_ids[1]]);
@@ -171,7 +175,7 @@ async fn should_page_watchlisted_products_by_created_desc_then_product_id_asc() 
         first_page
             .items
             .iter()
-            .map(|product| product.product_id)
+            .map(|product| product.item.product_id)
             .collect::<Vec<_>>(),
         vec![newest.id(), tied_ids[0]]
     );
@@ -194,7 +198,7 @@ async fn should_page_watchlisted_products_by_created_desc_then_product_id_asc() 
         second_page
             .items
             .iter()
-            .map(|product| product.product_id)
+            .map(|product| product.item.product_id)
             .collect::<Vec<_>>(),
         vec![tied_ids[1], tied_ids[2]]
     );
@@ -234,7 +238,7 @@ async fn find_for_user(
     pool: &sqlx::PgPool,
     user_id: UserId,
     language: Language,
-) -> Vec<ProductDetailsView> {
+) -> Vec<PersonalizedProductDetailsView> {
     match find_for_user_result(pool, user_id, language).await {
         Ok(products) => products,
         Err(error) => panic!("failed to read product watchlist details: {error:?}"),
@@ -245,7 +249,7 @@ async fn find_for_user_result(
     pool: &sqlx::PgPool,
     user_id: UserId,
     language: Language,
-) -> Result<Vec<ProductDetailsView>, ProductWatchlistDetailsReadError> {
+) -> Result<Vec<PersonalizedProductDetailsView>, ProductWatchlistDetailsReadError> {
     find_for_user_page_result(
         pool,
         &ProductWatchlistDetailsRequest {
@@ -264,7 +268,7 @@ async fn find_for_user_result(
 async fn find_for_user_page(
     pool: &sqlx::PgPool,
     request: &ProductWatchlistDetailsRequest,
-) -> CursoredResult<ProductDetailsView, ProductWatchlistDetailsCursor> {
+) -> CursoredResult<PersonalizedProductDetailsView, ProductWatchlistDetailsCursor> {
     match find_for_user_page_result(pool, request).await {
         Ok(page) => page,
         Err(error) => panic!("failed to read product watchlist details: {error:?}"),
@@ -275,7 +279,7 @@ async fn find_for_user_page_result(
     pool: &sqlx::PgPool,
     request: &ProductWatchlistDetailsRequest,
 ) -> Result<
-    CursoredResult<ProductDetailsView, ProductWatchlistDetailsCursor>,
+    CursoredResult<PersonalizedProductDetailsView, ProductWatchlistDetailsCursor>,
     ProductWatchlistDetailsReadError,
 > {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());

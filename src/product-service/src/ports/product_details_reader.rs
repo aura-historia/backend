@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::use_cases::queries::get_product::{ProductDetailsView, ProductLookup};
+use crate::use_cases::queries::get_product::{PersonalizedProductDetailsView, ProductLookup};
 use common::language::domain::Language;
 use common::user_id::UserId;
 
@@ -24,7 +24,7 @@ pub trait ProductDetailsReader: Send {
     async fn find_details(
         &mut self,
         request: &ProductDetailsReadRequest,
-    ) -> Result<Option<ProductDetailsView>, ProductDetailsReadError>;
+    ) -> Result<Option<PersonalizedProductDetailsView>, ProductDetailsReadError>;
 }
 
 pub trait ProductDetailsReaderFactory<Tx>: Send + Sync {

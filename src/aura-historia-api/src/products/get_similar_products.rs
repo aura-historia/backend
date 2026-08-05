@@ -1,6 +1,6 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, INVALID_UUID, PRODUCT_INTERNAL_ERROR};
-use crate::products::product_data::ProductSummaryData;
+use crate::products::product_data::personalized_product_summary_data;
 use crate::state::ProductsState;
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
@@ -114,12 +114,16 @@ async fn similar_response(
         Ok(principal) => principal,
         Err(error) => return ApiError::from(error).into_response(),
     };
+    let context = principal.operation_context(metadata);
     match state
         .get_similar_products
-        .execute(GetSimilarProductsRequest {
-            lookup: lookup.clone(),
-            language,
-        })
+        .execute(
+            &context,
+            GetSimilarProductsRequest {
+                lookup: lookup.clone(),
+                language,
+            },
+        )
         .await
     {
         Ok(GetSimilarProductsResult::Ready(products)) => ready_response(products, &principal),
@@ -129,13 +133,13 @@ async fn similar_response(
 }
 
 fn ready_response(
-    products: Vec<product_service::use_cases::ProductSummary>,
+    products: Vec<product_service::use_cases::PersonalizedProductSummary>,
     principal: &crate::auth::TransportPrincipal,
 ) -> Response {
     let mut response = Json(
         products
             .into_iter()
-            .map(ProductSummaryData::from)
+            .map(personalized_product_summary_data)
             .collect::<Vec<_>>(),
     )
     .into_response();
@@ -191,6 +195,7 @@ mod tests {
     use common::language::domain::Language;
     use common::localized::Localized;
     use common::operation_context::OperationContext;
+    use common::personalized::Personalized;
     use common::price::domain::{MonetaryAmount, Price};
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
@@ -201,11 +206,12 @@ mod tests {
     use common::shops_product_id::ShopsProductId;
     use common::user_id::UserId;
     use product_core::title::Title;
+    use product_core::user_state::ProductUserState;
     use product_service::use_cases::{
         GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
-        ProductDetailsView, ProductSummary, SearchProductsError, SearchProductsRequest,
-        SearchProductsResult, SearchProductsUseCase,
+        PersonalizedProductDetailsView, PersonalizedProductSummary, ProductSummary,
+        SearchProductsError, SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
     };
     use std::collections::BTreeSet;
     use std::sync::Arc;
@@ -215,7 +221,7 @@ mod tests {
 
     #[derive(Clone)]
     enum FakeSimilarProductsResult {
-        Ready(Vec<ProductSummary>),
+        Ready(Vec<PersonalizedProductSummary>),
         Pending,
         NotFound,
         Unavailable,
@@ -229,6 +235,7 @@ mod tests {
     impl GetSimilarProductsUseCase for FakeSimilarProductsUseCase {
         async fn execute(
             &self,
+            _context: &OperationContext,
             _request: GetSimilarProductsRequest,
         ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
             match &self.result {
@@ -254,7 +261,7 @@ mod tests {
             &self,
             _context: &OperationContext,
             _request: GetProductRequest,
-        ) -> Result<ProductDetailsView, GetProductError> {
+        ) -> Result<PersonalizedProductDetailsView, GetProductError> {
             Err(GetProductError::NotFound)
         }
     }
@@ -305,7 +312,7 @@ mod tests {
     async fn should_return_ready_similar_products_as_json_with_public_cache_header()
     -> Result<(), Box<dyn std::error::Error>> {
         let product = product_summary()?;
-        let product_id = product.product_id;
+        let product_id = product.item.product_id;
         let app = app(
             FakeSimilarProductsResult::Ready(vec![product]),
             TransportPrincipal::Anonymous,
@@ -324,8 +331,8 @@ mod tests {
             response.headers()[header::CACHE_CONTROL]
         );
         let body = body_json(response).await?;
-        assert_eq!(product_id.to_string(), body[0]["productId"]);
-        assert_eq!("Cabinet", body[0]["title"]["text"]);
+        assert_eq!(product_id.to_string(), body[0]["item"]["productId"]);
+        assert_eq!("Cabinet", body[0]["item"]["title"]["text"]);
         Ok(())
     }
 
@@ -333,8 +340,10 @@ mod tests {
     async fn should_not_cache_ready_similar_products_for_authenticated_request()
     -> Result<(), Box<dyn std::error::Error>> {
         let product_id = ProductId::new();
+        let mut product = product_summary()?;
+        product.user_state = Some(ProductUserState::default());
         let app = app(
-            FakeSimilarProductsResult::Ready(vec![product_summary()?]),
+            FakeSimilarProductsResult::Ready(vec![product]),
             TransportPrincipal::User {
                 user_id: UserId::new(),
                 auth_method: AuthMethod::CognitoJwt,
@@ -352,6 +361,10 @@ mod tests {
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert_eq!(
+            true,
+            body_json(response).await?[0]["userState"]["notification"]["seen"]
+        );
         Ok(())
     }
 
@@ -483,27 +496,30 @@ mod tests {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    fn product_summary() -> Result<ProductSummary, url::ParseError> {
-        Ok(ProductSummary {
-            product_id: ProductId::new(),
-            product_slug_id: ProductSlugId::from("cabinet-abcdef"),
-            event_id: EventId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shops_product_id: ShopsProductId::new(),
-            shop_name: ShopName::from("Shop"),
-            shop_slug_id: ShopSlugId::from("shop"),
-            title: Some(Localized {
-                localization: Language::En,
-                payload: Title::from("Cabinet"),
-            }),
-            price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
-            state: ProductState::Listed,
-            lifecycle: ProductLifecycle::Active,
-            url: Url::parse("https://shop.example/products/1")?,
-            view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
-            images: Default::default(),
-            updated: OffsetDateTime::UNIX_EPOCH,
+    fn product_summary() -> Result<PersonalizedProductSummary, url::ParseError> {
+        Ok(Personalized {
+            item: ProductSummary {
+                product_id: ProductId::new(),
+                product_slug_id: ProductSlugId::from("cabinet-abcdef"),
+                event_id: EventId::new(),
+                shop_id: ShopId::new(),
+                seller_id: ShopId::new(),
+                shops_product_id: ShopsProductId::new(),
+                shop_name: ShopName::from("Shop"),
+                shop_slug_id: ShopSlugId::from("shop"),
+                title: Some(Localized {
+                    localization: Language::En,
+                    payload: Title::from("Cabinet"),
+                }),
+                price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                state: ProductState::Listed,
+                lifecycle: ProductLifecycle::Active,
+                url: Url::parse("https://shop.example/products/1")?,
+                view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
+                images: Default::default(),
+                updated: OffsetDateTime::UNIX_EPOCH,
+            },
+            user_state: None,
         })
     }
 }

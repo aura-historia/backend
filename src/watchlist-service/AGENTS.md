@@ -14,7 +14,7 @@
 - Repository writes return persisted watchlist state.
 - List uses a transaction-scoped Product watchlist-details reader for one joined PostgreSQL cursor page. It commits before one batch DynamoDB notification read; notification failure fails the whole read.
 - Watchlist pagination uses `created DESC, product_id ASC`; the cursor contains both values so tied creation times cannot skip or duplicate products.
-- Product views are public Product-service contracts. Watchlist owns orchestration, authorization, notification hydration, and hidden-product redaction.
+- Product views are public `common::personalized::Personalized` Product-service contracts. Watchlist owns orchestration, authorization, notification hydration, and hidden-product redaction.
 - Watchlist writes require `watchlist:write`.
 - Watchlist list reads require owner/service/system access and delegated `watchlist:read`.
 

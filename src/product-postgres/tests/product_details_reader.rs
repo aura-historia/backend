@@ -25,7 +25,9 @@ use product_service::ports::{
     ProductDetailsReader, ProductDetailsReaderFactory, ProductEventStore, ProductEventStoreFactory,
     ProductRepository, ProductRepositoryFactory,
 };
-use product_service::use_cases::queries::get_product::{ProductDetailsView, ProductLookup};
+use product_service::use_cases::queries::get_product::{
+    PersonalizedProductDetailsView, ProductDetailsView, ProductLookup,
+};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
@@ -79,7 +81,6 @@ async fn should_select_requested_translations_independently_and_preserve_origina
         Language::En,
         "Translated description",
     );
-    assert_eq!(None, view.user_state);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -230,7 +231,7 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
     )
     .await;
 
-    let view = find_details(&pool, details_request(product.id(), Some(user_id))).await;
+    let view = find_personalized_details(&pool, details_request(product.id(), Some(user_id))).await;
     let user_state = view.user_state.unwrap_or_default();
 
     assert!(user_state.watchlist.watching);
@@ -269,7 +270,7 @@ async fn should_return_default_postgres_user_state_when_no_watchlist_or_match_ex
     let product = persist_product(&pool, "details-user-state-default", None, None).await;
     let user_id = seed_user(&pool, "FREE", false).await;
 
-    let view = find_details(&pool, details_request(product.id(), Some(user_id))).await;
+    let view = find_personalized_details(&pool, details_request(product.id(), Some(user_id))).await;
     let user_state = view.user_state.unwrap_or_default();
 
     assert!(!user_state.watchlist.watching);
@@ -290,7 +291,7 @@ async fn should_grant_consent_for_empty_images_even_when_user_has_not_consented(
     let user_id = seed_user(&pool, "FREE", false).await;
     set_product_images(&pool, product.id(), serde_json::json!([])).await;
 
-    let view = find_details(&pool, details_request(product.id(), Some(user_id))).await;
+    let view = find_personalized_details(&pool, details_request(product.id(), Some(user_id))).await;
 
     assert!(
         view.user_state
@@ -316,8 +317,11 @@ async fn should_use_persisted_consent_when_product_has_unsafe_images() {
     )
     .await;
 
-    let denied = find_details(&pool, details_request(product.id(), Some(denied_user_id))).await;
-    let granted = find_details(&pool, details_request(product.id(), Some(granted_user_id))).await;
+    let denied =
+        find_personalized_details(&pool, details_request(product.id(), Some(denied_user_id))).await;
+    let granted =
+        find_personalized_details(&pool, details_request(product.id(), Some(granted_user_id)))
+            .await;
 
     assert!(
         !denied
@@ -336,18 +340,9 @@ async fn should_use_persisted_consent_when_product_has_unsafe_images() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_reject_unsafe_product_personalization_when_authenticated_user_is_missing() {
+async fn should_reject_product_personalization_when_authenticated_user_is_missing() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-missing-user", None, None).await;
-    set_product_images(
-        &pool,
-        product.id(),
-        serde_json::json!([{
-            "url": "https://example.com/unsafe.jpg",
-            "prohibited_content": "UNKNOWN"
-        }]),
-    )
-    .await;
 
     let result =
         find_details_result(&pool, details_request(product.id(), Some(UserId::new()))).await;
@@ -397,7 +392,7 @@ async fn should_hide_the_eleventh_free_tier_match_in_its_month() {
     )
     .await;
 
-    let view = find_details(&pool, details_request(product.id(), Some(user_id))).await;
+    let view = find_personalized_details(&pool, details_request(product.id(), Some(user_id))).await;
     let user_state = view.user_state.unwrap_or_default();
 
     assert!(user_state.search_filter.matched);
@@ -444,7 +439,7 @@ async fn should_keep_first_tied_free_tier_match_visible() {
         .await;
     }
 
-    let view = find_details(&pool, details_request(target.id(), Some(user_id))).await;
+    let view = find_personalized_details(&pool, details_request(target.id(), Some(user_id))).await;
     let search_filter = view.user_state.unwrap_or_default().search_filter;
 
     assert!(search_filter.matched);
@@ -472,7 +467,7 @@ async fn should_not_hide_matched_product_for_unlimited_tier() {
     )
     .await;
 
-    let view = find_details(&pool, details_request(product.id(), Some(user_id))).await;
+    let view = find_personalized_details(&pool, details_request(product.id(), Some(user_id))).await;
 
     assert!(!view.user_state.unwrap_or_default().search_filter.hidden);
 
@@ -499,7 +494,8 @@ async fn should_not_hide_matched_product_for_unlimited_tier() {
     .await;
 
     let ultimate_view =
-        find_details(&pool, details_request(product.id(), Some(ultimate_user_id))).await;
+        find_personalized_details(&pool, details_request(product.id(), Some(ultimate_user_id)))
+            .await;
 
     assert!(
         !ultimate_view
@@ -545,7 +541,7 @@ async fn should_select_earliest_search_filter_match_deterministically() {
     )
     .await;
 
-    let view = find_details(&pool, details_request(product.id(), Some(user_id))).await;
+    let view = find_personalized_details(&pool, details_request(product.id(), Some(user_id))).await;
     let search_filter = view.user_state.unwrap_or_default().search_filter;
 
     assert_eq!(Some(earlier_filter_id), search_filter.user_search_filter_id);
@@ -584,6 +580,13 @@ async fn find_details(
     pool: &sqlx::PgPool,
     request: ProductDetailsReadRequest,
 ) -> ProductDetailsView {
+    find_personalized_details(pool, request).await.item
+}
+
+async fn find_personalized_details(
+    pool: &sqlx::PgPool,
+    request: ProductDetailsReadRequest,
+) -> PersonalizedProductDetailsView {
     match find_details_result(pool, request).await {
         Ok(Some(view)) => view,
         Ok(None) => panic!("missing product details"),
@@ -594,7 +597,8 @@ async fn find_details(
 async fn find_details_result(
     pool: &sqlx::PgPool,
     request: ProductDetailsReadRequest,
-) -> Result<Option<ProductDetailsView>, product_service::ports::ProductDetailsReadError> {
+) -> Result<Option<PersonalizedProductDetailsView>, product_service::ports::ProductDetailsReadError>
+{
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let details = SqlxProductDetailsReaderFactory::new();
     let mut tx = begin(&unit_of_work).await;

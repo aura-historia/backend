@@ -928,8 +928,8 @@ paths:
         Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
         `fxRateId`; this endpoint performs no currency conversion.
 
-        Anonymous responses are flat product data and cacheable. A valid user bearer token adds the
-        optional top-level `userState`; authenticated responses are not cached.
+        Responses always contain `item`, the product data. A valid user or delegated-user bearer token
+        adds optional top-level `userState`; authenticated responses are not cached.
 
       operationId: getProduct
       tags:
@@ -958,7 +958,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProductDetailsData"
+                $ref: "#/components/schemas/PersonalizedProductDetailsData"
           headers:
             Content-Language:
               description: The language of the returned content
@@ -1030,8 +1030,8 @@ paths:
         Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
         `fxRateId`; this endpoint performs no currency conversion.
 
-        Anonymous responses are flat product data and cacheable. A valid user bearer token adds the
-        optional top-level `userState`; authenticated responses are not cached.
+        Responses always contain `item`, the product data. A valid user or delegated-user bearer token
+        adds optional top-level `userState`; authenticated responses are not cached.
 
         **Human-Readable Identifiers**: This endpoint uses slug-based identifiers which are human-readable
         kebab-case strings. Shop slugs are derived from the shop name (e.g., "tech-store-premium"),
@@ -1075,7 +1075,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProductDetailsData"
+                $ref: "#/components/schemas/PersonalizedProductDetailsData"
           headers:
             Content-Language:
               description: The language of the returned content
@@ -1244,7 +1244,8 @@ paths:
         the endpoint returns `202 Accepted` with a polling location.
 
         Returned prices remain stored source amounts and currencies; this endpoint performs no currency
-        conversion.
+        conversion. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
+        `userState`. Personalized KNN results use `Cache-Control: no-store`.
       operationId: getSimilarProducts
       tags:
         - Products
@@ -1269,6 +1270,12 @@ paths:
       responses:
         "200":
           description: Similar products found and returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PersonalizedProductSummaryData"
 
         "202":
           description: Product embedding is not available yet. Poll the Location URL for KNN results.
@@ -1344,7 +1351,7 @@ paths:
   /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/similar:
     get:
       summary: Get similar products by slug
-      description: Returns KNN matches when the product embedding is ready, or `202 Accepted` with a polling location when it is absent. Returned prices are stored source amounts and currencies; no conversion is performed.
+      description: Returns KNN matches when the product embedding is ready, or `202 Accepted` with a polling location when it is absent. Returned prices are stored source amounts and currencies; no conversion is performed. Every ready entry contains `item`; a valid user or delegated-user bearer token adds `userState`. Anonymous responses omit it and remain cacheable.
       operationId: getSimilarProductsBySlug
       tags:
         - Products
@@ -1373,6 +1380,12 @@ paths:
       responses:
         "200":
           description: Similar products found and returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PersonalizedProductSummaryData"
 
         "202":
           description: Product embedding is not available yet. Poll the Location URL for KNN results.
@@ -1388,7 +1401,8 @@ paths:
       description: |
         Performs product search using query parameters instead of a JSON request body.
         This is the cache-friendly equivalent of `POST /api/v1/products/search`.
-        It supports sorting, cursor pagination, and product personalization (when authenticated).
+        It supports sorting and cursor pagination. Every result contains `item`; a valid user or
+        delegated-user bearer token adds `userState`. Authenticated responses use `Cache-Control: no-store`.
 
         Required query parameters for this simple-search mode are:
         - `language`
@@ -1805,7 +1819,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonalizedProductSearchResultData"
+                $ref: "#/components/schemas/ProductSearchResultData"
         "400":
           description: Bad request - invalid query parameters
           content:
@@ -1839,6 +1853,16 @@ paths:
                       field: "order"
                       sourceType: "query"
                     detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
+        "503":
+          description: Product search or required personalized state is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -1859,9 +1883,10 @@ paths:
         allowing for complex filtering by multiple criteria simultaneously.
         Returns a paginated collection of products matching the search criteria.
 
-        **Personalization**: When authenticated (via optional Authorization header), the response includes
-        user-specific state for each product such as whether it's on the user's watchlist and notification preferences.
-        Anonymous requests receive product data without user state.
+        **Personalization**: Every result contains `item`. A valid user or delegated-user bearer token adds
+        `userState`, including PostgreSQL watchlist, prohibited-content, and search-filter state plus the newest
+        DynamoDB notification state. Both enrichment reads are required; their failure returns `503`, never
+        partial state. Anonymous requests omit `userState`.
       operationId: complexSearchProducts
       tags:
         - Products
@@ -1950,7 +1975,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonalizedProductSearchResultData"
+                $ref: "#/components/schemas/ProductSearchResultData"
               examples:
                 authenticated:
                   summary: Authenticated user response with user state for each product
@@ -1959,12 +1984,12 @@ paths:
                       - item:
                           productId: "550e8400-e29b-41d4-a716-446655440000"
                           productSlugId: "premium-smartphone-case-a1b2c3"
-                          shopSlugId: "tech-store"
                           eventId: "550e8400-e29b-41d4-a716-446655440001"
                           shopId: "550e8400-e29b-41d4-a716-446655440000"
+                          sellerId: "550e8400-e29b-41d4-a716-446655440002"
                           shopsProductId: "6ba7b810"
                           shopName: "Tech Store"
-                          shopType: "COMMERCIAL_DEALER"
+                          shopSlugId: "tech-store"
                           title:
                             text: "Premium Smartphone Case"
                             language: "en"
@@ -1972,12 +1997,11 @@ paths:
                             currency: "USD"
                             amount: 2999
                           state: "AVAILABLE"
+                          lifecycle: "ACTIVE"
                           url: "https://tech-store.com/premium-case"
                           viewUrl: "https://tech-store.com/premium-case?utm_source=aura_historia&utm_medium=referral"
                           images:
-                            - url: "https://tech-store.com/images/premium-case-1.jpg"
-                              prohibitedContent: "NONE"
-                          created: "2024-01-15T10:00:00Z"
+                            - prohibitedContent: "NAZI_GERMANY"
                           updated: "2024-01-15T12:00:00Z"
                         userState:
                           watchlist:
@@ -1985,9 +2009,19 @@ paths:
                             notifications: false
                           prohibitedContent:
                             consent: false
+                          notification:
+                            seen: false
+                            originEventId: "550e8400-e29b-41d4-a716-446655440001"
+                          searchFilter:
+                            matched: true
+                            hidden: false
+                            userSearchFilterId: "550e8400-e29b-41d4-a716-446655440003"
+                            userSearchFilterName: "Smartphones"
+                            matchReason: "TITLE_MATCH"
+                            matchFeedback: true
                     size: 21
                     total: 84
-                    searchAfter: '[2999, "550e8400-e29b-41d4-a716-446655440000"]'
+                    searchAfter: [2999, "550e8400-e29b-41d4-a716-446655440000"]
                 anonymous:
                   summary: Anonymous user response without user state
                   value:
@@ -1995,12 +2029,12 @@ paths:
                       - item:
                           productId: "550e8400-e29b-41d4-a716-446655440000"
                           productSlugId: "premium-smartphone-case-a1b2c3"
-                          shopSlugId: "tech-store"
                           eventId: "550e8400-e29b-41d4-a716-446655440001"
                           shopId: "550e8400-e29b-41d4-a716-446655440000"
+                          sellerId: "550e8400-e29b-41d4-a716-446655440002"
                           shopsProductId: "6ba7b810"
                           shopName: "Tech Store"
-                          shopType: "COMMERCIAL_DEALER"
+                          shopSlugId: "tech-store"
                           title:
                             text: "Premium Smartphone Case"
                             language: "en"
@@ -2008,16 +2042,16 @@ paths:
                             currency: "USD"
                             amount: 2999
                           state: "AVAILABLE"
+                          lifecycle: "ACTIVE"
                           url: "https://tech-store.com/premium-case"
                           viewUrl: "https://tech-store.com/premium-case?utm_source=aura_historia&utm_medium=referral"
                           images:
                             - url: "https://tech-store.com/images/premium-case-1.jpg"
                               prohibitedContent: "NONE"
-                          created: "2024-01-15T10:00:00Z"
                           updated: "2024-01-15T12:00:00Z"
                     size: 21
                     total: 84
-                    searchAfter: '[2999, "550e8400-e29b-41d4-a716-446655440000"]'
+                    searchAfter: [2999, "550e8400-e29b-41d4-a716-446655440000"]
         "400":
           description: Bad request - invalid parameters or body
           content:
@@ -2059,6 +2093,16 @@ paths:
                       field: "order"
                       sourceType: "query"
                     detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
+        "503":
+          description: Product search or required personalized state is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -3429,7 +3473,7 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: "#/components/schemas/GetProductData"
+                      $ref: "#/components/schemas/PersonalizedProductDetailsData"
                   size:
                     type: integer
                     minimum: 1
@@ -3443,23 +3487,25 @@ paths:
                     nullable: true
               example:
                 items:
-                  - productId: "550e8400-e29b-41d4-a716-446655440000"
-                    productSlugId: "smartphone-case-a1b2c3"
-                    eventId: "550e8400-e29b-41d4-a716-446655440001"
-                    shopId: "550e8400-e29b-41d4-a716-446655440000"
-                    shopsProductId: "6ba7b810"
-                    shopName: "Tech Store"
-                    title:
-                      text: "Smartphone Case"
-                      language: "en"
-                    state: "AVAILABLE"
-                    lifecycle: "ACTIVE"
-                    url: "https://tech-store.com/smartphone-case"
-                    viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
-                    images:
-                      - url: "https://tech-store.com/images/case-1.jpg"
-                    created: "2024-01-01T10:00:00Z"
-                    updated: "2024-01-01T12:00:00Z"
+                  - item:
+                      productId: "550e8400-e29b-41d4-a716-446655440000"
+                      productSlugId: "smartphone-case-a1b2c3"
+                      eventId: "550e8400-e29b-41d4-a716-446655440001"
+                      shopId: "550e8400-e29b-41d4-a716-446655440000"
+                      shopsProductId: "6ba7b810"
+                      shopName: "Tech Store"
+                      title:
+                        text: "Smartphone Case"
+                        language: "en"
+                      state: "AVAILABLE"
+                      lifecycle: "ACTIVE"
+                      url: "https://tech-store.com/smartphone-case"
+                      viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
+                      images:
+                        - url: "https://tech-store.com/images/case-1.jpg"
+                          prohibitedContent: "NONE"
+                      created: "2024-01-01T10:00:00Z"
+                      updated: "2024-01-01T12:00:00Z"
                     userState:
                       watchlist:
                         watching: true
@@ -10351,27 +10397,21 @@ components:
 
     GetProductSummaryData:
       type: object
-      description: |
-        Lightweight product summary information for use in search results and similar products listings.
-        Contains essential product details without extended metadata fields like description, estimates,
-        or history.
+      description: Lightweight product summary for search and similar-product results.
       required:
         - productId
         - productSlugId
-        - shopSlugId
         - eventId
         - shopId
+        - sellerId
         - shopsProductId
         - shopName
-        - sellerName
-        - shopType
-        - title
+        - shopSlugId
         - state
         - lifecycle
         - url
         - viewUrl
         - images
-        - created
         - updated
       properties:
         productId:
@@ -10381,42 +10421,38 @@ components:
         productSlugId:
           type: string
           pattern: "^[a-z0-9]+(-[a-z0-9]+)*-[a-f0-9]{6}$"
-          description: |
-            Human-readable slug identifier for the product (kebab-case with 6-character hex suffix).
-            Format: {product-title}-{6-char-hex} where the title is derived from the product name.
-            Example: "amazing-product-fa87c4"
-        shopSlugId:
-          type: string
-          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
-          description: |
-            Human-readable slug identifier of the shop (kebab-case, derived from shop name).
-            Example: "tech-store-premium" or "christies"
+          description: Human-readable product slug.
         eventId:
           type: string
           format: uuid
-          description: Unique identifier for the current state/version of the product
+          description: Identifier of the Product event that produced this state.
         shopId:
           type: string
           format: uuid
-          description: Unique identifier of the shop
+          description: Unique identifier of the shop.
+        sellerId:
+          type: string
+          format: uuid
+          description: Unique identifier of the seller.
         shopsProductId:
           type: string
-          description: Shop's unique identifier for the product. Can be any arbitrary string.
+          description: Shop-provided identifier for the product.
         shopName:
           type: string
-          description: Display name of the shop
-        sellerName:
+          description: Display name of the shop.
+        shopSlugId:
           type: string
-          description: Display name of the seller associated with the product
-        shopType:
-          $ref: "#/components/schemas/ShopTypeData"
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          description: Human-readable shop slug.
         title:
-          $ref: "#/components/schemas/LocalizedTextData"
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          nullable: true
         price:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Optional product price
+          description: Product price in its stored source currency; conversion is not applied.
         state:
           $ref: "#/components/schemas/ProductStateData"
         lifecycle:
@@ -10428,35 +10464,19 @@ components:
         viewUrl:
           type: string
           format: uri
-          description: Tracked or affiliate URL generated by the backend for user-facing navigation to the product.
+          description: Tracked or affiliate URL for user-facing navigation.
         images:
           type: array
           items:
             $ref: "#/components/schemas/ProductImageData"
-          description: Array of product images with prohibited content classification
-          default: []
-        auction:
-          allOf:
-            - $ref: "#/components/schemas/AuctionData"
-          nullable: true
-          description: |
-            Optional auction time window information.
-            Only present for products from auction houses with scheduled auction times.
-            Contains start and/or end timestamps for the auction.
-        created:
-          type: string
-          format: date-time
-          description: When the product was first created (RFC3339 format)
+          description: Array of product image URLs.
         updated:
           type: string
           format: date-time
-          description: When the product was last updated (RFC3339 format)
-
+          description: When the product was last updated (RFC3339 format).
     ProductDetailsData:
       type: object
-      description: |
-        Canonical Product detail response. It remains a flat product object for anonymous callers.
-        A valid user bearer token adds `userState`
+      description: Canonical Product detail data inside a personalized response wrapper.
       required:
         - productId
         - productSlugId
@@ -10575,12 +10595,7 @@ components:
         images:
           type: array
           items:
-            type: object
-            required: [url]
-            properties:
-              url:
-                type: string
-                format: uri
+            $ref: "#/components/schemas/ProductImageData"
         auction:
           type: object
           properties:
@@ -10598,6 +10613,27 @@ components:
         updated:
           type: string
           format: date-time
+
+    PersonalizedProductDetailsData:
+      type: object
+      description: Canonical Product detail with optional user-specific state.
+      required: [item]
+      properties:
+        item:
+          $ref: "#/components/schemas/ProductDetailsData"
+        userState:
+          allOf:
+            - $ref: "#/components/schemas/ProductUserStateData"
+          nullable: true
+          description: Present only for a valid user or delegated-user bearer token.
+
+    PersonalizedProductSummaryData:
+      type: object
+      description: Canonical Product summary with optional user-specific state.
+      required: [item]
+      properties:
+        item:
+          $ref: "#/components/schemas/GetProductSummaryData"
         userState:
           allOf:
             - $ref: "#/components/schemas/ProductUserStateData"
@@ -10638,6 +10674,37 @@ components:
             - $ref: "#/components/schemas/ProductUserStateData"
           nullable: true
           description: Optional user-specific state for this product (only present when authenticated)
+
+    ProductSearchResultData:
+      type: object
+      description: Cursor-paged canonical Product search response.
+      required:
+        - items
+        - size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonalizedProductSummaryData"
+          description: Personalized Product summaries in OpenSearch result order.
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Requested page size after server-side clamping.
+          example: 21
+        total:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Total matching products when the search backend provides it.
+          example: 127
+        searchAfter:
+          type: array
+          items: {}
+          nullable: true
+          description: Cursor for the next page. Pass it back as `searchAfter` query values.
+          example: [2999, "550e8400-e29b-41d4-a716-446655440000"]
 
     PersonalizedProductSearchResultData:
       type: object
@@ -11177,22 +11244,20 @@ components:
 
     ProductImageData:
       type: object
-      description: |
-        Product image with prohibited content classification.
-        The `url` field is omitted when the image contains prohibited content and the authenticated user has not consented to view such content.
-        For unauthenticated users the `url` is always omitted for any image whose `prohibitedContent` is not `NONE`.
+      description: Product image classification. Unsafe image URLs are omitted unless effective prohibited-content consent is true.
       required:
         - prohibitedContent
       properties:
         url:
           type: string
           format: uri
-          description: |
-            URL to the product image.
-            Absent when the image has prohibited content (`prohibitedContent != "NONE"`) and the user has not given consent (`prohibitedContent.consent == false`).
+          description: URL to the product image. Omitted for unsafe content without effective consent.
           example: "https://my-shop.com/images/product-1.jpg"
         prohibitedContent:
-          $ref: "#/components/schemas/ProhibitedContentData"
+          type: string
+          enum: [UNKNOWN, NONE, NAZI_GERMANY]
+          description: Safety classification of the image.
+          example: NONE
 
     SortProductFieldData:
       type: string

@@ -36,7 +36,8 @@ use opensearch::{
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
     SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
-    SqlxProductEventReaderFactory, SqlxProductWatchlistDetailsReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductUserStateReader,
+    SqlxProductWatchlistDetailsReaderFactory,
 };
 use product_service::use_cases::{
     GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
@@ -316,17 +317,11 @@ async fn ready() -> &'static str {
 
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
     let pool = common::postgres::connect_from_env().await?;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let get_product_events =
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
     let opensearch_client = opensearch_client_from_env()?;
-    let get_similar_products = GetSimilarProductsHandler::new(
-        unit_of_work.clone(),
-        SqlxProductEmbeddingReaderFactory::new(),
-        OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
-    );
-    let search_products =
-        SearchProductsHandler::new(OpenSearchProductSearchReader::new(opensearch_client));
+
     let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
     let search_shops =
         SearchShopsHandler::new(unit_of_work.clone(), SqlxShopSearchReaderFactory::new());
@@ -434,6 +429,19 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         })?;
     let table_name = Box::leak(table_name.into_boxed_str());
     let table_name_ref: &str = table_name;
+    let product_user_states = SqlxProductUserStateReader::new(pool);
+    let get_similar_products = GetSimilarProductsHandler::new(
+        unit_of_work.clone(),
+        SqlxProductEmbeddingReaderFactory::new(),
+        OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
+        product_user_states.clone(),
+        DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+    );
+    let search_products = SearchProductsHandler::new(
+        OpenSearchProductSearchReader::new(opensearch_client),
+        product_user_states,
+        DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+    );
     let get_product = GetProductHandler::new(
         unit_of_work.clone(),
         SqlxProductDetailsReaderFactory::new(),

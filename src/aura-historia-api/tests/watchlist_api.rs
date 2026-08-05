@@ -101,7 +101,7 @@ async fn should_list_current_user_watchlist() {
     assert_eq!(serde_json::json!(21), body["size"]);
     assert_eq!(
         serde_json::json!(product_id.to_string()),
-        body["items"][0]["productId"]
+        body["items"][0]["item"]["productId"]
     );
 }
 

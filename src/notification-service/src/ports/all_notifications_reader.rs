@@ -1,4 +1,4 @@
-use common::{error::boxed::BoxError, event_id::EventId, user_id::UserId};
+use common::{error::boxed::BoxError, event_id::EventId, product_id::ProductId, user_id::UserId};
 use notification_core::{
     notification::NotificationPayload, notification_id::NotificationId,
     notification_type::NotificationType,
@@ -16,6 +16,16 @@ pub struct AllNotificationsReadItem {
     pub external: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
+}
+
+impl AllNotificationsReadItem {
+    pub fn product_id(&self) -> Option<ProductId> {
+        match &self.notification_payload {
+            NotificationPayload::Watchlist { product_id, .. }
+            | NotificationPayload::SearchFilter { product_id, .. } => Some(*product_id),
+            NotificationPayload::PartnerApplication { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

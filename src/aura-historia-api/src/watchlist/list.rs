@@ -1,7 +1,9 @@
 use super::util::no_store;
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, WATCHLIST_INTERNAL_ERROR};
-use crate::products::product_data::ProductDetailsData;
+use crate::products::product_data::{
+    PersonalizedProductDetailsData, personalized_product_details_data,
+};
 use crate::state::WatchlistState;
 use axum::Json;
 use axum::extract::{RawQuery, State};
@@ -70,9 +72,13 @@ pub async fn list_watchlist(
                 Err(error) => return error.into_response(),
             };
             no_store(
-                Json(JsonCursoredData::<ProductDetailsData>::from(
+                Json(JsonCursoredData::<PersonalizedProductDetailsData>::from(
                     CursoredResult {
-                        items: result.items,
+                        items: result
+                            .items
+                            .into_iter()
+                            .map(personalized_product_details_data)
+                            .collect(),
                         cursor: Cursor {
                             size: result.cursor.size,
                             search_after,
@@ -156,6 +162,7 @@ mod tests {
     use common::event_id::EventId;
     use common::language::domain::Language;
     use common::operation_context::OperationContext;
+    use common::personalized::Personalized;
     use common::product_id::ProductId;
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
@@ -270,44 +277,46 @@ mod tests {
 
     fn product(
         product_id: ProductId,
-    ) -> Result<product_service::use_cases::ProductDetailsView, url::ParseError> {
+    ) -> Result<product_service::use_cases::PersonalizedProductDetailsView, url::ParseError> {
         let url = Url::parse("https://example.test/product")?;
-        Ok(product_service::use_cases::ProductDetailsView {
-            product_id,
-            product_slug_id: ProductSlugId::from("product"),
-            event_id: EventId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shops_product_id: ShopsProductId::from("product"),
-            shop_name: ShopName::from("Shop"),
-            seller_name: ShopName::from("Seller"),
-            shop_slug_id: ShopSlugId::from("shop"),
-            seller_slug_id: ShopSlugId::from("seller"),
-            address: ProductAddress::default(),
-            product_title: None,
-            product_description: None,
-            title: None,
-            description: None,
-            pricing: ProductPricing::default(),
-            price: None,
-            price_estimate_min: None,
-            price_estimate_max: None,
-            currency: None,
-            state: ProductState::Available,
-            lifecycle: ProductLifecycle::Active,
-            url: url.clone(),
-            view_url: url,
-            images: Default::default(),
-            auction: ProductAuction::default(),
-            created: OffsetDateTime::UNIX_EPOCH,
-            updated: OffsetDateTime::UNIX_EPOCH,
+        Ok(Personalized {
+            item: product_service::use_cases::ProductDetailsView {
+                product_id,
+                product_slug_id: ProductSlugId::from("product"),
+                event_id: EventId::new(),
+                shop_id: ShopId::new(),
+                seller_id: ShopId::new(),
+                shops_product_id: ShopsProductId::from("product"),
+                shop_name: ShopName::from("Shop"),
+                seller_name: ShopName::from("Seller"),
+                shop_slug_id: ShopSlugId::from("shop"),
+                seller_slug_id: ShopSlugId::from("seller"),
+                address: ProductAddress::default(),
+                product_title: None,
+                product_description: None,
+                title: None,
+                description: None,
+                pricing: ProductPricing::default(),
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                currency: None,
+                state: ProductState::Available,
+                lifecycle: ProductLifecycle::Active,
+                url: url.clone(),
+                view_url: url,
+                images: Default::default(),
+                auction: ProductAuction::default(),
+                created: OffsetDateTime::UNIX_EPOCH,
+                updated: OffsetDateTime::UNIX_EPOCH,
+            },
             user_state: Some(ProductUserState::default()),
         })
     }
 
     fn app(
         user_id: UserId,
-        products: Vec<product_service::use_cases::ProductDetailsView>,
+        products: Vec<product_service::use_cases::PersonalizedProductDetailsView>,
         reject_auth: bool,
     ) -> (Router, ListRequests) {
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -361,7 +370,10 @@ mod tests {
         let body = json(response).await?;
         assert_eq!(21, body["size"]);
         assert!(body["searchAfter"].is_null());
-        assert_eq!(product_id.to_string(), body["items"][0]["productId"]);
+        assert_eq!(
+            product_id.to_string(),
+            body["items"][0]["item"]["productId"]
+        );
         assert_eq!(true, body["items"][0]["userState"]["notification"]["seen"]);
         assert!(matches!(
             lock(&requests)[0].1,

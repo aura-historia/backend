@@ -7,16 +7,15 @@ use common::pagination::cursor::{Cursor, CursoredResult};
 use common::product_id::ProductId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
-use notification_core::notification::NotificationPayload;
 use notification_service::ports::all_notifications_reader::{
-    AllNotificationsReadError, AllNotificationsReader,
+    AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
 };
 use product_core::user_state::NotificationUserState;
 use product_service::ports::{
     ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
     ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
 };
-use product_service::use_cases::{ProductDetailsView, redact_hidden_product};
+use product_service::use_cases::{PersonalizedProductDetailsView, redact_hidden_product};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,7 +25,8 @@ pub struct ListWatchlistRequest {
     pub cursor: Cursor<ProductWatchlistDetailsCursor>,
 }
 
-pub type ListWatchlistResult = CursoredResult<ProductDetailsView, ProductWatchlistDetailsCursor>;
+pub type ListWatchlistResult =
+    CursoredResult<PersonalizedProductDetailsView, ProductWatchlistDetailsCursor>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListWatchlistError {
@@ -128,11 +128,11 @@ where
                 .as_mut()
                 .ok_or(ListWatchlistError::InvalidPersistedState)?;
             user_state.notification = newest_notifications
-                .get(&product.product_id)
+                .get(&product.item.product_id)
                 .copied()
                 .unwrap_or_default();
             if user_state.search_filter.hidden {
-                redact_hidden_product(product)
+                redact_hidden_product(&mut product.item)
                     .map_err(|_| ListWatchlistError::InvalidPersistedState)?;
             }
         }
@@ -142,17 +142,13 @@ where
 }
 
 fn newest_notifications_by_product(
-    notifications: Vec<
-        notification_service::ports::all_notifications_reader::AllNotificationsReadItem,
-    >,
+    notifications: Vec<AllNotificationsReadItem>,
 ) -> HashMap<ProductId, NotificationUserState> {
     let mut newest = HashMap::new();
 
     for notification in notifications {
-        let product_id = match notification.notification_payload {
-            NotificationPayload::Watchlist { product_id, .. }
-            | NotificationPayload::SearchFilter { product_id, .. } => product_id,
-            NotificationPayload::PartnerApplication { .. } => continue,
+        let Some(product_id) = notification.product_id() else {
+            continue;
         };
         let state = NotificationUserState {
             seen: notification.seen,
@@ -211,6 +207,7 @@ mod tests {
     use super::*;
     use common::event_id::EventId;
     use common::operation_context::{CorrelationId, Principal, RequestId};
+    use common::personalized::Personalized;
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
     use common::product_state::domain::ProductState;
@@ -224,6 +221,7 @@ mod tests {
     use notification_service::ports::all_notifications_reader::AllNotificationsReadItem;
     use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
     use product_core::user_state::{ProductUserState, SearchFilterUserState};
+    use product_service::use_cases::ProductDetailsView;
 
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::OffsetDateTime;
@@ -233,7 +231,8 @@ mod tests {
     struct FakeState {
         begin_fails: bool,
         commit_fails: bool,
-        details_result: Option<Result<Vec<ProductDetailsView>, ProductWatchlistDetailsReadError>>,
+        details_result:
+            Option<Result<Vec<PersonalizedProductDetailsView>, ProductWatchlistDetailsReadError>>,
         notifications_result:
             Option<Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError>>,
         commit_count: usize,
@@ -305,7 +304,7 @@ mod tests {
             &mut self,
             request: &ProductWatchlistDetailsRequest,
         ) -> Result<
-            CursoredResult<ProductDetailsView, ProductWatchlistDetailsCursor>,
+            CursoredResult<PersonalizedProductDetailsView, ProductWatchlistDetailsCursor>,
             ProductWatchlistDetailsReadError,
         > {
             let mut state = lock(&self.0);
@@ -377,37 +376,39 @@ mod tests {
         }
     }
 
-    fn details(product_id: ProductId) -> Result<ProductDetailsView, url::ParseError> {
+    fn details(product_id: ProductId) -> Result<PersonalizedProductDetailsView, url::ParseError> {
         let url = Url::parse("https://example.test/product")?;
-        Ok(ProductDetailsView {
-            product_id,
-            product_slug_id: ProductSlugId::from("product"),
-            event_id: EventId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shops_product_id: ShopsProductId::from("product"),
-            shop_name: ShopName::from("Shop"),
-            seller_name: ShopName::from("Seller"),
-            shop_slug_id: ShopSlugId::from("shop"),
-            seller_slug_id: ShopSlugId::from("seller"),
-            address: ProductAddress::default(),
-            product_title: None,
-            product_description: None,
-            title: None,
-            description: None,
-            pricing: ProductPricing::default(),
-            price: None,
-            price_estimate_min: None,
-            price_estimate_max: None,
-            currency: None,
-            state: ProductState::Available,
-            lifecycle: ProductLifecycle::Active,
-            url: url.clone(),
-            view_url: url,
-            images: Default::default(),
-            auction: ProductAuction::default(),
-            created: OffsetDateTime::UNIX_EPOCH,
-            updated: OffsetDateTime::UNIX_EPOCH,
+        Ok(Personalized {
+            item: ProductDetailsView {
+                product_id,
+                product_slug_id: ProductSlugId::from("product"),
+                event_id: EventId::new(),
+                shop_id: ShopId::new(),
+                seller_id: ShopId::new(),
+                shops_product_id: ShopsProductId::from("product"),
+                shop_name: ShopName::from("Shop"),
+                seller_name: ShopName::from("Seller"),
+                shop_slug_id: ShopSlugId::from("shop"),
+                seller_slug_id: ShopSlugId::from("seller"),
+                address: ProductAddress::default(),
+                product_title: None,
+                product_description: None,
+                title: None,
+                description: None,
+                pricing: ProductPricing::default(),
+                price: None,
+                price_estimate_min: None,
+                price_estimate_max: None,
+                currency: None,
+                state: ProductState::Available,
+                lifecycle: ProductLifecycle::Active,
+                url: url.clone(),
+                view_url: url,
+                images: Default::default(),
+                auction: ProductAuction::default(),
+                created: OffsetDateTime::UNIX_EPOCH,
+                updated: OffsetDateTime::UNIX_EPOCH,
+            },
             user_state: Some(ProductUserState::default()),
         })
     }
@@ -474,7 +475,7 @@ mod tests {
             result
                 .items
                 .iter()
-                .map(|product| product.product_id)
+                .map(|product| product.item.product_id)
                 .collect::<Vec<_>>()
         );
         assert_eq!(
@@ -544,7 +545,7 @@ mod tests {
             .execute(&context(user_id), request(user_id, Language::En))
             .await?;
 
-        assert_ne!(product_id, result.items[0].product_id);
+        assert_ne!(product_id, result.items[0].item.product_id);
         Ok(())
     }
 

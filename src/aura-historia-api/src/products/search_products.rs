@@ -2,7 +2,9 @@ use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{
     ApiError, BAD_BODY_VALUE, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE,
 };
-use crate::products::product_data::ProductSummaryData;
+use crate::products::product_data::{
+    PersonalizedProductSummaryData, personalized_product_summary_data,
+};
 use crate::state::ProductsState;
 use axum::Json;
 use axum::extract::{RawQuery, State};
@@ -216,7 +218,7 @@ impl From<ShopTypeData> for ShopType {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CursoredProductsData {
-    items: Vec<ProductSummaryData>,
+    items: Vec<PersonalizedProductSummaryData>,
     size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     search_after: Option<Value>,
@@ -292,7 +294,11 @@ async fn handle_search(
     {
         Ok(result) => {
             let mut response = Json(CursoredProductsData {
-                items: result.items.into_iter().map(Into::into).collect(),
+                items: result
+                    .items
+                    .into_iter()
+                    .map(personalized_product_summary_data)
+                    .collect(),
                 size: result.cursor.size,
                 search_after: result.cursor.search_after,
                 total: result.total,
@@ -428,7 +434,7 @@ mod tests {
     use product_service::use_cases::{
         GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
-        ProductDetailsView, SearchProductsError, SearchProductsResult, SearchProductsUseCase,
+        SearchProductsError, SearchProductsResult, SearchProductsUseCase,
     };
     use serde_json::Value;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -444,7 +450,8 @@ mod tests {
             &self,
             _context: &OperationContext,
             _request: GetProductRequest,
-        ) -> Result<ProductDetailsView, GetProductError> {
+        ) -> Result<product_service::use_cases::PersonalizedProductDetailsView, GetProductError>
+        {
             Err(GetProductError::NotFound)
         }
     }
@@ -455,6 +462,7 @@ mod tests {
     impl GetSimilarProductsUseCase for UnusedSimilarProductsUseCase {
         async fn execute(
             &self,
+            _context: &OperationContext,
             _request: GetSimilarProductsRequest,
         ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
             Err(GetSimilarProductsError::SimilaritySearchUnavailable)

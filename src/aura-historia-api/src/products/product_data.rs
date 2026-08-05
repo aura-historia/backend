@@ -5,6 +5,7 @@ use common::currency::data::CurrencyData;
 use common::event_id::EventId;
 use common::language::data::LocalizedTextData;
 use common::operation_context::Principal;
+use common::personalized::api::PersonalizedData;
 use common::price::data::PriceData;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
@@ -16,11 +17,14 @@ use common::shops_product_id::ShopsProductId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use product_core::prohibited_content::ProhibitedContent;
 use product_core::user_state::{
     NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
     WatchlistUserState,
 };
-use product_service::use_cases::{ProductDetailsView, ProductSummary};
+use product_service::use_cases::{
+    PersonalizedProductDetailsView, PersonalizedProductSummary, ProductDetailsView, ProductSummary,
+};
 use serde::Serialize;
 use time::OffsetDateTime;
 use url::Url;
@@ -69,13 +73,11 @@ pub(crate) struct ProductDetailsData {
     created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     updated: OffsetDateTime,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    user_state: Option<ProductUserStateData>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProductUserStateData {
+pub(crate) struct ProductUserStateData {
     watchlist: WatchlistUserStateData,
     prohibited_content: ProhibitedContentUserStateData,
     notification: NotificationUserStateData,
@@ -156,8 +158,19 @@ struct ProductPricingData {
 }
 
 #[derive(Debug, Serialize)]
-struct ProductImageData {
-    url: Url,
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProductImageData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<Url>,
+    prohibited_content: ProductProhibitedContentData,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum ProductProhibitedContentData {
+    Unknown,
+    None,
+    NaziGermany,
 }
 
 #[derive(Debug, Serialize)]
@@ -187,8 +200,8 @@ enum ProductLifecycleData {
     Deleted,
 }
 
-impl From<ProductDetailsView> for ProductDetailsData {
-    fn from(view: ProductDetailsView) -> Self {
+impl ProductDetailsData {
+    fn from_view(view: ProductDetailsView, prohibited_content_consent: bool) -> Self {
         Self {
             product_id: view.product_id,
             product_slug_id: view.product_slug_id,
@@ -226,7 +239,7 @@ impl From<ProductDetailsView> for ProductDetailsData {
             images: view
                 .images
                 .into_iter()
-                .map(|image| ProductImageData { url: image.url })
+                .map(|image| ProductImageData::from_with_consent(image, prohibited_content_consent))
                 .collect(),
             auction: ProductAuctionData {
                 start: view.auction.start,
@@ -234,8 +247,13 @@ impl From<ProductDetailsView> for ProductDetailsData {
             },
             created: view.created,
             updated: view.updated,
-            user_state: view.user_state.map(Into::into),
         }
+    }
+}
+
+impl From<ProductDetailsView> for ProductDetailsData {
+    fn from(view: ProductDetailsView) -> Self {
+        Self::from_view(view, false)
     }
 }
 
@@ -289,8 +307,8 @@ impl From<SearchFilterUserState> for SearchFilterUserStateData {
     }
 }
 
-impl From<ProductSummary> for ProductSummaryData {
-    fn from(summary: ProductSummary) -> Self {
+impl ProductSummaryData {
+    fn from_view(summary: ProductSummary, prohibited_content_consent: bool) -> Self {
         Self {
             product_id: summary.product_id,
             product_slug_id: summary.product_slug_id,
@@ -309,10 +327,76 @@ impl From<ProductSummary> for ProductSummaryData {
             images: summary
                 .images
                 .into_iter()
-                .map(|image| ProductImageData { url: image.url })
+                .map(|image| ProductImageData::from_with_consent(image, prohibited_content_consent))
                 .collect(),
             updated: summary.updated,
         }
+    }
+}
+
+impl From<ProductSummary> for ProductSummaryData {
+    fn from(summary: ProductSummary) -> Self {
+        Self::from_view(summary, false)
+    }
+}
+
+impl ProductImageData {
+    pub(crate) fn from_with_consent(
+        image: product_core::product_image::ProductImage,
+        prohibited_content_consent: bool,
+    ) -> Self {
+        Self {
+            url: (image.prohibited_content.is_safe() || prohibited_content_consent)
+                .then_some(image.url),
+            prohibited_content: image.prohibited_content.into(),
+        }
+    }
+}
+
+impl From<product_core::product_image::ProductImage> for ProductImageData {
+    fn from(image: product_core::product_image::ProductImage) -> Self {
+        Self::from_with_consent(image, false)
+    }
+}
+
+impl From<ProhibitedContent> for ProductProhibitedContentData {
+    fn from(value: ProhibitedContent) -> Self {
+        match value {
+            ProhibitedContent::Unknown => Self::Unknown,
+            ProhibitedContent::None => Self::None,
+            ProhibitedContent::NaziGermany => Self::NaziGermany,
+        }
+    }
+}
+
+pub(crate) type PersonalizedProductDetailsData =
+    PersonalizedData<ProductDetailsData, ProductUserStateData>;
+pub(crate) type PersonalizedProductSummaryData =
+    PersonalizedData<ProductSummaryData, ProductUserStateData>;
+
+pub(crate) fn personalized_product_details_data(
+    personalized: PersonalizedProductDetailsView,
+) -> PersonalizedProductDetailsData {
+    let prohibited_content_consent = personalized
+        .user_state
+        .as_ref()
+        .is_some_and(|state| state.prohibited_content.consent);
+    PersonalizedData {
+        item: ProductDetailsData::from_view(personalized.item, prohibited_content_consent),
+        user_state: personalized.user_state.map(Into::into),
+    }
+}
+
+pub(crate) fn personalized_product_summary_data(
+    personalized: PersonalizedProductSummary,
+) -> PersonalizedProductSummaryData {
+    let prohibited_content_consent = personalized
+        .user_state
+        .as_ref()
+        .is_some_and(|state| state.prohibited_content.consent);
+    PersonalizedData {
+        item: ProductSummaryData::from_view(personalized.item, prohibited_content_consent),
+        user_state: personalized.user_state.map(Into::into),
     }
 }
 
@@ -338,12 +422,19 @@ impl From<ProductLifecycle> for ProductLifecycleData {
     }
 }
 
-pub(crate) fn product_response(view: ProductDetailsView, principal: &Principal) -> Response {
-    let event_id = view.event_id;
-    let updated = view.updated;
-    let state = view.state;
-    let content_language = view.title.as_ref().map(|title| title.localization.as_str());
-    let mut response = Json(ProductDetailsData::from(view)).into_response();
+pub(crate) fn product_response(
+    view: PersonalizedProductDetailsView,
+    principal: &Principal,
+) -> Response {
+    let event_id = view.item.event_id;
+    let updated = view.item.updated;
+    let state = view.item.state;
+    let content_language = view
+        .item
+        .title
+        .as_ref()
+        .map(|title| title.localization.as_str());
+    let mut response = Json(personalized_product_details_data(view)).into_response();
     let cache_control = match principal {
         Principal::Anonymous if matches!(state, ProductState::Sold | ProductState::Removed) => {
             "public, max-age=180, s-maxage=86400"
@@ -369,4 +460,60 @@ pub(crate) fn product_response(view: ProductDetailsView, principal: &Principal) 
         headers.insert(header::LAST_MODIFIED, value);
     }
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use product_core::product_image::ProductImage;
+    use serde_json::json;
+
+    #[test]
+    fn should_expose_safe_image_url_without_prohibited_content_consent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let data = ProductImageData::from_with_consent(image(ProhibitedContent::None)?, false);
+
+        assert_eq!(
+            serde_json::to_value(data)?,
+            json!({
+                "url": "https://shop.example/image.jpg",
+                "prohibitedContent": "NONE"
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_redact_unsafe_image_url_without_prohibited_content_consent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let data = ProductImageData::from(image(ProhibitedContent::NaziGermany)?);
+
+        assert_eq!(
+            serde_json::to_value(data)?,
+            json!({ "prohibitedContent": "NAZI_GERMANY" })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_expose_unsafe_image_url_with_prohibited_content_consent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let data = ProductImageData::from_with_consent(image(ProhibitedContent::Unknown)?, true);
+
+        assert_eq!(
+            serde_json::to_value(data)?,
+            json!({
+                "url": "https://shop.example/image.jpg",
+                "prohibitedContent": "UNKNOWN"
+            })
+        );
+        Ok(())
+    }
+
+    fn image(prohibited_content: ProhibitedContent) -> Result<ProductImage, url::ParseError> {
+        Ok(ProductImage {
+            url: Url::parse("https://shop.example/image.jpg")?,
+            prohibited_content,
+        })
+    }
 }

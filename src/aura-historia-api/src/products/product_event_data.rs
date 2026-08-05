@@ -1,3 +1,4 @@
+use crate::products::product_data::ProductImageData;
 use common::event_id::EventId;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
@@ -126,11 +127,6 @@ struct ProductPricingData {
     price_estimate_max: Option<PriceData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fx_rate_id: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct ProductImageData {
-    url: Url,
 }
 
 #[derive(Debug, Serialize)]
@@ -296,8 +292,5 @@ impl From<ProductLifecycle> for ProductLifecycleData {
 }
 
 fn images(images: impl IntoIterator<Item = ProductImage>) -> Vec<ProductImageData> {
-    images
-        .into_iter()
-        .map(|image| ProductImageData { url: image.url })
-        .collect()
+    images.into_iter().map(ProductImageData::from).collect()
 }

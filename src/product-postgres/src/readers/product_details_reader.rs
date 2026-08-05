@@ -3,6 +3,7 @@ use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
+use common::personalized::Personalized;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
@@ -29,7 +30,9 @@ use product_service::ports::{
     ProductDetailsReadError, ProductDetailsReadRequest, ProductDetailsReader,
     ProductDetailsReaderFactory,
 };
-use product_service::use_cases::queries::get_product::{ProductDetailsView, ProductLookup};
+use product_service::use_cases::queries::get_product::{
+    PersonalizedProductDetailsView, ProductDetailsView, ProductLookup,
+};
 use serde::Deserialize;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
@@ -126,7 +129,7 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
     async fn find_details(
         &mut self,
         request: &ProductDetailsReadRequest,
-    ) -> Result<Option<ProductDetailsView>, ProductDetailsReadError> {
+    ) -> Result<Option<PersonalizedProductDetailsView>, ProductDetailsReadError> {
         let requested_language = request.language.as_str();
         let user_id = request.user_id.map(uuid::Uuid::from);
         let row = match &request.lookup {
@@ -156,7 +159,7 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
         }
         .map_err(|_| ProductDetailsReadError::ProductDetailsQueryFailed)?;
 
-        row.map(TryInto::try_into)
+        row.map(PersonalizedProductDetailsView::try_from)
             .transpose()
             .map_err(|_| ProductDetailsReadError::ProductDetailsReadModelInvalid)
     }
@@ -325,7 +328,7 @@ const SELECT_PRODUCT_DETAILS: &str = r#"
     ) AS selected_text ON TRUE
 "#;
 
-impl TryFrom<ProductDetailsRow> for ProductDetailsView {
+impl TryFrom<ProductDetailsRow> for PersonalizedProductDetailsView {
     type Error = ();
 
     fn try_from(row: ProductDetailsRow) -> Result<Self, Self::Error> {
@@ -354,43 +357,45 @@ impl TryFrom<ProductDetailsRow> for ProductDetailsView {
             .or(product_price_estimate_max)
             .map(|value| value.currency);
 
-        Ok(ProductDetailsView {
-            product_id: ProductId::from(row.product_id),
-            product_slug_id: ProductSlugId::raw(&row.product_slug_id).map_err(|_| ())?,
-            event_id: EventId::from(row.event_id),
-            shop_id: ShopId::from(row.shop_id),
-            seller_id: ShopId::from(row.seller_id),
-            shops_product_id: ShopsProductId::from(row.shops_product_id),
-            shop_name: ShopName::from(row.shop_name),
-            seller_name: ShopName::from(row.seller_name),
-            shop_slug_id: ShopSlugId::raw(&row.shop_slug_id).map_err(|_| ())?,
-            seller_slug_id: ShopSlugId::raw(&row.seller_slug_id).map_err(|_| ())?,
-            address,
-            product_title,
-            product_description,
-            title,
-            description,
-            pricing: ProductPricing {
+        Ok(Personalized {
+            item: ProductDetailsView {
+                product_id: ProductId::from(row.product_id),
+                product_slug_id: ProductSlugId::raw(&row.product_slug_id).map_err(|_| ())?,
+                event_id: EventId::from(row.event_id),
+                shop_id: ShopId::from(row.shop_id),
+                seller_id: ShopId::from(row.seller_id),
+                shops_product_id: ShopsProductId::from(row.shops_product_id),
+                shop_name: ShopName::from(row.shop_name),
+                seller_name: ShopName::from(row.seller_name),
+                shop_slug_id: ShopSlugId::raw(&row.shop_slug_id).map_err(|_| ())?,
+                seller_slug_id: ShopSlugId::raw(&row.seller_slug_id).map_err(|_| ())?,
+                address,
+                product_title,
+                product_description,
+                title,
+                description,
+                pricing: ProductPricing {
+                    price: product_price,
+                    price_estimate_min: product_price_estimate_min,
+                    price_estimate_max: product_price_estimate_max,
+                    fx_rate_id: row.fx_rate_id.map(FxRateId::from),
+                },
                 price: product_price,
                 price_estimate_min: product_price_estimate_min,
                 price_estimate_max: product_price_estimate_max,
-                fx_rate_id: row.fx_rate_id.map(FxRateId::from),
+                currency,
+                state: product_state(&row.state)?,
+                lifecycle: lifecycle(&row.lifecycle)?,
+                view_url: append_utm_params(url.clone()),
+                url,
+                images: parsed_images,
+                auction: ProductAuction {
+                    start: row.auction_start,
+                    end: row.auction_end,
+                },
+                created: row.created,
+                updated: row.updated,
             },
-            price: product_price,
-            price_estimate_min: product_price_estimate_min,
-            price_estimate_max: product_price_estimate_max,
-            currency,
-            state: product_state(&row.state)?,
-            lifecycle: lifecycle(&row.lifecycle)?,
-            view_url: append_utm_params(url.clone()),
-            url,
-            images: parsed_images,
-            auction: ProductAuction {
-                start: row.auction_start,
-                end: row.auction_end,
-            },
-            created: row.created,
-            updated: row.updated,
             user_state,
         })
     }
@@ -404,27 +409,21 @@ fn user_state(
         return Ok(None);
     }
 
-    let user = match (
+    let (stored_consent, tier) = match (
         row.user_prohibited_content_consent,
         row.user_tier.as_deref(),
     ) {
-        (Some(consent), Some("FREE")) => Some((consent, "FREE")),
-        (Some(consent), Some("PRO")) => Some((consent, "PRO")),
-        (Some(consent), Some("ULTIMATE")) => Some((consent, "ULTIMATE")),
-        (None, None) => None,
+        (Some(consent), Some("FREE")) => (consent, "FREE"),
+        (Some(consent), Some("PRO")) => (consent, "PRO"),
+        (Some(consent), Some("ULTIMATE")) => (consent, "ULTIMATE"),
         _ => return Err(()),
     };
 
-    let consent = if images
+    let consent = images
         .iter()
         .all(|image| image.prohibited_content.is_safe())
-    {
-        true
-    } else {
-        user.map(|(consent, _)| consent).ok_or(())?
-    };
-
-    let search_filter = search_filter_user_state(row, user.map(|(_, tier)| tier))?;
+        || stored_consent;
+    let search_filter = search_filter_user_state(row, Some(tier))?;
 
     Ok(Some(ProductUserState {
         watchlist: WatchlistUserState {

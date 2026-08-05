@@ -81,6 +81,7 @@ mod tests {
     use common::language::domain::Language;
     use common::localized::Localized;
     use common::operation_context::OperationContext;
+    use common::personalized::Personalized;
     use common::price::domain::{MonetaryAmount, Price};
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
@@ -100,8 +101,9 @@ mod tests {
     };
     use product_service::use_cases::{
         GetProductError, GetProductUseCase, GetSimilarProductsError, GetSimilarProductsRequest,
-        GetSimilarProductsResult, GetSimilarProductsUseCase, ProductDetailsView,
-        SearchProductsError, SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
+        GetSimilarProductsResult, GetSimilarProductsUseCase, PersonalizedProductDetailsView,
+        ProductDetailsView, SearchProductsError, SearchProductsRequest, SearchProductsResult,
+        SearchProductsUseCase,
     };
     use serde_json::{Value, json};
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -113,7 +115,7 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeGetProductUseCase {
-        result: ProductDetailsView,
+        result: PersonalizedProductDetailsView,
         calls: GetProductCalls,
     }
 
@@ -123,7 +125,7 @@ mod tests {
             &self,
             context: &OperationContext,
             request: GetProductRequest,
-        ) -> Result<ProductDetailsView, GetProductError> {
+        ) -> Result<PersonalizedProductDetailsView, GetProductError> {
             lock(&self.calls).push((context.clone(), request));
             Ok(self.result.clone())
         }
@@ -135,6 +137,7 @@ mod tests {
     impl GetSimilarProductsUseCase for UnusedSimilarProductsUseCase {
         async fn execute(
             &self,
+            _context: &OperationContext,
             _request: GetSimilarProductsRequest,
         ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
             Err(GetSimilarProductsError::SimilaritySearchUnavailable)
@@ -185,8 +188,8 @@ mod tests {
     async fn should_return_product_details_headers_and_omit_audit_actors()
     -> Result<(), Box<dyn std::error::Error>> {
         let view = product_details_view()?;
-        let product_id = view.product_id;
-        let event_id = view.event_id;
+        let product_id = view.item.product_id;
+        let event_id = view.item.event_id;
         let (app, calls) = app(view, false, None);
 
         let response = app
@@ -205,9 +208,9 @@ mod tests {
             response.headers()[header::LAST_MODIFIED]
         );
         let body = body_json(response).await?;
-        assert_eq!(json!(product_id.to_string()), body["productId"]);
-        assert!(body.get("createdBy").is_none());
-        assert!(body.get("updatedBy").is_none());
+        assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
+        assert!(body["item"].get("createdBy").is_none());
+        assert!(body["item"].get("updatedBy").is_none());
         assert!(body.get("userState").is_none());
         assert!(matches!(
             lock(&calls)[0].1,
@@ -223,7 +226,7 @@ mod tests {
     async fn should_pass_requested_language_to_use_case() -> Result<(), Box<dyn std::error::Error>>
     {
         let view = product_details_view()?;
-        let product_id = view.product_id;
+        let product_id = view.item.product_id;
         let (app, calls) = app(view, false, None);
 
         let response = app
@@ -287,7 +290,7 @@ mod tests {
         let origin_event_id = EventId::new();
         let search_filter_id = UserSearchFilterId::new();
         let mut view = product_details_view()?;
-        let product_id = view.product_id;
+        let product_id = view.item.product_id;
         view.user_state = Some(ProductUserState {
             watchlist: WatchlistUserState {
                 watching: true,
@@ -353,7 +356,7 @@ mod tests {
     async fn should_reject_invalid_optional_token_before_calling_use_case()
     -> Result<(), Box<dyn std::error::Error>> {
         let view = product_details_view()?;
-        let product_id = view.product_id;
+        let product_id = view.item.product_id;
         let (app, calls) = app(view, true, None);
 
         let response = app
@@ -370,7 +373,7 @@ mod tests {
     }
 
     fn app(
-        view: ProductDetailsView,
+        view: PersonalizedProductDetailsView,
         reject_token: bool,
         user_id: Option<UserId>,
     ) -> (Router, GetProductCalls) {
@@ -403,39 +406,41 @@ mod tests {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    fn product_details_view() -> Result<ProductDetailsView, url::ParseError> {
-        Ok(ProductDetailsView {
-            product_id: ProductId::new(),
-            product_slug_id: ProductSlugId::from("cabinet-abcdef"),
-            event_id: EventId::new(),
-            shop_id: ShopId::new(),
-            seller_id: ShopId::new(),
-            shops_product_id: ShopsProductId::new(),
-            shop_name: ShopName::from("Shop"),
-            seller_name: ShopName::from("Seller"),
-            shop_slug_id: ShopSlugId::from("shop"),
-            seller_slug_id: ShopSlugId::from("seller"),
-            address: ProductAddress::default(),
-            product_title: None,
-            product_description: None,
-            title: Some(Localized {
-                localization: Language::En,
-                payload: Title::from("Cabinet"),
-            }),
-            description: None,
-            pricing: ProductPricing::default(),
-            price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
-            price_estimate_min: None,
-            price_estimate_max: None,
-            currency: Some(Currency::Eur),
-            state: ProductState::Listed,
-            lifecycle: ProductLifecycle::Active,
-            url: Url::parse("https://shop.example/products/1")?,
-            view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
-            images: Default::default(),
-            auction: ProductAuction::default(),
-            created: OffsetDateTime::UNIX_EPOCH,
-            updated: OffsetDateTime::UNIX_EPOCH,
+    fn product_details_view() -> Result<PersonalizedProductDetailsView, url::ParseError> {
+        Ok(Personalized {
+            item: ProductDetailsView {
+                product_id: ProductId::new(),
+                product_slug_id: ProductSlugId::from("cabinet-abcdef"),
+                event_id: EventId::new(),
+                shop_id: ShopId::new(),
+                seller_id: ShopId::new(),
+                shops_product_id: ShopsProductId::new(),
+                shop_name: ShopName::from("Shop"),
+                seller_name: ShopName::from("Seller"),
+                shop_slug_id: ShopSlugId::from("shop"),
+                seller_slug_id: ShopSlugId::from("seller"),
+                address: ProductAddress::default(),
+                product_title: None,
+                product_description: None,
+                title: Some(Localized {
+                    localization: Language::En,
+                    payload: Title::from("Cabinet"),
+                }),
+                description: None,
+                pricing: ProductPricing::default(),
+                price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                price_estimate_min: None,
+                price_estimate_max: None,
+                currency: Some(Currency::Eur),
+                state: ProductState::Listed,
+                lifecycle: ProductLifecycle::Active,
+                url: Url::parse("https://shop.example/products/1")?,
+                view_url: Url::parse("https://aura.example/products/cabinet-abcdef")?,
+                images: Default::default(),
+                auction: ProductAuction::default(),
+                created: OffsetDateTime::UNIX_EPOCH,
+                updated: OffsetDateTime::UNIX_EPOCH,
+            },
             user_state: None,
         })
     }

@@ -5,6 +5,7 @@ pub mod repository;
 pub use event_store::{SqlxProductEventStore, SqlxProductEventStoreFactory};
 pub use readers::{
     SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
-    SqlxProductEventReaderFactory, SqlxProductWatchlistDetailsReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductUserStateReader,
+    SqlxProductWatchlistDetailsReaderFactory,
 };
 pub use repository::{SqlxProductRepository, SqlxProductRepositoryFactory};

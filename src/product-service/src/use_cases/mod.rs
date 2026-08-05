@@ -14,8 +14,8 @@ pub use commands::update_product::{
     UpdateProductUseCase,
 };
 pub use queries::get_product::{
-    GetProductError, GetProductHandler, GetProductRequest, GetProductUseCase, ProductDetailsView,
-    ProductLookup, redact_hidden_product,
+    GetProductError, GetProductHandler, GetProductRequest, GetProductUseCase,
+    PersonalizedProductDetailsView, ProductDetailsView, ProductLookup, redact_hidden_product,
 };
 pub use queries::get_product_events::{
     GetProductEventsError, GetProductEventsHandler, GetProductEventsRequest,
@@ -30,6 +30,6 @@ pub use queries::get_similar_products::{
     GetSimilarProductsResult, GetSimilarProductsUseCase,
 };
 pub use queries::search_products::{
-    ProductSummary, SearchProductsError, SearchProductsHandler, SearchProductsRequest,
-    SearchProductsResult, SearchProductsUseCase,
+    PersonalizedProductSummary, ProductSearchReadResult, ProductSummary, SearchProductsError,
+    SearchProductsHandler, SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
 };

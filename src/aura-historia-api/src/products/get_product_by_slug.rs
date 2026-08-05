@@ -109,7 +109,8 @@ mod tests {
             &self,
             _context: &OperationContext,
             request: GetProductRequest,
-        ) -> Result<product_service::use_cases::ProductDetailsView, GetProductError> {
+        ) -> Result<product_service::use_cases::PersonalizedProductDetailsView, GetProductError>
+        {
             lock(&self.calls).push(request);
             Err(GetProductError::NotFound)
         }
@@ -121,6 +122,7 @@ mod tests {
     impl GetSimilarProductsUseCase for UnusedSimilarProductsUseCase {
         async fn execute(
             &self,
+            _context: &OperationContext,
             _request: GetSimilarProductsRequest,
         ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
             Err(GetSimilarProductsError::SimilaritySearchUnavailable)
