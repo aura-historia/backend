@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use common::event_id::EventId;
-use common::product_id::ProductId;
+use common::product_id::{ProductId, ProductKey};
 use common::versioned::Versioned;
 use product_core::product::Product;
 
@@ -57,6 +57,13 @@ pub trait ProductRepository: Send {
         &mut self,
         id: ProductId,
     ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>;
+
+    async fn find_by_key(
+        &mut self,
+        _key: &ProductKey,
+    ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
+        Err(ProductRepositoryError::ProductLookupByIdFailed)
+    }
 
     async fn insert(
         &mut self,

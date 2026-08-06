@@ -2,6 +2,7 @@ pub mod auth;
 pub mod error;
 pub mod oauth;
 pub mod partner_applications;
+pub mod partner_products;
 pub mod products;
 pub mod shops;
 pub mod state;
@@ -13,8 +14,8 @@ use crate::auth::{
     TransportPrincipal,
 };
 use crate::state::{
-    AppState, OAuthState, PartnerApplicationsState, ProductsState, ShopsState, UsersState,
-    WatchlistState,
+    AppState, OAuthState, PartnerApplicationsState, PartnerProductsState, ProductsState,
+    ShopsState, UsersState, WatchlistState,
 };
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
@@ -35,12 +36,14 @@ use opensearch::{
 };
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
-    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
-    SqlxProductEventReaderFactory, SqlxProductUserStateReader,
+    SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsReaderFactory,
+    SqlxProductEmbeddingReaderFactory, SqlxProductEventReaderFactory, SqlxProductEventStoreFactory,
+    SqlxProductRepositoryFactory, SqlxProductUserStateReader,
     SqlxProductWatchlistDetailsReaderFactory,
 };
 use product_service::use_cases::{
-    GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
+    CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
+    GetSimilarProductsHandler, SearchProductsHandler, UpdateProductHandler, UpsertProductHandler,
 };
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
@@ -192,6 +195,20 @@ pub fn app(state: AppState) -> Router {
                     get(products::get_similar_products::get_similar_products_by_slug),
                 )
                 .with_state(products),
+        );
+    }
+
+    if let Some(partner_products) = state.partner_products {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/shops/{shop_id}/products",
+                    post(partner_products::create_products::create_products)
+                        .patch(partner_products::update_products::update_products)
+                        .put(partner_products::upsert_products::upsert_products)
+                        .delete(partner_products::delete_products::delete_products),
+                )
+                .with_state(partner_products),
         );
     }
 
@@ -443,6 +460,30 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         SqlxProductDetailsReaderFactory::new(),
         DynamoDbProductNotificationsReader::new(dynamodb_client, table_name_ref),
     );
+    let create_product = CreateProductHandler::new(
+        unit_of_work.clone(),
+        SqlxProductRepositoryFactory::new(),
+        SqlxProductEventStoreFactory::new(),
+        SqlxPartnerProductAuthorizerFactory::new(),
+    );
+    let update_product = UpdateProductHandler::new(
+        unit_of_work.clone(),
+        SqlxProductRepositoryFactory::new(),
+        SqlxProductEventStoreFactory::new(),
+        SqlxPartnerProductAuthorizerFactory::new(),
+    );
+    let upsert_product = UpsertProductHandler::new(
+        unit_of_work.clone(),
+        SqlxProductRepositoryFactory::new(),
+        SqlxProductEventStoreFactory::new(),
+        SqlxPartnerProductAuthorizerFactory::new(),
+    );
+    let delete_product = DeleteProductHandler::new(
+        unit_of_work.clone(),
+        SqlxProductRepositoryFactory::new(),
+        SqlxProductEventStoreFactory::new(),
+        SqlxPartnerProductAuthorizerFactory::new(),
+    );
     let list_watchlist = ListWatchlistHandler::new(
         unit_of_work.clone(),
         SqlxProductWatchlistDetailsReaderFactory::new(),
@@ -456,6 +497,13 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         JwtUnavailableAuthenticator,
         AuraAccessTokenAuthenticator::new(access_token_use_case),
     ));
+    let partner_products_state = PartnerProductsState::new(
+        Arc::new(create_product),
+        Arc::new(update_product),
+        Arc::new(upsert_product),
+        Arc::new(delete_product),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let users_state = UsersState {
         get_own_user: Arc::new(get_own_user),
         admin_get_user: Arc::new(admin_get_user),
@@ -539,6 +587,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         )
         .with_product_events(Arc::new(get_product_events)),
     )
+    .with_partner_products(partner_products_state)
     .with_oauth(oauth_state))
 }
 

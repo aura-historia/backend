@@ -13,6 +13,10 @@ pub use commands::update_product::{
     UpdateProductCommand, UpdateProductError, UpdateProductHandler, UpdateProductResult,
     UpdateProductUseCase,
 };
+pub use commands::upsert_product::{
+    UpsertProductCommand, UpsertProductError, UpsertProductHandler, UpsertProductResult,
+    UpsertProductUseCase,
+};
 pub use queries::get_product::{
     GetProductError, GetProductHandler, GetProductRequest, GetProductUseCase,
     PersonalizedProductDetailsView, ProductDetailsView, ProductLookup, redact_hidden_product,

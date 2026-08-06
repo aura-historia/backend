@@ -1,15 +1,19 @@
 use crate::ports::{
+    PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
+use common::error::boxed::BoxError;
 use common::event_id::EventId;
 use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::patch_field::PatchField;
-use common::product_id::ProductId;
+use common::price::domain::Price;
+use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
 use common::transaction::{Transaction, UnitOfWork};
+use common::user_id::UserId;
 use indexmap::IndexSet;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
 use product_core::product_image::ProductImage;
@@ -18,22 +22,33 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateProductCommand {
     pub product_id: ProductId,
+    pub product_key: Option<ProductKey>,
     pub address: PatchField<ProductAddress>,
     pub pricing: PatchField<ProductPricing>,
+    pub price: PatchField<Price>,
+    pub price_estimate_min: PatchField<Price>,
+    pub price_estimate_max: PatchField<Price>,
     pub state: PatchField<ProductState>,
     pub url: PatchField<Url>,
     pub images: PatchField<IndexSet<ProductImage>>,
     pub auction: PatchField<ProductAuction>,
+    pub auction_start: PatchField<Option<time::OffsetDateTime>>,
+    pub auction_end: PatchField<Option<time::OffsetDateTime>>,
 }
 
 impl UpdateProductCommand {
     pub fn is_empty(&self) -> bool {
         !self.address.is_changed()
             && !self.pricing.is_changed()
+            && !self.price.is_changed()
+            && !self.price_estimate_min.is_changed()
+            && !self.price_estimate_max.is_changed()
             && !self.state.is_changed()
             && !self.url.is_changed()
             && !self.images.is_changed()
             && !self.auction.is_changed()
+            && !self.auction_start.is_changed()
+            && !self.auction_end.is_changed()
     }
 }
 
@@ -49,6 +64,18 @@ pub enum UpdateProductError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
+    #[error("shop not found")]
+    ShopNotFound,
+    #[error("partner product authorization is temporarily unavailable")]
+    PartnerProductAuthorizationTemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("partner product authorization failed internally")]
+    PartnerProductAuthorizationInternal {
+        #[source]
+        source: BoxError,
+    },
     #[error("product not found")]
     ProductNotFound,
     #[error("product current event id did not match expected event id")]
@@ -120,28 +147,31 @@ pub trait UpdateProductUseCase: Send + Sync {
     ) -> Result<UpdateProductResult, UpdateProductError>;
 }
 
-pub struct UpdateProductHandler<U, R, E> {
+pub struct UpdateProductHandler<U, R, E, A> {
     unit_of_work: U,
     products: R,
     events: E,
+    authorizer: A,
 }
 
-impl<U, R, E> UpdateProductHandler<U, R, E> {
-    pub fn new(unit_of_work: U, products: R, events: E) -> Self {
+impl<U, R, E, A> UpdateProductHandler<U, R, E, A> {
+    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
         Self {
             unit_of_work,
             products,
             events,
+            authorizer,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E> UpdateProductUseCase for UpdateProductHandler<U, R, E>
+impl<U, R, E, A> UpdateProductUseCase for UpdateProductHandler<U, R, E, A>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
+    A: PartnerProductAuthorizerFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "update_product",
@@ -173,12 +203,27 @@ where
             .begin()
             .await
             .map_err(|_| UpdateProductError::BeginTransactionFailed)?;
-        let loaded = self
-            .products
-            .in_transaction(&mut tx)
-            .find_by_id(command.product_id)
-            .await?
-            .ok_or(UpdateProductError::ProductNotFound)?;
+        let loaded = match command.product_key.as_ref() {
+            Some(key) => {
+                if let Some(actor_id) = partner_actor(&context.principal) {
+                    self.authorizer
+                        .in_transaction(&mut tx)
+                        .authorize(actor_id, key.shop_id)
+                        .await?;
+                }
+                self.products
+                    .in_transaction(&mut tx)
+                    .find_by_key(key)
+                    .await?
+                    .ok_or(UpdateProductError::ProductNotFound)?
+            }
+            None => self
+                .products
+                .in_transaction(&mut tx)
+                .find_by_id(command.product_id)
+                .await?
+                .ok_or(UpdateProductError::ProductNotFound)?,
+        };
         let expected_event_id = loaded.version;
         let mut product = loaded.value;
 
@@ -242,6 +287,15 @@ fn apply_command(
             product.replace_pricing(Default::default());
         }
     }
+    apply_price_patch(product, command.price, |pricing, price| {
+        pricing.price = price;
+    });
+    apply_price_patch(product, command.price_estimate_min, |pricing, price| {
+        pricing.price_estimate_min = price;
+    });
+    apply_price_patch(product, command.price_estimate_max, |pricing, price| {
+        pricing.price_estimate_max = price;
+    });
     match command.state {
         PatchField::Unchanged => {}
         PatchField::Set(state) => {
@@ -274,8 +328,54 @@ fn apply_command(
             product.replace_auction(Default::default());
         }
     }
+    apply_auction_patch(product, command.auction_start, |auction, value| {
+        auction.start = value;
+    });
+    apply_auction_patch(product, command.auction_end, |auction, value| {
+        auction.end = value;
+    });
 
     Ok(())
+}
+
+fn apply_price_patch(
+    product: &mut product_core::product::Product,
+    patch: PatchField<Price>,
+    apply: impl FnOnce(&mut ProductPricing, Option<Price>),
+) {
+    match patch {
+        PatchField::Unchanged => {}
+        PatchField::Set(value) => {
+            let mut pricing = product.pricing();
+            apply(&mut pricing, Some(value));
+            product.replace_pricing(pricing);
+        }
+        PatchField::Clear => {
+            let mut pricing = product.pricing();
+            apply(&mut pricing, None);
+            product.replace_pricing(pricing);
+        }
+    }
+}
+
+fn apply_auction_patch(
+    product: &mut product_core::product::Product,
+    patch: PatchField<Option<time::OffsetDateTime>>,
+    apply: impl FnOnce(&mut ProductAuction, Option<time::OffsetDateTime>),
+) {
+    match patch {
+        PatchField::Unchanged => {}
+        PatchField::Set(value) => {
+            let mut auction = product.auction();
+            apply(&mut auction, value);
+            product.replace_auction(auction);
+        }
+        PatchField::Clear => {
+            let mut auction = product.auction();
+            apply(&mut auction, None);
+            product.replace_auction(auction);
+        }
+    }
 }
 
 impl From<OperationAuthorizationError> for UpdateProductError {
@@ -286,6 +386,28 @@ impl From<OperationAuthorizationError> for UpdateProductError {
             }
             OperationAuthorizationError::Forbidden
             | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
+fn partner_actor(principal: &Principal) -> Option<UserId> {
+    match principal {
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
+        Principal::Anonymous | Principal::Service(_) | Principal::System => None,
+    }
+}
+
+impl From<PartnerProductAuthorizationError> for UpdateProductError {
+    fn from(error: PartnerProductAuthorizationError) -> Self {
+        match error {
+            PartnerProductAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductAuthorizationError::Forbidden => Self::Forbidden,
+            PartnerProductAuthorizationError::TemporarilyUnavailable { source } => {
+                Self::PartnerProductAuthorizationTemporarilyUnavailable { source }
+            }
+            PartnerProductAuthorizationError::Internal { source } => {
+                Self::PartnerProductAuthorizationInternal { source }
+            }
         }
     }
 }
@@ -380,6 +502,8 @@ mod tests {
         commit_error: bool,
         find_by_id_result:
             Option<Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>>,
+        find_by_key_result:
+            Option<Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>>,
         update_result: Option<Result<(), ProductRepositoryError>>,
         append_result: Option<Result<(), ProductEventStoreError>>,
         update_count: usize,
@@ -414,6 +538,31 @@ mod tests {
 
     struct FakeEventStore {
         state: SharedState,
+    }
+
+    #[derive(Clone, Copy)]
+    struct AllowPartnerProductAuthorizer;
+
+    struct AllowPartnerProductAuthorizerTx;
+
+    impl PartnerProductAuthorizerFactory<FakeTx> for AllowPartnerProductAuthorizer {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl PartnerProductAuthorizer + 'tx {
+            AllowPartnerProductAuthorizerTx
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductAuthorizer for AllowPartnerProductAuthorizerTx {
+        async fn authorize(
+            &mut self,
+            _actor_id: UserId,
+            _shop_id: ShopId,
+        ) -> Result<(), PartnerProductAuthorizationError> {
+            Ok(())
+        }
     }
 
     fn state() -> SharedState {
@@ -495,6 +644,16 @@ mod tests {
             }
         }
 
+        async fn find_by_key(
+            &mut self,
+            _key: &ProductKey,
+        ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
+            match lock_state(&self.state).find_by_key_result.take() {
+                Some(result) => result,
+                None => Ok(None),
+            }
+        }
+
         async fn insert(
             &mut self,
             product: &Product,
@@ -550,11 +709,17 @@ mod tests {
 
     fn handler(
         state: &SharedState,
-    ) -> UpdateProductHandler<FakeUnitOfWork, FakeRepositoryFactory, FakeEventStoreFactory> {
+    ) -> UpdateProductHandler<
+        FakeUnitOfWork,
+        FakeRepositoryFactory,
+        FakeEventStoreFactory,
+        AllowPartnerProductAuthorizer,
+    > {
         UpdateProductHandler::new(
             uow(state),
             repository_factory(state),
             event_store_factory(state),
+            AllowPartnerProductAuthorizer,
         )
     }
 
@@ -642,6 +807,32 @@ mod tests {
         assert_eq!(1, state.update_count);
         assert_eq!(1, state.append_count);
         assert_eq!(1, state.commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_update_product_by_partner_key() -> Result<(), url::ParseError> {
+        let state = state();
+        let product = product()?;
+        let key = ProductKey::new(product.shop_id(), product.shops_product_id().clone());
+        lock_state(&state).find_by_key_result = Some(Ok(Some(versioned_product(product))));
+        let command = UpdateProductCommand {
+            product_id: ProductId::new(),
+            product_key: Some(key),
+            state: PatchField::Set(ProductState::Available),
+            ..Default::default()
+        };
+
+        let result = handler(&state).execute(&context(), command).await;
+
+        assert!(matches!(
+            result,
+            Ok(UpdateProductResult {
+                event_id: Some(_),
+                ..
+            })
+        ));
+        assert_eq!(1, lock_state(&state).update_count);
         Ok(())
     }
 
@@ -813,6 +1004,7 @@ mod tests {
                 start: Some(time::OffsetDateTime::UNIX_EPOCH),
                 end: None,
             }),
+            ..Default::default()
         };
 
         let result = handler(&state).execute(&context(), command).await;

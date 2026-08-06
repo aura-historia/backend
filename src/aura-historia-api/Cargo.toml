@@ -12,6 +12,7 @@ common = { workspace = true, features = ["api", "postgres"] }
 geo = { workspace = true, features = ["data"] }
 http = { workspace = true }
 httpdate = { workspace = true }
+indexmap = { workspace = true }
 oauth-core = { workspace = true }
 oauth-dynamodb = { workspace = true }
 oauth-service = { workspace = true }

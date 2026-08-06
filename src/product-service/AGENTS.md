@@ -10,6 +10,7 @@
 - Depends on `product-core`, `notification-service`, and shared `common` app contracts.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - Write handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/event-store factories.
+- Partner Product create, update, upsert, and delete use cases authorize admins or linked partner users inside their Product transaction. Partner-key writes use `(shopId, shopsProductId)` aggregate lookup.
 - Repository writes return persisted product state; handlers must not read after write for responses.
 - OpenSearch-backed search is an ordinary reader. Do not model it as transactional.
 - `ProductUserStateReader` is an ordinary one-query batch read for relational state of OpenSearch result pages. Its lookup contains only the user and Product IDs; adapters derive image safety from authoritative Product data. Search and KNN handlers compose it with one required all-user DynamoDB notification read; no per-product reads or partial fallback.

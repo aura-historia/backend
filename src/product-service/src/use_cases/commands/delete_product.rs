@@ -1,17 +1,21 @@
 use crate::ports::{
+    PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
+use common::error::boxed::BoxError;
 use common::event_id::EventId;
 use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::product_id::ProductId;
+use common::product_id::{ProductId, ProductKey};
 use common::transaction::{Transaction, UnitOfWork};
+use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteProductCommand {
     pub product_id: ProductId,
+    pub product_key: Option<ProductKey>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +30,18 @@ pub enum DeleteProductError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
+    #[error("shop not found")]
+    ShopNotFound,
+    #[error("partner product authorization is temporarily unavailable")]
+    PartnerProductAuthorizationTemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("partner product authorization failed internally")]
+    PartnerProductAuthorizationInternal {
+        #[source]
+        source: BoxError,
+    },
     #[error("product not found")]
     ProductNotFound,
     #[error("product current event id did not match expected event id")]
@@ -91,28 +107,31 @@ pub trait DeleteProductUseCase: Send + Sync {
     ) -> Result<DeleteProductResult, DeleteProductError>;
 }
 
-pub struct DeleteProductHandler<U, R, E> {
+pub struct DeleteProductHandler<U, R, E, A> {
     unit_of_work: U,
     products: R,
     events: E,
+    authorizer: A,
 }
 
-impl<U, R, E> DeleteProductHandler<U, R, E> {
-    pub fn new(unit_of_work: U, products: R, events: E) -> Self {
+impl<U, R, E, A> DeleteProductHandler<U, R, E, A> {
+    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
         Self {
             unit_of_work,
             products,
             events,
+            authorizer,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E> DeleteProductUseCase for DeleteProductHandler<U, R, E>
+impl<U, R, E, A> DeleteProductUseCase for DeleteProductHandler<U, R, E, A>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
+    A: PartnerProductAuthorizerFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "delete_product",
@@ -144,12 +163,27 @@ where
             .begin()
             .await
             .map_err(|_| DeleteProductError::BeginTransactionFailed)?;
-        let loaded = self
-            .products
-            .in_transaction(&mut tx)
-            .find_by_id(command.product_id)
-            .await?
-            .ok_or(DeleteProductError::ProductNotFound)?;
+        let loaded = match command.product_key.as_ref() {
+            Some(key) => {
+                if let Some(actor_id) = partner_actor(&context.principal) {
+                    self.authorizer
+                        .in_transaction(&mut tx)
+                        .authorize(actor_id, key.shop_id)
+                        .await?;
+                }
+                self.products
+                    .in_transaction(&mut tx)
+                    .find_by_key(key)
+                    .await?
+                    .ok_or(DeleteProductError::ProductNotFound)?
+            }
+            None => self
+                .products
+                .in_transaction(&mut tx)
+                .find_by_id(command.product_id)
+                .await?
+                .ok_or(DeleteProductError::ProductNotFound)?,
+        };
         let expected_event_id = loaded.version;
         let mut product = loaded.value;
         product.delete();
@@ -199,6 +233,28 @@ impl From<OperationAuthorizationError> for DeleteProductError {
             }
             OperationAuthorizationError::Forbidden
             | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
+    }
+}
+
+fn partner_actor(principal: &Principal) -> Option<UserId> {
+    match principal {
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
+        Principal::Anonymous | Principal::Service(_) | Principal::System => None,
+    }
+}
+
+impl From<PartnerProductAuthorizationError> for DeleteProductError {
+    fn from(error: PartnerProductAuthorizationError) -> Self {
+        match error {
+            PartnerProductAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductAuthorizationError::Forbidden => Self::Forbidden,
+            PartnerProductAuthorizationError::TemporarilyUnavailable { source } => {
+                Self::PartnerProductAuthorizationTemporarilyUnavailable { source }
+            }
+            PartnerProductAuthorizationError::Internal { source } => {
+                Self::PartnerProductAuthorizationInternal { source }
+            }
         }
     }
 }
@@ -300,6 +356,8 @@ mod tests {
         commit_error: bool,
         find_by_id_result:
             Option<Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>>,
+        find_by_key_result:
+            Option<Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>>,
         update_result: Option<Result<(), ProductRepositoryError>>,
         append_result: Option<Result<(), ProductEventStoreError>>,
         update_count: usize,
@@ -334,6 +392,31 @@ mod tests {
 
     struct FakeEventStore {
         state: SharedState,
+    }
+
+    #[derive(Clone, Copy)]
+    struct AllowPartnerProductAuthorizer;
+
+    struct AllowPartnerProductAuthorizerTx;
+
+    impl PartnerProductAuthorizerFactory<FakeTx> for AllowPartnerProductAuthorizer {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl PartnerProductAuthorizer + 'tx {
+            AllowPartnerProductAuthorizerTx
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductAuthorizer for AllowPartnerProductAuthorizerTx {
+        async fn authorize(
+            &mut self,
+            _actor_id: UserId,
+            _shop_id: ShopId,
+        ) -> Result<(), PartnerProductAuthorizationError> {
+            Ok(())
+        }
     }
 
     fn state() -> SharedState {
@@ -415,6 +498,16 @@ mod tests {
             }
         }
 
+        async fn find_by_key(
+            &mut self,
+            _key: &ProductKey,
+        ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
+            match lock_state(&self.state).find_by_key_result.take() {
+                Some(result) => result,
+                None => Ok(None),
+            }
+        }
+
         async fn insert(
             &mut self,
             product: &Product,
@@ -470,11 +563,17 @@ mod tests {
 
     fn handler(
         state: &SharedState,
-    ) -> DeleteProductHandler<FakeUnitOfWork, FakeRepositoryFactory, FakeEventStoreFactory> {
+    ) -> DeleteProductHandler<
+        FakeUnitOfWork,
+        FakeRepositoryFactory,
+        FakeEventStoreFactory,
+        AllowPartnerProductAuthorizer,
+    > {
         DeleteProductHandler::new(
             uow(state),
             repository_factory(state),
             event_store_factory(state),
+            AllowPartnerProductAuthorizer,
         )
     }
 
@@ -563,13 +662,43 @@ mod tests {
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
 
         let result = handler(&state)
-            .execute(&context(), DeleteProductCommand { product_id })
+            .execute(
+                &context(),
+                DeleteProductCommand {
+                    product_id,
+                    product_key: None,
+                },
+            )
             .await;
 
         assert!(result.is_ok());
         let state = lock_state(&state);
         assert_eq!(1, state.update_count);
         assert_eq!(1, state.append_count);
+        assert_eq!(1, state.commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_delete_product_by_partner_key() -> Result<(), url::ParseError> {
+        let state = state();
+        let product = product()?;
+        let key = ProductKey::new(product.shop_id(), product.shops_product_id().clone());
+        lock_state(&state).find_by_key_result = Some(Ok(Some(versioned_product(product))));
+
+        let result = handler(&state)
+            .execute(
+                &context(),
+                DeleteProductCommand {
+                    product_id: ProductId::new(),
+                    product_key: Some(key),
+                },
+            )
+            .await;
+
+        assert!(result.is_ok());
+        let state = lock_state(&state);
+        assert_eq!(1, state.update_count);
         assert_eq!(1, state.commit_count);
         Ok(())
     }
@@ -582,7 +711,13 @@ mod tests {
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
 
         let result = handler(&state)
-            .execute(&context(), DeleteProductCommand { product_id })
+            .execute(
+                &context(),
+                DeleteProductCommand {
+                    product_id,
+                    product_key: None,
+                },
+            )
             .await;
 
         assert!(result.is_ok());
@@ -602,6 +737,7 @@ mod tests {
                 &context(),
                 DeleteProductCommand {
                     product_id: ProductId::new(),
+                    product_key: None,
                 },
             )
             .await;
@@ -620,6 +756,7 @@ mod tests {
                 &context(),
                 DeleteProductCommand {
                     product_id: ProductId::new(),
+                    product_key: None,
                 },
             )
             .await;
@@ -639,7 +776,13 @@ mod tests {
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
 
         let result = handler(&state)
-            .execute(&context(), DeleteProductCommand { product_id })
+            .execute(
+                &context(),
+                DeleteProductCommand {
+                    product_id,
+                    product_key: None,
+                },
+            )
             .await;
 
         assert!(matches!(
@@ -660,6 +803,7 @@ mod tests {
                 &context(),
                 DeleteProductCommand {
                     product_id: ProductId::new(),
+                    product_key: None,
                 },
             )
             .await;
@@ -683,7 +827,13 @@ mod tests {
         }
 
         let result = handler(&state)
-            .execute(&context(), DeleteProductCommand { product_id })
+            .execute(
+                &context(),
+                DeleteProductCommand {
+                    product_id,
+                    product_key: None,
+                },
+            )
             .await;
 
         assert!(matches!(
@@ -706,7 +856,13 @@ mod tests {
         }
 
         let result = handler(&state)
-            .execute(&context(), DeleteProductCommand { product_id })
+            .execute(
+                &context(),
+                DeleteProductCommand {
+                    product_id,
+                    product_key: None,
+                },
+            )
             .await;
 
         assert!(matches!(

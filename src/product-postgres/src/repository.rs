@@ -5,7 +5,7 @@ use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::ProductId;
+use common::product_id::{ProductId, ProductKey};
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
@@ -127,6 +127,36 @@ impl ProductRepository for SqlxProductRepository<'_> {
             "#,
         )
         .bind(uuid::Uuid::from(id))
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(ProductLookupByIdSqlxError)?;
+
+        row.map(TryInto::try_into).transpose()
+    }
+
+    async fn find_by_key(
+        &mut self,
+        key: &ProductKey,
+    ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
+        let row = sqlx::query_as::<_, ProductRow>(
+            r#"
+            SELECT
+                product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id,
+                structured_address_addressline, structured_address_addressline_extra,
+                structured_address_locality, structured_address_region, structured_address_postal_code,
+                structured_address_country, geo_address_lat, geo_address_lon, title_text,
+                title_language, description_text, description_language,
+                price_amount, price_currency, price_estimate_min_amount,
+                price_estimate_min_currency, price_estimate_max_amount,
+                price_estimate_max_currency, fx_rate_id, state, lifecycle, url, product_images,
+                embedding, auction_start, auction_end, created, updated
+            FROM products
+            WHERE shop_id = $1
+              AND shops_product_id = $2
+            "#,
+        )
+        .bind(uuid::Uuid::from(key.shop_id))
+        .bind(key.shops_product_id.as_ref())
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(ProductLookupByIdSqlxError)?;
