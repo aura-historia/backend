@@ -1,6 +1,6 @@
-use super::types::{CreateProductData, PartnerProductFailureData};
+use super::types::{CreateProductData, PartnerProductFailureData, parse_partner_product_batch};
 use crate::auth::protected_context;
-use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
+use crate::error::{ApiError, INVALID_UUID};
 use crate::state::PartnerProductsState;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -22,7 +22,7 @@ pub async fn create_products(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let products: Vec<CreateProductData> = match parse_body(&body) {
+    let products: Vec<CreateProductData> = match parse_partner_product_batch(&body) {
         Ok(products) => products,
         Err(error) => return error.into_response(),
     };
@@ -68,20 +68,13 @@ fn parse_shop_id(value: &str) -> Result<ShopId, ApiError> {
     })
 }
 
-fn parse_body(body: &str) -> Result<Vec<CreateProductData>, ApiError> {
-    if body.trim().is_empty() {
-        return Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail("Body cannot be empty."));
-    }
-    serde_json::from_str(body)
-        .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use crate::partner_products::types::MAX_PARTNER_PRODUCT_BATCH_SIZE;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};
@@ -222,6 +215,34 @@ mod tests {
 
         assert_eq!(StatusCode::CONFLICT, response.status());
         assert_eq!("CONFLICT", body_json(response).await?["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_batch_larger_than_limit_before_create_use_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut create = MockCreateUseCase::new();
+        create.expect_execute().never();
+        let app = app(create);
+        let shop_id = ShopId::new();
+        let body = format!(
+            "[{}]",
+            (0..=MAX_PARTNER_PRODUCT_BATCH_SIZE)
+                .map(|_| product("too-many"))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/products"),
+            body,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert_eq!(json!("BAD_BODY_VALUE"), body_json(response).await?["error"]);
         Ok(())
     }
 

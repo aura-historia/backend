@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use common::error::boxed::BoxError;
 use common::event_id::EventId;
 use common::product_id::{ProductId, ProductKey};
 use common::versioned::Versioned;
@@ -16,7 +17,10 @@ pub enum ProductRepositoryError {
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
     #[error("product lookup by shop product identity failed")]
-    ProductLookupByKeyFailed,
+    ProductLookupByKeyFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]

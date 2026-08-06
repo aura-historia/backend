@@ -1,4 +1,4 @@
-use crate::error::ApiErrorCode;
+use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
 use common::language::data::LocalizedTextData;
 use common::localized::Localized;
 use common::patch_field::PatchField;
@@ -17,9 +17,11 @@ use product_core::title::Title;
 use product_service::use_cases::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use time::OffsetDateTime;
 use url::Url;
+
+pub(super) const MAX_PARTNER_PRODUCT_BATCH_SIZE: usize = 100;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -121,6 +123,24 @@ pub(super) enum ProductStateData {
     Sold,
     Removed,
     Unknown,
+}
+
+pub(super) fn parse_partner_product_batch<T: DeserializeOwned>(
+    body: &str,
+) -> Result<Vec<T>, ApiError> {
+    if body.trim().is_empty() {
+        return Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail("Body cannot be empty."));
+    }
+
+    let products: Vec<T> = serde_json::from_str(body)
+        .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))?;
+    if products.len() > MAX_PARTNER_PRODUCT_BATCH_SIZE {
+        return Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail(format!(
+            "Body cannot contain more than {MAX_PARTNER_PRODUCT_BATCH_SIZE} products."
+        )));
+    }
+
+    Ok(products)
 }
 
 impl CreateProductData {

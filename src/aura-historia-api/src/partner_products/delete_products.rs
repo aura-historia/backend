@@ -1,6 +1,6 @@
-use super::types::{DeleteProductData, PartnerProductFailureData};
+use super::types::{DeleteProductData, PartnerProductFailureData, parse_partner_product_batch};
 use crate::auth::protected_context;
-use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
+use crate::error::{ApiError, INVALID_UUID};
 use crate::state::PartnerProductsState;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -22,7 +22,7 @@ pub async fn delete_products(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let products: Vec<DeleteProductData> = match parse_body(&body) {
+    let products: Vec<DeleteProductData> = match parse_partner_product_batch(&body) {
         Ok(products) => products,
         Err(error) => return error.into_response(),
     };
@@ -66,14 +66,6 @@ fn parse_shop_id(value: &str) -> Result<ShopId, ApiError> {
             .with_path_field("shopId")
             .with_detail("Path parameter 'shopId' must be a UUID.")
     })
-}
-
-fn parse_body(body: &str) -> Result<Vec<DeleteProductData>, ApiError> {
-    if body.trim().is_empty() {
-        return Err(ApiError::bad_request(BAD_BODY_VALUE).with_detail("Body cannot be empty."));
-    }
-    serde_json::from_str(body)
-        .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))
 }
 
 #[cfg(test)]

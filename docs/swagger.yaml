@@ -115,11 +115,12 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of products to create synchronously. May be empty.
+        description: Array of at most 100 products to create synchronously. May be empty.
         content:
           application/json:
             schema:
               type: array
+              maxItems: 100
               items:
                 $ref: "#/components/schemas/PostProductData"
             example:
@@ -182,7 +183,7 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "INVALID_JSON"
+                    error: "BAD_BODY_VALUE"
                     detail: "expected value at line 1 column 1"
         "401":
           description: |
@@ -198,10 +199,10 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "INVALID_CREDENTIALS"
                     source:
                       field: "Authorization"
-                      sourceType: "header"
+                      type: "header"
                 access_token_not_found:
                   summary: Aura Historia access token is unknown or expired
                   value:
@@ -217,7 +218,7 @@ paths:
               example:
                 status: 403
                 title: "Forbidden"
-                error: "PARTNER_SHOP_NOT_PARTNERED"
+                error: "FORBIDDEN"
         "404":
           description: Not found — the specified shop does not exist
           content:
@@ -283,11 +284,12 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of product updates to apply synchronously. May be empty.
+        description: Array of at most 100 product updates to apply synchronously. May be empty.
         content:
           application/json:
             schema:
               type: array
+              maxItems: 100
               items:
                 $ref: "#/components/schemas/PatchProductData"
             example:
@@ -342,7 +344,7 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "INVALID_JSON"
+                    error: "BAD_BODY_VALUE"
                     detail: "expected value at line 1 column 1"
         "401":
           description: |
@@ -358,10 +360,10 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "INVALID_CREDENTIALS"
                     source:
                       field: "Authorization"
-                      sourceType: "header"
+                      type: "header"
                 access_token_not_found:
                   summary: Aura Historia access token is unknown or expired
                   value:
@@ -377,7 +379,7 @@ paths:
               example:
                 status: 403
                 title: "Forbidden"
-                error: "PARTNER_SHOP_NOT_PARTNERED"
+                error: "FORBIDDEN"
         "404":
           description: Not found — the specified shop does not exist
           content:
@@ -456,11 +458,12 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of products to upsert synchronously. May be empty.
+        description: Array of at most 100 products to upsert synchronously. May be empty.
         content:
           application/json:
             schema:
               type: array
+              maxItems: 100
               items:
                 $ref: "#/components/schemas/PutProductData"
             examples:
@@ -546,7 +549,7 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "INVALID_JSON"
+                    error: "BAD_BODY_VALUE"
                     detail: "expected value at line 1 column 1"
         "401":
           description: |
@@ -562,10 +565,10 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "INVALID_CREDENTIALS"
                     source:
                       field: "Authorization"
-                      sourceType: "header"
+                      type: "header"
                 access_token_not_found:
                   summary: Aura Historia access token is unknown or expired
                   value:
@@ -581,7 +584,7 @@ paths:
               example:
                 status: 403
                 title: "Forbidden"
-                error: "PARTNER_SHOP_NOT_PARTNERED"
+                error: "FORBIDDEN"
         "404":
           description: Not found — the specified shop does not exist
           content:
@@ -642,11 +645,12 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of products to delete synchronously. May be empty.
+        description: Array of at most 100 products to delete synchronously. May be empty.
         content:
           application/json:
             schema:
               type: array
+              maxItems: 100
               items:
                 $ref: "#/components/schemas/PartnerProductDeleteData"
             example:

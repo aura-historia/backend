@@ -291,7 +291,7 @@ impl From<CreateProductError> for ApiError {
             }
             CreateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
             | CreateProductError::ProductLookupByIdFailed
-            | CreateProductError::ProductLookupByKeyFailed
+            | CreateProductError::ProductLookupByKeyFailed { .. }
             | CreateProductError::ProductInsertFailed
             | CreateProductError::ProductUpdateFailed
             | CreateProductError::ProductEventAppendFailed
@@ -335,7 +335,7 @@ impl From<UpdateProductError> for ApiError {
             }
             UpdateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
             | UpdateProductError::ProductLookupByIdFailed
-            | UpdateProductError::ProductLookupByKeyFailed
+            | UpdateProductError::ProductLookupByKeyFailed { .. }
             | UpdateProductError::ProductInsertFailed
             | UpdateProductError::ProductUpdateFailed
             | UpdateProductError::ProductEventAppendFailed
@@ -376,7 +376,7 @@ impl From<DeleteProductError> for ApiError {
             }
             DeleteProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
             | DeleteProductError::ProductLookupByIdFailed
-            | DeleteProductError::ProductLookupByKeyFailed
+            | DeleteProductError::ProductLookupByKeyFailed { .. }
             | DeleteProductError::ProductInsertFailed
             | DeleteProductError::ProductUpdateFailed
             | DeleteProductError::ProductEventAppendFailed
@@ -407,6 +407,7 @@ impl From<UpsertProductError> for ApiError {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
             UpsertProductError::ProductCurrentEventIdConflict
+            | UpsertProductError::ProductKeyAlreadyExists
             | UpsertProductError::ProductSlugAlreadyExists => {
                 ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
             }

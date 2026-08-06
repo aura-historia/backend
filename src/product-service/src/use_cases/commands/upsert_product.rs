@@ -65,6 +65,8 @@ pub enum UpsertProductError {
     ShopNotFound,
     #[error("product current event id did not match expected event id")]
     ProductCurrentEventIdConflict,
+    #[error("product key already exists")]
+    ProductKeyAlreadyExists,
     #[error("product slug already exists")]
     ProductSlugAlreadyExists,
     #[error("product state is invalid")]
@@ -127,40 +129,18 @@ impl<U, R, E, A> UpsertProductHandler<U, R, E, A> {
     }
 }
 
-#[async_trait::async_trait]
-impl<U, R, E, A> UpsertProductUseCase for UpsertProductHandler<U, R, E, A>
+impl<U, R, E, A> UpsertProductHandler<U, R, E, A>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
 {
-    #[tracing::instrument(
-        name = "upsert_product",
-        skip_all,
-        fields(
-            shop_id = %command.shop_id,
-            shops_product_id = %command.shops_product_id,
-            principal_type = context.principal.kind(),
-            actor_id = tracing::field::Empty,
-            request_id = %context.request_id,
-            correlation_id = %context.correlation_id,
-        )
-    )]
-    async fn execute(
+    async fn execute_once(
         &self,
         context: &OperationContext,
         command: UpsertProductCommand,
     ) -> Result<UpsertProductResult, UpsertProductError> {
-        context
-            .require()
-            .credential_capability(CredentialCapability::ProductsWrite)
-            .authorize::<UpsertProductError>()?;
-        tracing::Span::current().record(
-            "actor_id",
-            tracing::field::display(context.principal.label()),
-        );
-
         let key = ProductKey::new(command.shop_id, command.shops_product_id.clone());
         let mut tx = self
             .unit_of_work
@@ -243,6 +223,49 @@ where
         );
 
         Ok(result)
+    }
+}
+
+#[async_trait::async_trait]
+impl<U, R, E, A> UpsertProductUseCase for UpsertProductHandler<U, R, E, A>
+where
+    U: UnitOfWork,
+    R: ProductRepositoryFactory<U::Tx>,
+    E: ProductEventStoreFactory<U::Tx>,
+    A: PartnerProductAuthorizerFactory<U::Tx>,
+{
+    #[tracing::instrument(
+        name = "upsert_product",
+        skip_all,
+        fields(
+            shop_id = %command.shop_id,
+            shops_product_id = %command.shops_product_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        command: UpsertProductCommand,
+    ) -> Result<UpsertProductResult, UpsertProductError> {
+        context
+            .require()
+            .credential_capability(CredentialCapability::ProductsWrite)
+            .authorize::<UpsertProductError>()?;
+        tracing::Span::current().record(
+            "actor_id",
+            tracing::field::display(context.principal.label()),
+        );
+
+        match self.execute_once(context, command.clone()).await {
+            Err(UpsertProductError::ProductKeyAlreadyExists) => {
+                self.execute_once(context, command).await
+            }
+            result => result,
+        }
     }
 }
 
@@ -369,6 +392,7 @@ impl From<ProductRepositoryError> for UpsertProductError {
             ProductRepositoryError::ProductCurrentEventIdConflict => {
                 Self::ProductCurrentEventIdConflict
             }
+            ProductRepositoryError::ShopProductAlreadyExists => Self::ProductKeyAlreadyExists,
             ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
             ProductRepositoryError::InvalidProductSlugPersisted
             | ProductRepositoryError::IncompleteTitlePersisted
@@ -389,9 +413,8 @@ impl From<ProductRepositoryError> for UpsertProductError {
                     source: box_error(error),
                 }
             }
-            ProductRepositoryError::ShopProductAlreadyExists
-            | ProductRepositoryError::ProductLookupByIdFailed
-            | ProductRepositoryError::ProductLookupByKeyFailed
+            ProductRepositoryError::ProductLookupByIdFailed
+            | ProductRepositoryError::ProductLookupByKeyFailed { .. }
             | ProductRepositoryError::ProductInsertFailed
             | ProductRepositoryError::ProductUpdateFailed => {
                 Self::ProductPersistenceTemporarilyUnavailable {
@@ -438,6 +461,10 @@ mod tests {
         authorization_result: Option<Result<(), PartnerProductAuthorizationError>>,
         find_by_key_result:
             Option<Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>>,
+        retry_find_by_key_result:
+            Option<Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>>,
+        find_by_key_count: usize,
+        insert_result: Option<Result<(), ProductRepositoryError>>,
         insert_count: usize,
         update_count: usize,
         append_count: usize,
@@ -535,9 +562,17 @@ mod tests {
             &mut self,
             _key: &ProductKey,
         ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
-            match lock_state(&self.state).find_by_key_result.take() {
-                Some(result) => result,
-                None => Ok(None),
+            let mut state = lock_state(&self.state);
+            state.find_by_key_count += 1;
+            match state.find_by_key_count {
+                1 => match state.find_by_key_result.take() {
+                    Some(result) => result,
+                    None => Ok(None),
+                },
+                _ => match state.retry_find_by_key_result.take() {
+                    Some(result) => result,
+                    None => Ok(None),
+                },
             }
         }
 
@@ -546,7 +581,11 @@ mod tests {
             product: &Product,
             current_event_id: EventId,
         ) -> Result<Versioned<Product, EventId>, ProductRepositoryError> {
-            lock_state(&self.state).insert_count += 1;
+            let mut state = lock_state(&self.state);
+            state.insert_count += 1;
+            if let Some(Err(error)) = state.insert_result.take() {
+                return Err(error);
+            }
             Ok(Versioned::new(product.clone(), current_event_id))
         }
 
@@ -748,6 +787,31 @@ mod tests {
             .ok_or(url::ParseError::EmptyHost)?;
         assert!(updated.images().is_empty());
         assert_eq!(existing_price, updated.pricing().price);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_retry_as_update_when_concurrent_insert_claims_product_key()
+    -> Result<(), url::ParseError> {
+        let state = state();
+        lock_state(&state).find_by_key_result = Some(Ok(None));
+        lock_state(&state).retry_find_by_key_result = Some(Ok(Some(Versioned::new(
+            existing_product()?,
+            EventId::new(),
+        ))));
+        lock_state(&state).insert_result =
+            Some(Err(ProductRepositoryError::ShopProductAlreadyExists));
+
+        let result = handler(&state)
+            .execute(&context(Principal::System), command()?)
+            .await;
+
+        assert!(matches!(result, Ok(UpsertProductResult::Updated(_))));
+        let state = lock_state(&state);
+        assert_eq!(2, state.begin_count);
+        assert_eq!(1, state.insert_count);
+        assert_eq!(1, state.update_count);
+        assert_eq!(1, state.commit_count);
         Ok(())
     }
 

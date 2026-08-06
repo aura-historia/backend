@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Partner product `POST`, `PATCH`, and `PUT /api/v1/shops/{shopId}/products` now execute synchronously against canonical Product PostgreSQL storage. Each batch entry has its own transaction and no longer returns `202 Accepted` or forwards to an ingestion queue.
 - These routes return `200 OK` with `[]` when all entries succeed. If one or more entries succeed and others fail, the `200` body lists failed `{ shopId, shopsProductId, error }` entries; `error` is the stable API error key for that item. If every non-empty batch entry fails, the first failure returns as the normal problem response.
 - Product deletion is now batch `DELETE /api/v1/shops/{shopId}/products`, with an array body of `{ shopsProductId }` items. The former item delete route `DELETE /api/v1/shops/{shopId}/products/{shopsProductId}` is removed.
-- Partner product writes retain admin-or-linked-partner authorization; Aura Historia access tokens require `products:write`.
+- Partner product writes retain admin-or-linked-partner authorization; Aura Historia access tokens require `products:write`. Batches allow at most 100 entries.
 
 ## 2026-08-04 - Personalize Canonical Watchlist Products
 

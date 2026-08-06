@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use common::currency::domain::Currency;
+use common::error::boxed::box_error;
 use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
@@ -669,7 +670,9 @@ fn parse_prohibited_content(value: &str) -> Result<ProhibitedContent, ProductRep
 }
 
 struct ProductLookupByIdSqlxError(sqlx::Error);
-struct ProductLookupByKeySqlxError(sqlx::Error);
+#[derive(Debug, thiserror::Error)]
+#[error("product lookup by shop product identity query failed")]
+struct ProductLookupByKeySqlxError(#[source] sqlx::Error);
 struct ProductInsertSqlxError(sqlx::Error);
 struct ProductUpdateSqlxError(sqlx::Error);
 
@@ -681,9 +684,10 @@ impl From<ProductLookupByIdSqlxError> for ProductRepositoryError {
 }
 
 impl From<ProductLookupByKeySqlxError> for ProductRepositoryError {
-    fn from(value: ProductLookupByKeySqlxError) -> Self {
-        let ProductLookupByKeySqlxError(_error) = value;
-        Self::ProductLookupByKeyFailed
+    fn from(error: ProductLookupByKeySqlxError) -> Self {
+        Self::ProductLookupByKeyFailed {
+            source: box_error(error),
+        }
     }
 }
 
@@ -730,6 +734,26 @@ mod tests {
     use super::*;
     use common::event_id::EventId;
     use serde_json::json;
+
+    #[test]
+    fn should_preserve_key_lookup_sqlx_source() {
+        let error = ProductLookupByKeySqlxError(sqlx::Error::Protocol("test failure".to_owned()));
+
+        let mapped: ProductRepositoryError = error.into();
+
+        let source = match mapped {
+            ProductRepositoryError::ProductLookupByKeyFailed { source } => source,
+            error => panic!("unexpected error: {error:?}"),
+        };
+        assert_eq!(
+            "product lookup by shop product identity query failed",
+            source.to_string()
+        );
+        assert!(
+            std::error::Error::source(source.as_ref())
+                .is_some_and(|error| error.to_string().contains("test failure"))
+        );
+    }
 
     #[test]
     fn should_map_complete_and_empty_prices_from_parts() {

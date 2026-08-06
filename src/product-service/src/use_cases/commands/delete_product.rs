@@ -47,7 +47,10 @@ pub enum DeleteProductError {
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
     #[error("product lookup by shop product identity failed")]
-    ProductLookupByKeyFailed,
+    ProductLookupByKeyFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -313,7 +316,9 @@ impl From<ProductRepositoryError> for DeleteProductError {
             ProductRepositoryError::ShopProductAlreadyExists => Self::ShopProductAlreadyExists,
             ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
             ProductRepositoryError::ProductLookupByIdFailed => Self::ProductLookupByIdFailed,
-            ProductRepositoryError::ProductLookupByKeyFailed => Self::ProductLookupByKeyFailed,
+            ProductRepositoryError::ProductLookupByKeyFailed { source } => {
+                Self::ProductLookupByKeyFailed { source }
+            }
             ProductRepositoryError::ProductInsertFailed => Self::ProductInsertFailed,
             ProductRepositoryError::ProductUpdateFailed => Self::ProductUpdateFailed,
             ProductRepositoryError::InvalidProductSlugPersisted => {
