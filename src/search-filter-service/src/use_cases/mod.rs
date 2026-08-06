@@ -1,3 +1,6 @@
+use embedding::{EmbeddingError, EmbeddingInput, EmbeddingText};
+use search_filter_core::ProductSearch;
+
 mod create_search_filter;
 mod delete_owned_search_filter;
 mod get_owned_search_filter;
@@ -13,3 +16,56 @@ pub use list_owned_search_filters::*;
 pub use list_search_filter_matches::*;
 pub use update_owned_search_filter::*;
 pub use update_search_filter_match_feedback::*;
+
+pub(crate) fn embedding_input(
+    search: &ProductSearch,
+) -> Result<Option<EmbeddingInput>, EmbeddingError> {
+    let mut parts = search
+        .product_query
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|value: &&str| !value.trim().is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if let Some(description) = &search.enhanced_search_description {
+        parts.push(description.as_ref().to_owned());
+    }
+    let Some(text) = (!parts.is_empty()).then(|| parts.join("\n")) else {
+        return Ok(None);
+    };
+
+    EmbeddingText::new(text)
+        .map(EmbeddingInput::Query)
+        .map(Some)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::embedding_input;
+    use common::{currency::domain::Currency, language::domain::Language};
+    use embedding::EmbeddingInput;
+    use search_filter_core::ProductSearch;
+
+    #[test]
+    fn should_build_search_embedding_input() -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductSearch::new(Language::En, Currency::Eur)
+            .with_product_query("vintage brass lamp".try_into()?);
+
+        let input = embedding_input(&search)?;
+
+        assert!(matches!(
+            input,
+            Some(EmbeddingInput::Query(ref text)) if text.as_str() == "vintage brass lamp"
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_not_build_search_embedding_input_without_search_terms()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductSearch::new(Language::En, Currency::Eur);
+
+        assert_eq!(None, embedding_input(&search)?);
+        Ok(())
+    }
+}

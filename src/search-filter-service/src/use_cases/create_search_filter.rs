@@ -1,9 +1,10 @@
 use crate::ports::{
-    SearchFilterEmbeddingGenerationError, SearchFilterEmbeddingGenerator, SearchFilterReadError,
-    SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
-    SearchFilterRepositoryFactory, SearchFilterView,
+    SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
+    SearchFilterRepository, SearchFilterRepositoryError, SearchFilterRepositoryFactory,
+    SearchFilterView,
 };
 use crate::tier_policy::{active_filter_quota, validate_search_features};
+use crate::use_cases::embedding_input;
 use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
@@ -14,6 +15,7 @@ use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 
 use common::user_search_filter_name::UserSearchFilterName;
+use embedding::{EmbeddingError, EmbeddingGenerator};
 use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
 use user_service::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
 
@@ -86,33 +88,33 @@ pub trait CreateSearchFilterUseCase: Send + Sync {
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError>;
 }
 
-pub struct CreateSearchFilterHandler<U, R, E, F, A> {
+pub struct CreateSearchFilterHandler<U, R, E, Q, A> {
     unit_of_work: U,
     filters: R,
     embeddings: E,
-    filter_reader: F,
+    quotas: Q,
     accounts: A,
 }
 
-impl<U, R, E, F, A> CreateSearchFilterHandler<U, R, E, F, A> {
-    pub fn new(unit_of_work: U, filters: R, embeddings: E, filter_reader: F, accounts: A) -> Self {
+impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
+    pub fn new(unit_of_work: U, filters: R, embeddings: E, quotas: Q, accounts: A) -> Self {
         Self {
             unit_of_work,
             filters,
             embeddings,
-            filter_reader,
+            quotas,
             accounts,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, F, A> CreateSearchFilterUseCase for CreateSearchFilterHandler<U, R, E, F, A>
+impl<U, R, E, Q, A> CreateSearchFilterUseCase for CreateSearchFilterHandler<U, R, E, Q, A>
 where
     U: UnitOfWork,
     R: SearchFilterRepositoryFactory<U::Tx>,
-    E: SearchFilterEmbeddingGenerator,
-    F: SearchFilterReader,
+    E: EmbeddingGenerator,
+    Q: SearchFilterQuotaReaderFactory<U::Tx>,
     A: UserAccountReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
@@ -131,11 +133,16 @@ where
         command: CreateSearchFilterCommand,
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError> {
         authorize_owner(context, command.user_id)?;
-        let embedding = self
-            .embeddings
-            .generate(&command.search)
-            .await
-            .map_err(embedding_error)?;
+        let embedding = match embedding_input(&command.search).map_err(embedding_error)? {
+            Some(input) => Some(
+                self.embeddings
+                    .generate(&input)
+                    .await
+                    .map_err(embedding_error)?
+                    .into_values(),
+            ),
+            None => None,
+        };
         let filter = SearchFilter::create(NewSearchFilter {
             user_search_filter_id: UserSearchFilterId::new(),
             user_id: command.user_id,
@@ -163,13 +170,11 @@ where
         })?;
         let quota = active_filter_quota(account.tier);
         let active_count = self
-            .filter_reader
-            .find_for_user(command.user_id)
+            .quotas
+            .in_transaction(&mut tx)
+            .count_active_for_user(command.user_id)
             .await
-            .map_err(search_filter_quota_read_error)?
-            .into_iter()
-            .filter(|filter| filter.state.is_active())
-            .count();
+            .map_err(search_filter_quota_read_error)?;
         if active_count >= quota {
             return Err(CreateSearchFilterError::SearchFilterQuotaExceeded {
                 active_count,
@@ -211,7 +216,7 @@ fn authorize_owner(
         .authorize::<CreateSearchFilterError>()
 }
 
-fn embedding_error(error: SearchFilterEmbeddingGenerationError) -> CreateSearchFilterError {
+fn embedding_error(error: EmbeddingError) -> CreateSearchFilterError {
     CreateSearchFilterError::EmbeddingGenerationFailed {
         source: box_error(error),
     }
@@ -223,7 +228,7 @@ fn user_account_read_error(error: UserAccountReadError) -> CreateSearchFilterErr
     }
 }
 
-fn search_filter_quota_read_error(error: SearchFilterReadError) -> CreateSearchFilterError {
+fn search_filter_quota_read_error(error: SearchFilterQuotaReadError) -> CreateSearchFilterError {
     CreateSearchFilterError::SearchFilterQuotaReadFailed {
         source: box_error(error),
     }

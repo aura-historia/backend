@@ -4,5 +4,5 @@ mod readers;
 mod repository;
 
 pub use match_repository::SqlxSearchFilterMatchRepositoryFactory;
-pub use readers::SqlxSearchFilterReader;
+pub use readers::{SqlxSearchFilterQuotaReaderFactory, SqlxSearchFilterReader};
 pub use repository::SqlxSearchFilterRepositoryFactory;

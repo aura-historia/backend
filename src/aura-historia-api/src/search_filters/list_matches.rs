@@ -1,9 +1,6 @@
 use super::util::{no_store, parse_search_filter_id};
 use crate::auth::protected_context;
-use crate::error::{
-    ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE,
-    SEARCH_FILTER_INTERNAL_ERROR,
-};
+use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, SEARCH_FILTER_INTERNAL_ERROR};
 use crate::products::product_data::{
     PersonalizedProductDetailsData, personalized_product_details_data,
 };
@@ -26,16 +23,30 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 #[serde(rename_all = "camelCase")]
 struct ListSearchFilterMatchesQuery {
     #[serde(default)]
-    sort: Option<String>,
+    sort: Option<SortSearchFilterMatchFieldData>,
     #[serde(default)]
-    order: Option<String>,
+    order: Option<SortOrder>,
     #[serde(default)]
     language: LanguageData,
     #[serde(default)]
-    size: Option<u64>,
+    size: Option<SearchFilterMatchPageSize>,
     #[serde(default)]
-    search_after: Option<String>,
+    search_after: Option<SearchFilterMatchCursorData>,
 }
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum SortSearchFilterMatchFieldData {
+    Created,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(transparent)]
+struct SearchFilterMatchPageSize(u64);
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(transparent)]
+struct SearchFilterMatchCursorData(serde_json::Value);
 
 pub(super) async fn list_search_filter_matches(
     State(state): State<SearchFiltersState>,
@@ -56,27 +67,11 @@ pub(super) async fn list_search_filter_matches(
                     .into_response();
             }
         };
-    if let Some(sort) = query.sort {
-        if sort != "created" {
-            return ApiError::bad_request(BAD_SORT_VALUE)
-                .with_query_field("sort")
-                .with_detail("Expected 'created'.")
-                .into_response();
-        }
-    }
-    let order = match query.order {
-        Some(value) => match SortOrder::try_from(value.as_str()) {
-            Ok(value) => value,
-            Err(error) => {
-                return ApiError::bad_request(BAD_ORDER_VALUE)
-                    .with_query_field("order")
-                    .with_detail(error)
-                    .into_response();
-            }
-        },
-        None => SortOrder::Asc,
-    };
-    let cursor = match matches_cursor(query.size, query.search_after.as_deref()) {
+    let _sort = query
+        .sort
+        .unwrap_or(SortSearchFilterMatchFieldData::Created);
+    let order = query.order.unwrap_or(SortOrder::Asc);
+    let cursor = match matches_cursor(query.size, query.search_after) {
         Ok(cursor) => cursor,
         Err(error) => return error.into_response(),
     };
@@ -131,20 +126,12 @@ pub(super) async fn list_search_filter_matches(
 }
 
 fn matches_cursor(
-    size: Option<u64>,
-    search_after: Option<&str>,
+    size: Option<SearchFilterMatchPageSize>,
+    search_after: Option<SearchFilterMatchCursorData>,
 ) -> Result<Cursor<SearchFilterMatchCursor>, ApiError> {
-    let size = size.unwrap_or(21).clamp(1, 100);
+    let size = size.map_or(21, |value| value.0).clamp(1, 100);
     let search_after = search_after
-        .map(|value| {
-            serde_json::from_str::<Value>(value)
-                .map_err(|error| {
-                    ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-                        .with_query_field("searchAfter")
-                        .with_detail(error.to_string())
-                })
-                .and_then(parse_matches_cursor)
-        })
+        .map(|value| parse_matches_cursor(value.0))
         .transpose()?;
     Ok(Cursor { size, search_after })
 }

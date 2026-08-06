@@ -32,21 +32,21 @@ pub(super) async fn list_search_filters(
                     .into_response();
             }
         };
-    if let Some(sort) = query.sort {
-        if sort != "created" {
-            return ApiError::bad_request(BAD_SORT_VALUE)
-                .with_query_field("sort")
-                .with_detail("Expected 'created'.")
-                .into_response();
-        }
+    if let Some(sort) = query.sort
+        && sort != "created"
+    {
+        return ApiError::bad_request(BAD_SORT_VALUE)
+            .with_query_field("sort")
+            .with_detail("Expected 'created'.")
+            .into_response();
     }
-    if let Some(order) = query.order {
-        if SortOrder::try_from(order.as_str()).is_err() {
-            return ApiError::bad_request(BAD_ORDER_VALUE)
-                .with_query_field("order")
-                .with_detail("Expected 'asc' or 'desc'.")
-                .into_response();
-        }
+    if let Some(order) = query.order
+        && SortOrder::try_from(order.as_str()).is_err()
+    {
+        return ApiError::bad_request(BAD_ORDER_VALUE)
+            .with_query_field("order")
+            .with_detail("Expected 'asc' or 'desc'.")
+            .into_response();
     }
     let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,

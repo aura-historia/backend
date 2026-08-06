@@ -1,11 +1,12 @@
 use crate::ports::{
-    SearchFilterEmbeddingGenerationError, SearchFilterEmbeddingGenerator, SearchFilterReadError,
-    SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
+    SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
+    SearchFilterReadError, SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
     SearchFilterRepositoryFactory, SearchFilterView,
 };
 use crate::tier_policy::{
     active_filter_quota, validate_search_feature_changes, validate_search_features,
 };
+use crate::use_cases::embedding_input;
 use common::currency::domain::Currency;
 use common::distance::domain::GeoDistanceQuery;
 use common::error::boxed::{BoxError, box_error};
@@ -27,6 +28,7 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use embedding::{EmbeddingError, EmbeddingGenerator};
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
@@ -140,33 +142,44 @@ pub trait UpdateOwnedSearchFilterUseCase: Send + Sync {
     ) -> Result<UpdateOwnedSearchFilterResult, UpdateOwnedSearchFilterError>;
 }
 
-pub struct UpdateOwnedSearchFilterHandler<U, R, E, F, A> {
+pub struct UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
     unit_of_work: U,
     filters: R,
     embeddings: E,
     filter_reader: F,
+    quotas: Q,
     accounts: A,
 }
 
-impl<U, R, E, F, A> UpdateOwnedSearchFilterHandler<U, R, E, F, A> {
-    pub fn new(unit_of_work: U, filters: R, embeddings: E, filter_reader: F, accounts: A) -> Self {
+impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
+    pub fn new(
+        unit_of_work: U,
+        filters: R,
+        embeddings: E,
+        filter_reader: F,
+        quotas: Q,
+        accounts: A,
+    ) -> Self {
         Self {
             unit_of_work,
             filters,
             embeddings,
             filter_reader,
+            quotas,
             accounts,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, F, A> UpdateOwnedSearchFilterUseCase for UpdateOwnedSearchFilterHandler<U, R, E, F, A>
+impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterUseCase
+    for UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A>
 where
     U: UnitOfWork,
     R: SearchFilterRepositoryFactory<U::Tx>,
-    E: SearchFilterEmbeddingGenerator,
+    E: EmbeddingGenerator,
     F: SearchFilterReader,
+    Q: SearchFilterQuotaReaderFactory<U::Tx>,
     A: UserAccountReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
@@ -185,6 +198,32 @@ where
         command: UpdateOwnedSearchFilterCommand,
     ) -> Result<UpdateOwnedSearchFilterResult, UpdateOwnedSearchFilterError> {
         authorize_owner(context, command.user_id)?;
+        let prepared_view = self
+            .filter_reader
+            .find_for_user_by_id(command.user_id, command.search_filter_id)
+            .await
+            .map_err(preparation_read_error)?
+            .ok_or(UpdateOwnedSearchFilterError::SearchFilterNotFound)?;
+        let mut prepared_search = prepared_view.search;
+        let prepared_search_changed =
+            apply_product_search_patch(&mut prepared_search, &command.search)?;
+        let prepared_embedding = if prepared_search_changed {
+            Some(
+                match embedding_input(&prepared_search).map_err(embedding_error)? {
+                    Some(input) => Some(
+                        self.embeddings
+                            .generate(&input)
+                            .await
+                            .map_err(embedding_error)?
+                            .into_values(),
+                    ),
+                    None => None,
+                },
+            )
+        } else {
+            None
+        };
+
         let mut tx = self
             .unit_of_work
             .begin()
@@ -219,13 +258,11 @@ where
             })?;
             let quota = active_filter_quota(account.tier);
             let active_count = self
-                .filter_reader
-                .find_for_user(command.user_id)
+                .quotas
+                .in_transaction(&mut tx)
+                .count_active_for_user(command.user_id)
                 .await
-                .map_err(search_filter_quota_read_error)?
-                .into_iter()
-                .filter(|filter| filter.state.is_active())
-                .count();
+                .map_err(search_filter_quota_read_error)?;
             if active_count >= quota {
                 return Err(UpdateOwnedSearchFilterError::SearchFilterQuotaExceeded {
                     active_count,
@@ -234,11 +271,11 @@ where
             }
         }
         if changed.search_changed {
-            let embedding = self
-                .embeddings
-                .generate(filter.search())
-                .await
-                .map_err(embedding_error)?;
+            if !prepared_search_changed || filter.search() != &prepared_search {
+                return Err(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict);
+            }
+            let embedding = prepared_embedding
+                .ok_or(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict)?;
             let _ = filter.replace_search(filter.search().clone(), embedding);
         }
         if changed.aggregate_changed {
@@ -412,7 +449,7 @@ fn authorize_owner(
         .authorize::<UpdateOwnedSearchFilterError>()
 }
 
-fn embedding_error(error: SearchFilterEmbeddingGenerationError) -> UpdateOwnedSearchFilterError {
+fn embedding_error(error: EmbeddingError) -> UpdateOwnedSearchFilterError {
     UpdateOwnedSearchFilterError::EmbeddingGenerationFailed {
         source: box_error(error),
     }
@@ -424,7 +461,15 @@ fn user_account_read_error(error: UserAccountReadError) -> UpdateOwnedSearchFilt
     }
 }
 
-fn search_filter_quota_read_error(error: SearchFilterReadError) -> UpdateOwnedSearchFilterError {
+fn preparation_read_error(error: SearchFilterReadError) -> UpdateOwnedSearchFilterError {
+    UpdateOwnedSearchFilterError::SearchFilterLookupFailed {
+        source: box_error(error),
+    }
+}
+
+fn search_filter_quota_read_error(
+    error: SearchFilterQuotaReadError,
+) -> UpdateOwnedSearchFilterError {
     UpdateOwnedSearchFilterError::SearchFilterQuotaReadFailed {
         source: box_error(error),
     }

@@ -15,6 +15,7 @@ use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingInput, EmbeddingVector};
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
@@ -34,11 +35,8 @@ use product_service::use_cases::{
     GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
 };
 use search_filter_postgres::{
-    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterReader,
-    SqlxSearchFilterRepositoryFactory,
-};
-use search_filter_service::ports::{
-    SearchFilterEmbeddingGenerationError, SearchFilterEmbeddingGenerator,
+    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
+    SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
@@ -95,15 +93,12 @@ use watchlist_service::use_cases::{
 };
 
 #[derive(Clone, Copy)]
-struct NoopSearchFilterEmbeddingGenerator;
+struct TestEmbeddingGenerator;
 
 #[async_trait::async_trait]
-impl SearchFilterEmbeddingGenerator for NoopSearchFilterEmbeddingGenerator {
-    async fn generate(
-        &self,
-        _search: &product_core::product_search::ProductSearch,
-    ) -> Result<Option<Vec<f32>>, SearchFilterEmbeddingGenerationError> {
-        Ok(None)
+impl EmbeddingGenerator for TestEmbeddingGenerator {
+    async fn generate(&self, _input: &EmbeddingInput) -> Result<EmbeddingVector, EmbeddingError> {
+        EmbeddingVector::try_new(vec![1.0; embedding::EMBEDDING_DIMENSIONS])
     }
 }
 
@@ -436,8 +431,8 @@ async fn test_state() -> AppState {
         Arc::new(CreateSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
-            NoopSearchFilterEmbeddingGenerator,
-            search_filter_reader.clone(),
+            TestEmbeddingGenerator,
+            SqlxSearchFilterQuotaReaderFactory,
             user_postgres::SqlxUserAccountReaderFactory::new(),
         )),
         Arc::new(GetOwnedSearchFilterHandler::new(
@@ -446,8 +441,9 @@ async fn test_state() -> AppState {
         Arc::new(UpdateOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
-            NoopSearchFilterEmbeddingGenerator,
+            TestEmbeddingGenerator,
             search_filter_reader.clone(),
+            SqlxSearchFilterQuotaReaderFactory,
             user_postgres::SqlxUserAccountReaderFactory::new(),
         )),
         Arc::new(DeleteOwnedSearchFilterHandler::new(

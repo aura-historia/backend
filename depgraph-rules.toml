@@ -33,8 +33,8 @@ cognito = ["common"]
 # Depends on: common
 fxrate = ["common"]
 
-# Depends on: common, product-core, search-filter-core, search-filter-service
-embedding = ["common", "product-core", "search-filter-core", "search-filter-service"]
+# No internal dependencies
+embedding = []
 
 # Depends on: common, geo
 shop = ["common", "geo"]
@@ -174,8 +174,8 @@ product-postgres = ["common", "geo", "product-core", "product-service"]
 # Depends on: common, geo, product, product-pipeline-embed-text, shop, user
 search-filter = ["common", "geo", "product", "product-pipeline-embed-text", "shop", "user"]
 
-# Depends on: common, product-core, search-filter-core
-search-filter-service = ["common", "product-core", "search-filter-core"]
+# Depends on: common, embedding, geo, notification-service, product-core, product-service, search-filter-core, shop-core, user-core, user-service
+search-filter-service = ["common", "embedding", "geo", "notification-service", "product-core", "product-service", "search-filter-core", "shop-core", "user-core", "user-service"]
 
 # Depends on: common, geo, shop-core, shop-partner-core, shop-service, user-core, user-service
 shop-partner-service = ["common", "geo", "shop-core", "shop-partner-core", "shop-service", "user-core", "user-service"]
@@ -204,8 +204,8 @@ search-filter-lambda-opensearch-sync = ["common", "search-filter"]
 # Depends on: common, product-core, search-filter-core, search-filter-service
 search-filter-opensearch = ["common", "product-core", "search-filter-core", "search-filter-service"]
 
-# Depends on: common, product-core, search-filter-core, search-filter-service
-search-filter-postgres = ["common", "product-core", "search-filter-core", "search-filter-service"]
+# Depends on: common, geo, product-core, search-filter-core, search-filter-service, shop-core
+search-filter-postgres = ["common", "geo", "product-core", "search-filter-core", "search-filter-service", "shop-core"]
 
 # Depends on: common, shop-core, shop-partner-core, shop-partner-service, shop-postgres, shop-service
 shop-partner-postgres = ["common", "shop-core", "shop-partner-core", "shop-partner-service", "shop-postgres", "shop-service"]

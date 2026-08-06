@@ -20,9 +20,7 @@ use crate::state::{
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
-use embedding::{
-    VertexAiEmbeddingClient, VertexAiEmbeddingConfig, VertexAiSearchFilterEmbeddingGenerator,
-};
+use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
@@ -38,6 +36,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
     SqlxProductDetailsBatchReader, SqlxProductDetailsReaderFactory,
@@ -48,8 +47,8 @@ use product_service::use_cases::{
     GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
 };
 use search_filter_postgres::{
-    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterReader,
-    SqlxSearchFilterRepositoryFactory,
+    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
+    SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
@@ -360,11 +359,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
     let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let opensearch_client = opensearch_client_from_env()?;
-    let embedding_client = Arc::new(VertexAiEmbeddingClient::new(
-        config.vertex_ai_embedding().clone(),
-        google_application_default_credentials()?,
-    ));
-    let search_filter_embeddings = VertexAiSearchFilterEmbeddingGenerator::new(embedding_client);
+    let search_filter_embeddings: Arc<dyn EmbeddingGenerator> =
+        Arc::new(VertexAiEmbeddingGenerator::new(
+            config.vertex_ai_embedding().clone(),
+            google_application_default_credentials()?,
+        ));
 
     let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
     let search_shops =
@@ -527,7 +526,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
             search_filter_embeddings.clone(),
-            search_filter_reader.clone(),
+            SqlxSearchFilterQuotaReaderFactory,
             SqlxUserAccountReaderFactory::new(),
         )),
         Arc::new(GetOwnedSearchFilterHandler::new(
@@ -538,6 +537,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
             SqlxSearchFilterRepositoryFactory,
             search_filter_embeddings,
             search_filter_reader.clone(),
+            SqlxSearchFilterQuotaReaderFactory,
             SqlxUserAccountReaderFactory::new(),
         )),
         Arc::new(DeleteOwnedSearchFilterHandler::new(

@@ -11,12 +11,13 @@ use common::user_search_filter_name::UserSearchFilterName;
 use product_core::product_search::ProductSearch;
 use search_filter_core::{NewSearchFilter, SearchFilter, SearchFilterProductMatch};
 use search_filter_postgres::{
-    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterReader,
-    SqlxSearchFilterRepositoryFactory,
+    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
+    SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
 };
 use search_filter_service::ports::{
-    SearchFilterMatchRepository, SearchFilterMatchRepositoryFactory, SearchFilterReader,
-    SearchFilterRepository, SearchFilterRepositoryFactory,
+    SearchFilterMatchRepository, SearchFilterMatchRepositoryFactory, SearchFilterQuotaReader,
+    SearchFilterQuotaReaderFactory, SearchFilterReader, SearchFilterRepository,
+    SearchFilterRepositoryFactory,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 
@@ -88,6 +89,38 @@ async fn should_return_already_exists_when_search_filter_exists() {
         second,
         Err(search_filter_service::ports::SearchFilterRepositoryError::AlreadyExists)
     ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_count_only_active_search_filters_in_transaction() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let filters = SqlxSearchFilterRepositoryFactory;
+    let quotas = SqlxSearchFilterQuotaReaderFactory;
+    let user_id = seed_user(&pool, "search-filter-postgres-quota@example.com").await;
+    let active = sample_filter(user_id, "active filter");
+    let mut inactive = sample_filter(user_id, "inactive filter");
+    let _ = inactive.change_state(ResourceState::InactiveByUser);
+
+    let mut tx = begin(&unit).await;
+    filters
+        .in_transaction(&mut tx)
+        .insert(&active)
+        .await
+        .unwrap_or_else(|error| panic!("insert active filter failed: {error:?}"));
+    filters
+        .in_transaction(&mut tx)
+        .insert(&inactive)
+        .await
+        .unwrap_or_else(|error| panic!("insert inactive filter failed: {error:?}"));
+
+    let active_count = quotas
+        .in_transaction(&mut tx)
+        .count_active_for_user(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("count active filters failed: {error:?}"));
+    assert_eq!(1, active_count);
+    commit(tx).await;
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
