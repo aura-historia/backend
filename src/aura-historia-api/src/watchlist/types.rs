@@ -1,4 +1,5 @@
 use common::product_id::ProductId;
+use common::resource_state::data::{PatchResourceStateData, ResourceStateData};
 use common::user_id::UserId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -11,7 +12,7 @@ pub(crate) struct WatchlistEntryData {
     pub(crate) user_id: UserId,
     pub(crate) product_id: ProductId,
     pub(crate) notifications: bool,
-    pub(crate) state: String,
+    pub(crate) state: ResourceStateData,
     #[serde(
         skip_serializing_if = "Option::is_none",
         with = "time::serde::rfc3339::option"
@@ -29,7 +30,7 @@ impl From<WatchlistProduct> for WatchlistEntryData {
             user_id: e.user_id(),
             product_id: e.product_id(),
             notifications: e.notifications(),
-            state: format!("{:?}", e.state()),
+            state: e.state().into(),
             created: None,
             updated: None,
         }
@@ -41,7 +42,7 @@ impl From<WatchlistProductView> for WatchlistEntryData {
             user_id: v.user_id,
             product_id: v.product_id,
             notifications: v.notifications,
-            state: format!("{:?}", v.state),
+            state: v.state.into(),
             created: Some(v.created),
             updated: Some(v.updated),
         }
@@ -58,4 +59,5 @@ pub(crate) struct PostWatchlistData {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PatchWatchlistData {
     pub(crate) notifications: Option<bool>,
+    pub(crate) state: Option<PatchResourceStateData>,
 }

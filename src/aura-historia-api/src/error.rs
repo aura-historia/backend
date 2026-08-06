@@ -108,6 +108,7 @@ pub(crate) const USER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("USER_TEMPORARILY_UNAVAILABLE");
 pub(crate) const WATCHLIST_ENTRY_NOT_FOUND: ApiErrorCode =
     ApiErrorCode("WATCHLIST_ENTRY_NOT_FOUND");
+pub(crate) const WATCHLIST_QUOTA_EXCEEDED: ApiErrorCode = ApiErrorCode("WATCHLIST_QUOTA_EXCEEDED");
 pub(crate) const WATCHLIST_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("WATCHLIST_INTERNAL_ERROR");
 pub(crate) const WATCHLIST_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("WATCHLIST_TEMPORARILY_UNAVAILABLE");
@@ -1039,7 +1040,18 @@ impl From<WatchProductError> for ApiError {
             WatchProductError::AlreadyExists => {
                 ApiError::conflict(CONFLICT).with_detail("Watchlist entry already exists.")
             }
+            WatchProductError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            WatchProductError::WatchlistQuotaExceeded {
+                active_count,
+                quota,
+            } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
+                "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
+            )),
             WatchProductError::TemporarilyUnavailable
+            | WatchProductError::UserAccountReadFailed { .. }
+            | WatchProductError::WatchlistQuotaReadFailed { .. }
             | WatchProductError::BeginTransactionFailed
             | WatchProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
@@ -1065,7 +1077,18 @@ impl From<UpdateWatchlistProductError> for ApiError {
             }
             UpdateWatchlistProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 .with_detail("Watchlist entry was not found."),
+            UpdateWatchlistProductError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            UpdateWatchlistProductError::WatchlistQuotaExceeded {
+                active_count,
+                quota,
+            } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
+                "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
+            )),
             UpdateWatchlistProductError::TemporarilyUnavailable
+            | UpdateWatchlistProductError::UserAccountReadFailed { .. }
+            | UpdateWatchlistProductError::WatchlistQuotaReadFailed { .. }
             | UpdateWatchlistProductError::BeginTransactionFailed
             | UpdateWatchlistProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)

@@ -1,11 +1,14 @@
 mod api_support;
 
-use api_support::{assert_problem, json_response, seed_access_token_for, seed_product, seed_user};
+use api_support::{
+    assert_problem, json_response, seed_access_token_for, seed_active_watchlist_entries,
+    seed_inactive_watchlist_entry, seed_product, seed_user, seed_user_with_tier,
+};
 use common::product_id::ProductId;
 use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
 };
-use user_core::access_token::Scope;
+use user_core::{access_token::Scope, tier::UserTier};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 const DYNAMODB: DynamoDB = DynamoDB();
@@ -231,6 +234,116 @@ async fn should_return_not_found_when_updating_missing_watchlist_entry() {
         reqwest::StatusCode::NOT_FOUND,
         "WATCHLIST_ENTRY_NOT_FOUND",
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_watchlist_create_at_free_tier_quota() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    seed_active_watchlist_entries(user_id, 20).await;
+    let product_id = seed_product().await;
+
+    let response = reqwest::Client::new()
+        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"productId": product_id.to_string()}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create over quota: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        "WATCHLIST_QUOTA_EXCEEDED",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_allow_ultimate_tier_to_create_beyond_free_quota() {
+    let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    seed_active_watchlist_entries(user_id, 20).await;
+    let product_id = seed_product().await;
+
+    let response = reqwest::Client::new()
+        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"productId": product_id.to_string()}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create unlimited watchlist entry: {error}"));
+
+    assert_eq!(reqwest::StatusCode::CREATED, response.status());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_free_tier_watchlist_reactivation_at_quota() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    seed_active_watchlist_entries(user_id, 20).await;
+    let product_id = seed_inactive_watchlist_entry(user_id).await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/me/watchlist/{}",
+            AURA_API.base_url(),
+            product_id
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"state": "ACTIVE"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reactivate over quota: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        "WATCHLIST_QUOTA_EXCEEDED",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_allow_ultimate_tier_watchlist_reactivation_beyond_free_quota() {
+    let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    seed_active_watchlist_entries(user_id, 20).await;
+    let product_id = seed_inactive_watchlist_entry(user_id).await;
+
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/me/watchlist/{}",
+            AURA_API.base_url(),
+            product_id
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({"state": "ACTIVE"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reactivate unlimited watchlist entry: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(serde_json::json!("ACTIVE"), body["state"]);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]

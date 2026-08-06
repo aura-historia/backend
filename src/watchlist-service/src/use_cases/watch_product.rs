@@ -1,4 +1,9 @@
-use crate::ports::{WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory};
+use crate::ports::{
+    WatchlistQuotaReadError, WatchlistQuotaReader, WatchlistQuotaReaderFactory,
+    WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
+};
+use crate::tier_policy::active_watchlist_quota;
+use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -6,6 +11,7 @@ use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use user_service::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
 use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +34,20 @@ pub enum WatchProductError {
     Forbidden,
     #[error("watchlist entry already exists")]
     AlreadyExists,
+    #[error("user not found")]
+    UserNotFound,
+    #[error("watchlist quota exceeded: {active_count}/{quota} active entries are already in use")]
+    WatchlistQuotaExceeded { active_count: usize, quota: usize },
+    #[error("user account read failed")]
+    UserAccountReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("watchlist quota read failed")]
+    WatchlistQuotaReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("temporary watchlist persistence failure")]
     TemporarilyUnavailable,
     #[error("invalid persisted watchlist state")]
@@ -47,25 +67,31 @@ pub trait WatchProductUseCase: Send + Sync {
     ) -> Result<WatchProductResult, WatchProductError>;
 }
 
-pub struct WatchProductHandler<U, R> {
+pub struct WatchProductHandler<U, R, Q, A> {
     unit_of_work: U,
     watchlist: R,
+    quotas: Q,
+    accounts: A,
 }
 
-impl<U, R> WatchProductHandler<U, R> {
-    pub fn new(unit_of_work: U, watchlist: R) -> Self {
+impl<U, R, Q, A> WatchProductHandler<U, R, Q, A> {
+    pub fn new(unit_of_work: U, watchlist: R, quotas: Q, accounts: A) -> Self {
         Self {
             unit_of_work,
             watchlist,
+            quotas,
+            accounts,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> WatchProductUseCase for WatchProductHandler<U, R>
+impl<U, R, Q, A> WatchProductUseCase for WatchProductHandler<U, R, Q, A>
 where
     U: UnitOfWork,
     R: WatchlistRepositoryFactory<U::Tx>,
+    Q: WatchlistQuotaReaderFactory<U::Tx>,
+    A: UserAccountReaderFactory<U::Tx>,
 {
     #[tracing::instrument(name = "watch_product", skip_all, fields(user_id = %command.user_id, product_id = %command.product_id, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -80,6 +106,13 @@ where
             .begin()
             .await
             .map_err(|_| WatchProductError::BeginTransactionFailed)?;
+        let account = self
+            .accounts
+            .in_transaction(&mut tx)
+            .find_by_id(command.user_id)
+            .await
+            .map_err(user_account_read_error)?
+            .ok_or(WatchProductError::UserNotFound)?;
         if self
             .watchlist
             .in_transaction(&mut tx)
@@ -88,6 +121,20 @@ where
             .is_some()
         {
             return Err(WatchProductError::AlreadyExists);
+        }
+        if let Some(quota) = active_watchlist_quota(account.tier) {
+            let active_count = self
+                .quotas
+                .in_transaction(&mut tx)
+                .count_active_for_user(command.user_id)
+                .await
+                .map_err(watchlist_quota_read_error)?;
+            if active_count >= quota {
+                return Err(WatchProductError::WatchlistQuotaExceeded {
+                    active_count,
+                    quota,
+                });
+            }
         }
 
         let entry = WatchlistProduct::create(NewWatchlistProduct {
@@ -104,6 +151,14 @@ where
         tx.commit()
             .await
             .map_err(|_| WatchProductError::CommitTransactionFailed)?;
+        tracing::info!(
+            event = "watchlist_product.watched",
+            actor_type = context.principal.kind(),
+            actor_id = ?context.principal.actor_id(),
+            user_id = %command.user_id,
+            product_id = %command.product_id,
+            outcome = "success",
+        );
         Ok(WatchProductResult { entry })
     }
 }
@@ -129,6 +184,18 @@ impl From<OperationAuthorizationError> for WatchProductError {
     }
 }
 
+fn user_account_read_error(error: UserAccountReadError) -> WatchProductError {
+    WatchProductError::UserAccountReadFailed {
+        source: box_error(error),
+    }
+}
+
+fn watchlist_quota_read_error(error: WatchlistQuotaReadError) -> WatchProductError {
+    WatchProductError::WatchlistQuotaReadFailed {
+        source: box_error(error),
+    }
+}
+
 impl From<WatchlistRepositoryError> for WatchProductError {
     fn from(value: WatchlistRepositoryError) -> Self {
         match value {
@@ -151,7 +218,8 @@ mod tests {
     use super::*;
 
     use crate::ports::{
-        WatchlistProductView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
+        WatchlistProductView, WatchlistQuotaReadError, WatchlistQuotaReader,
+        WatchlistQuotaReaderFactory, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
         WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
     };
     use common::operation_context::{
@@ -159,9 +227,14 @@ mod tests {
     };
     use common::resource_state::domain::ResourceState;
     use common::transaction::{Transaction, TransactionError, UnitOfWork};
+    use serde_email::Email;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
+    use user_core::{role::UserRole, tier::UserTier};
+    use user_service::ports::{
+        UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
+    };
     use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
     #[derive(Clone, Default)]
@@ -179,6 +252,15 @@ mod tests {
     #[derive(Clone, Default)]
     struct TestWatchlistFactory {
         state: SharedState,
+    }
+
+    #[derive(Clone, Copy)]
+    struct TestAccountFactory {
+        tier: UserTier,
+    }
+
+    struct TestAccountReader {
+        tier: UserTier,
     }
 
     #[derive(Clone, Default)]
@@ -256,11 +338,76 @@ mod tests {
         }
     }
 
+    impl<Tx> WatchlistQuotaReaderFactory<Tx> for TestWatchlistFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl WatchlistQuotaReader + 'tx {
+            TestWatchlistPort {
+                state: self.state.clone(),
+            }
+        }
+    }
+
+    impl<Tx> UserAccountReaderFactory<Tx> for TestAccountFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl UserAccountReader + 'tx {
+            TestAccountReader { tier: self.tier }
+        }
+    }
+
     impl<Tx> WatchlistReaderFactory<Tx> for TestWatchlistFactory {
         fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl WatchlistReader + 'tx {
             TestWatchlistPort {
                 state: self.state.clone(),
             }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UserAccountReader for TestAccountReader {
+        async fn find_by_id(
+            &mut self,
+            user_id: UserId,
+        ) -> Result<Option<UserDetailsView>, UserAccountReadError> {
+            let email = match Email::try_from("watchlist-service@example.test") {
+                Ok(email) => email,
+                Err(_) => {
+                    return Err(UserAccountReadError::Internal {
+                        source: Box::new(std::fmt::Error),
+                    });
+                }
+            };
+            Ok(Some(UserDetailsView {
+                user_id,
+                email,
+                first_name: None,
+                last_name: None,
+                language: None,
+                currency: None,
+                measurement_unit: None,
+                prohibited_content_consent: false,
+                tier: self.tier,
+                role: UserRole::User,
+                stripe_customer_id: None,
+                structured_address: None,
+                geo_address: None,
+            }))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl WatchlistQuotaReader for TestWatchlistPort {
+        async fn count_active_for_user(
+            &mut self,
+            user_id: UserId,
+        ) -> Result<usize, WatchlistQuotaReadError> {
+            self.state
+                .entries
+                .lock()
+                .map_err(|_| WatchlistQuotaReadError::ReadFailed)
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter(|entry| entry.user_id() == user_id && entry.state().is_active())
+                        .count()
+                })
         }
     }
 
@@ -433,6 +580,12 @@ mod tests {
             TestWatchlistFactory {
                 state: state.clone(),
             },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
+            TestAccountFactory {
+                tier: UserTier::Free,
+            },
         )
         .execute(
             &context_for_user(user_id),
@@ -463,7 +616,13 @@ mod tests {
                 state: state.clone(),
                 ..Default::default()
             },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
             TestWatchlistFactory { state },
+            TestAccountFactory {
+                tier: UserTier::Free,
+            },
         )
         .execute(
             &context_for_user(user_id),
@@ -479,6 +638,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_reject_pro_tier_watch_when_active_quota_is_reached() {
+        let user_id = UserId::new();
+        let state = SharedState::default();
+        for _ in 0..100 {
+            state.push(entry(user_id, ProductId::new(), true));
+        }
+
+        let result = WatchProductHandler::new(
+            TestUnitOfWork {
+                state: state.clone(),
+                ..Default::default()
+            },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
+            TestAccountFactory {
+                tier: UserTier::Pro,
+            },
+        )
+        .execute(
+            &context_for_user(user_id),
+            WatchProductCommand {
+                user_id,
+                product_id: ProductId::new(),
+                notifications: true,
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(WatchProductError::WatchlistQuotaExceeded {
+                active_count: 100,
+                quota: 100,
+            })
+        ));
+        assert!(!state.committed());
+    }
+
+    #[tokio::test]
     async fn should_forbid_delegated_user_without_watchlist_write() {
         let user_id = UserId::new();
         let state = SharedState::default();
@@ -488,7 +690,13 @@ mod tests {
                 state: state.clone(),
                 ..Default::default()
             },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
             TestWatchlistFactory { state },
+            TestAccountFactory {
+                tier: UserTier::Free,
+            },
         )
         .execute(
             &delegated_context(user_id, BTreeSet::new()),

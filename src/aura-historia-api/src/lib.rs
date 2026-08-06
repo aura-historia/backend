@@ -99,7 +99,7 @@ use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
 use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
-use watchlist_postgres::SqlxWatchlistRepositoryFactory;
+use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
@@ -417,10 +417,18 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let watch_product =
-        WatchProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
-    let update_watchlist_product =
-        UpdateWatchlistProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
+    let watch_product = WatchProductHandler::new(
+        unit_of_work.clone(),
+        SqlxWatchlistRepositoryFactory,
+        SqlxWatchlistQuotaReaderFactory,
+        SqlxUserAccountReaderFactory::new(),
+    );
+    let update_watchlist_product = UpdateWatchlistProductHandler::new(
+        unit_of_work.clone(),
+        SqlxWatchlistRepositoryFactory,
+        SqlxWatchlistQuotaReaderFactory,
+        SqlxUserAccountReaderFactory::new(),
+    );
     let unwatch_product =
         UnwatchProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
     let create_partner_application = CreatePartnerShopApplicationHandler::new(

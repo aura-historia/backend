@@ -72,6 +72,7 @@ use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
     Scope,
 };
+use user_core::tier::UserTier;
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_service::ports::AccessTokenStore;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
@@ -87,7 +88,7 @@ use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
 use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
-use watchlist_postgres::SqlxWatchlistRepositoryFactory;
+use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
@@ -145,17 +146,27 @@ pub fn assert_problem(
 }
 
 pub async fn seed_user(role: &'static str) -> UserId {
+    seed_user_with_tier(role, UserTier::Free).await
+}
+
+pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
     let user_id = UserId::new();
     let email = format!("{}@example.test", user_id);
+    let tier = match tier {
+        UserTier::Free => "FREE",
+        UserTier::Pro => "PRO",
+        UserTier::Ultimate => "ULTIMATE",
+    };
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO users (user_id, email, tier, role)
-        VALUES ($1, $2, 'FREE', $3)
+        VALUES ($1, $2, $3, $4)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(email)
+    .bind(tier)
     .bind(role)
     .execute(&pool)
     .await
@@ -163,6 +174,34 @@ pub async fn seed_user(role: &'static str) -> UserId {
         panic!("failed to seed user: {error}");
     }
     user_id
+}
+
+pub async fn seed_active_watchlist_entries(user_id: UserId, count: usize) {
+    for _ in 0..count {
+        let product_id = seed_product().await;
+        seed_watchlist_entry(user_id, product_id, "Active").await;
+    }
+}
+
+pub async fn seed_inactive_watchlist_entry(user_id: UserId) -> ProductId {
+    let product_id = seed_product().await;
+    seed_watchlist_entry(user_id, product_id, "InactiveByUser").await;
+    product_id
+}
+
+async fn seed_watchlist_entry(user_id: UserId, product_id: ProductId, state: &'static str) {
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query(
+        "INSERT INTO product_watchlist (user_id, product_id, notifications, state) VALUES ($1, $2, true, $3)",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::from(product_id))
+    .bind(state)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed watchlist entry: {error}");
+    }
 }
 
 pub async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> RawAccessToken {
@@ -472,10 +511,14 @@ async fn test_state() -> AppState {
         Arc::new(WatchProductHandler::new(
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
+            SqlxWatchlistQuotaReaderFactory,
+            user_postgres::SqlxUserAccountReaderFactory::new(),
         )),
         Arc::new(UpdateWatchlistProductHandler::new(
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
+            SqlxWatchlistQuotaReaderFactory,
+            user_postgres::SqlxUserAccountReaderFactory::new(),
         )),
         Arc::new(UnwatchProductHandler::new(
             unit_of_work.clone(),

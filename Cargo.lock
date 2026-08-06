@@ -9806,11 +9806,14 @@ dependencies = [
  "notification-service",
  "product-core",
  "product-service",
+ "serde-email",
  "thiserror 2.0.19",
  "time",
  "tokio",
  "tracing",
  "url",
+ "user-core",
+ "user-service",
  "watchlist-core",
 ]
 

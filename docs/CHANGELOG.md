@@ -6,6 +6,13 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-08-06 - Enforce Canonical Watchlist Tier Quotas
+
+### Changed
+
+- Canonical `POST /api/v1/me/watchlist` and inactive-to-active `PATCH /api/v1/me/watchlist/{productId}` now enforce the legacy active-entry quotas: Free 20, Pro 100, Ultimate unlimited.
+- Quota exhaustion returns `422` with `WATCHLIST_QUOTA_EXCEEDED`. `PATCH` again accepts `state` as documented; reactivation is subject to the same tier quota.
+
 ## 2026-08-05 - Migrate Saved Search Filters to `aura-historia-api` (`backend#1341`)
 
 ### Changed

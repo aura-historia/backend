@@ -3273,9 +3273,10 @@ paths:
       summary: Add product to watchlist
       description: |
         Adds a product to the authenticated user's watchlist.
-        The request body must contain the shop ID and shop's product ID.
-        Each user is limited to a maximum of 5 watchlist products. If the user already has 5 products
-        in their watchlist, adding another will result in a 422 Unprocessable Entity error.
+        The request body must contain a product ID.
+        Active-entry quota depends on the user's tier: Free users may have 20, Pro users 100,
+        and Ultimate users have no active-entry limit. Adding beyond the active quota returns
+        a 422 Unprocessable Entity error.
         Returns a 201 Created response with a Location header pointing to the created resource and the full personalized product data.
         Requires valid Cognito JWT authentication.
       operationId: addWatchlistProduct
@@ -3420,7 +3421,7 @@ paths:
                 status: 422
                 title: "Unprocessable Content"
                 error: "WATCHLIST_QUOTA_EXCEEDED"
-                detail: "Exceeded the maximum amount of watchlist entries. There are already 5/5 watchlist entries occupied."
+                detail: "Exceeded the maximum amount of watchlist entries. There are already 20/20 active watchlist entries occupied."
         "500":
           description: Internal server error
           content:
@@ -5388,7 +5389,7 @@ paths:
                 status: 422
                 title: "Unprocessable Content"
                 error: "WATCHLIST_QUOTA_EXCEEDED"
-                detail: "Exceeded the maximum amount of watchlist entries. There are already 20/20 watchlist entries occupied."
+                detail: "Exceeded the maximum amount of watchlist entries. There are already 20/20 active watchlist entries occupied."
         "500":
           description: Internal server error
           content:
