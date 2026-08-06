@@ -12,6 +12,7 @@ cognito = { workspace = true }
 cognito-post-confirmation = { workspace = true }
 cloudwatch-log-retention-lambda = { workspace = true }
 common = { workspace = true }
+embedding = { workspace = true }
 geo = { workspace = true }
 search-filter = { workspace = true }
 search-filter-core = { workspace = true }
@@ -86,6 +87,7 @@ members = [
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
     "src/common",
+    "src/embedding",
     "src/geo",
     "src/search-filter",
     "src/search-filter-core",
@@ -176,6 +178,7 @@ aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
 common = { path = "src/common" }
+embedding = { path = "src/embedding" }
 geo = { path = "src/geo" }
 google-cloud-auth = "1.12.0"
 derive_builder = "0.20.2"

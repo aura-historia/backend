@@ -19,8 +19,8 @@ use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};
 use search_filter_service::ports::{
-    PersistedSearchFilter, SearchFilterMatchView, SearchFilterReadError,
-    SearchFilterRepositoryError, SearchFilterView,
+    PersistedSearchFilter, PersistedSearchFilterMatch, SearchFilterMatchView,
+    SearchFilterReadError, SearchFilterRepositoryError, SearchFilterView,
 };
 use serde::{Deserialize, Serialize};
 use shop_core::shop_type::ShopType;
@@ -101,17 +101,19 @@ pub(crate) struct MatchRow {
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
-impl TryFrom<MatchRow> for SearchFilterProductMatch {
+impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
     type Error = ();
     fn try_from(row: MatchRow) -> Result<Self, Self::Error> {
         Ok(Self {
-            user_id: UserId::from(row.user_id),
-            user_search_filter_id: UserSearchFilterId::from(row.user_search_filter_id),
-            user_search_filter_name: row.user_search_filter_name.map(name).transpose()?,
-            product_id: ProductId::from(row.product_id),
-            origin_event_id: EventId::from(row.origin_event_id),
-            enhanced_match_reason: row.enhanced_match_reason.map(Into::into),
-            feedback: row.feedback,
+            product_match: SearchFilterProductMatch {
+                user_id: UserId::from(row.user_id),
+                user_search_filter_id: UserSearchFilterId::from(row.user_search_filter_id),
+                user_search_filter_name: row.user_search_filter_name.map(name).transpose()?,
+                product_id: ProductId::from(row.product_id),
+                origin_event_id: EventId::from(row.origin_event_id),
+                enhanced_match_reason: row.enhanced_match_reason.map(Into::into),
+                feedback: row.feedback,
+            },
             created: row.created,
             updated: row.updated,
         })

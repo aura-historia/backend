@@ -1,7 +1,9 @@
 use crate::ports::{
-    SearchFilterEmbeddingGenerationError, SearchFilterEmbeddingGenerator, SearchFilterRepository,
-    SearchFilterRepositoryError, SearchFilterRepositoryFactory, SearchFilterView,
+    SearchFilterEmbeddingGenerationError, SearchFilterEmbeddingGenerator, SearchFilterReadError,
+    SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
+    SearchFilterRepositoryFactory, SearchFilterView,
 };
+use crate::tier_policy::{active_filter_quota, validate_search_features};
 use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
@@ -13,6 +15,7 @@ use common::user_search_filter_id::UserSearchFilterId;
 
 use common::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
+use user_service::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateSearchFilterCommand {
@@ -33,6 +36,24 @@ pub enum CreateSearchFilterError {
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
     ActorMayNotManageSearchFilter,
+    #[error("user not found")]
+    UserNotFound,
+    #[error(
+        "search filter quota exceeded: {active_count}/{quota} active filters are already in use"
+    )]
+    SearchFilterQuotaExceeded { active_count: usize, quota: usize },
+    #[error("search filter feature '{feature}' requires a higher user tier")]
+    SearchFilterFeatureRestricted { feature: &'static str },
+    #[error("user account read failed")]
+    UserAccountReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("search filter quota read failed")]
+    SearchFilterQuotaReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter already exists")]
     SearchFilterAlreadyExists,
     #[error("search filter embedding generation failed")]
@@ -65,28 +86,34 @@ pub trait CreateSearchFilterUseCase: Send + Sync {
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError>;
 }
 
-pub struct CreateSearchFilterHandler<U, R, E> {
+pub struct CreateSearchFilterHandler<U, R, E, F, A> {
     unit_of_work: U,
     filters: R,
     embeddings: E,
+    filter_reader: F,
+    accounts: A,
 }
 
-impl<U, R, E> CreateSearchFilterHandler<U, R, E> {
-    pub fn new(unit_of_work: U, filters: R, embeddings: E) -> Self {
+impl<U, R, E, F, A> CreateSearchFilterHandler<U, R, E, F, A> {
+    pub fn new(unit_of_work: U, filters: R, embeddings: E, filter_reader: F, accounts: A) -> Self {
         Self {
             unit_of_work,
             filters,
             embeddings,
+            filter_reader,
+            accounts,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E> CreateSearchFilterUseCase for CreateSearchFilterHandler<U, R, E>
+impl<U, R, E, F, A> CreateSearchFilterUseCase for CreateSearchFilterHandler<U, R, E, F, A>
 where
     U: UnitOfWork,
     R: SearchFilterRepositoryFactory<U::Tx>,
     E: SearchFilterEmbeddingGenerator,
+    F: SearchFilterReader,
+    A: UserAccountReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "create_search_filter",
@@ -124,6 +151,31 @@ where
             .begin()
             .await
             .map_err(|_| CreateSearchFilterError::BeginTransactionFailed)?;
+        let account = self
+            .accounts
+            .in_transaction(&mut tx)
+            .find_by_id(command.user_id)
+            .await
+            .map_err(user_account_read_error)?
+            .ok_or(CreateSearchFilterError::UserNotFound)?;
+        validate_search_features(account.tier, filter.search()).map_err(|feature| {
+            CreateSearchFilterError::SearchFilterFeatureRestricted { feature }
+        })?;
+        let quota = active_filter_quota(account.tier);
+        let active_count = self
+            .filter_reader
+            .find_for_user(command.user_id)
+            .await
+            .map_err(search_filter_quota_read_error)?
+            .into_iter()
+            .filter(|filter| filter.state.is_active())
+            .count();
+        if active_count >= quota {
+            return Err(CreateSearchFilterError::SearchFilterQuotaExceeded {
+                active_count,
+                quota,
+            });
+        }
         let persisted = self
             .filters
             .in_transaction(&mut tx)
@@ -161,6 +213,18 @@ fn authorize_owner(
 
 fn embedding_error(error: SearchFilterEmbeddingGenerationError) -> CreateSearchFilterError {
     CreateSearchFilterError::EmbeddingGenerationFailed {
+        source: box_error(error),
+    }
+}
+
+fn user_account_read_error(error: UserAccountReadError) -> CreateSearchFilterError {
+    CreateSearchFilterError::UserAccountReadFailed {
+        source: box_error(error),
+    }
+}
+
+fn search_filter_quota_read_error(error: SearchFilterReadError) -> CreateSearchFilterError {
+    CreateSearchFilterError::SearchFilterQuotaReadFailed {
         source: box_error(error),
     }
 }

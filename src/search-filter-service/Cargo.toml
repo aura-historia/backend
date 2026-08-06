@@ -8,10 +8,19 @@ async-trait = { workspace = true }
 common = { workspace = true }
 geo = { workspace = true }
 isocountry = { workspace = true }
+notification-service = { workspace = true }
 product-core = { workspace = true }
+product-service = { workspace = true }
 shop-core = { workspace = true }
 search-filter-core = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
 time = { workspace = true }
+user-core = { workspace = true }
+user-service = { workspace = true }
 tracing = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+indexmap = { workspace = true }
+url = { workspace = true }

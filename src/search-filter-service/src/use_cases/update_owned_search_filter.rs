@@ -1,6 +1,10 @@
 use crate::ports::{
-    SearchFilterEmbeddingGenerationError, SearchFilterEmbeddingGenerator, SearchFilterRepository,
-    SearchFilterRepositoryError, SearchFilterRepositoryFactory, SearchFilterView,
+    SearchFilterEmbeddingGenerationError, SearchFilterEmbeddingGenerator, SearchFilterReadError,
+    SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
+    SearchFilterRepositoryFactory, SearchFilterView,
+};
+use crate::tier_policy::{
+    active_filter_quota, validate_search_feature_changes, validate_search_features,
 };
 use common::currency::domain::Currency;
 use common::distance::domain::GeoDistanceQuery;
@@ -28,6 +32,7 @@ use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use shop_core::shop_type::ShopType;
 use time::OffsetDateTime;
+use user_service::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductSearchPatch {
@@ -76,6 +81,24 @@ pub enum UpdateOwnedSearchFilterError {
     AuthenticatedActorRequired,
     #[error("actor may not manage this search filter")]
     ActorMayNotManageSearchFilter,
+    #[error("user not found")]
+    UserNotFound,
+    #[error(
+        "search filter quota exceeded: {active_count}/{quota} active filters are already in use"
+    )]
+    SearchFilterQuotaExceeded { active_count: usize, quota: usize },
+    #[error("search filter feature '{feature}' requires a higher user tier")]
+    SearchFilterFeatureRestricted { feature: &'static str },
+    #[error("user account read failed")]
+    UserAccountReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("search filter quota read failed")]
+    SearchFilterQuotaReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter not found")]
     SearchFilterNotFound,
     #[error("search filter patch cannot clear required fields")]
@@ -117,28 +140,34 @@ pub trait UpdateOwnedSearchFilterUseCase: Send + Sync {
     ) -> Result<UpdateOwnedSearchFilterResult, UpdateOwnedSearchFilterError>;
 }
 
-pub struct UpdateOwnedSearchFilterHandler<U, R, E> {
+pub struct UpdateOwnedSearchFilterHandler<U, R, E, F, A> {
     unit_of_work: U,
     filters: R,
     embeddings: E,
+    filter_reader: F,
+    accounts: A,
 }
 
-impl<U, R, E> UpdateOwnedSearchFilterHandler<U, R, E> {
-    pub fn new(unit_of_work: U, filters: R, embeddings: E) -> Self {
+impl<U, R, E, F, A> UpdateOwnedSearchFilterHandler<U, R, E, F, A> {
+    pub fn new(unit_of_work: U, filters: R, embeddings: E, filter_reader: F, accounts: A) -> Self {
         Self {
             unit_of_work,
             filters,
             embeddings,
+            filter_reader,
+            accounts,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E> UpdateOwnedSearchFilterUseCase for UpdateOwnedSearchFilterHandler<U, R, E>
+impl<U, R, E, F, A> UpdateOwnedSearchFilterUseCase for UpdateOwnedSearchFilterHandler<U, R, E, F, A>
 where
     U: UnitOfWork,
     R: SearchFilterRepositoryFactory<U::Tx>,
     E: SearchFilterEmbeddingGenerator,
+    F: SearchFilterReader,
+    A: UserAccountReaderFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "update_owned_search_filter",
@@ -161,6 +190,13 @@ where
             .begin()
             .await
             .map_err(|_| UpdateOwnedSearchFilterError::BeginTransactionFailed)?;
+        let account = self
+            .accounts
+            .in_transaction(&mut tx)
+            .find_by_id(command.user_id)
+            .await
+            .map_err(user_account_read_error)?
+            .ok_or(UpdateOwnedSearchFilterError::UserNotFound)?;
         let mut persisted = self
             .filters
             .in_transaction(&mut tx)
@@ -172,6 +208,31 @@ where
         let mut filter = persisted.filter.clone();
 
         let changed = apply_filter_patch(&mut filter, &command)?;
+        validate_search_feature_changes(account.tier, persisted.filter.search(), filter.search())
+            .map_err(
+            |feature| UpdateOwnedSearchFilterError::SearchFilterFeatureRestricted { feature },
+        )?;
+        let reactivating = !persisted.filter.state().is_active() && filter.state().is_active();
+        if reactivating {
+            validate_search_features(account.tier, filter.search()).map_err(|feature| {
+                UpdateOwnedSearchFilterError::SearchFilterFeatureRestricted { feature }
+            })?;
+            let quota = active_filter_quota(account.tier);
+            let active_count = self
+                .filter_reader
+                .find_for_user(command.user_id)
+                .await
+                .map_err(search_filter_quota_read_error)?
+                .into_iter()
+                .filter(|filter| filter.state.is_active())
+                .count();
+            if active_count >= quota {
+                return Err(UpdateOwnedSearchFilterError::SearchFilterQuotaExceeded {
+                    active_count,
+                    quota,
+                });
+            }
+        }
         if changed.search_changed {
             let embedding = self
                 .embeddings
@@ -353,6 +414,18 @@ fn authorize_owner(
 
 fn embedding_error(error: SearchFilterEmbeddingGenerationError) -> UpdateOwnedSearchFilterError {
     UpdateOwnedSearchFilterError::EmbeddingGenerationFailed {
+        source: box_error(error),
+    }
+}
+
+fn user_account_read_error(error: UserAccountReadError) -> UpdateOwnedSearchFilterError {
+    UpdateOwnedSearchFilterError::UserAccountReadFailed {
+        source: box_error(error),
+    }
+}
+
+fn search_filter_quota_read_error(error: SearchFilterReadError) -> UpdateOwnedSearchFilterError {
+    UpdateOwnedSearchFilterError::SearchFilterQuotaReadFailed {
         source: box_error(error),
     }
 }

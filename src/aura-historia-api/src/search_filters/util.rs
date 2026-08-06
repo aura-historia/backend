@@ -1,13 +1,10 @@
-use crate::error::{
-    ApiError, BAD_BODY_VALUE, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE, INVALID_UUID,
-};
+use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
+use common::product_id::ProductId;
 use common::user_search_filter_id::UserSearchFilterId;
 use serde::Deserialize;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::OffsetDateTime;
 
 pub(super) fn no_store(mut response: Response) -> Response {
     response
@@ -47,32 +44,11 @@ pub(super) fn parse_search_filter_id(raw: &str) -> Result<UserSearchFilterId, Re
 }
 
 #[allow(clippy::result_large_err)]
-pub(super) fn parse_shop_id(raw: &str) -> Result<ShopId, Response> {
-    ShopId::try_from(raw).map_err(|_| {
+pub(super) fn parse_product_id(raw: &str) -> Result<ProductId, Response> {
+    ProductId::try_from(raw).map_err(|_| {
         ApiError::bad_request(INVALID_UUID)
-            .with_path_field("shopId")
-            .with_detail("Path parameter 'shopId' must be a UUID.")
+            .with_path_field("productId")
+            .with_detail("Path parameter 'productId' must be a UUID.")
             .into_response()
-    })
-}
-
-#[allow(clippy::result_large_err)]
-pub(super) fn parse_shops_product_id(raw: &str) -> Result<ShopsProductId, Response> {
-    ShopsProductId::raw(raw).map_err(|error| {
-        ApiError::bad_request(BAD_PATH_PARAMETER_VALUE)
-            .with_path_field("shopsProductId")
-            .with_detail(error.to_string())
-            .into_response()
-    })
-}
-
-pub(super) fn parse_rfc3339_query(
-    value: &str,
-    field: &'static str,
-) -> Result<OffsetDateTime, ApiError> {
-    OffsetDateTime::parse(value, &Rfc3339).map_err(|error| {
-        ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-            .with_query_field(field)
-            .with_detail(error.to_string())
     })
 }

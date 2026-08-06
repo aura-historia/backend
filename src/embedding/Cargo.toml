@@ -1,0 +1,16 @@
+[package]
+name = "embedding"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+common = { workspace = true }
+google-cloud-auth = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+product-core = { workspace = true }
+search-filter-core = { workspace = true }
+search-filter-service = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

@@ -14,10 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - `GET` and `POST /api/v1/me/search-filters`
   - `GET`, `PATCH`, and `DELETE /api/v1/me/search-filters/{userSearchFilterId}`
   - `GET /api/v1/me/search-filters/{userSearchFilterId}/matches`
-  - `PATCH /api/v1/me/search-filters/{userSearchFilterId}/matches/{shopId}/{shopsProductId}`
+  - `PATCH /api/v1/me/search-filters/{userSearchFilterId}/matches/{productId}`
 - These routes accept Cognito JWTs or Aura access tokens. Delegated access tokens require `search-filters:write`.
 - Filter and match reads return `Cache-Control: no-store`; creation returns relative `Location` and `Content-Language` headers.
-- Match-list responses are persisted search-filter match records, not hydrated product results. The legacy `/products` preview route is intentionally not migrated to `aura-historia-api`.
+- Match-list responses are fully hydrated localized `PersonalizedData<ProductDetailsData, ProductUserStateData>` values. They use `searchAfter` as a JSON `[match creation RFC3339 timestamp, product UUID]` cursor and default `language` to `en`; the feedback route uses canonical `productId`. The legacy `/products` preview route is intentionally not migrated to `aura-historia-api`.
+- Saved-search filter create and text-search updates now create normalized 768-dimensional Gemini embeddings through Vertex AI. Provider failures return the existing temporary-service error response rather than persisting a missing embedding.
 
 ## 2026-08-04 - Personalize Canonical Watchlist Products
 

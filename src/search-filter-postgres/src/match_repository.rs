@@ -4,7 +4,7 @@ use common::product_id::ProductId;
 use common::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::SearchFilterProductMatch;
 use search_filter_service::ports::{
-    SearchFilterMatchRepository, SearchFilterMatchRepositoryError,
+    PersistedSearchFilterMatch, SearchFilterMatchRepository, SearchFilterMatchRepositoryError,
     SearchFilterMatchRepositoryFactory,
 };
 #[derive(Debug, Clone, Default)]
@@ -28,7 +28,7 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
         &mut self,
         filter_id: UserSearchFilterId,
         product_id: ProductId,
-    ) -> Result<Option<SearchFilterProductMatch>, SearchFilterMatchRepositoryError> {
+    ) -> Result<Option<PersistedSearchFilterMatch>, SearchFilterMatchRepositoryError> {
         let filter_id = user_search_filter_uuid(filter_id)
             .map_err(|_| SearchFilterMatchRepositoryError::LookupFailed)?;
         let sql = format!(
@@ -40,18 +40,18 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
             .fetch_optional(self.tx.connection())
             .await
             .map_err(|_| SearchFilterMatchRepositoryError::LookupFailed)?
-            .map(SearchFilterProductMatch::try_from)
+            .map(PersistedSearchFilterMatch::try_from)
             .transpose()
             .map_err(|_| SearchFilterMatchRepositoryError::InvalidPersistedState)
     }
     async fn insert(
         &mut self,
         v: &SearchFilterProductMatch,
-    ) -> Result<SearchFilterProductMatch, SearchFilterMatchRepositoryError> {
+    ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError> {
         let id = user_search_filter_uuid(v.user_search_filter_id)
             .map_err(|_| SearchFilterMatchRepositoryError::InsertFailed)?;
         let sql = format!(
-            "INSERT INTO search_filter_matches (user_id,user_search_filter_id,product_id,origin_event_id,user_search_filter_name,enhanced_match_reason,feedback,created,updated) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING {MATCH_COLUMNS}"
+            "INSERT INTO search_filter_matches (user_id,user_search_filter_id,product_id,origin_event_id,user_search_filter_name,enhanced_match_reason,feedback) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING {MATCH_COLUMNS}"
         );
         let row = sqlx::query_as::<_, MatchRow>(&sql)
             .bind(uuid::Uuid::from(v.user_id))
@@ -61,8 +61,6 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
             .bind(v.user_search_filter_name.as_ref().map(AsRef::as_ref))
             .bind(v.enhanced_match_reason.as_ref().map(AsRef::as_ref))
             .bind(v.feedback)
-            .bind(v.created)
-            .bind(v.updated)
             .fetch_one(self.tx.connection())
             .await
             .map_err(|_| SearchFilterMatchRepositoryError::InsertFailed)?;
@@ -72,11 +70,11 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
     async fn update(
         &mut self,
         v: &SearchFilterProductMatch,
-    ) -> Result<SearchFilterProductMatch, SearchFilterMatchRepositoryError> {
+    ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError> {
         let id = user_search_filter_uuid(v.user_search_filter_id)
             .map_err(|_| SearchFilterMatchRepositoryError::UpdateFailed)?;
         let sql = format!(
-            "UPDATE search_filter_matches SET user_search_filter_name=$3,enhanced_match_reason=$4,feedback=$5,updated=$6 WHERE user_search_filter_id=$1 AND product_id=$2 RETURNING {MATCH_COLUMNS}"
+            "UPDATE search_filter_matches SET user_search_filter_name=$3,enhanced_match_reason=$4,feedback=$5,updated=now() WHERE user_search_filter_id=$1 AND product_id=$2 RETURNING {MATCH_COLUMNS}"
         );
         let row = sqlx::query_as::<_, MatchRow>(&sql)
             .bind(id)
@@ -84,7 +82,6 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
             .bind(v.user_search_filter_name.as_ref().map(AsRef::as_ref))
             .bind(v.enhanced_match_reason.as_ref().map(AsRef::as_ref))
             .bind(v.feedback)
-            .bind(v.updated)
             .fetch_optional(self.tx.connection())
             .await
             .map_err(|_| SearchFilterMatchRepositoryError::UpdateFailed)?

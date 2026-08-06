@@ -224,7 +224,9 @@ dependencies = [
  "axum",
  "base64 0.23.0",
  "common",
+ "embedding",
  "geo",
+ "google-cloud-auth",
  "http 1.5.0",
  "httpdate",
  "isocountry",
@@ -284,6 +286,7 @@ dependencies = [
  "cognito",
  "cognito-post-confirmation",
  "common",
+ "embedding",
  "fxrate",
  "fxrate-lambda",
  "geo",
@@ -2543,6 +2546,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e079f19b08ca6239f47f8ba8509c11cf3ea30095831f7fed61441475edd8c449"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "embedding"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "google-cloud-auth",
+ "product-core",
+ "reqwest 0.12.28",
+ "search-filter-core",
+ "search-filter-service",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -7063,7 +7082,6 @@ dependencies = [
  "fake",
  "product-core",
  "serde_fields",
- "time",
 ]
 
 [[package]]
@@ -7205,14 +7223,21 @@ dependencies = [
  "async-trait",
  "common",
  "geo",
+ "indexmap 2.14.0",
  "isocountry",
+ "notification-service",
  "product-core",
+ "product-service",
  "search-filter-core",
  "serde_json",
  "shop-core",
  "thiserror 2.0.19",
  "time",
+ "tokio",
  "tracing",
+ "url",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]

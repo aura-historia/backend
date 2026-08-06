@@ -2755,11 +2755,10 @@ paths:
 
   /api/v1/me/search-filters/{userSearchFilterId}/matches:
     get:
-      summary: List persisted matches for a search filter
+      summary: List hydrated persisted matches for a search filter
       description: |
-        Retrieves persisted match records for the given saved search filter and authenticated user.
-        Results are paginated by match creation time using the RFC3339 `from` cursor.
-        This canonical route does not hydrate product representations.
+        Retrieves full localized personalized Product details for persisted matches of the given saved search filter and authenticated user.
+        Results are paginated with the tie-safe RFC3339 match-creation timestamp plus product UUID `searchAfter` cursor.
         Requires a Cognito JWT or an Aura access token with `search-filters:write`.
       operationId: getSearchFilterMatches
       tags:
@@ -2788,18 +2787,24 @@ paths:
             type: string
             enum: [asc, desc]
           example: desc
-        - name: from
+        - name: language
           in: query
           required: false
-          description: RFC3339 match-creation timestamp used as the pagination cursor.
+          description: Preferred language for localized product content. Defaults to `en`.
+          schema:
+            $ref: "#/components/schemas/LanguageData"
+          example: de
+        - name: searchAfter
+          in: query
+          required: false
+          description: JSON-encoded `[RFC3339 match creation timestamp, product UUID]` cursor from the preceding page.
           schema:
             type: string
-            format: date-time
-          example: "2024-01-01T10:00:00Z"
+          example: '["2024-01-01T10:00:00Z","550e8400-e29b-41d4-a716-446655440111"]'
         - name: size
           in: query
           required: false
-          description: Number of match records to return per page
+          description: Number of matched products to return per page
           schema:
             type: integer
             minimum: 1
@@ -2810,7 +2815,7 @@ paths:
         - BearerAuth: []
       responses:
         "200":
-          description: Search-filter match records retrieved successfully
+          description: Hydrated search-filter matched products retrieved successfully
           headers:
             Cache-Control:
               description: Cache control directive — always set to `no-store`
@@ -2828,17 +2833,38 @@ paths:
                 $ref: "#/components/schemas/SearchFilterMatchProductCollectionData"
               example:
                 items:
-                  - userId: "550e8400-e29b-41d4-a716-446655440000"
-                    userSearchFilterId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                    userSearchFilterName: "Golden Accessories"
-                    productId: "550e8400-e29b-41d4-a716-446655440111"
-                    originEventId: "550e8400-e29b-41d4-a716-446655440222"
-                    feedback: true
-                    created: "2024-01-01T10:00:00Z"
-                    updated: "2024-01-01T12:00:00Z"
+                  - item:
+                      productId: "550e8400-e29b-41d4-a716-446655440111"
+                      productSlugId: "golden-accessory"
+                      eventId: "550e8400-e29b-41d4-a716-446655440222"
+                      shopId: "550e8400-e29b-41d4-a716-446655440333"
+                      sellerId: "550e8400-e29b-41d4-a716-446655440333"
+                      shopsProductId: "accessory-1"
+                      shopName: "Golden Shop"
+                      sellerName: "Golden Shop"
+                      shopSlugId: "golden-shop"
+                      sellerSlugId: "golden-shop"
+                      pricing: {}
+                      state: AVAILABLE
+                      lifecycle: ACTIVE
+                      url: "https://example.test/accessory-1"
+                      viewUrl: "https://example.test/accessory-1"
+                      images: []
+                      auction: {}
+                      created: "2024-01-01T10:00:00Z"
+                      updated: "2024-01-01T12:00:00Z"
+                    userState:
+                      watchlist: { watching: false, notifications: false }
+                      prohibitedContent: { consent: false }
+                      notification: { seen: false }
+                      searchFilter: { matched: true, hidden: false }
                 size: 1
-                total: 1
-                searchAfter: null
+                total: null
+                searchAfter:
+                  [
+                    "2024-01-01T10:00:00Z",
+                    "550e8400-e29b-41d4-a716-446655440111",
+                  ]
         "400":
           description: Bad request - invalid parameters
           content:
@@ -2926,13 +2952,13 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
 
-  /api/v1/me/search-filters/{userSearchFilterId}/matches/{shopId}/{shopsProductId}:
+  /api/v1/me/search-filters/{userSearchFilterId}/matches/{productId}:
     patch:
       summary: Update feedback for a search-filter match
       description: |
         Updates the authenticated user's feedback for a specific product match created by one of
         their saved search filters.
-        The match is addressed by the search filter ID, shop ID, and shop-specific product ID.
+        The match is addressed by the search filter ID and canonical product ID.
         Requires valid Cognito JWT authentication.
 
         The request body itself is required and must be a JSON object, but the `feedback` field is optional:
@@ -2951,21 +2977,14 @@ paths:
             type: string
             format: uuid
           example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-        - name: shopId
+        - name: productId
           in: path
           required: true
-          description: Unique identifier of the shop that owns the matched product
+          description: Canonical identifier of the matched product
           schema:
             type: string
             format: uuid
-          example: "550e8400-e29b-41d4-a716-446655440000"
-        - name: shopsProductId
-          in: path
-          required: true
-          description: Shop's own identifier of the matched product
-          schema:
-            type: string
-          example: "6ba7b810"
+          example: "550e8400-e29b-41d4-a716-446655440111"
       security:
         - BearerAuth: []
       requestBody:
@@ -3046,23 +3065,14 @@ paths:
                     source:
                       field: "userSearchFilterId"
                       sourceType: "path"
-                missing_shop_id:
-                  summary: Missing shop ID
+                missing_product_id:
+                  summary: Missing product ID
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "BAD_PATH_PARAMETER_VALUE"
                     source:
-                      field: "shopId"
-                      sourceType: "path"
-                missing_shops_product_id:
-                  summary: Missing shop's product ID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "shopsProductId"
+                      field: "productId"
                       sourceType: "path"
                 invalid_search_filter_id:
                   summary: Invalid search filter ID format
@@ -3074,14 +3084,14 @@ paths:
                       field: "userSearchFilterId"
                       sourceType: "path"
                     detail: "Invalid UUID format"
-                invalid_shop_id:
-                  summary: Invalid shop ID format
+                invalid_product_id:
+                  summary: Invalid product ID format
                   value:
                     status: 400
                     title: "Bad Request"
                     error: "INVALID_UUID"
                     source:
-                      field: "shopId"
+                      field: "productId"
                       sourceType: "path"
                     detail: "Invalid UUID format"
                 missing_body:
@@ -13334,7 +13344,7 @@ components:
 
     SearchFilterMatchProductCollectionData:
       type: object
-      description: Cursor-paginated persisted match records for a search filter.
+      description: Cursor-paginated full personalized Product details for persisted search-filter matches.
       required:
         - items
         - size
@@ -13342,23 +13352,27 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/SearchFilterProductMatchData"
-          description: Match records in the current page.
+            $ref: "#/components/schemas/PersonalizedProductDetailsData"
+          description: Matched products in persisted-match order.
         size:
           type: integer
           minimum: 0
-          description: Number of match records in the current page.
+          description: Number of matched products in the current page.
           example: 21
         searchAfter:
-          type: string
-          format: date-time
-          description: RFC3339 cursor for the next page, when present.
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: string
+          description: "[RFC3339 match creation timestamp, product UUID] cursor for the next page, when present."
           nullable: true
-          example: "2024-01-15T08:00:00Z"
+          example:
+            ["2024-01-15T08:00:00Z", "550e8400-e29b-41d4-a716-446655440111"]
         total:
           type: integer
           minimum: 0
-          description: Total number of persisted match records, when available.
+          description: Total number of persisted matches, when available.
           nullable: true
           example: 127
 

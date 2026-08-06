@@ -96,6 +96,10 @@ pub(crate) const SEARCH_FILTER_INVALID_PATCH: ApiErrorCode =
 pub(crate) const SEARCH_FILTER_MATCH_NOT_FOUND: ApiErrorCode =
     ApiErrorCode("SEARCH_FILTER_MATCH_NOT_FOUND");
 pub(crate) const SEARCH_FILTER_NOT_FOUND: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_NOT_FOUND");
+pub(crate) const SEARCH_FILTER_QUOTA_EXCEEDED: ApiErrorCode =
+    ApiErrorCode("SEARCH_FILTER_QUOTA_EXCEEDED");
+pub(crate) const SEARCH_FILTER_RESTRICTED_FEATURE: ApiErrorCode =
+    ApiErrorCode("SEARCH_FILTER_RESTRICTED_FEATURE");
 pub(crate) const SEARCH_FILTER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("SEARCH_FILTER_TEMPORARILY_UNAVAILABLE");
 pub(crate) const USER_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("USER_INTERNAL_ERROR");
@@ -184,6 +188,14 @@ impl ApiError {
 
     pub(crate) fn conflict(error: ApiErrorCode) -> Self {
         Self::new(StatusCode::CONFLICT, "Conflict", error)
+    }
+
+    pub(crate) fn unprocessable_content(error: ApiErrorCode) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Unprocessable Content",
+            error,
+        )
     }
 
     pub(crate) fn internal_server_error(error: ApiErrorCode) -> Self {
@@ -334,11 +346,30 @@ impl From<CreateSearchFilterError> for ApiError {
                 ApiError::conflict(SEARCH_FILTER_ALREADY_EXISTS)
                     .with_detail("Search filter already exists.")
             }
+            CreateSearchFilterError::UserNotFound => ApiError::not_found(USER_NOT_FOUND)
+                .with_detail("User was not found."),
+            CreateSearchFilterError::SearchFilterQuotaExceeded {
+                active_count,
+                quota,
+            } => ApiError::unprocessable_content(SEARCH_FILTER_QUOTA_EXCEEDED).with_detail(
+                format!(
+                    "Exceeded the maximum amount of search filters. There are already {active_count}/{quota} active search filters occupied."
+                ),
+            ),
+            CreateSearchFilterError::SearchFilterFeatureRestricted { feature } => {
+                ApiError::unprocessable_content(SEARCH_FILTER_RESTRICTED_FEATURE).with_detail(
+                    format!(
+                        "Search filter contains forbidden search field '{feature}' which requires a higher user tier."
+                    ),
+                )
+            }
             CreateSearchFilterError::PersistedSearchFilterStateInvalid { .. } => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
                     .with_detail("Search filter state is invalid.")
             }
             CreateSearchFilterError::EmbeddingGenerationFailed { .. }
+            | CreateSearchFilterError::UserAccountReadFailed { .. }
+            | CreateSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | CreateSearchFilterError::SearchFilterInsertFailed { .. }
             | CreateSearchFilterError::BeginTransactionFailed
             | CreateSearchFilterError::CommitTransactionFailed => {
@@ -364,6 +395,23 @@ impl From<UpdateOwnedSearchFilterError> for ApiError {
                 ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
                     .with_detail("Search filter was not found.")
             }
+            UpdateOwnedSearchFilterError::UserNotFound => ApiError::not_found(USER_NOT_FOUND)
+                .with_detail("User was not found."),
+            UpdateOwnedSearchFilterError::SearchFilterQuotaExceeded {
+                active_count,
+                quota,
+            } => ApiError::unprocessable_content(SEARCH_FILTER_QUOTA_EXCEEDED).with_detail(
+                format!(
+                    "Exceeded the maximum amount of search filters. There are already {active_count}/{quota} active search filters occupied."
+                ),
+            ),
+            UpdateOwnedSearchFilterError::SearchFilterFeatureRestricted { feature } => {
+                ApiError::unprocessable_content(SEARCH_FILTER_RESTRICTED_FEATURE).with_detail(
+                    format!(
+                        "Search filter contains forbidden search field '{feature}' which requires a higher user tier."
+                    ),
+                )
+            }
             UpdateOwnedSearchFilterError::InvalidSearchFilterPatch => {
                 ApiError::bad_request(SEARCH_FILTER_INVALID_PATCH)
                     .with_detail("Search filter patch is invalid.")
@@ -376,6 +424,8 @@ impl From<UpdateOwnedSearchFilterError> for ApiError {
                     .with_detail("Search filter state is invalid.")
             }
             UpdateOwnedSearchFilterError::EmbeddingGenerationFailed { .. }
+            | UpdateOwnedSearchFilterError::UserAccountReadFailed { .. }
+            | UpdateOwnedSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterLookupFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterUpdateFailed { .. }
             | UpdateOwnedSearchFilterError::BeginTransactionFailed
@@ -432,7 +482,15 @@ impl From<ListSearchFilterMatchesError> for ApiError {
                 ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
                     .with_detail("Search filter was not found.")
             }
-            ListSearchFilterMatchesError::SearchFilterMatchReadFailed { .. } => {
+            ListSearchFilterMatchesError::ProductDetailsInvalid { .. }
+            | ListSearchFilterMatchesError::MatchedProductMissing { .. }
+            | ListSearchFilterMatchesError::HiddenProductRedactionFailed { .. } => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filter match product data is invalid.")
+            }
+            ListSearchFilterMatchesError::SearchFilterMatchReadFailed { .. }
+            | ListSearchFilterMatchesError::ProductDetailsReadFailed { .. }
+            | ListSearchFilterMatchesError::NotificationReadFailed { .. } => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter matches are temporarily unavailable.")
             }
@@ -464,8 +522,7 @@ impl From<UpdateSearchFilterMatchFeedbackError> for ApiError {
                 ..
             } => ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
                 .with_detail("Search filter state is invalid."),
-            UpdateSearchFilterMatchFeedbackError::ProductIdentityLookupFailed { .. }
-            | UpdateSearchFilterMatchFeedbackError::SearchFilterLookupFailed { .. }
+            UpdateSearchFilterMatchFeedbackError::SearchFilterLookupFailed { .. }
             | UpdateSearchFilterMatchFeedbackError::SearchFilterMatchLookupFailed { .. }
             | UpdateSearchFilterMatchFeedbackError::SearchFilterMatchUpdateFailed { .. }
             | UpdateSearchFilterMatchFeedbackError::BeginTransactionFailed

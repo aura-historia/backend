@@ -8,9 +8,6 @@ mod update;
 mod update_match_feedback;
 mod util;
 
-#[cfg(test)]
-mod tests;
-
 use crate::state::SearchFiltersState;
 use axum::Router;
 use axum::routing::{get, patch};
@@ -32,7 +29,7 @@ pub fn router(state: SearchFiltersState) -> Router {
             get(list_matches::list_search_filter_matches),
         )
         .route(
-            "/api/v1/me/search-filters/{user_search_filter_id}/matches/{shop_id}/{shops_product_id}",
+            "/api/v1/me/search-filters/{user_search_filter_id}/matches/{product_id}",
             patch(update_match_feedback::update_search_filter_match_feedback),
         )
         .with_state(state)

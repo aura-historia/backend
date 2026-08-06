@@ -7,7 +7,6 @@ use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 pub use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
-use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilter {
@@ -133,21 +132,14 @@ pub struct SearchFilterProductMatch {
     pub origin_event_id: EventId,
     pub enhanced_match_reason: Option<EnhancedMatchReason>,
     pub feedback: Option<bool>,
-    pub created: OffsetDateTime,
-    pub updated: OffsetDateTime,
 }
 
 impl SearchFilterProductMatch {
-    pub fn change_feedback(
-        &mut self,
-        feedback: Option<bool>,
-        updated: OffsetDateTime,
-    ) -> ChangeOutcome {
+    pub fn change_feedback(&mut self, feedback: Option<bool>) -> ChangeOutcome {
         if self.feedback == feedback {
             return ChangeOutcome::Unchanged;
         }
         self.feedback = feedback;
-        self.updated = updated;
         ChangeOutcome::Changed
     }
 }
@@ -219,7 +211,6 @@ mod tests {
 
     #[test]
     fn should_not_change_match_feedback_when_value_is_unchanged() {
-        let now = OffsetDateTime::now_utc();
         let mut product_match = SearchFilterProductMatch {
             user_id: UserId::new(),
             user_search_filter_id: UserSearchFilterId::new(),
@@ -228,14 +219,11 @@ mod tests {
             origin_event_id: EventId::new(),
             enhanced_match_reason: None,
             feedback: Some(true),
-            created: now,
-            updated: now,
         };
 
         assert_eq!(
             ChangeOutcome::Unchanged,
-            product_match.change_feedback(Some(true), now + time::Duration::seconds(1))
+            product_match.change_feedback(Some(true))
         );
-        assert_eq!(now, product_match.updated);
     }
 }

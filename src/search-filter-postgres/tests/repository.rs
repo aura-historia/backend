@@ -19,7 +19,6 @@ use search_filter_service::ports::{
     SearchFilterRepository, SearchFilterRepositoryFactory,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
-use time::OffsetDateTime;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -101,7 +100,6 @@ async fn should_insert_find_and_update_search_filter_match() {
     let filter = sample_filter(user_id, "match filter");
     let product_id = seed_product(&pool, "search-filter-match-product").await;
     let event_id = seed_product_event(&pool, product_id).await;
-    let now = OffsetDateTime::now_utc();
     let mut product_match = SearchFilterProductMatch {
         user_id,
         user_search_filter_id: filter.id(),
@@ -110,8 +108,6 @@ async fn should_insert_find_and_update_search_filter_match() {
         origin_event_id: event_id,
         enhanced_match_reason: None,
         feedback: None,
-        created: now,
-        updated: now,
     };
 
     let mut tx = begin(&unit).await;
@@ -120,24 +116,26 @@ async fn should_insert_find_and_update_search_filter_match() {
         .insert(&filter)
         .await
         .unwrap_or_else(|error| panic!("insert filter failed: {error:?}"));
-    matches
+    let inserted = matches
         .in_transaction(&mut tx)
         .insert(&product_match)
         .await
         .unwrap_or_else(|error| panic!("insert match failed: {error:?}"));
+    assert!(inserted.updated >= inserted.created);
     let loaded = matches
         .in_transaction(&mut tx)
         .find_by_filter_and_product(filter.id(), product_id)
         .await
         .unwrap_or_else(|error| panic!("find match failed: {error:?}"));
-    assert!(loaded.is_some());
-    product_match.feedback = Some(true);
-    product_match.updated = OffsetDateTime::now_utc();
-    matches
+    assert!(matches!(loaded, Some(ref value) if value.product_match == product_match));
+    product_match.change_feedback(Some(true));
+    let updated = matches
         .in_transaction(&mut tx)
         .update(&product_match)
         .await
         .unwrap_or_else(|error| panic!("update match failed: {error:?}"));
+    assert_eq!(inserted.created, updated.created);
+    assert!(updated.updated >= inserted.updated);
     commit(tx).await;
 }
 

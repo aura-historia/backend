@@ -18,12 +18,13 @@
 - `shops/` owns shop REST controllers.
 - `users/` owns account, admin user, and access-token REST controllers.
 - `watchlist/` owns watchlist REST controllers. Product watchlist paths now use `{productId}` only. `GET /api/v1/me/watchlist` uses Postgres-backed common `Cursor`/`CursoredResult` pagination and common JSON cursor collection data; its tie-safe `searchAfter` is `[created RFC3339 timestamp, product UUID]`. It returns `PersonalizedData<ProductDetailsData, ProductUserStateData>` entries with `no-store`.
-- `search_filters/` owns Postgres-backed saved-search filter CRUD and match-feedback REST controllers. It excludes the legacy live-product-preview route. Filter/match representations use `no-store`; create supplies `Location` and `Content-Language`.
+- `search_filters/` owns Postgres-backed saved-search filter CRUD and match-feedback REST controllers.
 - `products/` owns canonical product detail, search, immutable history, and similar-product REST controllers. Detail, history, and similar routes use product ID or shop/product slugs. Canonical detail, search, KNN, and watchlist Product values always serialize as `PersonalizedData` with required `item` and optional `userState`. Detail and watchlist use joined Postgres reads; search and KNN use denormalized OpenSearch fields, then service-owned batched Postgres plus DynamoDB hydration for valid user/delegated-user tokens. Image values always expose `prohibitedContent`; unsafe image URLs are omitted without effective consent. Product history uses the no-consent redaction default. Product prices remain stored source amounts/currencies with `fxRateId`; currency conversion is deferred to #1466.
 - `partner_applications/` owns own/admin partner-shop application REST controllers.
 - `oauth/` owns OAuth REST controllers for client registration, authorization code, token, revoke, and introspection flows.
 - Runtime shop and partner-shop create/update geocoding is not wired yet; structured-address writes return temporary failure until a geocoder adapter is added.
 - Product search runtime needs `OPENSEARCH_ENDPOINT_URL`; outside `STAGE=ephemeral`, it also needs `OPENSEARCH_USERNAME` and `OPENSEARCH_PASSWORD`.
+- Search-filter create/update embeddings use Vertex AI Gemini through typed API config. `VERTEX_AI_PROJECT_ID` and `VERTEX_AI_LOCATION` may override the legacy project and `eu` defaults; Google ADC supplies credentials (normally `GOOGLE_APPLICATION_CREDENTIALS`).
 
 ## Ownership
 

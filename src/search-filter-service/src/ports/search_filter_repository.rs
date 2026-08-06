@@ -12,6 +12,13 @@ pub struct PersistedSearchFilter {
     pub version: i64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct PersistedSearchFilterMatch {
+    pub product_match: SearchFilterProductMatch,
+    pub created: OffsetDateTime,
+    pub updated: OffsetDateTime,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterRepositoryError {
     #[error("search filter already exists")]
@@ -70,15 +77,15 @@ pub trait SearchFilterMatchRepository: Send {
         &mut self,
         filter_id: UserSearchFilterId,
         product_id: ProductId,
-    ) -> Result<Option<SearchFilterProductMatch>, SearchFilterMatchRepositoryError>;
+    ) -> Result<Option<PersistedSearchFilterMatch>, SearchFilterMatchRepositoryError>;
     async fn insert(
         &mut self,
         product_match: &SearchFilterProductMatch,
-    ) -> Result<SearchFilterProductMatch, SearchFilterMatchRepositoryError>;
+    ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError>;
     async fn update(
         &mut self,
         product_match: &SearchFilterProductMatch,
-    ) -> Result<SearchFilterProductMatch, SearchFilterMatchRepositoryError>;
+    ) -> Result<PersistedSearchFilterMatch, SearchFilterMatchRepositoryError>;
 }
 
 pub trait SearchFilterMatchRepositoryFactory<Tx>: Send + Sync {

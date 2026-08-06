@@ -539,19 +539,6 @@ pub(super) struct PaginatedData<T> {
     pub(super) total: Option<u64>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct CursoredData<T> {
-    pub(super) items: Vec<T>,
-    pub(super) size: u64,
-    #[serde(
-        with = "time::serde::rfc3339::option",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub(super) search_after: Option<OffsetDateTime>,
-    pub(super) total: Option<u64>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

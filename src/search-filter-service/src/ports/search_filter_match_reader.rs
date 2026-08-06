@@ -1,3 +1,4 @@
+use crate::ports::PersistedSearchFilterMatch;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
 use common::pagination::cursor::{Cursor, CursoredResult};
@@ -21,11 +22,40 @@ pub struct SearchFilterMatchView {
     pub updated: OffsetDateTime,
 }
 
+impl From<PersistedSearchFilterMatch> for SearchFilterMatchView {
+    fn from(persisted: PersistedSearchFilterMatch) -> Self {
+        let product_match = persisted.product_match;
+        Self {
+            user_id: product_match.user_id,
+            search_filter_id: product_match.user_search_filter_id,
+            search_filter_name: product_match.user_search_filter_name,
+            product_id: product_match.product_id,
+            origin_event_id: product_match.origin_event_id,
+            enhanced_match_reason: product_match.enhanced_match_reason,
+            feedback: product_match.feedback,
+            created: persisted.created,
+            updated: persisted.updated,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchFilterMatchCursor {
+    pub created: OffsetDateTime,
+    pub product_id: ProductId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchFilterMatchListItem {
+    pub product_id: ProductId,
+    pub created: OffsetDateTime,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterMatchListQuery {
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
-    pub cursor: Option<Cursor<OffsetDateTime>>,
+    pub cursor: Option<Cursor<SearchFilterMatchCursor>>,
     pub order: SortOrder,
 }
 
@@ -43,7 +73,7 @@ pub trait SearchFilterMatchReader: Send + Sync {
         &self,
         query: &SearchFilterMatchListQuery,
     ) -> Result<
-        Option<CursoredResult<SearchFilterMatchView, OffsetDateTime>>,
+        Option<CursoredResult<SearchFilterMatchListItem, SearchFilterMatchCursor>>,
         SearchFilterMatchReadError,
     >;
 }

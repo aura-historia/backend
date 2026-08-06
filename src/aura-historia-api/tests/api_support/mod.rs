@@ -26,8 +26,8 @@ use oauth_service::use_cases::{
 };
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
-    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
-    SqlxProductEventReaderFactory, SqlxProductUserStateReader,
+    SqlxProductDetailsBatchReader, SqlxProductDetailsReaderFactory,
+    SqlxProductEmbeddingReaderFactory, SqlxProductEventReaderFactory, SqlxProductUserStateReader,
     SqlxProductWatchlistDetailsReaderFactory,
 };
 use product_service::use_cases::{
@@ -437,6 +437,8 @@ async fn test_state() -> AppState {
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
             NoopSearchFilterEmbeddingGenerator,
+            search_filter_reader.clone(),
+            user_postgres::SqlxUserAccountReaderFactory::new(),
         )),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),
@@ -445,6 +447,8 @@ async fn test_state() -> AppState {
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
             NoopSearchFilterEmbeddingGenerator,
+            search_filter_reader.clone(),
+            user_postgres::SqlxUserAccountReaderFactory::new(),
         )),
         Arc::new(DeleteOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
@@ -452,12 +456,13 @@ async fn test_state() -> AppState {
         )),
         Arc::new(ListSearchFilterMatchesHandler::new(
             search_filter_reader.clone(),
+            SqlxProductDetailsBatchReader::new(get_postgres_client().await),
+            DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
             SqlxSearchFilterMatchRepositoryFactory,
-            search_filter_reader,
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
