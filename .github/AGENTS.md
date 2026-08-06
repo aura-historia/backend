@@ -7,9 +7,10 @@
 ## Core Design
 
 - `workflows/` drive integrate, deploy, and repo automation.
-- Integrate workflow checks Rust dependency graph rules, runs Rust crate tests with coverage, and uploads merged LCOV to SonarCloud.
+- Integrate workflow checks Rust dependency graph rules, runs Rust crate tests with required coverage, and uploads merged LCOV to SonarCloud. Missing coverage input or report fails CI.
 - Deploy workflow deploys split CDK stacks from one stage prefix and merges stack outputs for smoke tests.
 - Workflow change can change CI gate, deploy path, or DOX contract for many crates.
+- Command failure MUST fail its job. `always()` only for cleanup; explicit fallback must fail if recovery fails.
 
 ## Ownership
 
