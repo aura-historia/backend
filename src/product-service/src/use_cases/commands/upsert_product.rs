@@ -391,6 +391,7 @@ impl From<ProductRepositoryError> for UpsertProductError {
             }
             ProductRepositoryError::ShopProductAlreadyExists
             | ProductRepositoryError::ProductLookupByIdFailed
+            | ProductRepositoryError::ProductLookupByKeyFailed
             | ProductRepositoryError::ProductInsertFailed
             | ProductRepositoryError::ProductUpdateFailed => {
                 Self::ProductPersistenceTemporarilyUnavailable {

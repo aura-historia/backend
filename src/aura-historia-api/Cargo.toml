@@ -51,6 +51,7 @@ watchlist-service = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }
+mockall = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }

@@ -159,7 +159,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
         .bind(key.shops_product_id.as_ref())
         .fetch_optional(&mut *self.connection)
         .await
-        .map_err(ProductLookupByIdSqlxError)?;
+        .map_err(ProductLookupByKeySqlxError)?;
 
         row.map(TryInto::try_into).transpose()
     }
@@ -669,6 +669,7 @@ fn parse_prohibited_content(value: &str) -> Result<ProhibitedContent, ProductRep
 }
 
 struct ProductLookupByIdSqlxError(sqlx::Error);
+struct ProductLookupByKeySqlxError(sqlx::Error);
 struct ProductInsertSqlxError(sqlx::Error);
 struct ProductUpdateSqlxError(sqlx::Error);
 
@@ -676,6 +677,13 @@ impl From<ProductLookupByIdSqlxError> for ProductRepositoryError {
     fn from(value: ProductLookupByIdSqlxError) -> Self {
         let ProductLookupByIdSqlxError(_error) = value;
         Self::ProductLookupByIdFailed
+    }
+}
+
+impl From<ProductLookupByKeySqlxError> for ProductRepositoryError {
+    fn from(value: ProductLookupByKeySqlxError) -> Self {
+        let ProductLookupByKeySqlxError(_error) = value;
+        Self::ProductLookupByKeyFailed
     }
 }
 

@@ -3,7 +3,7 @@ use common::localized::Localized;
 use common::patch_field::PatchField;
 use common::price::data::PriceData;
 use common::price::domain::Price;
-use common::product_id::{ProductId, ProductKey};
+use common::product_id::ProductKey;
 use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
@@ -14,7 +14,7 @@ use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
 use product_service::use_cases::{
-    CreateProductCommand, DeleteProductCommand, UpdateProductCommand, UpsertProductCommand,
+    CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
 };
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -148,10 +148,12 @@ impl CreateProductData {
 }
 
 impl UpdateProductData {
-    pub(super) fn into_command(self, shop_id: ShopId) -> UpdateProductCommand {
-        UpdateProductCommand {
-            product_id: ProductId::new(),
-            product_key: Some(ProductKey::new(shop_id, self.shops_product_id)),
+    pub(super) fn into_key_and_command(
+        self,
+        shop_id: ShopId,
+    ) -> (ProductKey, UpdateProductCommand) {
+        let product_key = ProductKey::new(shop_id, self.shops_product_id);
+        let command = UpdateProductCommand {
             price: patch(self.price.map(price)),
             price_estimate_min: patch(self.price_estimate_min.map(price)),
             price_estimate_max: patch(self.price_estimate_max.map(price)),
@@ -161,7 +163,8 @@ impl UpdateProductData {
             auction_start: patch(self.auction_start.map(Some)),
             auction_end: patch(self.auction_end.map(Some)),
             ..Default::default()
-        }
+        };
+        (product_key, command)
     }
 }
 
@@ -187,11 +190,8 @@ impl UpsertProductData {
 }
 
 impl DeleteProductData {
-    pub(super) fn into_command(self, shop_id: ShopId) -> DeleteProductCommand {
-        DeleteProductCommand {
-            product_id: ProductId::new(),
-            product_key: Some(ProductKey::new(shop_id, self.shops_product_id)),
-        }
+    pub(super) fn into_product_key(self, shop_id: ShopId) -> ProductKey {
+        ProductKey::new(shop_id, self.shops_product_id)
     }
 }
 

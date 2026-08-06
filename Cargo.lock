@@ -230,6 +230,7 @@ dependencies = [
  "indexmap 2.14.0",
  "isocountry",
  "jsonwebtokens",
+ "mockall",
  "notification-dynamodb",
  "oauth-core",
  "oauth-dynamodb",

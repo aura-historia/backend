@@ -287,6 +287,7 @@ impl From<CreateProductError> for ApiError {
             }
             CreateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
             | CreateProductError::ProductLookupByIdFailed
+            | CreateProductError::ProductLookupByKeyFailed
             | CreateProductError::ProductInsertFailed
             | CreateProductError::ProductUpdateFailed
             | CreateProductError::ProductEventAppendFailed
@@ -330,6 +331,7 @@ impl From<UpdateProductError> for ApiError {
             }
             UpdateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
             | UpdateProductError::ProductLookupByIdFailed
+            | UpdateProductError::ProductLookupByKeyFailed
             | UpdateProductError::ProductInsertFailed
             | UpdateProductError::ProductUpdateFailed
             | UpdateProductError::ProductEventAppendFailed
@@ -370,6 +372,7 @@ impl From<DeleteProductError> for ApiError {
             }
             DeleteProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
             | DeleteProductError::ProductLookupByIdFailed
+            | DeleteProductError::ProductLookupByKeyFailed
             | DeleteProductError::ProductInsertFailed
             | DeleteProductError::ProductUpdateFailed
             | DeleteProductError::ProductEventAppendFailed

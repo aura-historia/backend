@@ -34,7 +34,7 @@ pub async fn delete_products(
         let shops_product_id = product.shops_product_id.clone();
         match state
             .delete
-            .execute(&context, product.into_command(shop_id))
+            .execute_by_key(&context, product.into_product_key(shop_id))
             .await
         {
             Ok(_) => successes += 1,
@@ -68,4 +68,184 @@ fn parse_body(body: &str) -> Result<Vec<DeleteProductData>, ApiError> {
     }
     serde_json::from_str(body)
         .map_err(|error| ApiError::bad_request(BAD_BODY_VALUE).with_detail(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::{
+        AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
+    };
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, header};
+    use common::event_id::EventId;
+    use common::operation_context::{CredentialCapability, OperationContext};
+    use common::product_id::{ProductId, ProductKey};
+
+    use common::user_id::UserId;
+    use product_service::use_cases::{
+        CreateProductCommand, CreateProductError, CreateProductResult, CreateProductUseCase,
+        DeleteProductError, DeleteProductResult, DeleteProductUseCase, UpdateProductCommand,
+        UpdateProductError, UpdateProductResult, UpdateProductUseCase, UpsertProductCommand,
+        UpsertProductError, UpsertProductResult, UpsertProductUseCase,
+    };
+    use serde_json::{Value, json};
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    mockall::mock! { CreateUseCase {} #[async_trait::async_trait] impl CreateProductUseCase for CreateUseCase { async fn execute(&self, context: &OperationContext, command: CreateProductCommand) -> Result<CreateProductResult, CreateProductError>; } }
+    mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductId, command: UpdateProductCommand) -> Result<UpdateProductResult, UpdateProductError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductKey, command: UpdateProductCommand) -> Result<UpdateProductResult, UpdateProductError>; } }
+    mockall::mock! { UpsertUseCase {} #[async_trait::async_trait] impl UpsertProductUseCase for UpsertUseCase { async fn execute(&self, context: &OperationContext, command: UpsertProductCommand) -> Result<UpsertProductResult, UpsertProductError>; } }
+    mockall::mock! { DeleteUseCase {} #[async_trait::async_trait] impl DeleteProductUseCase for DeleteUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductId) -> Result<DeleteProductResult, DeleteProductError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductKey) -> Result<DeleteProductResult, DeleteProductError>; } }
+    mockall::mock! { Authenticator {} #[async_trait::async_trait] impl TokenAuthenticator for Authenticator { async fn authenticate(&self, bearer_token: &str, metadata: &RequestMetadata) -> Result<TransportPrincipal, AuthError>; } }
+
+    #[tokio::test]
+    async fn should_delete_each_collection_item_by_product_key()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let shop_id = ShopId::new();
+        let expected_shop_id = shop_id;
+        let mut delete = MockDeleteUseCase::new();
+        delete
+            .expect_execute_by_key()
+            .times(2)
+            .withf(move |_, key| {
+                key.shop_id == expected_shop_id
+                    && (key.shops_product_id.as_ref() == "first"
+                        || key.shops_product_id.as_ref() == "second")
+            })
+            .returning(|_, _| Ok(deleted()));
+        let app = app(delete);
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/products"),
+            r#"[{"shopsProductId":"first"},{"shopsProductId":"second"}]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(json!([]), body_json(response).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_failed_key_when_delete_batch_partially_succeeds()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let shop_id = ShopId::new();
+        let mut delete = MockDeleteUseCase::new();
+        delete.expect_execute_by_key().times(2).returning(|_, key| {
+            if key.shops_product_id.as_ref() == "missing" {
+                Err(DeleteProductError::ProductNotFound)
+            } else {
+                Ok(deleted())
+            }
+        });
+        let app = app(delete);
+
+        let response = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/products"),
+            r#"[{"shopsProductId":"present"},{"shopsProductId":"missing"}]"#,
+            true,
+        )
+        .await?;
+
+        assert_eq!(StatusCode::OK, response.status());
+        assert_eq!(
+            json!([{ "shopId": shop_id.to_string(), "shopsProductId": "missing" }]),
+            body_json(response).await?
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_all_missing_deletes_to_not_found_and_leave_legacy_item_route_absent()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut delete = MockDeleteUseCase::new();
+        delete
+            .expect_execute_by_key()
+            .times(1)
+            .returning(|_, _| Err(DeleteProductError::ProductNotFound));
+        let app = app(delete);
+        let shop_id = ShopId::new();
+
+        let missing = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/products"),
+            r#"[{"shopsProductId":"missing"}]"#,
+            true,
+        )
+        .await?;
+        assert_eq!(StatusCode::NOT_FOUND, missing.status());
+        assert_eq!("PRODUCT_NOT_FOUND", body_json(missing).await?["error"]);
+
+        let old_route = request(
+            &app,
+            &format!("/api/v1/shops/{shop_id}/products/missing"),
+            "",
+            true,
+        )
+        .await?;
+        assert_eq!(StatusCode::NOT_FOUND, old_route.status());
+        Ok(())
+    }
+
+    fn app(delete: MockDeleteUseCase) -> Router {
+        let state = PartnerProductsState::new(
+            Arc::new(MockCreateUseCase::new()),
+            Arc::new(MockUpdateUseCase::new()),
+            Arc::new(MockUpsertUseCase::new()),
+            Arc::new(delete),
+            Arc::new(authenticator()),
+        );
+        Router::new()
+            .route(
+                "/api/v1/shops/{shop_id}/products",
+                axum::routing::delete(delete_products),
+            )
+            .with_state(state)
+    }
+
+    fn authenticator() -> MockAuthenticator {
+        let mut authenticator = MockAuthenticator::new();
+        authenticator.expect_authenticate().returning(|_, _| {
+            Ok(TransportPrincipal::User {
+                user_id: UserId::new(),
+                auth_method: AuthMethod::AuraAccessToken,
+                capabilities: BTreeSet::from([CredentialCapability::ProductsWrite]),
+            })
+        });
+        authenticator
+    }
+
+    fn deleted() -> DeleteProductResult {
+        DeleteProductResult {
+            product_id: ProductId::new(),
+            event_id: EventId::new(),
+        }
+    }
+
+    async fn request(
+        app: &Router,
+        uri: &str,
+        body: &str,
+        authenticated: bool,
+    ) -> Result<Response, Box<dyn std::error::Error>> {
+        let mut builder = Request::builder().method("DELETE").uri(uri);
+        if authenticated {
+            builder = builder.header(header::AUTHORIZATION, "Bearer valid");
+        }
+        Ok(app
+            .clone()
+            .oneshot(builder.body(Body::from(body.to_owned()))?)
+            .await?)
+    }
+
+    async fn body_json(response: Response) -> Result<Value, Box<dyn std::error::Error>> {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&bytes)?)
+    }
 }

@@ -78,6 +78,8 @@ pub enum CreateProductError {
     ProductCurrentEventIdConflict,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
+    #[error("product lookup by shop product identity failed")]
+    ProductLookupByKeyFailed,
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -317,6 +319,7 @@ impl From<ProductRepositoryError> for CreateProductError {
             ProductRepositoryError::ShopProductAlreadyExists => Self::ShopProductAlreadyExists,
             ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
             ProductRepositoryError::ProductLookupByIdFailed => Self::ProductLookupByIdFailed,
+            ProductRepositoryError::ProductLookupByKeyFailed => Self::ProductLookupByKeyFailed,
             ProductRepositoryError::ProductInsertFailed => Self::ProductInsertFailed,
             ProductRepositoryError::ProductUpdateFailed => Self::ProductUpdateFailed,
             ProductRepositoryError::InvalidProductSlugPersisted => {
@@ -523,6 +526,14 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ProductId,
+        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
+        {
+            Ok(None)
+        }
+
+        async fn find_by_key(
+            &mut self,
+            _key: &common::product_id::ProductKey,
         ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
         {
             Ok(None)

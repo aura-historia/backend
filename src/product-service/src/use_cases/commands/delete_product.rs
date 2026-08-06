@@ -13,12 +13,6 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DeleteProductCommand {
-    pub product_id: ProductId,
-    pub product_key: Option<ProductKey>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct DeleteProductResult {
     pub product_id: ProductId,
     pub event_id: EventId,
@@ -52,6 +46,8 @@ pub enum DeleteProductError {
     ProductSlugAlreadyExists,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
+    #[error("product lookup by shop product identity failed")]
+    ProductLookupByKeyFailed,
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -103,7 +99,13 @@ pub trait DeleteProductUseCase: Send + Sync {
     async fn execute(
         &self,
         context: &OperationContext,
-        command: DeleteProductCommand,
+        product_id: ProductId,
+    ) -> Result<DeleteProductResult, DeleteProductError>;
+
+    async fn execute_by_key(
+        &self,
+        context: &OperationContext,
+        product_key: ProductKey,
     ) -> Result<DeleteProductResult, DeleteProductError>;
 }
 
@@ -125,29 +127,22 @@ impl<U, R, E, A> DeleteProductHandler<U, R, E, A> {
     }
 }
 
-#[async_trait::async_trait]
-impl<U, R, E, A> DeleteProductUseCase for DeleteProductHandler<U, R, E, A>
+enum DeleteProductTarget {
+    Id(ProductId),
+    Key(ProductKey),
+}
+
+impl<U, R, E, A> DeleteProductHandler<U, R, E, A>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
 {
-    #[tracing::instrument(
-        name = "delete_product",
-        skip_all,
-        fields(
-            product_id = %command.product_id,
-            principal_type = context.principal.kind(),
-            actor_id = tracing::field::Empty,
-            request_id = %context.request_id,
-            correlation_id = %context.correlation_id,
-        )
-    )]
-    async fn execute(
+    async fn execute_for_target(
         &self,
         context: &OperationContext,
-        command: DeleteProductCommand,
+        target: DeleteProductTarget,
     ) -> Result<DeleteProductResult, DeleteProductError> {
         context
             .require()
@@ -163,26 +158,26 @@ where
             .begin()
             .await
             .map_err(|_| DeleteProductError::BeginTransactionFailed)?;
-        let loaded = match command.product_key.as_ref() {
-            Some(key) => {
+        let loaded = match target {
+            DeleteProductTarget::Id(product_id) => self
+                .products
+                .in_transaction(&mut tx)
+                .find_by_id(product_id)
+                .await?
+                .ok_or(DeleteProductError::ProductNotFound)?,
+            DeleteProductTarget::Key(product_key) => {
                 if let Some(actor_id) = partner_actor(&context.principal) {
                     self.authorizer
                         .in_transaction(&mut tx)
-                        .authorize(actor_id, key.shop_id)
+                        .authorize(actor_id, product_key.shop_id)
                         .await?;
                 }
                 self.products
                     .in_transaction(&mut tx)
-                    .find_by_key(key)
+                    .find_by_key(&product_key)
                     .await?
                     .ok_or(DeleteProductError::ProductNotFound)?
             }
-            None => self
-                .products
-                .in_transaction(&mut tx)
-                .find_by_id(command.product_id)
-                .await?
-                .ok_or(DeleteProductError::ProductNotFound)?,
         };
         let expected_event_id = loaded.version;
         let mut product = loaded.value;
@@ -222,6 +217,56 @@ where
             product_id: product.id(),
             event_id,
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl<U, R, E, A> DeleteProductUseCase for DeleteProductHandler<U, R, E, A>
+where
+    U: UnitOfWork,
+    R: ProductRepositoryFactory<U::Tx>,
+    E: ProductEventStoreFactory<U::Tx>,
+    A: PartnerProductAuthorizerFactory<U::Tx>,
+{
+    #[tracing::instrument(
+        name = "delete_product",
+        skip_all,
+        fields(
+            product_id = %product_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
+    async fn execute(
+        &self,
+        context: &OperationContext,
+        product_id: ProductId,
+    ) -> Result<DeleteProductResult, DeleteProductError> {
+        self.execute_for_target(context, DeleteProductTarget::Id(product_id))
+            .await
+    }
+
+    #[tracing::instrument(
+        name = "delete_product_by_key",
+        skip_all,
+        fields(
+            shop_id = %product_key.shop_id,
+            shops_product_id = %product_key.shops_product_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
+    async fn execute_by_key(
+        &self,
+        context: &OperationContext,
+        product_key: ProductKey,
+    ) -> Result<DeleteProductResult, DeleteProductError> {
+        self.execute_for_target(context, DeleteProductTarget::Key(product_key))
+            .await
     }
 }
 
@@ -268,6 +313,7 @@ impl From<ProductRepositoryError> for DeleteProductError {
             ProductRepositoryError::ShopProductAlreadyExists => Self::ShopProductAlreadyExists,
             ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
             ProductRepositoryError::ProductLookupByIdFailed => Self::ProductLookupByIdFailed,
+            ProductRepositoryError::ProductLookupByKeyFailed => Self::ProductLookupByKeyFailed,
             ProductRepositoryError::ProductInsertFailed => Self::ProductInsertFailed,
             ProductRepositoryError::ProductUpdateFailed => Self::ProductUpdateFailed,
             ProductRepositoryError::InvalidProductSlugPersisted => {
@@ -661,15 +707,7 @@ mod tests {
         let product_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
 
-        let result = handler(&state)
-            .execute(
-                &context(),
-                DeleteProductCommand {
-                    product_id,
-                    product_key: None,
-                },
-            )
-            .await;
+        let result = handler(&state).execute(&context(), product_id).await;
 
         assert!(result.is_ok());
         let state = lock_state(&state);
@@ -686,15 +724,7 @@ mod tests {
         let key = ProductKey::new(product.shop_id(), product.shops_product_id().clone());
         lock_state(&state).find_by_key_result = Some(Ok(Some(versioned_product(product))));
 
-        let result = handler(&state)
-            .execute(
-                &context(),
-                DeleteProductCommand {
-                    product_id: ProductId::new(),
-                    product_key: Some(key),
-                },
-            )
-            .await;
+        let result = handler(&state).execute_by_key(&context(), key).await;
 
         assert!(result.is_ok());
         let state = lock_state(&state);
@@ -710,15 +740,7 @@ mod tests {
         let product_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
 
-        let result = handler(&state)
-            .execute(
-                &context(),
-                DeleteProductCommand {
-                    product_id,
-                    product_key: None,
-                },
-            )
-            .await;
+        let result = handler(&state).execute(&context(), product_id).await;
 
         assert!(result.is_ok());
         let state = lock_state(&state);
@@ -732,15 +754,7 @@ mod tests {
     async fn should_return_not_found_when_delete_product_missing() {
         let state = state();
 
-        let result = handler(&state)
-            .execute(
-                &context(),
-                DeleteProductCommand {
-                    product_id: ProductId::new(),
-                    product_key: None,
-                },
-            )
-            .await;
+        let result = handler(&state).execute(&context(), ProductId::new()).await;
 
         assert!(matches!(result, Err(DeleteProductError::ProductNotFound)));
         assert_eq!(0, lock_state(&state).commit_count);
@@ -751,15 +765,7 @@ mod tests {
         let state = state();
         lock_state(&state).begin_error = true;
 
-        let result = handler(&state)
-            .execute(
-                &context(),
-                DeleteProductCommand {
-                    product_id: ProductId::new(),
-                    product_key: None,
-                },
-            )
-            .await;
+        let result = handler(&state).execute(&context(), ProductId::new()).await;
 
         assert!(matches!(
             result,
@@ -775,15 +781,7 @@ mod tests {
         let product_id = product.id();
         lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
 
-        let result = handler(&state)
-            .execute(
-                &context(),
-                DeleteProductCommand {
-                    product_id,
-                    product_key: None,
-                },
-            )
-            .await;
+        let result = handler(&state).execute(&context(), product_id).await;
 
         assert!(matches!(
             result,
@@ -798,15 +796,7 @@ mod tests {
         lock_state(&state).find_by_id_result =
             Some(Err(ProductRepositoryError::ProductLookupByIdFailed));
 
-        let result = handler(&state)
-            .execute(
-                &context(),
-                DeleteProductCommand {
-                    product_id: ProductId::new(),
-                    product_key: None,
-                },
-            )
-            .await;
+        let result = handler(&state).execute(&context(), ProductId::new()).await;
 
         assert!(matches!(
             result,
@@ -826,15 +816,7 @@ mod tests {
             state.update_result = Some(Err(ProductRepositoryError::ProductUpdateFailed));
         }
 
-        let result = handler(&state)
-            .execute(
-                &context(),
-                DeleteProductCommand {
-                    product_id,
-                    product_key: None,
-                },
-            )
-            .await;
+        let result = handler(&state).execute(&context(), product_id).await;
 
         assert!(matches!(
             result,
@@ -855,15 +837,7 @@ mod tests {
             state.append_result = Some(Err(ProductEventStoreError::ProductEventAppendFailed));
         }
 
-        let result = handler(&state)
-            .execute(
-                &context(),
-                DeleteProductCommand {
-                    product_id,
-                    product_key: None,
-                },
-            )
-            .await;
+        let result = handler(&state).execute(&context(), product_id).await;
 
         assert!(matches!(
             result,

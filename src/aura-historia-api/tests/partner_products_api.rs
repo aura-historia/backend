@@ -1,8 +1,9 @@
 mod api_support;
 
 use api_support::{json_response, seed_access_token_for, seed_partner_shop, seed_shop, seed_user};
-use serde_json::json;
-
+use serde_json::{Value, json};
+use std::collections::HashSet;
+use std::convert::Infallible;
 use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
 };
@@ -13,53 +14,396 @@ const DYNAMODB: DynamoDB = DynamoDB();
 const OPENSEARCH: OpenSearch = OpenSearch();
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 
+type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+fn assert_test_result(result: TestResult) {
+    assert!(result.is_ok(), "{result:?}");
+}
+
+struct PartnerAuth {
+    shop_id: String,
+    token: String,
+}
+
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
-async fn should_synchronously_create_batch_and_return_partial_failure_keys() {
+async fn should_create_partner_product_batch_when_all_products_are_new() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+
+        let response = send_json(
+            reqwest::Method::POST,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([product("post-full-first"), product("post-full-second")]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!(json!([]), body);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_return_duplicate_product_as_partial_create_failure() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+        let duplicate_id = "post-duplicate";
+
+        let response = send_json(
+            reqwest::Method::POST,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([product(duplicate_id), product(duplicate_id)]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!(json!([failure(&auth.shop_id, duplicate_id)]), body);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_update_existing_partner_product_batch() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+        let product_id = "patch-success";
+        create_product(&auth, product_id).await?;
+
+        let response = send_json(
+            reqwest::Method::PATCH,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([patch_product(product_id, "SOLD")]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!(json!([]), body);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_return_missing_product_as_partial_update_failure() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+        let existing_id = "patch-partial-existing";
+        let missing_id = "patch-partial-missing";
+        create_product(&auth, existing_id).await?;
+
+        let response = send_json(
+            reqwest::Method::PATCH,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([
+                patch_product(existing_id, "AVAILABLE"),
+                patch_product(missing_id, "SOLD")
+            ]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!(json!([failure(&auth.shop_id, missing_id)]), body);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_when_every_product_update_is_missing() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+
+        let response = send_json(
+            reqwest::Method::PATCH,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([patch_product("patch-all-missing", "SOLD")]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::NOT_FOUND, status);
+        assert_eq!(json!("PRODUCT_NOT_FOUND"), body["error"]);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+        let product_id = "put-create-update";
+
+        let created = send_json(
+            reqwest::Method::PUT,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([product(product_id)]),
+        )
+        .await?;
+        let (created_status, created_body) = response_json(created).await?;
+        assert_eq!(reqwest::StatusCode::OK, created_status);
+        assert_eq!(json!([]), created_body);
+
+        let updated = send_json(
+            reqwest::Method::PUT,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([patch_product(product_id, "SOLD")]),
+        )
+        .await?;
+        let (updated_status, updated_body) = response_json(updated).await?;
+
+        assert_eq!(reqwest::StatusCode::OK, updated_status);
+        assert_eq!(json!([]), updated_body);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_delete_existing_partner_product_batch() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+        let first_id = "delete-full-first";
+        let second_id = "delete-full-second";
+        create_products(&auth, &[first_id, second_id]).await?;
+
+        let response = send_json(
+            reqwest::Method::DELETE,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([delete_product(first_id), delete_product(second_id)]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!(json!([]), body);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_return_missing_product_as_partial_delete_failure() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+        let existing_id = "delete-partial-existing";
+        let missing_id = "delete-partial-missing";
+        create_product(&auth, existing_id).await?;
+
+        let response = send_json(
+            reqwest::Method::DELETE,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([delete_product(existing_id), delete_product(missing_id)]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::OK, status);
+        assert_eq!(json!([failure(&auth.shop_id, missing_id)]), body);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_return_not_found_when_every_product_delete_is_missing() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+
+        let response = send_json(
+            reqwest::Method::DELETE,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([delete_product("delete-all-missing")]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::NOT_FOUND, status);
+        assert_eq!(json!("PRODUCT_NOT_FOUND"), body["error"]);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_reject_partner_product_batch_when_access_token_lacks_scope() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(HashSet::new()).await?;
+
+        let response = send_json(
+            reqwest::Method::POST,
+            products_path(&auth.shop_id),
+            Some(&auth.token),
+            &json!([product("scope-less")]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::FORBIDDEN, status);
+        assert_eq!(json!("FORBIDDEN"), body["error"]);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_reject_partner_product_batch_without_authorization() -> TestResult {
+    let result: TestResult = async {
+        let shop = seed_shop().await;
+
+        let response = send_json(
+            reqwest::Method::POST,
+            products_path(&shop.id().to_string()),
+            None,
+            &json!([product("missing-authorization")]),
+        )
+        .await?;
+        let (status, _) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::UNAUTHORIZED, status);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_not_expose_legacy_partner_product_item_delete_route() -> TestResult {
+    let result: TestResult = async {
+        let auth = partner_auth(products_write_scope()).await?;
+
+        let response = send_json(
+            reqwest::Method::DELETE,
+            format!("{}/legacy-item", products_path(&auth.shop_id)),
+            Some(&auth.token),
+            &json!({}),
+        )
+        .await?;
+
+        assert_eq!(reqwest::StatusCode::NOT_FOUND, response.status());
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+async fn partner_auth(scopes: HashSet<Scope>) -> Result<PartnerAuth, Infallible> {
     let shop = seed_shop().await;
     let user_id = seed_user("USER").await;
     seed_partner_shop(user_id, shop.id()).await;
-    let token = seed_access_token_for(
-        user_id,
-        std::collections::HashSet::from([Scope::ProductsWrite]),
-    )
-    .await;
-    let body = json!([
-        product("synchronous-product"),
-        product("synchronous-product")
-    ]);
+    let token = String::from(seed_access_token_for(user_id, scopes).await);
 
-    let response = reqwest::Client::new()
-        .post(format!(
-            "{}/api/v1/shops/{}/products",
-            AURA_API.base_url(),
-            shop.id()
-        ))
-        .bearer_auth(String::from(token))
-        .json(&body)
-        .send()
-        .await;
-
-    assert!(response.is_ok(), "failed to call partner products API");
-    if let Ok(response) = response {
-        let (status, body) = json_response(response).await;
-        assert_eq!(reqwest::StatusCode::OK, status);
-        assert_eq!(
-            json!([{
-                "shopId": shop.id().to_string(),
-                "shopsProductId": "synchronous-product"
-            }]),
-            body
-        );
-    }
+    Ok(PartnerAuth {
+        shop_id: shop.id().to_string(),
+        token,
+    })
 }
 
-fn product(shops_product_id: &str) -> serde_json::Value {
+async fn create_product(auth: &PartnerAuth, shops_product_id: &str) -> TestResult {
+    create_products(auth, &[shops_product_id]).await
+}
+
+async fn create_products(auth: &PartnerAuth, shops_product_ids: &[&str]) -> TestResult {
+    let response = send_json(
+        reqwest::Method::POST,
+        products_path(&auth.shop_id),
+        Some(&auth.token),
+        &Value::Array(
+            shops_product_ids
+                .iter()
+                .map(|shops_product_id| product(shops_product_id))
+                .collect(),
+        ),
+    )
+    .await?;
+    let (status, body) = response_json(response).await?;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(json!([]), body);
+    Ok::<(), Box<dyn std::error::Error>>(())
+}
+
+async fn send_json(
+    method: reqwest::Method,
+    path: String,
+    token: Option<&str>,
+    body: &Value,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let request =
+        reqwest::Client::new().request(method, format!("{}{}", AURA_API.base_url(), path));
+    let request = match token {
+        Some(token) => request.bearer_auth(token),
+        None => request,
+    };
+
+    request.json(body).send().await
+}
+
+async fn response_json(
+    response: reqwest::Response,
+) -> Result<(reqwest::StatusCode, Value), Infallible> {
+    Ok(json_response(response).await)
+}
+
+fn products_write_scope() -> HashSet<Scope> {
+    HashSet::from([Scope::ProductsWrite])
+}
+
+fn products_path(shop_id: &str) -> String {
+    format!("/api/v1/shops/{shop_id}/products")
+}
+
+fn product(shops_product_id: &str) -> Value {
     json!({
         "shopsProductId": shops_product_id,
         "title": { "text": "Synchronous Cabinet", "language": "en" },
         "description": { "text": "Created in the request transaction.", "language": "en" },
         "state": "LISTED",
-        "url": "https://partner.example/products/synchronous-cabinet",
+        "url": format!("https://partner.example/products/{shops_product_id}"),
         "images": []
+    })
+}
+
+fn patch_product(shops_product_id: &str, state: &str) -> Value {
+    json!({
+        "shopsProductId": shops_product_id,
+        "state": state
+    })
+}
+
+fn delete_product(shops_product_id: &str) -> Value {
+    json!({ "shopsProductId": shops_product_id })
+}
+
+fn failure(shop_id: &str, shops_product_id: &str) -> Value {
+    json!({
+        "shopId": shop_id,
+        "shopsProductId": shops_product_id
     })
 }

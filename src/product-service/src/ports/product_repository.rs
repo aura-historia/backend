@@ -15,6 +15,8 @@ pub enum ProductRepositoryError {
     ProductSlugAlreadyExists,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
+    #[error("product lookup by shop product identity failed")]
+    ProductLookupByKeyFailed,
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -60,10 +62,8 @@ pub trait ProductRepository: Send {
 
     async fn find_by_key(
         &mut self,
-        _key: &ProductKey,
-    ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError> {
-        Err(ProductRepositoryError::ProductLookupByIdFailed)
-    }
+        key: &ProductKey,
+    ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>;
 
     async fn insert(
         &mut self,
