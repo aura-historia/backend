@@ -63,7 +63,10 @@ async fn should_return_duplicate_product_as_partial_create_failure() -> TestResu
         let (status, body) = response_json(response).await?;
 
         assert_eq!(reqwest::StatusCode::OK, status);
-        assert_eq!(json!([failure(&auth.shop_id, duplicate_id)]), body);
+        assert_eq!(
+            json!([failure(&auth.shop_id, duplicate_id, "CONFLICT")]),
+            body
+        );
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -115,7 +118,10 @@ async fn should_return_missing_product_as_partial_update_failure() -> TestResult
         let (status, body) = response_json(response).await?;
 
         assert_eq!(reqwest::StatusCode::OK, status);
-        assert_eq!(json!([failure(&auth.shop_id, missing_id)]), body);
+        assert_eq!(
+            json!([failure(&auth.shop_id, missing_id, "PRODUCT_NOT_FOUND")]),
+            body
+        );
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -221,7 +227,10 @@ async fn should_return_missing_product_as_partial_delete_failure() -> TestResult
         let (status, body) = response_json(response).await?;
 
         assert_eq!(reqwest::StatusCode::OK, status);
-        assert_eq!(json!([failure(&auth.shop_id, missing_id)]), body);
+        assert_eq!(
+            json!([failure(&auth.shop_id, missing_id, "PRODUCT_NOT_FOUND")]),
+            body
+        );
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
@@ -401,9 +410,10 @@ fn delete_product(shops_product_id: &str) -> Value {
     json!({ "shopsProductId": shops_product_id })
 }
 
-fn failure(shop_id: &str, shops_product_id: &str) -> Value {
+fn failure(shop_id: &str, shops_product_id: &str, error: &str) -> Value {
     json!({
         "shopId": shop_id,
-        "shopsProductId": shops_product_id
+        "shopsProductId": shops_product_id,
+        "error": error
     })
 }

@@ -95,8 +95,8 @@ paths:
         The request body is an array of `PostProductData` objects. Each entry is created
         synchronously in its own PostgreSQL transaction.
 
-        The response returns HTTP 200 with failures as `{ shopId, shopsProductId }` objects when
-        one or more entries succeed. If every non-empty entry fails, the first failure is returned
+        The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
+        one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
         as a problem response. An empty array is accepted and returns `[]`.
       operationId: postPartnerProducts
       tags:
@@ -162,6 +162,7 @@ paths:
                   value:
                     - shopId: "550e8400-e29b-41d4-a716-446655440000"
                       shopsProductId: "baroque-violin-002"
+                      error: "CONFLICT"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
           content:
@@ -262,8 +263,8 @@ paths:
         each entry are updated; omitted optional fields are left unchanged. Each entry is applied
         synchronously in its own PostgreSQL transaction.
 
-        The response returns HTTP 200 with failures as `{ shopId, shopsProductId }` objects when
-        one or more entries succeed. If every non-empty entry fails, the first failure is returned
+        The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
+        one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
         as a problem response. An empty array is accepted and returns `[]`.
       operationId: patchPartnerProducts
       tags:
@@ -321,6 +322,7 @@ paths:
                   value:
                     - shopId: "550e8400-e29b-41d4-a716-446655440000"
                       shopsProductId: "baroque-violin-002"
+                      error: "PRODUCT_NOT_FOUND"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
           content:
@@ -433,8 +435,8 @@ paths:
           `images` or sending `null` is treated as an empty list and therefore clears all
           stored images.
 
-        The response returns HTTP 200 with failures as `{ shopId, shopsProductId }` objects when
-        one or more entries succeed. If every non-empty entry fails, the first failure is returned
+        The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
+        one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
         as a problem response. An empty array is accepted and returns `[]`.
 
       operationId: putPartnerProducts
@@ -524,6 +526,7 @@ paths:
                   value:
                     - shopId: "550e8400-e29b-41d4-a716-446655440000"
                       shopsProductId: "baroque-violin-002"
+                      error: "BAD_BODY_VALUE"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
           content:
@@ -619,9 +622,9 @@ paths:
         Historia access tokens must include the `products:write` scope.
 
         The request body is an array of product identifiers. The response returns HTTP 200 with
-        failures as `{ shopId, shopsProductId }` objects when one or more entries succeed. If every
-        non-empty entry fails, the first failure is returned as a problem response. An empty array
-        is accepted and returns `[]`.
+        failures as `{ shopId, shopsProductId, error }` objects when one or more entries succeed.
+        `error` is the stable API error key for that entry. If every non-empty entry fails, the first
+        failure is returned as a problem response. An empty array is accepted and returns `[]`.
       operationId: deletePartnerProducts
       tags:
         - Products
@@ -664,6 +667,7 @@ paths:
                   value:
                     - shopId: "550e8400-e29b-41d4-a716-446655440000"
                       shopsProductId: "baroque-violin-002"
+                      error: "PRODUCT_NOT_FOUND"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
           content:
@@ -14325,6 +14329,7 @@ components:
         required:
           - shopId
           - shopsProductId
+          - error
         properties:
           shopId:
             type: string
@@ -14333,9 +14338,14 @@ components:
           shopsProductId:
             type: string
             description: Partner-controlled identifier of the failed product entry.
+          error:
+            type: string
+            description: Stable API error key for the failed product entry.
+            example: "PRODUCT_NOT_FOUND"
       example:
         - shopId: "550e8400-e29b-41d4-a716-446655440000"
           shopsProductId: "baroque-violin-002"
+          error: "PRODUCT_NOT_FOUND"
 
     PartnerProductDeleteData:
       type: object

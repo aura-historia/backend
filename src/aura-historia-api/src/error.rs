@@ -140,6 +140,10 @@ enum ApiErrorSourceType {
 }
 
 impl ApiError {
+    pub(crate) fn code(&self) -> ApiErrorCode {
+        self.error
+    }
+
     pub(crate) fn new(status: StatusCode, title: &'static str, error: ApiErrorCode) -> Self {
         Self {
             status: status.as_u16(),

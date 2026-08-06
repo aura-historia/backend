@@ -39,8 +39,14 @@ pub async fn create_products(
         {
             Ok(_) => successes += 1,
             Err(error) => {
-                first_error.get_or_insert_with(|| ApiError::from(error));
-                failures.push(PartnerProductFailureData::new(shop_id, shops_product_id));
+                let error = ApiError::from(error);
+                let error_code = error.code();
+                first_error.get_or_insert(error);
+                failures.push(PartnerProductFailureData::new(
+                    shop_id,
+                    shops_product_id,
+                    error_code,
+                ));
             }
         }
     }
@@ -185,7 +191,11 @@ mod tests {
 
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!(
-            json!([{ "shopId": shop_id.to_string(), "shopsProductId": "failed" }]),
+            json!([{
+                "shopId": shop_id.to_string(),
+                "shopsProductId": "failed",
+                "error": "CONFLICT"
+            }]),
             body_json(response).await?
         );
         Ok(())

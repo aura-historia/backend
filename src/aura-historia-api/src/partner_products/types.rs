@@ -1,3 +1,4 @@
+use crate::error::ApiErrorCode;
 use common::language::data::LocalizedTextData;
 use common::localized::Localized;
 use common::patch_field::PatchField;
@@ -108,6 +109,7 @@ pub(super) struct DeleteProductData {
 pub(super) struct PartnerProductFailureData {
     shop_id: ShopId,
     shops_product_id: ShopsProductId,
+    error: ApiErrorCode,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy)]
@@ -196,10 +198,15 @@ impl DeleteProductData {
 }
 
 impl PartnerProductFailureData {
-    pub(super) fn new(shop_id: ShopId, shops_product_id: ShopsProductId) -> Self {
+    pub(super) fn new(
+        shop_id: ShopId,
+        shops_product_id: ShopsProductId,
+        error: ApiErrorCode,
+    ) -> Self {
         Self {
             shop_id,
             shops_product_id,
+            error,
         }
     }
 }
