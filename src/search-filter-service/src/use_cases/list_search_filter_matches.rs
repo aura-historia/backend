@@ -248,15 +248,11 @@ fn read_error(error: SearchFilterMatchReadError) -> ListSearchFilterMatchesError
 
 fn hydration_error(error: HydrationError) -> ListSearchFilterMatchesError {
     match error {
-        HydrationError::Details(ProductDetailsBatchReadError::QueryFailed) => {
-            ListSearchFilterMatchesError::ProductDetailsReadFailed {
-                source: box_error(ProductDetailsBatchReadError::QueryFailed),
-            }
+        HydrationError::Details(ProductDetailsBatchReadError::QueryFailed { source }) => {
+            ListSearchFilterMatchesError::ProductDetailsReadFailed { source }
         }
-        HydrationError::Details(ProductDetailsBatchReadError::InvalidReadModel) => {
-            ListSearchFilterMatchesError::ProductDetailsInvalid {
-                source: box_error(ProductDetailsBatchReadError::InvalidReadModel),
-            }
+        HydrationError::Details(ProductDetailsBatchReadError::InvalidReadModel { source }) => {
+            ListSearchFilterMatchesError::ProductDetailsInvalid { source }
         }
         HydrationError::Notifications(error) => {
             ListSearchFilterMatchesError::NotificationReadFailed {

@@ -11,13 +11,13 @@ use common::user_search_filter_name::UserSearchFilterName;
 use product_core::product_search::ProductSearch;
 use search_filter_core::{NewSearchFilter, SearchFilter, SearchFilterProductMatch};
 use search_filter_postgres::{
-    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
-    SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
+    SqlxSearchFilterIndexReader, SqlxSearchFilterMatchRepositoryFactory,
+    SqlxSearchFilterQuotaReaderFactory, SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
 };
 use search_filter_service::ports::{
-    SearchFilterMatchRepository, SearchFilterMatchRepositoryFactory, SearchFilterQuotaReader,
-    SearchFilterQuotaReaderFactory, SearchFilterReader, SearchFilterRepository,
-    SearchFilterRepositoryFactory,
+    SearchFilterIndexReader, SearchFilterMatchRepository, SearchFilterMatchRepositoryFactory,
+    SearchFilterQuotaReader, SearchFilterQuotaReaderFactory, SearchFilterReader,
+    SearchFilterRepository, SearchFilterRepositoryFactory,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 
@@ -68,6 +68,55 @@ async fn should_insert_find_update_read_and_delete_search_filter() {
         .await
         .unwrap_or_else(|error| panic!("delete failed: {error:?}"));
     commit(tx).await;
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_read_complete_versioned_projection_pages_from_postgres() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxSearchFilterRepositoryFactory;
+    let reader = SqlxSearchFilterIndexReader::new(pool.clone());
+    let user_id = seed_user(&pool, "search-filter-projection-reader@example.com").await;
+    let first = sample_filter(user_id, "first projection");
+    let second = sample_filter(user_id, "second projection");
+
+    let mut tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut tx)
+        .insert(&first)
+        .await
+        .unwrap_or_else(|error| panic!("first insert failed: {error:?}"));
+    repository
+        .in_transaction(&mut tx)
+        .insert(&second)
+        .await
+        .unwrap_or_else(|error| panic!("second insert failed: {error:?}"));
+    commit(tx).await;
+
+    let projection = reader
+        .find_by_id(first.id())
+        .await
+        .unwrap_or_else(|error| panic!("projection read failed: {error:?}"));
+    assert!(matches!(
+        projection,
+        Some(ref projection)
+            if projection.view.search_filter_id == first.id() && projection.source_version == 1
+    ));
+
+    let first_page = reader
+        .list_after(None, 1)
+        .await
+        .unwrap_or_else(|error| panic!("first projection page failed: {error:?}"));
+    assert_eq!(1, first_page.len());
+    let second_page = reader
+        .list_after(Some(first_page[0].view.search_filter_id), 10)
+        .await
+        .unwrap_or_else(|error| panic!("second projection page failed: {error:?}"));
+    assert_eq!(1, second_page.len());
+    assert_ne!(
+        first_page[0].view.search_filter_id,
+        second_page[0].view.search_filter_id
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]

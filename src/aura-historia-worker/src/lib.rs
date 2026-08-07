@@ -1,5 +1,6 @@
 pub mod cdc;
 pub mod retry;
+pub mod search_filter_projection;
 
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
@@ -10,7 +11,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info};
 
-use crate::cdc::{CdcFanout, CdcIngestError, WorkerQueueReceivers, WorkerQueueRegistry};
+use crate::cdc::{
+    CdcFanout, CdcIngestError, WorkerQueue, WorkerQueueReceivers, WorkerQueueRegistry,
+};
 
 pub const WORKER_HEALTH_BIND_ADDR_ENV: &str = "AURA_HISTORIA_WORKER_HEALTH_BIND_ADDR";
 const DEFAULT_WORKER_HEALTH_BIND_ADDR: &str = "0.0.0.0:8081";
@@ -150,6 +153,20 @@ impl WorkerRuntime {
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
         let (registry, receivers) = WorkerQueueRegistry::with_all_queues(config)?;
         Ok((Self::new(CdcFanout::new(registry)), receivers))
+    }
+
+    pub fn with_search_filter_projection_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::SearchFilterOpenSearch, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::SearchFilterOpenSearch, receiver);
+        Ok((
+            Self::new(CdcFanout::search_filter_projection(registry)),
+            receivers,
+        ))
     }
 
     pub fn empty() -> Self {

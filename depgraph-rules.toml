@@ -21,8 +21,8 @@ smoking-tests-macros = []
 # No internal dependencies
 test-api-macros = []
 
-# Depends on: common
-aura-historia-worker = ["common"]
+# Depends on: common, search-filter-opensearch, search-filter-postgres, search-filter-service
+aura-historia-worker = ["common", "search-filter-opensearch", "search-filter-postgres", "search-filter-service"]
 
 # Depends on: common
 cloudwatch-log-retention-lambda = ["common"]
@@ -201,8 +201,8 @@ product-lambda-delete-product = ["common", "product", "product-watchlist", "sear
 # Depends on: common, search-filter
 search-filter-lambda-opensearch-sync = ["common", "search-filter"]
 
-# Depends on: common, product-core, search-filter-core, search-filter-service
-search-filter-opensearch = ["common", "product-core", "search-filter-core", "search-filter-service"]
+# Depends on: common, geo, product-core, product-opensearch, search-filter-core, search-filter-service, shop-core
+search-filter-opensearch = ["common", "geo", "product-core", "product-opensearch", "search-filter-core", "search-filter-service", "shop-core"]
 
 # Depends on: common, geo, product-core, search-filter-core, search-filter-service, shop-core
 search-filter-postgres = ["common", "geo", "product-core", "search-filter-core", "search-filter-service", "shop-core"]

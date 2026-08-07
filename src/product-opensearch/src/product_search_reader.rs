@@ -347,7 +347,7 @@ fn build_text_match_clause(
     })
 }
 
-fn build_filter_clauses(
+pub(crate) fn build_filter_clauses(
     search: &ProductSearch,
 ) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), serde_json::Error> {
     let mut must_not = Vec::new();

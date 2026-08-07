@@ -138,10 +138,8 @@ fn authorize_owner(
 
 fn lookup_error(error: SearchFilterRepositoryError) -> DeleteOwnedSearchFilterError {
     match error {
-        SearchFilterRepositoryError::InvalidPersistedState => {
-            DeleteOwnedSearchFilterError::PersistedSearchFilterStateInvalid {
-                source: box_error(SearchFilterRepositoryError::InvalidPersistedState),
-            }
+        SearchFilterRepositoryError::InvalidPersistedState { source } => {
+            DeleteOwnedSearchFilterError::PersistedSearchFilterStateInvalid { source }
         }
         error => DeleteOwnedSearchFilterError::SearchFilterLookupFailed {
             source: box_error(error),
@@ -151,10 +149,8 @@ fn lookup_error(error: SearchFilterRepositoryError) -> DeleteOwnedSearchFilterEr
 
 fn delete_error(error: SearchFilterRepositoryError) -> DeleteOwnedSearchFilterError {
     match error {
-        SearchFilterRepositoryError::InvalidPersistedState => {
-            DeleteOwnedSearchFilterError::PersistedSearchFilterStateInvalid {
-                source: box_error(SearchFilterRepositoryError::InvalidPersistedState),
-            }
+        SearchFilterRepositoryError::InvalidPersistedState { source } => {
+            DeleteOwnedSearchFilterError::PersistedSearchFilterStateInvalid { source }
         }
         error => DeleteOwnedSearchFilterError::SearchFilterDeletionFailed {
             source: box_error(error),

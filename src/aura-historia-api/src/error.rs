@@ -369,7 +369,7 @@ impl From<CreateSearchFilterError> for ApiError {
                     .with_detail("Search filter state is invalid.")
             }
             CreateSearchFilterError::EmbeddingGenerationFailed { .. }
-            | CreateSearchFilterError::UserAccountReadFailed { .. }
+            | CreateSearchFilterError::UserTierEntitlementsLockFailed { .. }
             | CreateSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | CreateSearchFilterError::SearchFilterInsertFailed { .. }
             | CreateSearchFilterError::BeginTransactionFailed
@@ -425,7 +425,7 @@ impl From<UpdateOwnedSearchFilterError> for ApiError {
                     .with_detail("Search filter state is invalid.")
             }
             UpdateOwnedSearchFilterError::EmbeddingGenerationFailed { .. }
-            | UpdateOwnedSearchFilterError::UserAccountReadFailed { .. }
+            | UpdateOwnedSearchFilterError::UserTierEntitlementsLockFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterLookupFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterUpdateFailed { .. }
@@ -815,6 +815,8 @@ impl From<ChangeUserTierError> for ApiError {
             | ChangeUserTierError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
                 .with_detail("User update conflicts with current state."),
             ChangeUserTierError::TemporarilyUnavailable { .. }
+            | ChangeUserTierError::TierEntitlementsLockFailed { .. }
+            | ChangeUserTierError::TierEntitlementsReconciliationFailed { .. }
             | ChangeUserTierError::BeginTransactionFailed
             | ChangeUserTierError::CommitTransactionFailed => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
@@ -1050,7 +1052,7 @@ impl From<WatchProductError> for ApiError {
                 "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
             )),
             WatchProductError::TemporarilyUnavailable
-            | WatchProductError::UserAccountReadFailed { .. }
+            | WatchProductError::UserTierEntitlementsLockFailed { .. }
             | WatchProductError::WatchlistQuotaReadFailed { .. }
             | WatchProductError::BeginTransactionFailed
             | WatchProductError::CommitTransactionFailed => {
@@ -1087,7 +1089,7 @@ impl From<UpdateWatchlistProductError> for ApiError {
                 "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
             )),
             UpdateWatchlistProductError::TemporarilyUnavailable
-            | UpdateWatchlistProductError::UserAccountReadFailed { .. }
+            | UpdateWatchlistProductError::UserTierEntitlementsLockFailed { .. }
             | UpdateWatchlistProductError::WatchlistQuotaReadFailed { .. }
             | UpdateWatchlistProductError::BeginTransactionFailed
             | UpdateWatchlistProductError::CommitTransactionFailed => {

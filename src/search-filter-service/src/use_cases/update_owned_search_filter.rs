@@ -34,7 +34,9 @@ use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use shop_core::shop_type::ShopType;
 use time::OffsetDateTime;
-use user_service::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
+use user_service::ports::{
+    UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
+};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductSearchPatch {
@@ -91,8 +93,8 @@ pub enum UpdateOwnedSearchFilterError {
     SearchFilterQuotaExceeded { active_count: usize, quota: usize },
     #[error("search filter feature '{feature}' requires a higher user tier")]
     SearchFilterFeatureRestricted { feature: &'static str },
-    #[error("user account read failed")]
-    UserAccountReadFailed {
+    #[error("user tier entitlement lock failed")]
+    UserTierEntitlementsLockFailed {
         #[source]
         source: BoxError,
     },
@@ -148,7 +150,7 @@ pub struct UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
     embeddings: E,
     filter_reader: F,
     quotas: Q,
-    accounts: A,
+    tier_entitlements: A,
 }
 
 impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
@@ -158,7 +160,7 @@ impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
         embeddings: E,
         filter_reader: F,
         quotas: Q,
-        accounts: A,
+        tier_entitlements: A,
     ) -> Self {
         Self {
             unit_of_work,
@@ -166,7 +168,7 @@ impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
             embeddings,
             filter_reader,
             quotas,
-            accounts,
+            tier_entitlements,
         }
     }
 }
@@ -180,7 +182,7 @@ where
     E: EmbeddingGenerator,
     F: SearchFilterReader,
     Q: SearchFilterQuotaReaderFactory<U::Tx>,
-    A: UserAccountReaderFactory<U::Tx>,
+    A: UserTierEntitlementsFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "update_owned_search_filter",
@@ -229,12 +231,12 @@ where
             .begin()
             .await
             .map_err(|_| UpdateOwnedSearchFilterError::BeginTransactionFailed)?;
-        let account = self
-            .accounts
+        let tier = self
+            .tier_entitlements
             .in_transaction(&mut tx)
-            .find_by_id(command.user_id)
+            .lock_user_tier(command.user_id)
             .await
-            .map_err(user_account_read_error)?
+            .map_err(tier_entitlements_error)?
             .ok_or(UpdateOwnedSearchFilterError::UserNotFound)?;
         let mut persisted = self
             .filters
@@ -247,16 +249,15 @@ where
         let mut filter = persisted.filter.clone();
 
         let changed = apply_filter_patch(&mut filter, &command)?;
-        validate_search_feature_changes(account.tier, persisted.filter.search(), filter.search())
-            .map_err(
+        validate_search_feature_changes(tier, persisted.filter.search(), filter.search()).map_err(
             |feature| UpdateOwnedSearchFilterError::SearchFilterFeatureRestricted { feature },
         )?;
         let reactivating = !persisted.filter.state().is_active() && filter.state().is_active();
         if reactivating {
-            validate_search_features(account.tier, filter.search()).map_err(|feature| {
+            validate_search_features(tier, filter.search()).map_err(|feature| {
                 UpdateOwnedSearchFilterError::SearchFilterFeatureRestricted { feature }
             })?;
-            let quota = active_filter_quota(account.tier);
+            let quota = active_filter_quota(tier);
             let active_count = self
                 .quotas
                 .in_transaction(&mut tx)
@@ -455,9 +456,12 @@ fn embedding_error(error: EmbeddingError) -> UpdateOwnedSearchFilterError {
     }
 }
 
-fn user_account_read_error(error: UserAccountReadError) -> UpdateOwnedSearchFilterError {
-    UpdateOwnedSearchFilterError::UserAccountReadFailed {
-        source: box_error(error),
+fn tier_entitlements_error(error: UserTierEntitlementsError) -> UpdateOwnedSearchFilterError {
+    match error {
+        UserTierEntitlementsError::LockFailed { source }
+        | UserTierEntitlementsError::ReconciliationFailed { source } => {
+            UpdateOwnedSearchFilterError::UserTierEntitlementsLockFailed { source }
+        }
     }
 }
 
@@ -477,10 +481,8 @@ fn search_filter_quota_read_error(
 
 fn lookup_error(error: SearchFilterRepositoryError) -> UpdateOwnedSearchFilterError {
     match error {
-        SearchFilterRepositoryError::InvalidPersistedState => {
-            UpdateOwnedSearchFilterError::PersistedSearchFilterStateInvalid {
-                source: box_error(SearchFilterRepositoryError::InvalidPersistedState),
-            }
+        SearchFilterRepositoryError::InvalidPersistedState { source } => {
+            UpdateOwnedSearchFilterError::PersistedSearchFilterStateInvalid { source }
         }
         error => UpdateOwnedSearchFilterError::SearchFilterLookupFailed {
             source: box_error(error),
@@ -490,10 +492,8 @@ fn lookup_error(error: SearchFilterRepositoryError) -> UpdateOwnedSearchFilterEr
 
 fn update_error(error: SearchFilterRepositoryError) -> UpdateOwnedSearchFilterError {
     match error {
-        SearchFilterRepositoryError::InvalidPersistedState => {
-            UpdateOwnedSearchFilterError::PersistedSearchFilterStateInvalid {
-                source: box_error(SearchFilterRepositoryError::InvalidPersistedState),
-            }
+        SearchFilterRepositoryError::InvalidPersistedState { source } => {
+            UpdateOwnedSearchFilterError::PersistedSearchFilterStateInvalid { source }
         }
         SearchFilterRepositoryError::ConcurrencyConflict => {
             UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict

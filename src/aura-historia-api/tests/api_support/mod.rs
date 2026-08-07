@@ -448,6 +448,7 @@ async fn test_state() -> AppState {
             unit_of_work.clone(),
             user_postgres::SqlxUserRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(DeleteUserHandler::new(
             unit_of_work.clone(),
@@ -472,7 +473,7 @@ async fn test_state() -> AppState {
             SqlxSearchFilterRepositoryFactory,
             TestEmbeddingGenerator,
             SqlxSearchFilterQuotaReaderFactory,
-            user_postgres::SqlxUserAccountReaderFactory::new(),
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),
@@ -483,7 +484,7 @@ async fn test_state() -> AppState {
             TestEmbeddingGenerator,
             search_filter_reader.clone(),
             SqlxSearchFilterQuotaReaderFactory,
-            user_postgres::SqlxUserAccountReaderFactory::new(),
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(DeleteOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
@@ -512,13 +513,13 @@ async fn test_state() -> AppState {
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
             SqlxWatchlistQuotaReaderFactory,
-            user_postgres::SqlxUserAccountReaderFactory::new(),
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(UpdateWatchlistProductHandler::new(
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
             SqlxWatchlistQuotaReaderFactory,
-            user_postgres::SqlxUserAccountReaderFactory::new(),
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(UnwatchProductHandler::new(
             unit_of_work.clone(),

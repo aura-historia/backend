@@ -14,6 +14,7 @@
 - `#[aura_integration_test]` tests run serially inside one test process against process-local LocalStack and optional service containers like Postgres.
 - Postgres reapplies migrations before each test to restore migration seed data, then truncates data between tests. Use `Postgres::new_schema_once` only for schema-only migrations; optional setup scripts always run before each test.
 - LocalStack and Postgres use process-id-scoped container names and host ports so separate test binaries/processes can run in parallel.
+- OpenSearch setup uses one canonical `user_search_filters` index.
 
 ## Ownership
 

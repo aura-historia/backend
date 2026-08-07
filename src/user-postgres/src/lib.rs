@@ -4,6 +4,6 @@ mod repositories;
 
 pub use readers::{
     SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserSearchReaderFactory,
-    SqlxUserStripeCustomerReaderFactory,
+    SqlxUserStripeCustomerReaderFactory, SqlxUserTierEntitlementsFactory,
 };
 pub use repositories::SqlxUserRepositoryFactory;

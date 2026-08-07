@@ -58,10 +58,7 @@ async fn should_list_owned_search_filters() {
     let filter_id = create_search_filter(&client, &token).await;
 
     let response = client
-        .get(format!(
-            "{}/api/v1/me/search-filters?sort=created&order=desc",
-            AURA_API.base_url()
-        ))
+        .get(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
         .bearer_auth(String::from(token))
         .send()
         .await
@@ -186,7 +183,7 @@ async fn should_list_search_filter_matches() {
 
     let response = client
         .get(format!(
-            "{}/api/v1/me/search-filters/{filter_id}/matches?sort=created&order=asc&size=200",
+            "{}/api/v1/me/search-filters/{filter_id}/matches?size=200",
             AURA_API.base_url()
         ))
         .bearer_auth(String::from(token))
@@ -211,6 +208,157 @@ async fn should_list_search_filter_matches() {
         serde_json::json!(false),
         body["items"][0]["userState"]["searchFilter"]["matchFeedback"]
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_accept_json_string_search_after_for_search_filter_matches() {
+    let user_id = seed_user("USER").await;
+    let token = search_filters_token(user_id).await;
+    let client = reqwest::Client::new();
+    let filter_id = create_search_filter(&client, &token).await;
+    let (product_id, _, _) = seed_search_filter_match(user_id, &filter_id).await;
+    let search_after =
+        serde_json::json!(["1970-01-01T00:00:00Z", ProductId::new().to_string(),]).to_string();
+
+    let response = client
+        .get(format!(
+            "{}/api/v1/me/search-filters/{filter_id}/matches",
+            AURA_API.base_url()
+        ))
+        .query(&[("searchAfter", search_after)])
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to list search filter matches with cursor: {error}")
+        });
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(
+        serde_json::json!(product_id.to_string()),
+        body["items"][0]["item"]["productId"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_serialize_concurrent_search_filter_creates_at_free_quota() {
+    let user_id = seed_user("USER").await;
+    let token = search_filters_token(user_id).await;
+    let client = reqwest::Client::new();
+    let first_request = client
+        .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .bearer_auth(String::from(token.clone()))
+        .json(&search_filter_body())
+        .send();
+    let second_request = client
+        .post(format!("{}/api/v1/me/search-filters", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .json(&search_filter_body())
+        .send();
+
+    let (first, second) = tokio::join!(first_request, second_request);
+    let mut statuses = [
+        first
+            .unwrap_or_else(|error| panic!("first concurrent create failed: {error}"))
+            .status(),
+        second
+            .unwrap_or_else(|error| panic!("second concurrent create failed: {error}"))
+            .status(),
+    ];
+    statuses.sort();
+
+    assert_eq!(
+        [
+            reqwest::StatusCode::CREATED,
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        ],
+        statuses
+    );
+    let pool = get_postgres_client().await;
+    let active_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM search_filters WHERE user_id = $1 AND state = 'Active'",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to count active search filters: {error}"));
+    assert_eq!(1, active_count);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota() {
+    let user_id = seed_user("USER").await;
+    let token = search_filters_token(user_id).await;
+    let client = reqwest::Client::new();
+    let first_filter_id = create_search_filter(&client, &token).await;
+    let pool = get_postgres_client().await;
+    let second_filter_id = uuid::Uuid::new_v4();
+
+    sqlx::query(
+        "UPDATE search_filters SET state = 'InactiveByUser' WHERE user_search_filter_id = $1",
+    )
+    .bind(
+        uuid::Uuid::parse_str(&first_filter_id)
+            .unwrap_or_else(|error| panic!("invalid first search filter identifier: {error}")),
+    )
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to inactivate first search filter: {error}"));
+    sqlx::query(
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, enhanced_search_description, embedding, language, currency, version, created, updated, last_hybrid_search_matched) SELECT $1, user_id, 'Second alerts', notifications, 'InactiveByUser', search, enhanced_search_description, embedding, language, currency, version, created, updated, last_hybrid_search_matched FROM search_filters WHERE user_search_filter_id = $2",
+    )
+    .bind(second_filter_id)
+    .bind(uuid::Uuid::parse_str(&first_filter_id).unwrap_or_else(|error| {
+        panic!("invalid first search filter identifier: {error}")
+    }))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed second inactive search filter: {error}"));
+
+    let first_request = client
+        .patch(format!(
+            "{}/api/v1/me/search-filters/{first_filter_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .json(&serde_json::json!({ "state": "ACTIVE" }))
+        .send();
+    let second_request = client
+        .patch(format!(
+            "{}/api/v1/me/search-filters/{second_filter_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({ "state": "ACTIVE" }))
+        .send();
+
+    let (first, second) = tokio::join!(first_request, second_request);
+    let mut statuses = [
+        first
+            .unwrap_or_else(|error| panic!("first concurrent reactivation failed: {error}"))
+            .status(),
+        second
+            .unwrap_or_else(|error| panic!("second concurrent reactivation failed: {error}"))
+            .status(),
+    ];
+    statuses.sort();
+
+    assert_eq!(
+        [
+            reqwest::StatusCode::OK,
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY
+        ],
+        statuses
+    );
+    let active_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM search_filters WHERE user_id = $1 AND state = 'Active'",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to count active search filters: {error}"));
+    assert_eq!(1, active_count);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]

@@ -1889,30 +1889,14 @@ paths:
       summary: List user search filters
       description: |
         Retrieves all search filters for the authenticated user.
-        Results can be optionally sorted by creation date.
-        Requires valid Cognito JWT authentication.
+        Uses the service's fixed collection ordering.
+        Requires a Cognito JWT or an Aura access token with `search-filters:write`.
       operationId: getUserSearchFilters
       tags:
         - Search Filters
-      parameters:
-        - name: sort
-          in: query
-          required: false
-          description: Field to sort results by
-          schema:
-            $ref: "#/components/schemas/SortUserSearchFilterFieldData"
-          example: created
-        - name: order
-          in: query
-          required: false
-          description: Sort order (only valid when sort is specified)
-          schema:
-            type: string
-            enum: [asc, desc]
-            default: asc
-          example: desc
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Search filters retrieved successfully
@@ -1947,35 +1931,8 @@ paths:
                 from: 0
                 size: 1
                 total: 1
-        "400":
-          description: Bad request - invalid parameters
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                invalid_sort_field:
-                  summary: Invalid sort field
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "sort"
-                      sourceType: "query"
-                    detail: "Expected any of: 'created'. Got: 'invalid'"
-                invalid_order:
-                  summary: Invalid sort order
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "order"
-                      sourceType: "query"
-                    detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - missing or invalid Cognito JWT or Aura access token
           content:
             application/problem+json:
               schema:
@@ -1983,7 +1940,17 @@ paths:
               example:
                 status: 401
                 title: "Unauthorized"
-                error: "UNAUTHORIZED"
+                error: "INVALID_CREDENTIALS"
+        "403":
+          description: Forbidden - Aura access token lacks the required `search-filters:write` scope
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
         "500":
           description: Internal server error
           content:
@@ -2000,10 +1967,10 @@ paths:
         Creates a new search filter for the authenticated user.
         The search filter configuration is provided in the request body.
         Returns the created search filter with generated ID and metadata.
-        Requires valid Cognito JWT authentication.
+        Requires a Cognito JWT or an Aura access token with `search-filters:write`.
 
         The number of allowed search filters and the set of usable search filter fields depend on the user's tier:
-        - `FREE`: Up to 1 search filter. Only the following filter fields are allowed: `productQuery`, `price`, `state`. All other fields are forbidden and will return `SEARCH_FILTER_RESTRICTED_FEATURE`.
+        - `FREE`: Up to 1 search filter. Allowed fields are `productQuery`, `price`, `state`, `excludeProductId`, and `lifecycle`. Other fields are forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
         - `PRO`: Up to 5 search filters. All filter fields are allowed.
         - `ULTIMATE`: Unlimited search filters. All filter fields are allowed.
       operationId: createUserSearchFilter
@@ -2011,6 +1978,7 @@ paths:
         - Search Filters
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: Search filter configuration with name and filter criteria
@@ -2101,7 +2069,7 @@ paths:
                     error: "BAD_BODY_VALUE"
                     detail: "Invalid JSON format"
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - missing or invalid Cognito JWT or Aura access token
           content:
             application/problem+json:
               schema:
@@ -2109,7 +2077,17 @@ paths:
               example:
                 status: 401
                 title: "Unauthorized"
-                error: "UNAUTHORIZED"
+                error: "INVALID_CREDENTIALS"
+        "403":
+          description: Forbidden - Aura access token lacks the required `search-filters:write` scope
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
         "404":
           description: User not found
           content:
@@ -2158,7 +2136,7 @@ paths:
       description: |
         Retrieves a specific search filter by its ID for the authenticated user.
         Returns the complete search filter configuration and metadata.
-        Requires valid Cognito JWT authentication.
+        Requires a Cognito JWT or an Aura access token with `search-filters:write`.
       operationId: getUserSearchFilter
       tags:
         - Search Filters
@@ -2173,6 +2151,7 @@ paths:
           example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Search filter found and returned successfully
@@ -2241,7 +2220,7 @@ paths:
                       sourceType: "path"
                     detail: "Invalid UUID format"
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - missing or invalid Cognito JWT or Aura access token
           content:
             application/problem+json:
               schema:
@@ -2249,7 +2228,17 @@ paths:
               example:
                 status: 401
                 title: "Unauthorized"
-                error: "UNAUTHORIZED"
+                error: "INVALID_CREDENTIALS"
+        "403":
+          description: Forbidden - Aura access token lacks the required `search-filters:write` scope
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
         "404":
           description: Search filter not found
           content:
@@ -2275,7 +2264,7 @@ paths:
       description: |
         Deletes a specific search filter by its ID for the authenticated user.
         The search filter must exist and belong to the authenticated user.
-        Requires valid Cognito JWT authentication.
+        Requires a Cognito JWT or an Aura access token with `search-filters:write`.
       operationId: deleteUserSearchFilter
       tags:
         - Search Filters
@@ -2290,6 +2279,7 @@ paths:
           example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "204":
           description: Search filter deleted successfully
@@ -2326,7 +2316,7 @@ paths:
                       sourceType: "path"
                     detail: "Invalid UUID format"
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - missing or invalid Cognito JWT or Aura access token
           content:
             application/problem+json:
               schema:
@@ -2334,7 +2324,17 @@ paths:
               example:
                 status: 401
                 title: "Unauthorized"
-                error: "UNAUTHORIZED"
+                error: "INVALID_CREDENTIALS"
+        "403":
+          description: Forbidden - Aura access token lacks the required `search-filters:write` scope
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
         "404":
           description: Search filter not found
           content:
@@ -2361,10 +2361,10 @@ paths:
         Updates a specific search filter by its ID for the authenticated user.
         Allows partial updates - only provided fields will be modified.
         If no fields are provided in the request body, returns the existing search filter unchanged.
-        Requires valid Cognito JWT authentication.
+        Requires a Cognito JWT or an Aura access token with `search-filters:write`.
 
         The set of usable search filter fields depends on the user's tier:
-        - `FREE`: Only the following filter fields are allowed: `productQuery`, `price`, `state`. All other fields are forbidden and will return `SEARCH_FILTER_RESTRICTED_FEATURE`.
+        - `FREE`: Allowed fields are `productQuery`, `price`, `state`, `excludeProductId`, and `lifecycle`. Other fields are forbidden and return `SEARCH_FILTER_RESTRICTED_FEATURE`.
         - `PRO`: All filter fields are allowed.
         - `ULTIMATE`: All filter fields are allowed.
       operationId: updateUserSearchFilter
@@ -2381,6 +2381,7 @@ paths:
           example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: false
         description: |
@@ -2504,7 +2505,7 @@ paths:
                     error: "BAD_BODY_VALUE"
                     detail: "Invalid JSON format"
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - missing or invalid Cognito JWT or Aura access token
           content:
             application/problem+json:
               schema:
@@ -2512,7 +2513,17 @@ paths:
               example:
                 status: 401
                 title: "Unauthorized"
-                error: "UNAUTHORIZED"
+                error: "INVALID_CREDENTIALS"
+        "403":
+          description: Forbidden - Aura access token lacks the required `search-filters:write` scope
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
         "404":
           description: Search filter or user not found
           content:
@@ -2758,7 +2769,7 @@ paths:
       summary: List hydrated persisted matches for a search filter
       description: |
         Retrieves full localized personalized Product details for persisted matches of the given saved search filter and authenticated user.
-        Results are paginated with the tie-safe RFC3339 match-creation timestamp plus product UUID `searchAfter` cursor.
+        Results use fixed ascending match-creation order and are paginated with the tie-safe RFC3339 match-creation timestamp plus product UUID `searchAfter` cursor.
         Requires a Cognito JWT or an Aura access token with `search-filters:write`.
       operationId: getSearchFilterMatches
       tags:
@@ -2772,21 +2783,6 @@ paths:
             type: string
             format: uuid
           example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-        - name: sort
-          in: query
-          required: false
-          description: Field to sort results by
-          schema:
-            $ref: "#/components/schemas/SortSearchFilterMatchFieldData"
-          example: created
-        - name: order
-          in: query
-          required: false
-          description: Sort order (only valid when sort is specified)
-          schema:
-            type: string
-            enum: [asc, desc]
-          example: desc
         - name: language
           in: query
           required: false
@@ -2813,6 +2809,7 @@ paths:
           example: 21
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       responses:
         "200":
           description: Hydrated search-filter matched products retrieved successfully
@@ -2872,32 +2869,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
               examples:
-                invalid_sort_field:
-                  summary: Invalid sort field
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "sort"
-                      sourceType: "query"
-                    detail: "Expected any of: 'created'. Got: 'invalid'"
-                invalid_order:
-                  summary: Invalid sort order
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "order"
-                      sourceType: "query"
-                    detail: "Expected any of: 'asc' or 'desc'. Got: 'invalid'"
                 invalid_search_after_timestamp:
                   summary: Invalid searchAfter timestamp
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "INVALID_RFC3339_TIMESTAMP"
+                    error: "BAD_QUERY_PARAMETER_VALUE"
                     source:
                       field: "searchAfter"
                       sourceType: "query"
@@ -2922,7 +2899,7 @@ paths:
                       sourceType: "path"
                     detail: "Invalid UUID format"
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - missing or invalid Cognito JWT or Aura access token
           content:
             application/problem+json:
               schema:
@@ -2930,7 +2907,17 @@ paths:
               example:
                 status: 401
                 title: "Unauthorized"
-                error: "UNAUTHORIZED"
+                error: "INVALID_CREDENTIALS"
+        "403":
+          description: Forbidden - Aura access token lacks the required `search-filters:write` scope
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
         "404":
           description: Search filter not found
           content:
@@ -2959,7 +2946,7 @@ paths:
         Updates the authenticated user's feedback for a specific product match created by one of
         their saved search filters.
         The match is addressed by the search filter ID and canonical product ID.
-        Requires valid Cognito JWT authentication.
+        Requires a Cognito JWT or an Aura access token with `search-filters:write`.
 
         The request body itself is required and must be a JSON object, but the `feedback` field is optional:
         - `{"feedback": true}` marks the match as relevant.
@@ -2987,6 +2974,7 @@ paths:
           example: "550e8400-e29b-41d4-a716-446655440111"
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
         description: |
@@ -3108,7 +3096,7 @@ paths:
                     title: "Bad Request"
                     error: "BAD_BODY_VALUE"
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - missing or invalid Cognito JWT or Aura access token
           content:
             application/problem+json:
               schema:
@@ -3116,7 +3104,17 @@ paths:
               example:
                 status: 401
                 title: "Unauthorized"
-                error: "UNAUTHORIZED"
+                error: "INVALID_CREDENTIALS"
+        "403":
+          description: Forbidden - Aura access token lacks the required `search-filters:write` scope
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
         "404":
           description: Search-filter product match not found
           content:
@@ -3273,54 +3271,32 @@ paths:
       summary: Add product to watchlist
       description: |
         Adds a product to the authenticated user's watchlist.
-        The request body must contain a product ID.
+        The request body requires canonical `productId` and may set `notifications`; notifications default to `true`.
         Active-entry quota depends on the user's tier: Free users may have 20, Pro users 100,
         and Ultimate users have no active-entry limit. Adding beyond the active quota returns
         a 422 Unprocessable Entity error.
-        Returns a 201 Created response with a Location header pointing to the created resource and the full personalized product data.
-        Requires valid Cognito JWT authentication.
+        Returns the created `WatchlistEntryData`.
+        Requires a Cognito JWT or an Aura access token with `watchlist:write`.
       operationId: addWatchlistProduct
       tags:
         - Watchlist
-      parameters:
-        - name: language
-          in: query
-          required: false
-          description: |
-            Preferred language for localized content in the response.
-            Defaults to `en` when omitted.
-          schema:
-            $ref: "#/components/schemas/LanguageData"
-          example: de
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display in the response.
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
       security:
         - BearerAuth: []
+        - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Product identifier to add to watchlist
+        description: Canonical product identifier and optional notification preference.
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ProductKeyData"
+              $ref: "#/components/schemas/PostWatchlistData"
             example:
-              shopId: "550e8400-e29b-41d4-a716-446655440000"
-              shopsProductId: "6ba7b810"
+              productId: "550e8400-e29b-41d4-a716-446655440000"
+              notifications: true
       responses:
         "201":
-          description: Product added to watchlist successfully
+          description: Watchlist entry created successfully
           headers:
-            Location:
-              description: URL of the added watchlist product
-              schema:
-                type: string
-                format: uri
-              example: "https://api.aura-historia.com/api/v1/me/watchlist/550e8400-e29b-41d4-a716-446655440000"
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -3329,47 +3305,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PersonalizedGetProductData"
+                $ref: "#/components/schemas/WatchlistEntryData"
               example:
-                item:
-                  productId: "550e8400-e29b-41d4-a716-446655440000"
-                  productSlugId: "smartphone-case-a1b2c3"
-                  shopSlugId: "tech-store"
-                  eventId: "550e8400-e29b-41d4-a716-446655440001"
-                  shopId: "550e8400-e29b-41d4-a716-446655440000"
-                  shopsProductId: "6ba7b810"
-                  shopName: "Tech Store"
-                  shopType: "COMMERCIAL_DEALER"
-                  title:
-                    text: "Smartphone Case"
-                    language: "en"
-                  price:
-                    offer:
-                      currency: "EUR"
-                      amount: 2999
-                    estimate:
-                      min:
-                        currency: "EUR"
-                        amount: 2700
-                      max:
-                        currency: "EUR"
-                        amount: 3300
-                  state: "AVAILABLE"
-                  url: "https://tech-store.com/smartphone-case"
-                  viewUrl: "https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral"
-                  images:
-                    - url: "https://tech-store.com/images/case-1.jpg"
-                      prohibitedContent: "NONE"
-                  created: "2024-01-01T10:00:00Z"
-                  updated: "2024-01-01T12:00:00Z"
-                userState:
-                  watchlist:
-                    watching: true
-                    notifications: false
-                  prohibitedContent:
-                    consent: false
-                  notification:
-                    seen: true
+                userId: "550e8400-e29b-41d4-a716-446655440000"
+                productId: "550e8400-e29b-41d4-a716-446655440000"
+                notifications: true
+                state: "ACTIVE"
         "400":
           description: Bad request - invalid request body
           content:
@@ -3392,7 +3333,7 @@ paths:
                     error: "BAD_BODY_VALUE"
                     detail: "Invalid JSON format"
         "401":
-          description: Unauthorized - invalid or missing JWT token
+          description: Unauthorized - missing or invalid Cognito JWT or Aura access token
           content:
             application/problem+json:
               schema:
@@ -3400,7 +3341,17 @@ paths:
               example:
                 status: 401
                 title: "Unauthorized"
-                error: "UNAUTHORIZED"
+                error: "INVALID_CREDENTIALS"
+        "403":
+          description: Forbidden - Aura access token lacks the required `watchlist:write` scope
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 403
+                title: "Forbidden"
+                error: "FORBIDDEN"
         "404":
           description: User not found
           content:
@@ -11772,14 +11723,6 @@ components:
         distance:
           $ref: "#/components/schemas/DistanceData"
 
-    SortUserSearchFilterFieldData:
-      type: string
-      enum: [created]
-      description: |
-        Fields available for sorting search filters:
-        - created: Sort by creation timestamp
-      example: created
-
     UserSearchFilterCollectionData:
       type: object
       description: Paginated collection of user search filters with flattened pagination
@@ -13294,6 +13237,59 @@ components:
           description: Shop's unique identifier for the product. Can be any arbitrary string.
           example: "6ba7b810"
 
+    PostWatchlistData:
+      type: object
+      description: Request body for creating a watchlist entry.
+      required:
+        - productId
+      properties:
+        productId:
+          type: string
+          format: uuid
+          description: Canonical identifier of the product to add to the watchlist.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        notifications:
+          type: boolean
+          description: Whether notifications are enabled for this entry. Defaults to `true`.
+          default: true
+          example: true
+
+    WatchlistEntryData:
+      type: object
+      description: A user's watchlist entry.
+      required:
+        - userId
+        - productId
+        - notifications
+        - state
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Identifier of the user who owns the entry.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        productId:
+          type: string
+          format: uuid
+          description: Canonical identifier of the watched product.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        notifications:
+          type: boolean
+          description: Whether notifications are enabled for this entry.
+          example: true
+        state:
+          $ref: "#/components/schemas/ResourceStateData"
+        created:
+          type: string
+          format: date-time
+          description: When the entry was created, when available.
+          example: "2026-08-06T12:00:00Z"
+        updated:
+          type: string
+          format: date-time
+          description: When the entry was last updated, when available.
+          example: "2026-08-06T12:00:00Z"
+
     WatchlistProductPatch:
       type: object
       description: Patch object for updating watchlist product settings
@@ -13318,14 +13314,6 @@ components:
       description: |
         Fields available for sorting watchlist products:
         - created: Sort by when product was added to watchlist
-      example: created
-
-    SortSearchFilterMatchFieldData:
-      type: string
-      enum: [created]
-      description: |
-        Fields available for sorting search filter matched products:
-        - created: Sort by when the product was matched by the search filter
       example: created
 
     SortUserFieldData:
@@ -13742,7 +13730,7 @@ components:
       type: string
       description: |
         The user's subscription tier, which determines limits and feature access (e.g. max watchlist entries, max search filters, allowed search filter fields).
-        - `FREE`: Default tier for all users. Allows up to 20 watchlist entries, up to 1 search filter (limited to `productQuery`, `price`, and `state` filter fields), and up to 10 product matches per filter.
+        - `FREE`: Default tier for all users. Allows up to 20 watchlist entries, up to 1 search filter (limited to `productQuery`, `price`, `state`, `excludeProductId`, and `lifecycle` filter fields), and up to 10 product matches per filter.
         - `PRO`: Premium tier. Allows up to 100 watchlist entries, up to 5 search filters with access to all filter fields, and unlimited product matches per filter.
         - `ULTIMATE`: Highest tier. Allows unlimited watchlist entries, unlimited search filters with access to all filter fields, and unlimited product matches per filter.
       enum:

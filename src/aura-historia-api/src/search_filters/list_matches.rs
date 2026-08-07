@@ -1,4 +1,4 @@
-use super::util::{no_store, parse_search_filter_id};
+use super::util::{no_store, parse_json_query, parse_search_filter_id};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, SEARCH_FILTER_INTERNAL_ERROR};
 use crate::products::product_data::{
@@ -23,30 +23,16 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 #[serde(rename_all = "camelCase")]
 struct ListSearchFilterMatchesQuery {
     #[serde(default)]
-    sort: Option<SortSearchFilterMatchFieldData>,
-    #[serde(default)]
-    order: Option<SortOrder>,
-    #[serde(default)]
     language: LanguageData,
     #[serde(default)]
     size: Option<SearchFilterMatchPageSize>,
     #[serde(default)]
-    search_after: Option<SearchFilterMatchCursorData>,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum SortSearchFilterMatchFieldData {
-    Created,
+    search_after: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(transparent)]
 struct SearchFilterMatchPageSize(u64);
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(transparent)]
-struct SearchFilterMatchCursorData(serde_json::Value);
 
 pub(super) async fn list_search_filter_matches(
     State(state): State<SearchFiltersState>,
@@ -67,11 +53,7 @@ pub(super) async fn list_search_filter_matches(
                     .into_response();
             }
         };
-    let _sort = query
-        .sort
-        .unwrap_or(SortSearchFilterMatchFieldData::Created);
-    let order = query.order.unwrap_or(SortOrder::Asc);
-    let cursor = match matches_cursor(query.size, query.search_after) {
+    let cursor = match matches_cursor(query.size, query.search_after.as_deref()) {
         Ok(cursor) => cursor,
         Err(error) => return error.into_response(),
     };
@@ -88,7 +70,7 @@ pub(super) async fn list_search_filter_matches(
                 search_filter_id,
                 language: query.language.into(),
                 cursor: Some(cursor),
-                order,
+                order: SortOrder::Asc,
             },
         )
         .await
@@ -127,16 +109,15 @@ pub(super) async fn list_search_filter_matches(
 
 fn matches_cursor(
     size: Option<SearchFilterMatchPageSize>,
-    search_after: Option<SearchFilterMatchCursorData>,
+    search_after: Option<&str>,
 ) -> Result<Cursor<SearchFilterMatchCursor>, ApiError> {
     let size = size.map_or(21, |value| value.0).clamp(1, 100);
-    let search_after = search_after
-        .map(|value| parse_matches_cursor(value.0))
-        .transpose()?;
+    let search_after = search_after.map(parse_matches_cursor).transpose()?;
     Ok(Cursor { size, search_after })
 }
 
-fn parse_matches_cursor(value: Value) -> Result<SearchFilterMatchCursor, ApiError> {
+fn parse_matches_cursor(raw: &str) -> Result<SearchFilterMatchCursor, ApiError> {
+    let value: Value = parse_json_query(raw, "searchAfter")?;
     let Value::Array(values) = value else {
         return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
             .with_query_field("searchAfter")
@@ -180,7 +161,8 @@ mod tests {
     #[test]
     fn should_parse_tie_safe_match_cursor() -> Result<(), Box<dyn std::error::Error>> {
         let product_id = ProductId::new();
-        let cursor = parse_matches_cursor(json!(["2026-08-05T12:30:00Z", product_id]))?;
+        let raw_cursor = serde_json::to_string(&json!(["2026-08-05T12:30:00Z", product_id]))?;
+        let cursor = parse_matches_cursor(&raw_cursor)?;
 
         assert_eq!(
             cursor.created,

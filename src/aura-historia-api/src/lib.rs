@@ -83,7 +83,7 @@ use tracing::info;
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_postgres::{
     SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserRepositoryFactory,
-    SqlxUserSearchReaderFactory,
+    SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
 };
 use user_service::use_cases::AuthenticateAccessTokenHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
@@ -411,6 +411,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
+        SqlxUserTierEntitlementsFactory::new(),
     );
     let delete_user = DeleteUserHandler::new(
         unit_of_work.clone(),
@@ -421,13 +422,13 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         unit_of_work.clone(),
         SqlxWatchlistRepositoryFactory,
         SqlxWatchlistQuotaReaderFactory,
-        SqlxUserAccountReaderFactory::new(),
+        SqlxUserTierEntitlementsFactory::new(),
     );
     let update_watchlist_product = UpdateWatchlistProductHandler::new(
         unit_of_work.clone(),
         SqlxWatchlistRepositoryFactory,
         SqlxWatchlistQuotaReaderFactory,
-        SqlxUserAccountReaderFactory::new(),
+        SqlxUserTierEntitlementsFactory::new(),
     );
     let unwatch_product =
         UnwatchProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
@@ -535,7 +536,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
             SqlxSearchFilterRepositoryFactory,
             search_filter_embeddings.clone(),
             SqlxSearchFilterQuotaReaderFactory,
-            SqlxUserAccountReaderFactory::new(),
+            SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),
@@ -546,7 +547,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
             search_filter_embeddings,
             search_filter_reader.clone(),
             SqlxSearchFilterQuotaReaderFactory,
-            SqlxUserAccountReaderFactory::new(),
+            SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(DeleteOwnedSearchFilterHandler::new(
             unit_of_work.clone(),

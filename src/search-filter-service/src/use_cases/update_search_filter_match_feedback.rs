@@ -189,10 +189,8 @@ fn search_filter_repository_error(
     error: SearchFilterRepositoryError,
 ) -> UpdateSearchFilterMatchFeedbackError {
     match error {
-        SearchFilterRepositoryError::InvalidPersistedState => {
-            UpdateSearchFilterMatchFeedbackError::PersistedSearchFilterStateInvalid {
-                source: box_error(SearchFilterRepositoryError::InvalidPersistedState),
-            }
+        SearchFilterRepositoryError::InvalidPersistedState { source } => {
+            UpdateSearchFilterMatchFeedbackError::PersistedSearchFilterStateInvalid { source }
         }
         error => UpdateSearchFilterMatchFeedbackError::SearchFilterLookupFailed {
             source: box_error(error),

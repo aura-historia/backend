@@ -158,6 +158,9 @@
             "userId": {
                 "type": "keyword"
             },
+            "sourceVersion": {
+                "type": "long"
+            },
             "name": {
                 "type": "keyword"
             },
@@ -401,7 +404,7 @@
             "lifecycle": {
                 "type": "keyword"
             },
-            "titleNative": {
+            "title": {
                 "type": "object",
                 "properties": {
                     "text": {

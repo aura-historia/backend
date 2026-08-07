@@ -1,4 +1,3 @@
-use common::currency::data::CurrencyData;
 use common::event_id::EventId;
 use common::language::data::LanguageData;
 use common::product_id::ProductId;
@@ -13,23 +12,81 @@ use common::shop_slug_id::ShopSlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use common::{currency::data::CurrencyData, error::boxed::box_error};
 
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};
 use search_filter_service::ports::{
-    PersistedSearchFilter, PersistedSearchFilterMatch, SearchFilterMatchView,
-    SearchFilterReadError, SearchFilterRepositoryError, SearchFilterView,
+    PersistedSearchFilter, PersistedSearchFilterMatch, SearchFilterIndexReadError,
+    SearchFilterMatchView, SearchFilterProjection, SearchFilterReadError,
+    SearchFilterRepositoryError, SearchFilterView,
 };
 use serde::{Deserialize, Serialize};
 use shop_core::shop_type::ShopType;
 use sqlx::FromRow;
-use std::collections::HashSet;
+use std::{collections::HashSet, error::Error, fmt};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, created, updated, last_hybrid_search_matched, version";
 pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_id, origin_event_id, user_search_filter_name, enhanced_match_reason, feedback, created, updated";
+
+#[derive(Debug)]
+pub(crate) enum SearchFilterRowMappingError {
+    NameTooLong,
+    InvalidState,
+}
+
+impl fmt::Display for SearchFilterRowMappingError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NameTooLong => {
+                formatter.write_str("persisted search filter name exceeds 255 characters")
+            }
+            Self::InvalidState => formatter.write_str("persisted search filter state is invalid"),
+        }
+    }
+}
+
+impl Error for SearchFilterRowMappingError {}
+
+#[derive(Debug)]
+pub(crate) enum ProductSearchJsonMappingError {
+    Serialize(serde_json::Error),
+    Deserialize(serde_json::Error),
+    FormatTimestamp(time::error::Format),
+    ParseTimestamp(time::error::Parse),
+}
+
+impl fmt::Display for ProductSearchJsonMappingError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Serialize(_) => {
+                formatter.write_str("search filter product search JSON serialization failed")
+            }
+            Self::Deserialize(_) => {
+                formatter.write_str("persisted search filter product search JSON is invalid")
+            }
+            Self::FormatTimestamp(_) => {
+                formatter.write_str("search filter product search timestamp formatting failed")
+            }
+            Self::ParseTimestamp(_) => {
+                formatter.write_str("persisted search filter product search timestamp is invalid")
+            }
+        }
+    }
+}
+
+impl Error for ProductSearchJsonMappingError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Serialize(source) | Self::Deserialize(source) => Some(source),
+            Self::FormatTimestamp(source) => Some(source),
+            Self::ParseTimestamp(source) => Some(source),
+        }
+    }
+}
 
 #[derive(Debug, FromRow)]
 pub(crate) struct FilterRow {
@@ -55,11 +112,22 @@ impl FilterRow {
         let filter = SearchFilter::rehydrate(
             UserSearchFilterId::from(self.user_search_filter_id),
             UserId::from(self.user_id),
-            name(self.name).map_err(|_| SearchFilterRepositoryError::InvalidPersistedState)?,
+            name(self.name).map_err(|source| {
+                SearchFilterRepositoryError::InvalidPersistedState {
+                    source: box_error(source),
+                }
+            })?,
             self.notifications,
-            state(&self.state).ok_or(SearchFilterRepositoryError::InvalidPersistedState)?,
-            product_search_from_json(self.search)
-                .map_err(|_| SearchFilterRepositoryError::InvalidPersistedState)?,
+            state(&self.state).map_err(|source| {
+                SearchFilterRepositoryError::InvalidPersistedState {
+                    source: box_error(source),
+                }
+            })?,
+            product_search_from_json(self.search).map_err(|source| {
+                SearchFilterRepositoryError::InvalidPersistedState {
+                    source: box_error(source),
+                }
+            })?,
             self.embedding,
         );
         Ok(PersistedSearchFilter {
@@ -79,13 +147,50 @@ impl FilterRow {
             user_id: UserId::from(self.user_id),
             name: name(self.name).map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
             notifications: self.notifications,
-            state: state(&self.state).ok_or(SearchFilterReadError::InvalidPersistedState)?,
+            state: state(&self.state).map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
             search: product_search_from_json(self.search)
                 .map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
             embedding: self.embedding,
             created,
             updated,
             last_hybrid_search_matched,
+        })
+    }
+
+    pub(crate) fn into_projection(
+        self,
+    ) -> Result<SearchFilterProjection, SearchFilterIndexReadError> {
+        let source_version = self.version;
+        let created = self.created;
+        let updated = self.updated;
+        let last_hybrid_search_matched = self.last_hybrid_search_matched;
+        let view = SearchFilterView {
+            search_filter_id: UserSearchFilterId::from(self.user_search_filter_id),
+            user_id: UserId::from(self.user_id),
+            name: name(self.name).map_err(|source| {
+                SearchFilterIndexReadError::InvalidPersistedState {
+                    source: box_error(source),
+                }
+            })?,
+            notifications: self.notifications,
+            state: state(&self.state).map_err(|source| {
+                SearchFilterIndexReadError::InvalidPersistedState {
+                    source: box_error(source),
+                }
+            })?,
+            search: product_search_from_json(self.search).map_err(|source| {
+                SearchFilterIndexReadError::InvalidPersistedState {
+                    source: box_error(source),
+                }
+            })?,
+            embedding: self.embedding,
+            created,
+            updated,
+            last_hybrid_search_matched,
+        };
+        Ok(SearchFilterProjection {
+            view,
+            source_version,
         })
     }
 }
@@ -102,7 +207,7 @@ pub(crate) struct MatchRow {
     pub updated: OffsetDateTime,
 }
 impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
-    type Error = ();
+    type Error = SearchFilterRowMappingError;
     fn try_from(row: MatchRow) -> Result<Self, Self::Error> {
         Ok(Self {
             product_match: SearchFilterProductMatch {
@@ -120,7 +225,7 @@ impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
     }
 }
 impl TryFrom<MatchRow> for SearchFilterMatchView {
-    type Error = ();
+    type Error = SearchFilterRowMappingError;
     fn try_from(row: MatchRow) -> Result<Self, Self::Error> {
         Ok(Self {
             user_id: UserId::from(row.user_id),
@@ -146,18 +251,22 @@ pub(crate) fn format_state(value: ResourceState) -> &'static str {
 pub(crate) fn user_search_filter_uuid(id: UserSearchFilterId) -> Result<uuid::Uuid, uuid::Error> {
     uuid::Uuid::parse_str(&id.to_string())
 }
-fn state(v: &str) -> Option<ResourceState> {
+fn state(v: &str) -> Result<ResourceState, SearchFilterRowMappingError> {
     match v {
-        "Active" | "active" => Some(ResourceState::Active),
-        "InactiveByUser" | "inactive_by_user" => Some(ResourceState::InactiveByUser),
+        "Active" | "active" => Ok(ResourceState::Active),
+        "InactiveByUser" | "inactive_by_user" => Ok(ResourceState::InactiveByUser),
         "InactiveByRestrictedPlan" | "inactive_by_restricted_plan" => {
-            Some(ResourceState::InactiveByRestrictedPlan)
+            Ok(ResourceState::InactiveByRestrictedPlan)
         }
-        _ => None,
+        _ => Err(SearchFilterRowMappingError::InvalidState),
     }
 }
-fn name(v: String) -> Result<UserSearchFilterName, ()> {
-    if v.len() > 255 { Err(()) } else { Ok(v.into()) }
+fn name(v: String) -> Result<UserSearchFilterName, SearchFilterRowMappingError> {
+    if v.len() > 255 {
+        Err(SearchFilterRowMappingError::NameTooLong)
+    } else {
+        Ok(v.into())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -257,41 +366,41 @@ struct TimeRangeJson {
     max: Option<String>,
 }
 impl TryFrom<RangeQuery<OffsetDateTime>> for TimeRangeJson {
-    type Error = ();
+    type Error = ProductSearchJsonMappingError;
     fn try_from(v: RangeQuery<OffsetDateTime>) -> Result<Self, Self::Error> {
         Ok(Self {
             min: v
                 .min
                 .map(|v| v.format(&Rfc3339))
                 .transpose()
-                .map_err(|_| ())?,
+                .map_err(ProductSearchJsonMappingError::FormatTimestamp)?,
             max: v
                 .max
                 .map(|v| v.format(&Rfc3339))
                 .transpose()
-                .map_err(|_| ())?,
+                .map_err(ProductSearchJsonMappingError::FormatTimestamp)?,
         })
     }
 }
 impl TryFrom<TimeRangeJson> for RangeQuery<OffsetDateTime> {
-    type Error = ();
+    type Error = ProductSearchJsonMappingError;
     fn try_from(v: TimeRangeJson) -> Result<Self, Self::Error> {
         Ok(Self {
             min: v
                 .min
                 .map(|v| OffsetDateTime::parse(&v, &Rfc3339))
                 .transpose()
-                .map_err(|_| ())?,
+                .map_err(ProductSearchJsonMappingError::ParseTimestamp)?,
             max: v
                 .max
                 .map(|v| OffsetDateTime::parse(&v, &Rfc3339))
                 .transpose()
-                .map_err(|_| ())?,
+                .map_err(ProductSearchJsonMappingError::ParseTimestamp)?,
         })
     }
 }
 impl TryFrom<&ProductSearch> for ProductSearchJson {
-    type Error = ();
+    type Error = ProductSearchJsonMappingError;
 
     fn try_from(v: &ProductSearch) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -331,8 +440,11 @@ impl TryFrom<&ProductSearch> for ProductSearchJson {
         })
     }
 }
-fn product_search_from_json(v: serde_json::Value) -> Result<ProductSearch, ()> {
-    let j: ProductSearchJson = serde_json::from_value(v).map_err(|_| ())?;
+fn product_search_from_json(
+    v: serde_json::Value,
+) -> Result<ProductSearch, ProductSearchJsonMappingError> {
+    let j: ProductSearchJson =
+        serde_json::from_value(v).map_err(ProductSearchJsonMappingError::Deserialize)?;
     Ok(ProductSearch {
         language: j.language.into(),
         currency: j.currency.into(),
@@ -378,8 +490,11 @@ fn product_search_from_json(v: serde_json::Value) -> Result<ProductSearch, ()> {
         auction_end_query: j.auction_end_query.map(TryInto::try_into).transpose()?,
     })
 }
-pub(crate) fn product_search_to_json(v: &ProductSearch) -> Result<serde_json::Value, ()> {
-    serde_json::to_value(ProductSearchJson::try_from(v)?).map_err(|_| ())
+pub(crate) fn product_search_to_json(
+    v: &ProductSearch,
+) -> Result<serde_json::Value, ProductSearchJsonMappingError> {
+    serde_json::to_value(ProductSearchJson::try_from(v)?)
+        .map_err(ProductSearchJsonMappingError::Serialize)
 }
 
 #[cfg(test)]
@@ -399,7 +514,11 @@ mod tests {
             Ok(v) => v,
             Err(_) => panic!("serialize"),
         };
-        assert_eq!(Ok(search), product_search_from_json(json));
+        let decoded = match product_search_from_json(json) {
+            Ok(search) => search,
+            Err(error) => panic!("failed to deserialize product search: {error}"),
+        };
+        assert_eq!(search, decoded);
     }
     #[test]
     fn should_serialize_every_product_search_field() {
@@ -419,8 +538,52 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_incomplete_product_search_json() {
-        assert!(product_search_from_json(serde_json::json!({})).is_err());
+    fn should_preserve_incomplete_product_search_json_source() {
+        let error = match product_search_from_json(serde_json::json!({})) {
+            Ok(_) => panic!("incomplete product search JSON must fail"),
+            Err(error) => error,
+        };
+
+        assert!(std::error::Error::source(&error).is_some());
+        assert!(matches!(
+            error,
+            ProductSearchJsonMappingError::Deserialize(_)
+        ));
+    }
+
+    #[test]
+    fn should_preserve_invalid_filter_row_mapping_source() {
+        let search = match product_search_to_json(&ProductSearch::new(Language::En, Currency::Eur))
+        {
+            Ok(search) => search,
+            Err(error) => panic!("failed to create product search JSON: {error}"),
+        };
+        let error = match (FilterRow {
+            user_search_filter_id: uuid::Uuid::nil(),
+            user_id: uuid::Uuid::nil(),
+            name: "x".repeat(256),
+            notifications: true,
+            state: "Active".to_owned(),
+            search,
+            embedding: None,
+            created: OffsetDateTime::UNIX_EPOCH,
+            updated: OffsetDateTime::UNIX_EPOCH,
+            last_hybrid_search_matched: OffsetDateTime::UNIX_EPOCH,
+            version: 1,
+        })
+        .into_persisted()
+        {
+            Ok(_) => panic!("overlong persisted filter name must fail"),
+            Err(error) => error,
+        };
+
+        let SearchFilterRepositoryError::InvalidPersistedState { source } = error else {
+            panic!("expected invalid persisted search-filter state");
+        };
+        assert!(matches!(
+            source.downcast_ref::<SearchFilterRowMappingError>(),
+            Some(SearchFilterRowMappingError::NameTooLong)
+        ));
     }
 
     #[test]

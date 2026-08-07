@@ -6,6 +6,15 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-08-06 - Align Search Filter and Watchlist API Contracts
+
+### Changed
+
+- `GET /api/v1/me/search-filters` and `GET /api/v1/me/search-filters/{userSearchFilterId}/matches` no longer expose client-controlled `sort` or `order`; both use fixed service ordering. The match cursor is supplied as a JSON-encoded `[RFC3339 timestamp, product UUID]` `searchAfter` query string.
+- All migrated saved-search filter routes now document Cognito JWT and Aura access-token authentication. Aura access tokens require `search-filters:write`; missing or invalid credentials return `INVALID_CREDENTIALS`, and insufficient scope returns `FORBIDDEN`.
+- `POST /api/v1/me/watchlist` now documents its shipped `{ productId, notifications? }` request and `WatchlistEntryData` response. It no longer documents `Location`, `language`, or `currency`; Aura access tokens require `watchlist:write`.
+- Free saved-search filters retain legacy support for `excludeProductId` and `lifecycle` alongside `productQuery`, `price`, and `state`.
+
 ## 2026-08-06 - Enforce Canonical Watchlist Tier Quotas
 
 ### Changed

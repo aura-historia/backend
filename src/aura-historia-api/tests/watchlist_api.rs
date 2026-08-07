@@ -7,6 +7,7 @@ use api_support::{
 use common::product_id::ProductId;
 use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
+    get_postgres_client,
 };
 use user_core::{access_token::Scope, tier::UserTier};
 
@@ -34,11 +35,17 @@ async fn should_add_product_to_watchlist_when_authenticated() {
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to create watchlist API: {error}"));
+    let location = response.headers().get(reqwest::header::LOCATION).cloned();
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::CREATED, status);
+    assert!(location.is_none());
+    assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
     assert_eq!(serde_json::json!(product_id.to_string()), body["productId"]);
     assert_eq!(serde_json::json!(true), body["notifications"]);
+    assert_eq!(serde_json::json!("ACTIVE"), body["state"]);
+    assert!(body.get("item").is_none());
+    assert!(body.get("userState").is_none());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
@@ -265,6 +272,59 @@ async fn should_reject_watchlist_create_at_free_tier_quota() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_serialize_concurrent_watchlist_creates_at_free_quota() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    seed_active_watchlist_entries(user_id, 19).await;
+    let first_product_id = seed_product().await;
+    let second_product_id = seed_product().await;
+    let client = reqwest::Client::new();
+
+    let first_request = client
+        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .bearer_auth(String::from(token.clone()))
+        .json(&serde_json::json!({ "productId": first_product_id }))
+        .send();
+    let second_request = client
+        .post(format!("{}/api/v1/me/watchlist", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({ "productId": second_product_id }))
+        .send();
+
+    let (first, second) = tokio::join!(first_request, second_request);
+    let mut statuses = [
+        first
+            .unwrap_or_else(|error| panic!("first concurrent create failed: {error}"))
+            .status(),
+        second
+            .unwrap_or_else(|error| panic!("second concurrent create failed: {error}"))
+            .status(),
+    ];
+    statuses.sort();
+
+    assert_eq!(
+        [
+            reqwest::StatusCode::CREATED,
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        ],
+        statuses
+    );
+    let pool = get_postgres_client().await;
+    let active_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = 'Active'",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to count active watchlist entries: {error}"));
+    assert_eq!(20, active_count);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
 async fn should_allow_ultimate_tier_to_create_beyond_free_quota() {
     let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
     let token = seed_access_token_for(
@@ -316,6 +376,65 @@ async fn should_reject_free_tier_watchlist_reactivation_at_quota() {
         reqwest::StatusCode::UNPROCESSABLE_ENTITY,
         "WATCHLIST_QUOTA_EXCEEDED",
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_serialize_concurrent_watchlist_reactivations_at_free_quota() {
+    let user_id = seed_user("USER").await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::WatchlistWrite]),
+    )
+    .await;
+    seed_active_watchlist_entries(user_id, 19).await;
+    let first_product_id = seed_inactive_watchlist_entry(user_id).await;
+    let second_product_id = seed_inactive_watchlist_entry(user_id).await;
+    let client = reqwest::Client::new();
+
+    let first_request = client
+        .patch(format!(
+            "{}/api/v1/me/watchlist/{first_product_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .json(&serde_json::json!({ "state": "ACTIVE" }))
+        .send();
+    let second_request = client
+        .patch(format!(
+            "{}/api/v1/me/watchlist/{second_product_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token))
+        .json(&serde_json::json!({ "state": "ACTIVE" }))
+        .send();
+
+    let (first, second) = tokio::join!(first_request, second_request);
+    let mut statuses = [
+        first
+            .unwrap_or_else(|error| panic!("first concurrent reactivation failed: {error}"))
+            .status(),
+        second
+            .unwrap_or_else(|error| panic!("second concurrent reactivation failed: {error}"))
+            .status(),
+    ];
+    statuses.sort();
+
+    assert_eq!(
+        [
+            reqwest::StatusCode::OK,
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY
+        ],
+        statuses
+    );
+    let pool = get_postgres_client().await;
+    let active_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = 'Active'",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to count active watchlist entries: {error}"));
+    assert_eq!(20, active_count);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]

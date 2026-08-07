@@ -48,7 +48,6 @@ fn restricted_features(tier: UserTier) -> &'static [RestrictedFeature] {
 #[derive(Clone, Copy)]
 enum RestrictedFeature {
     EnhancedSearchDescription,
-    ExcludeProductIdQuery,
     ShopNameQuery,
     ExcludeShopNameQuery,
     SellerNameQuery,
@@ -61,7 +60,6 @@ enum RestrictedFeature {
     CountryQuery,
     ContinentQuery,
     GeoAddressDistanceQuery,
-    LifecycleQuery,
     CreatedQuery,
     UpdatedQuery,
     AuctionStartQuery,
@@ -70,9 +68,8 @@ enum RestrictedFeature {
 
 const PRO_RESTRICTED_FEATURES: [RestrictedFeature; 1] =
     [RestrictedFeature::EnhancedSearchDescription];
-const FREE_RESTRICTED_FEATURES: [RestrictedFeature; 19] = [
+const FREE_RESTRICTED_FEATURES: [RestrictedFeature; 17] = [
     RestrictedFeature::EnhancedSearchDescription,
-    RestrictedFeature::ExcludeProductIdQuery,
     RestrictedFeature::ShopNameQuery,
     RestrictedFeature::ExcludeShopNameQuery,
     RestrictedFeature::SellerNameQuery,
@@ -85,7 +82,6 @@ const FREE_RESTRICTED_FEATURES: [RestrictedFeature; 19] = [
     RestrictedFeature::CountryQuery,
     RestrictedFeature::ContinentQuery,
     RestrictedFeature::GeoAddressDistanceQuery,
-    RestrictedFeature::LifecycleQuery,
     RestrictedFeature::CreatedQuery,
     RestrictedFeature::UpdatedQuery,
     RestrictedFeature::AuctionStartQuery,
@@ -96,7 +92,6 @@ impl RestrictedFeature {
     fn name(self) -> &'static str {
         match self {
             Self::EnhancedSearchDescription => "enhancedSearchDescription",
-            Self::ExcludeProductIdQuery => "excludeProductIdQuery",
             Self::ShopNameQuery => "shopNameQuery",
             Self::ExcludeShopNameQuery => "excludeShopNameQuery",
             Self::SellerNameQuery => "sellerNameQuery",
@@ -109,7 +104,6 @@ impl RestrictedFeature {
             Self::CountryQuery => "countryQuery",
             Self::ContinentQuery => "continentQuery",
             Self::GeoAddressDistanceQuery => "geoAddressDistanceQuery",
-            Self::LifecycleQuery => "lifecycleQuery",
             Self::CreatedQuery => "createdQuery",
             Self::UpdatedQuery => "updatedQuery",
             Self::AuctionStartQuery => "auctionStartQuery",
@@ -120,7 +114,6 @@ impl RestrictedFeature {
     fn is_present(self, search: &ProductSearch) -> bool {
         match self {
             Self::EnhancedSearchDescription => search.enhanced_search_description.is_some(),
-            Self::ExcludeProductIdQuery => !search.exclude_product_id_query.is_empty(),
             Self::ShopNameQuery => !search.shop_name_query.is_empty(),
             Self::ExcludeShopNameQuery => !search.exclude_shop_name_query.is_empty(),
             Self::SellerNameQuery => !search.seller_name_query.is_empty(),
@@ -133,7 +126,6 @@ impl RestrictedFeature {
             Self::CountryQuery => !search.country_query.is_empty(),
             Self::ContinentQuery => !search.continent_query.is_empty(),
             Self::GeoAddressDistanceQuery => search.geo_address_distance_query.is_some(),
-            Self::LifecycleQuery => !search.lifecycle_query.is_empty(),
             Self::CreatedQuery => search.created_query.is_some(),
             Self::UpdatedQuery => search.updated_query.is_some(),
             Self::AuctionStartQuery => search.auction_start_query.is_some(),
@@ -145,9 +137,13 @@ impl RestrictedFeature {
 #[cfg(test)]
 mod tests {
     use super::{active_filter_quota, validate_search_feature_changes, validate_search_features};
-    use common::{currency::domain::Currency, language::domain::Language};
+    use common::{
+        currency::domain::Currency, language::domain::Language, product_id::ProductId,
+        product_lifecycle::domain::ProductLifecycle,
+    };
     use isocountry::CountryCode;
     use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+    use std::collections::HashSet;
     use user_core::tier::UserTier;
 
     #[test]
@@ -175,6 +171,23 @@ mod tests {
         assert_eq!(
             Ok(()),
             validate_search_features(UserTier::Ultimate, &enhanced_search)
+        );
+    }
+
+    #[test]
+    fn should_allow_legacy_free_tier_product_exclusions_and_lifecycle_filters() {
+        let with_product_exclusion = ProductSearch::new(Language::En, Currency::Eur)
+            .with_exclude_product_id_query(HashSet::from([ProductId::new()]).into());
+        let with_lifecycle = ProductSearch::new(Language::En, Currency::Eur)
+            .with_lifecycle_query(HashSet::from([ProductLifecycle::Deleted]).into());
+
+        assert_eq!(
+            Ok(()),
+            validate_search_features(UserTier::Free, &with_product_exclusion)
+        );
+        assert_eq!(
+            Ok(()),
+            validate_search_features(UserTier::Free, &with_lifecycle)
         );
     }
 

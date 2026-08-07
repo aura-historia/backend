@@ -4,12 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true }
+common = { workspace = true, features = ["postgres"] }
+opensearch = { workspace = true }
+search-filter-opensearch = { workspace = true }
+search-filter-postgres = { workspace = true }
+search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+url = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 rstest = { workspace = true }

@@ -7,8 +7,10 @@
 
 ## Core Design
 
-- Uses `user_search_filters` index.
-- Builds percolator documents from canonical search filter reader views.
+- Writes canonical documents directly through `user_search_filters`.
+- Builds percolator documents from complete canonical search-filter projection views using the public product percolator JSON builder.
+- Uses Postgres `version` as OpenSearch external versioning; stale or duplicate writes are no-op outcomes.
+- Persists every ProductSearch field and rejects incomplete or unknown persisted search payloads.
 - Keeps OpenSearch document types private.
 
 ## Ownership
@@ -16,6 +18,11 @@
 - This doc rule `src/search-filter-opensearch/**`.
 - Parent doc: `src/AGENTS.md`.
 - No child doc below.
+
+## Work Guidance
+
+- Product percolator JSON may cross from `product-opensearch`; product document types may not.
+- Preserve complete ProductSearch round-trip and percolator tests.
 
 ## Verification
 

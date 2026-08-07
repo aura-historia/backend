@@ -342,7 +342,7 @@ fn parse_measurement_unit(value: &str) -> Result<MeasurementUnit, UserRowMapping
     }
 }
 
-fn parse_tier(value: &str) -> Result<UserTier, UserRowMappingError> {
+pub(crate) fn parse_tier(value: &str) -> Result<UserTier, UserRowMappingError> {
     match value.to_ascii_uppercase().as_str() {
         "FREE" => Ok(UserTier::Free),
         "PRO" => Ok(UserTier::Pro),

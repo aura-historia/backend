@@ -17,7 +17,9 @@ use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use embedding::{EmbeddingError, EmbeddingGenerator};
 use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
-use user_service::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
+use user_service::ports::{
+    UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateSearchFilterCommand {
@@ -46,8 +48,8 @@ pub enum CreateSearchFilterError {
     SearchFilterQuotaExceeded { active_count: usize, quota: usize },
     #[error("search filter feature '{feature}' requires a higher user tier")]
     SearchFilterFeatureRestricted { feature: &'static str },
-    #[error("user account read failed")]
-    UserAccountReadFailed {
+    #[error("user tier entitlement lock failed")]
+    UserTierEntitlementsLockFailed {
         #[source]
         source: BoxError,
     },
@@ -93,17 +95,23 @@ pub struct CreateSearchFilterHandler<U, R, E, Q, A> {
     filters: R,
     embeddings: E,
     quotas: Q,
-    accounts: A,
+    tier_entitlements: A,
 }
 
 impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
-    pub fn new(unit_of_work: U, filters: R, embeddings: E, quotas: Q, accounts: A) -> Self {
+    pub fn new(
+        unit_of_work: U,
+        filters: R,
+        embeddings: E,
+        quotas: Q,
+        tier_entitlements: A,
+    ) -> Self {
         Self {
             unit_of_work,
             filters,
             embeddings,
             quotas,
-            accounts,
+            tier_entitlements,
         }
     }
 }
@@ -115,7 +123,7 @@ where
     R: SearchFilterRepositoryFactory<U::Tx>,
     E: EmbeddingGenerator,
     Q: SearchFilterQuotaReaderFactory<U::Tx>,
-    A: UserAccountReaderFactory<U::Tx>,
+    A: UserTierEntitlementsFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "create_search_filter",
@@ -158,17 +166,17 @@ where
             .begin()
             .await
             .map_err(|_| CreateSearchFilterError::BeginTransactionFailed)?;
-        let account = self
-            .accounts
+        let tier = self
+            .tier_entitlements
             .in_transaction(&mut tx)
-            .find_by_id(command.user_id)
+            .lock_user_tier(command.user_id)
             .await
-            .map_err(user_account_read_error)?
+            .map_err(tier_entitlements_error)?
             .ok_or(CreateSearchFilterError::UserNotFound)?;
-        validate_search_features(account.tier, filter.search()).map_err(|feature| {
+        validate_search_features(tier, filter.search()).map_err(|feature| {
             CreateSearchFilterError::SearchFilterFeatureRestricted { feature }
         })?;
-        let quota = active_filter_quota(account.tier);
+        let quota = active_filter_quota(tier);
         let active_count = self
             .quotas
             .in_transaction(&mut tx)
@@ -222,9 +230,12 @@ fn embedding_error(error: EmbeddingError) -> CreateSearchFilterError {
     }
 }
 
-fn user_account_read_error(error: UserAccountReadError) -> CreateSearchFilterError {
-    CreateSearchFilterError::UserAccountReadFailed {
-        source: box_error(error),
+fn tier_entitlements_error(error: UserTierEntitlementsError) -> CreateSearchFilterError {
+    match error {
+        UserTierEntitlementsError::LockFailed { source }
+        | UserTierEntitlementsError::ReconciliationFailed { source } => {
+            CreateSearchFilterError::UserTierEntitlementsLockFailed { source }
+        }
     }
 }
 
@@ -239,10 +250,8 @@ fn repository_error(error: SearchFilterRepositoryError) -> CreateSearchFilterErr
         SearchFilterRepositoryError::AlreadyExists => {
             CreateSearchFilterError::SearchFilterAlreadyExists
         }
-        SearchFilterRepositoryError::InvalidPersistedState => {
-            CreateSearchFilterError::PersistedSearchFilterStateInvalid {
-                source: SearchFilterRepositoryError::InvalidPersistedState,
-            }
+        error @ SearchFilterRepositoryError::InvalidPersistedState { .. } => {
+            CreateSearchFilterError::PersistedSearchFilterStateInvalid { source: error }
         }
         error => CreateSearchFilterError::SearchFilterInsertFailed { source: error },
     }

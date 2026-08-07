@@ -9,6 +9,7 @@
 
 - `EmbeddingGenerator` is product/search-filter free. Callers compose their own text.
 - `VertexAiEmbeddingGenerator` owns Vertex HTTP, optional-image fetch/sniff/retry, and query LRU cache.
+- Image fetches allow only HTTP(S) targets resolving solely to public IPs, recheck every redirect, and bound response time and bytes.
 - Provider DTOs stay private. This crate logs no input, response, token, URL, or error payload.
 - Composition roots pass `VertexAiEmbeddingConfig` plus Google access-token credentials; they resolve ADC at that boundary. This crate reads no environment variables directly.
 - `EmbeddingGenerator` is the only public port. Services inject it directly; no bounded-context adapter bridge.

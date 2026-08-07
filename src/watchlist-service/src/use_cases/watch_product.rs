@@ -11,7 +11,9 @@ use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
-use user_service::ports::{UserAccountReadError, UserAccountReader, UserAccountReaderFactory};
+use user_service::ports::{
+    UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
+};
 use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,8 +40,8 @@ pub enum WatchProductError {
     UserNotFound,
     #[error("watchlist quota exceeded: {active_count}/{quota} active entries are already in use")]
     WatchlistQuotaExceeded { active_count: usize, quota: usize },
-    #[error("user account read failed")]
-    UserAccountReadFailed {
+    #[error("user tier entitlement lock failed")]
+    UserTierEntitlementsLockFailed {
         #[source]
         source: BoxError,
     },
@@ -71,16 +73,16 @@ pub struct WatchProductHandler<U, R, Q, A> {
     unit_of_work: U,
     watchlist: R,
     quotas: Q,
-    accounts: A,
+    tier_entitlements: A,
 }
 
 impl<U, R, Q, A> WatchProductHandler<U, R, Q, A> {
-    pub fn new(unit_of_work: U, watchlist: R, quotas: Q, accounts: A) -> Self {
+    pub fn new(unit_of_work: U, watchlist: R, quotas: Q, tier_entitlements: A) -> Self {
         Self {
             unit_of_work,
             watchlist,
             quotas,
-            accounts,
+            tier_entitlements,
         }
     }
 }
@@ -91,7 +93,7 @@ where
     U: UnitOfWork,
     R: WatchlistRepositoryFactory<U::Tx>,
     Q: WatchlistQuotaReaderFactory<U::Tx>,
-    A: UserAccountReaderFactory<U::Tx>,
+    A: UserTierEntitlementsFactory<U::Tx>,
 {
     #[tracing::instrument(name = "watch_product", skip_all, fields(user_id = %command.user_id, product_id = %command.product_id, request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -106,12 +108,12 @@ where
             .begin()
             .await
             .map_err(|_| WatchProductError::BeginTransactionFailed)?;
-        let account = self
-            .accounts
+        let tier = self
+            .tier_entitlements
             .in_transaction(&mut tx)
-            .find_by_id(command.user_id)
+            .lock_user_tier(command.user_id)
             .await
-            .map_err(user_account_read_error)?
+            .map_err(tier_entitlements_error)?
             .ok_or(WatchProductError::UserNotFound)?;
         if self
             .watchlist
@@ -122,7 +124,7 @@ where
         {
             return Err(WatchProductError::AlreadyExists);
         }
-        if let Some(quota) = active_watchlist_quota(account.tier) {
+        if let Some(quota) = active_watchlist_quota(tier) {
             let active_count = self
                 .quotas
                 .in_transaction(&mut tx)
@@ -184,9 +186,12 @@ impl From<OperationAuthorizationError> for WatchProductError {
     }
 }
 
-fn user_account_read_error(error: UserAccountReadError) -> WatchProductError {
-    WatchProductError::UserAccountReadFailed {
-        source: box_error(error),
+fn tier_entitlements_error(error: UserTierEntitlementsError) -> WatchProductError {
+    match error {
+        UserTierEntitlementsError::LockFailed { source }
+        | UserTierEntitlementsError::ReconciliationFailed { source } => {
+            WatchProductError::UserTierEntitlementsLockFailed { source }
+        }
     }
 }
 
@@ -227,13 +232,12 @@ mod tests {
     };
     use common::resource_state::domain::ResourceState;
     use common::transaction::{Transaction, TransactionError, UnitOfWork};
-    use serde_email::Email;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
-    use user_core::{role::UserRole, tier::UserTier};
+    use user_core::tier::UserTier;
     use user_service::ports::{
-        UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
+        UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
     };
     use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
@@ -346,8 +350,8 @@ mod tests {
         }
     }
 
-    impl<Tx> UserAccountReaderFactory<Tx> for TestAccountFactory {
-        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl UserAccountReader + 'tx {
+    impl<Tx> UserTierEntitlementsFactory<Tx> for TestAccountFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl UserTierEntitlements + 'tx {
             TestAccountReader { tier: self.tier }
         }
     }
@@ -361,34 +365,20 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl UserAccountReader for TestAccountReader {
-        async fn find_by_id(
+    impl UserTierEntitlements for TestAccountReader {
+        async fn lock_user_tier(
             &mut self,
-            user_id: UserId,
-        ) -> Result<Option<UserDetailsView>, UserAccountReadError> {
-            let email = match Email::try_from("watchlist-service@example.test") {
-                Ok(email) => email,
-                Err(_) => {
-                    return Err(UserAccountReadError::Internal {
-                        source: Box::new(std::fmt::Error),
-                    });
-                }
-            };
-            Ok(Some(UserDetailsView {
-                user_id,
-                email,
-                first_name: None,
-                last_name: None,
-                language: None,
-                currency: None,
-                measurement_unit: None,
-                prohibited_content_consent: false,
-                tier: self.tier,
-                role: UserRole::User,
-                stripe_customer_id: None,
-                structured_address: None,
-                geo_address: None,
-            }))
+            _user_id: UserId,
+        ) -> Result<Option<UserTier>, UserTierEntitlementsError> {
+            Ok(Some(self.tier))
+        }
+
+        async fn reconcile_for_tier(
+            &mut self,
+            _user_id: UserId,
+            _tier: UserTier,
+        ) -> Result<(), UserTierEntitlementsError> {
+            Ok(())
         }
     }
 

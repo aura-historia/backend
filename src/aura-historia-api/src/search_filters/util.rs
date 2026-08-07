@@ -1,9 +1,9 @@
-use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
+use crate::error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, INVALID_UUID};
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use common::product_id::ProductId;
 use common::user_search_filter_id::UserSearchFilterId;
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 use time::OffsetDateTime;
 
 pub(super) fn no_store(mut response: Response) -> Response {
@@ -30,6 +30,18 @@ pub(super) fn parse_json<T: for<'de> Deserialize<'de>>(body: &str) -> Result<T, 
         ApiError::bad_request(BAD_BODY_VALUE)
             .with_detail(error.to_string())
             .into_response()
+    })
+}
+
+#[allow(clippy::result_large_err)]
+pub(super) fn parse_json_query<T: DeserializeOwned>(
+    raw: &str,
+    field: &'static str,
+) -> Result<T, ApiError> {
+    serde_json::from_str(raw).map_err(|error| {
+        ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+            .with_query_field(field)
+            .with_detail(error.to_string())
     })
 }
 

@@ -356,13 +356,19 @@ dependencies = [
 name = "aura-historia-worker"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "common",
+ "opensearch",
  "rstest",
+ "search-filter-opensearch",
+ "search-filter-postgres",
+ "search-filter-service",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -7156,14 +7162,19 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "geo",
+ "isocountry",
  "opensearch",
  "product-core",
+ "product-opensearch",
  "search-filter-core",
  "search-filter-service",
  "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
  "test-api",
+ "thiserror 2.0.19",
  "time",
  "tokio",
 ]
