@@ -121,8 +121,10 @@ jobs:
         id: determine
         run: |
           result=$(./target/release/ci-determinator "${{ steps.base-ref.outputs.sha }}")
-          echo "integration_test_crates=$(echo "$result" | jq -c '.integration_test')" >> "$GITHUB_OUTPUT"
-          echo "acceptance_test_crates=$(echo "$result" | jq -c '.acceptance_test')" >> "$GITHUB_OUTPUT"
+          integration_test_crates=$(jq -c '.integration_test' <<< "$result")
+          acceptance_test_crates=$(jq -c '.acceptance_test' <<< "$result")
+          printf 'integration_test_crates=%s\n' "$integration_test_crates" >> "$GITHUB_OUTPUT"
+          printf 'acceptance_test_crates=%s\n' "$acceptance_test_crates" >> "$GITHUB_OUTPUT"
 
   test:
     name: Test ${{ matrix.crate }}
@@ -144,41 +146,42 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Create coverage output directory
+        run: |
+          mkdir -p "${{ github.workspace }}/coverage-profraw"
+          test -d "${{ github.workspace }}/coverage-profraw"
+          test -w "${{ github.workspace }}/coverage-profraw"
+
       - name: Test ${{ matrix.crate }}
         working-directory: ${{ matrix.crate }}
         env:
           CARGO_PROFILE_TEST_DEBUG: 1
           RUSTFLAGS: "-C instrument-coverage"
           LLVM_PROFILE_FILE: "${{ github.workspace }}/coverage-profraw/${{ strategy.job-index }}-%p-%m.profraw"
-        run: |
-          mkdir -p "${{ github.workspace }}/coverage-profraw"
-          cargo test --locked --all-features -- --nocapture
+        run: cargo test --locked --all-features -- --nocapture
 
       - name: Add Cargo bin to PATH
-        if: always()
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Install grcov
-        if: always()
         run: cargo install grcov
 
       - name: Generate coverage for ${{ matrix.crate }}
-        if: always()
         run: |
-          mkdir -p coverage-lcov
-          if find coverage-profraw -name "*.profraw" -type f | grep -q .; then
-            grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o "coverage-lcov/${{ strategy.job-index }}.lcov"
-          else
-            touch "coverage-lcov/${{ strategy.job-index }}.lcov"
+          if ! find coverage-profraw -name "*.profraw" -type f -print -quit | grep -q .; then
+            echo "No LLVM coverage profiles were written."
+            exit 1
           fi
+          mkdir -p coverage-lcov
+          grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o "coverage-lcov/${{ strategy.job-index }}.lcov"
+          test -s "coverage-lcov/${{ strategy.job-index }}.lcov"
 
       - name: Upload coverage for ${{ matrix.crate }}
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ strategy.job-index }}
           path: coverage-lcov/${{ strategy.job-index }}.lcov
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 1
 
       - name: Prune Docker volumes
@@ -250,7 +253,6 @@ jobs:
 
       - name: Download coverage artifacts
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           pattern: coverage-*
           path: coverage-artifacts
@@ -258,13 +260,13 @@ jobs:
 
       - name: Merge coverage reports
         run: |
-          mkdir -p coverage-artifacts
           find coverage-artifacts -name "*.lcov" -type f | sort > coverage-files.txt
-          if [ -s coverage-files.txt ]; then
-            xargs cat < coverage-files.txt > coverage.lcov
-          else
-            touch coverage.lcov
+          if ! [ -s coverage-files.txt ]; then
+            echo "No coverage reports were downloaded."
+            exit 1
           fi
+          xargs cat < coverage-files.txt > coverage.lcov
+          test -s coverage.lcov
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@master

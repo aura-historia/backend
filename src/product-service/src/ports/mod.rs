@@ -1,3 +1,4 @@
+pub mod partner_product_authorizer;
 pub mod product_details_reader;
 pub mod product_embedding_reader;
 pub mod product_event_reader;
@@ -7,6 +8,9 @@ pub mod product_search_reader;
 pub mod product_similar_products_reader;
 pub mod product_user_state_reader;
 pub mod product_watchlist_details_reader;
+pub use partner_product_authorizer::{
+    PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,
+};
 pub use product_details_reader::{
     ProductDetailsReadError, ProductDetailsReadRequest, ProductDetailsReader,
     ProductDetailsReaderFactory,

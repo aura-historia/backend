@@ -1,8 +1,10 @@
 pub mod event_store;
+pub mod partner_product_authorizer;
 pub mod readers;
 pub mod repository;
 
 pub use event_store::{SqlxProductEventStore, SqlxProductEventStoreFactory};
+pub use partner_product_authorizer::SqlxPartnerProductAuthorizerFactory;
 pub use readers::{
     SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
     SqlxProductEventReaderFactory, SqlxProductUserStateReader,

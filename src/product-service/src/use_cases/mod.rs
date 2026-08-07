@@ -6,12 +6,15 @@ pub use commands::create_product::{
     CreateProductUseCase,
 };
 pub use commands::delete_product::{
-    DeleteProductCommand, DeleteProductError, DeleteProductHandler, DeleteProductResult,
-    DeleteProductUseCase,
+    DeleteProductError, DeleteProductHandler, DeleteProductResult, DeleteProductUseCase,
 };
 pub use commands::update_product::{
     UpdateProductCommand, UpdateProductError, UpdateProductHandler, UpdateProductResult,
     UpdateProductUseCase,
+};
+pub use commands::upsert_product::{
+    UpsertProductCommand, UpsertProductError, UpsertProductHandler, UpsertProductResult,
+    UpsertProductUseCase,
 };
 pub use queries::get_product::{
     GetProductError, GetProductHandler, GetProductRequest, GetProductUseCase,

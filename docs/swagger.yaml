@@ -49,8 +49,8 @@ info:
     - Errors are returned as **`application/problem+json`** using a consistent RFC 9457-style structure
       with `status`, `title`, `error`, optional `source`, and optional `detail`
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`
-    - Several partner ingestion endpoints are **asynchronous** and respond with **`202 Accepted`** after
-      work has been queued rather than fully processed
+    - WooCommerce webhook ingestion is **asynchronous** and responds with **`202 Accepted`** after
+      queue forwarding; partner Product batch writes are synchronous
 
     ## Environment endpoints
 
@@ -90,13 +90,14 @@ paths:
         - an Aura Historia access token owned by that partner user.
 
         Aura Historia access tokens on this endpoint must include the `products:write` scope.
+        Allowed callers are Aura Historia admins and users partnered with the target shop.
 
-        The request body is an array of `PostProductData` objects. Each entry is forwarded
-        individually to the asynchronous partner-product ingestion queue.
+        The request body is an array of `PostProductData` objects. Each entry is created
+        synchronously in its own PostgreSQL transaction.
 
-        The response returns HTTP 202 with an array containing only the `shopsProductId` values
-        that failed to be forwarded to the queue. An empty array indicates that all products were
-        accepted for asynchronous processing.
+        The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
+        one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
+        as a problem response. An empty array is accepted and returns `[]`.
       operationId: postPartnerProducts
       tags:
         - Products
@@ -114,11 +115,12 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of products to create. Must not be empty.
+        description: Array of at most 100 products to create synchronously. May be empty.
         content:
           application/json:
             schema:
               type: array
+              maxItems: 100
               items:
                 $ref: "#/components/schemas/PostProductData"
             example:
@@ -138,11 +140,10 @@ paths:
                   - "https://my-shop.com/images/violin-1.jpg"
                   - "https://my-shop.com/images/violin-2.jpg"
       responses:
-        "202":
+        "200":
           description: |
-            Batch create request accepted for asynchronous processing. Returns an array containing
-            the `shopsProductId` values that failed to be forwarded to the ingestion queue.
-            An empty array means all products were accepted.
+            Batch create completed synchronously. This response is returned when all entries
+            succeed or when at least one entry succeeds; it lists only failed entries.
           headers:
             Access-Control-Allow-Origin:
               description: CORS header
@@ -152,15 +153,17 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PartnerProductEnqueueFailuresResponse"
+                $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
               examples:
-                all_accepted:
-                  summary: All products accepted for asynchronous processing
+                all_succeeded:
+                  summary: All products were created
                   value: []
                 partial_failure:
-                  summary: Some products failed to be forwarded to the queue
+                  summary: Some products failed while at least one product was created
                   value:
-                    - "baroque-violin-002"
+                    - shopId: "550e8400-e29b-41d4-a716-446655440000"
+                      shopsProductId: "baroque-violin-002"
+                      error: "CONFLICT"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
           content:
@@ -180,7 +183,7 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "INVALID_JSON"
+                    error: "BAD_BODY_VALUE"
                     detail: "expected value at line 1 column 1"
         "401":
           description: |
@@ -196,10 +199,10 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "INVALID_CREDENTIALS"
                     source:
                       field: "Authorization"
-                      sourceType: "header"
+                      type: "header"
                 access_token_not_found:
                   summary: Aura Historia access token is unknown or expired
                   value:
@@ -215,7 +218,7 @@ paths:
               example:
                 status: 403
                 title: "Forbidden"
-                error: "PARTNER_SHOP_NOT_PARTNERED"
+                error: "FORBIDDEN"
         "404":
           description: Not found — the specified shop does not exist
           content:
@@ -227,7 +230,7 @@ paths:
                 title: "Not Found"
                 error: "SHOP_NOT_FOUND"
         "503":
-          description: Service unavailable — all product commands failed to be forwarded to the asynchronous ingestion queue
+          description: Service unavailable — all entries encountered a temporary product-write failure
           content:
             application/problem+json:
               schema:
@@ -235,7 +238,7 @@ paths:
               example:
                 status: 503
                 title: "Service Unavailable"
-                error: "SERVICE_UNAVAILABLE"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -245,7 +248,7 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+                error: "PRODUCT_INTERNAL_ERROR"
     patch:
       summary: Batch update products (Partner API)
       description: |
@@ -255,16 +258,15 @@ paths:
         - an Aura Historia access token owned by that partner user.
 
         Aura Historia access tokens on this endpoint must include the `products:write` scope.
+        Allowed callers are Aura Historia admins and users partnered with the target shop.
 
         The request body is an array of `PatchProductData` objects. Only the fields provided in
-        each entry are updated; omitted optional fields are left unchanged. Each entry is forwarded
-        individually to the asynchronous partner-product ingestion queue.
+        each entry are updated; omitted optional fields are left unchanged. Each entry is applied
+        synchronously in its own PostgreSQL transaction.
 
-        The response returns HTTP 202 with an array containing only the `shopsProductId` values
-        that failed to be forwarded to the queue. An empty array indicates that all updates were
-        accepted for asynchronous processing. Because persistence happens asynchronously, acceptance
-        does not guarantee that the referenced product currently exists or that the update will
-        later succeed.
+        The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
+        one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
+        as a problem response. An empty array is accepted and returns `[]`.
       operationId: patchPartnerProducts
       tags:
         - Products
@@ -282,11 +284,12 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of product updates to apply. Must not be empty.
+        description: Array of at most 100 product updates to apply synchronously. May be empty.
         content:
           application/json:
             schema:
               type: array
+              maxItems: 100
               items:
                 $ref: "#/components/schemas/PatchProductData"
             example:
@@ -298,11 +301,10 @@ paths:
                   amount: 5000
                 state: "AVAILABLE"
       responses:
-        "202":
+        "200":
           description: |
-            Batch update request accepted for asynchronous processing. Returns an array containing
-            the `shopsProductId` values that failed to be forwarded to the ingestion queue.
-            An empty array means all updates were accepted.
+            Batch update completed synchronously. This response is returned when all entries
+            succeed or when at least one entry succeeds; it lists only failed entries.
           headers:
             Access-Control-Allow-Origin:
               description: CORS header
@@ -312,15 +314,17 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PartnerProductEnqueueFailuresResponse"
+                $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
               examples:
-                all_accepted:
-                  summary: All updates accepted for asynchronous processing
+                all_succeeded:
+                  summary: All products were updated
                   value: []
                 partial_failure:
-                  summary: Some products failed to be forwarded to the queue
+                  summary: Some products failed while at least one product was updated
                   value:
-                    - "baroque-violin-002"
+                    - shopId: "550e8400-e29b-41d4-a716-446655440000"
+                      shopsProductId: "baroque-violin-002"
+                      error: "PRODUCT_NOT_FOUND"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
           content:
@@ -340,7 +344,7 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "INVALID_JSON"
+                    error: "BAD_BODY_VALUE"
                     detail: "expected value at line 1 column 1"
         "401":
           description: |
@@ -356,10 +360,10 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "INVALID_CREDENTIALS"
                     source:
                       field: "Authorization"
-                      sourceType: "header"
+                      type: "header"
                 access_token_not_found:
                   summary: Aura Historia access token is unknown or expired
                   value:
@@ -375,7 +379,7 @@ paths:
               example:
                 status: 403
                 title: "Forbidden"
-                error: "PARTNER_SHOP_NOT_PARTNERED"
+                error: "FORBIDDEN"
         "404":
           description: Not found — the specified shop does not exist
           content:
@@ -387,7 +391,7 @@ paths:
                 title: "Not Found"
                 error: "SHOP_NOT_FOUND"
         "503":
-          description: Service unavailable — all product commands failed to be forwarded to the asynchronous ingestion queue
+          description: Service unavailable — all entries encountered a temporary product-write failure
           content:
             application/problem+json:
               schema:
@@ -395,7 +399,7 @@ paths:
               example:
                 status: 503
                 title: "Service Unavailable"
-                error: "SERVICE_UNAVAILABLE"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -405,7 +409,7 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+                error: "PRODUCT_INTERNAL_ERROR"
     put:
       summary: Batch upsert products (Partner API)
       description: |
@@ -415,10 +419,10 @@ paths:
         - an Aura Historia access token owned by that partner user.
 
         Aura Historia access tokens on this endpoint must include the `products:write` scope.
+        Allowed callers are Aura Historia admins and users partnered with the target shop.
 
-        The request body is an array of `PutProductData` objects. Each entry is forwarded
-        individually to the asynchronous partner-product ingestion queue as an upsert command.
-        When the queued command is later ingested:
+        The request body is an array of `PutProductData` objects. Each entry is upserted
+        synchronously in its own PostgreSQL transaction. For each entry:
         - **New product** — a full product is created using all provided fields. Omitting
           `title`, `url`, or `state` causes the backend to fall back to an empty title,
           a placeholder URL, and `LISTED` respectively.
@@ -433,9 +437,9 @@ paths:
           `images` or sending `null` is treated as an empty list and therefore clears all
           stored images.
 
-        The response returns HTTP 202 with an array containing only the `shopsProductId` values
-        that failed to be forwarded to the queue. An empty array indicates that all upserts were
-        accepted for asynchronous processing.
+        The response returns HTTP 200 with failures as `{ shopId, shopsProductId, error }` objects when
+        one or more entries succeed. `error` is the stable API error key for that entry. If every non-empty entry fails, the first failure is returned
+        as a problem response. An empty array is accepted and returns `[]`.
 
       operationId: putPartnerProducts
       tags:
@@ -454,11 +458,12 @@ paths:
         - AccessTokenAuth: []
       requestBody:
         required: true
-        description: Array of products to upsert. Must not be empty.
+        description: Array of at most 100 products to upsert synchronously. May be empty.
         content:
           application/json:
             schema:
               type: array
+              maxItems: 100
               items:
                 $ref: "#/components/schemas/PutProductData"
             examples:
@@ -501,11 +506,10 @@ paths:
                   - shopsProductId: "baroque-violin-001"
                     images: null
       responses:
-        "202":
+        "200":
           description: |
-            Batch upsert request accepted for asynchronous processing. Returns an array containing
-            the `shopsProductId` values that failed to be forwarded to the ingestion queue.
-            An empty array means all upserts were accepted.
+            Batch upsert completed synchronously. This response is returned when all entries
+            succeed or when at least one entry succeeds; it lists only failed entries.
           headers:
             Access-Control-Allow-Origin:
               description: CORS header
@@ -515,15 +519,17 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PartnerProductEnqueueFailuresResponse"
+                $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
               examples:
-                all_accepted:
-                  summary: All upserts accepted for asynchronous processing
+                all_succeeded:
+                  summary: All products were upserted
                   value: []
                 partial_failure:
-                  summary: Some products failed to be forwarded to the queue
+                  summary: Some products failed while at least one product was upserted
                   value:
-                    - "baroque-violin-002"
+                    - shopId: "550e8400-e29b-41d4-a716-446655440000"
+                      shopsProductId: "baroque-violin-002"
+                      error: "BAD_BODY_VALUE"
         "400":
           description: Bad request — request body is missing, empty, or contains invalid JSON
           content:
@@ -543,7 +549,7 @@ paths:
                   value:
                     status: 400
                     title: "Bad Request"
-                    error: "INVALID_JSON"
+                    error: "BAD_BODY_VALUE"
                     detail: "expected value at line 1 column 1"
         "401":
           description: |
@@ -559,10 +565,10 @@ paths:
                   value:
                     status: 401
                     title: "Unauthorized"
-                    error: "UNAUTHORIZED"
+                    error: "INVALID_CREDENTIALS"
                     source:
                       field: "Authorization"
-                      sourceType: "header"
+                      type: "header"
                 access_token_not_found:
                   summary: Aura Historia access token is unknown or expired
                   value:
@@ -578,7 +584,7 @@ paths:
               example:
                 status: 403
                 title: "Forbidden"
-                error: "PARTNER_SHOP_NOT_PARTNERED"
+                error: "FORBIDDEN"
         "404":
           description: Not found — the specified shop does not exist
           content:
@@ -590,7 +596,7 @@ paths:
                 title: "Not Found"
                 error: "SHOP_NOT_FOUND"
         "503":
-          description: Service unavailable — all product commands failed to be forwarded to the asynchronous ingestion queue
+          description: Service unavailable — all entries encountered a temporary product-write failure
           content:
             application/problem+json:
               schema:
@@ -598,7 +604,7 @@ paths:
               example:
                 status: 503
                 title: "Service Unavailable"
-                error: "SERVICE_UNAVAILABLE"
+                error: "PRODUCT_TEMPORARILY_UNAVAILABLE"
         "500":
           description: Internal server error
           content:
@@ -608,7 +614,100 @@ paths:
               example:
                 status: 500
                 title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+                error: "PRODUCT_INTERNAL_ERROR"
+    delete:
+      summary: Batch delete products (Partner API)
+      description: |
+        Soft-deletes products for a shop. Each entry writes its product lifecycle delete event and
+        materialized PostgreSQL state synchronously in its own transaction.
+
+        Allowed callers are Aura Historia admins and users partnered with the target shop. Aura
+        Historia access tokens must include the `products:write` scope.
+
+        The request body is an array of product identifiers. The response returns HTTP 200 with
+        failures as `{ shopId, shopsProductId, error }` objects when one or more entries succeed.
+        `error` is the stable API error key for that entry. If every non-empty entry fails, the first
+        failure is returned as a problem response. An empty array is accepted and returns `[]`.
+      operationId: deletePartnerProducts
+      tags:
+        - Products
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          description: Unique identifier of the partner shop
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      security:
+        - BearerAuth: []
+        - AccessTokenAuth: []
+      requestBody:
+        required: true
+        description: Array of at most 100 products to delete synchronously. May be empty.
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 100
+              items:
+                $ref: "#/components/schemas/PartnerProductDeleteData"
+            example:
+              - shopsProductId: "baroque-violin-001"
+      responses:
+        "200":
+          description: |
+            Batch delete completed synchronously. This response is returned when all entries
+            succeed or when at least one entry succeeds; it lists only failed entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PartnerProductBatchFailuresResponse"
+              examples:
+                all_succeeded:
+                  value: []
+                partial_failure:
+                  value:
+                    - shopId: "550e8400-e29b-41d4-a716-446655440000"
+                      shopsProductId: "baroque-violin-002"
+                      error: "PRODUCT_NOT_FOUND"
+        "400":
+          description: Bad request — request body is missing, empty, or contains invalid JSON
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized — the bearer token is missing, invalid, expired, or unknown.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden — caller is neither admin nor partnered with this shop, or the access token lacks `products:write`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found — the specified shop or product does not exist.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Service unavailable — all entries encountered a temporary product-write failure.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Internal server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 
   /api/v1/webhooks/woocommerce/{shopId}:
     post:
@@ -855,69 +954,6 @@ paths:
                 status: 500
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
-
-  /api/v1/shops/{shopId}/products/{shopsProductId}:
-    delete:
-      summary: Delete product (Partner API)
-      description: |
-        Soft-deletes a product for a shop. The endpoint writes a product lifecycle delete event
-        and marks the materialized DynamoDB product record as `DELETED` before returning `200`.
-
-        Allowed callers are Aura Historia admins and users partnered with the target shop.
-        Aura Historia access tokens must include the `products:write` scope.
-      operationId: deletePartnerProduct
-      tags:
-        - Products
-      parameters:
-        - name: shopId
-          in: path
-          required: true
-          description: Unique identifier of the partner shop
-          schema:
-            type: string
-            format: uuid
-        - name: shopsProductId
-          in: path
-          required: true
-          description: Shop's unique identifier for the product
-          schema:
-            type: string
-      security:
-        - BearerAuth: []
-        - AccessTokenAuth: []
-      responses:
-        "204":
-          description: Product delete accepted and materialized as a soft delete.
-          headers:
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-        "401":
-          description: Unauthorized — the bearer token is missing, invalid, expired, or unknown.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden — caller is neither admin nor partnered with this shop.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "404":
-          description: Not found — the specified shop or product does not exist.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "500":
-          description: Internal server error
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
 
   /api/v1/products/{productId}:
     get:
@@ -14287,32 +14323,56 @@ components:
             - $ref: "#/components/schemas/GeoAddressData"
           nullable: true
           description: Optional coordinates to attach to the product for geo-aware indexing and search.
-    PartnerProductEnqueueFailuresResponse:
+    PartnerProductBatchFailuresResponse:
       type: array
       description: |
-        Response for the partner batch product enqueue endpoints.
-        Contains only the `shopsProductId` values that failed to be forwarded to the
-        asynchronous ingestion queue. An empty array indicates that all commands were
-        accepted for asynchronous processing.
+        Failed entries from a synchronous partner-product batch. This response body is returned
+        with HTTP 200 only when at least one entry in a non-empty batch succeeded.
       items:
-        type: string
-        description: A `shopsProductId` that failed to be forwarded to the queue.
-        example: "baroque-violin-002"
+        type: object
+        required:
+          - shopId
+          - shopsProductId
+          - error
+        properties:
+          shopId:
+            type: string
+            format: uuid
+            description: Shop that owns the failed product entry.
+          shopsProductId:
+            type: string
+            description: Partner-controlled identifier of the failed product entry.
+          error:
+            type: string
+            description: Stable API error key for the failed product entry.
+            example: "PRODUCT_NOT_FOUND"
       example:
-        - "baroque-violin-002"
+        - shopId: "550e8400-e29b-41d4-a716-446655440000"
+          shopsProductId: "baroque-violin-002"
+          error: "PRODUCT_NOT_FOUND"
 
-    PatchProductData:
+    PartnerProductDeleteData:
       type: object
-      description: |
-        Data for enqueuing an update for a single product via the partner batch-update endpoint.
-        Only `shopsProductId` is required; all other fields are optional and, when omitted,
-        the corresponding product attribute is left unchanged during later asynchronous ingestion.
       required:
         - shopsProductId
       properties:
         shopsProductId:
           type: string
-          description: The shop's own identifier for the product to update. The request is accepted for asynchronous processing even though product existence is evaluated later during ingestion.
+          description: Partner-controlled identifier of the product to soft-delete.
+          example: "baroque-violin-001"
+
+    PatchProductData:
+      type: object
+      description: |
+        Data for synchronously updating a single product via the partner batch-update endpoint.
+        Only `shopsProductId` is required; all other fields are optional and, when omitted,
+        the corresponding product attribute is left unchanged.
+      required:
+        - shopsProductId
+      properties:
+        shopsProductId:
+          type: string
+          description: The shop's own identifier for the product to update. Product existence is evaluated synchronously.
           example: "baroque-violin-001"
         price:
           allOf:
@@ -14363,10 +14423,10 @@ components:
     PutProductData:
       type: object
       description: |
-        Data for upserting a single product via the partner batch-upsert endpoint.
+        Data for synchronously upserting a single product via the partner batch-upsert endpoint.
         Only `shopsProductId` is required. All other fields are optional.
 
-        During later asynchronous ingestion:
+        During the synchronous upsert:
         - If the product **does not yet exist**, it is created using all provided fields.
           Omitting `title`, `url`, or `state` will result in placeholder defaults being applied
           internally (empty title, a placeholder URL, and `LISTED` state respectively).

@@ -20,6 +20,7 @@
 - `watchlist/` owns watchlist REST controllers. Product watchlist paths now use `{productId}` only. `GET /api/v1/me/watchlist` uses Postgres-backed common `Cursor`/`CursoredResult` pagination and common JSON cursor collection data; its tie-safe `searchAfter` is `[created RFC3339 timestamp, product UUID]`. It returns `PersonalizedData<ProductDetailsData, ProductUserStateData>` entries with `no-store`.
 - `products/` owns canonical product detail, search, immutable history, and similar-product REST controllers. Detail, history, and similar routes use product ID or shop/product slugs. Canonical detail, search, KNN, and watchlist Product values always serialize as `PersonalizedData` with required `item` and optional `userState`. Detail and watchlist use joined Postgres reads; search and KNN use denormalized OpenSearch fields, then service-owned batched Postgres plus DynamoDB hydration for valid user/delegated-user tokens. Image values always expose `prohibitedContent`; unsafe image URLs are omitted without effective consent. Product history uses the no-consent redaction default. Product prices remain stored source amounts/currencies with `fxRateId`; currency conversion is deferred to #1466.
 - `partner_applications/` owns own/admin partner-shop application REST controllers.
+- `partner_products/` owns synchronous partner Product batch create, update, upsert, and delete controllers at `POST`, `PATCH`, `PUT`, and `DELETE /api/v1/shops/{shopId}/products`. Batches allow at most 100 entries; each entry calls one service use case; partial batches return `200` with failed `{ shopId, shopsProductId }` items.
 - `oauth/` owns OAuth REST controllers for client registration, authorization code, token, revoke, and introspection flows.
 - Runtime shop and partner-shop create/update geocoding is not wired yet; structured-address writes return temporary failure until a geocoder adapter is added.
 - Product search runtime needs `OPENSEARCH_ENDPOINT_URL`; outside `STAGE=ephemeral`, it also needs `OPENSEARCH_USERNAME` and `OPENSEARCH_PASSWORD`.
@@ -51,6 +52,7 @@
 - `shops/` — shop REST controllers.
 - `users/` — user account, admin, and access-token REST controllers.
 - `watchlist/` — watchlist REST controllers.
-- `partner_applications/` — partner-shop application REST controllers.
+- `partner_applications/` — own/admin partner-shop application REST controllers.
+- `partner_products/` — synchronous partner Product batch write controllers.
 - `oauth/` — OAuth REST controllers.
 - `products/` — canonical product detail and search REST controllers.

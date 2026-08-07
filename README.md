@@ -1,7 +1,7 @@
 <h1 align="center">Aura Historia — Backend</h1>
 
 <p align="center">
-  <strong>Serverless AWS backend powering the <a href="https://aura-historia.com">Aura Historia</a> antiques marketplace</strong>
+  <strong>Backend powering the <a href="https://aura-historia.com">Aura Historia</a> art & antiques platform</strong>
 </p>
 
 <p align="center">
