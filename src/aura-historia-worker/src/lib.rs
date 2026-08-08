@@ -1,6 +1,7 @@
 pub mod cdc;
 pub mod retry;
 pub mod search_filter_projection;
+pub mod watchlist_notifications;
 
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
@@ -153,6 +154,20 @@ impl WorkerRuntime {
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
         let (registry, receivers) = WorkerQueueRegistry::with_all_queues(config)?;
         Ok((Self::new(CdcFanout::new(registry)), receivers))
+    }
+
+    pub fn with_watchlist_notification_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::WatchlistNotification, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::WatchlistNotification, receiver);
+        Ok((
+            Self::new(CdcFanout::watchlist_notification(registry)),
+            receivers,
+        ))
     }
 
     pub fn with_search_filter_projection_queue(

@@ -8,6 +8,6 @@ pub use partner_product_authorizer::SqlxPartnerProductAuthorizerFactory;
 pub use readers::{
     SqlxProductDetailsBatchReader, SqlxProductDetailsReaderFactory,
     SqlxProductEmbeddingReaderFactory, SqlxProductEventReaderFactory, SqlxProductUserStateReader,
-    SqlxProductWatchlistDetailsReaderFactory,
+    SqlxProductWatchlistDetailsReaderFactory, SqlxProductWatchlistNotificationSourceReaderFactory,
 };
 pub use repository::{SqlxProductRepository, SqlxProductRepositoryFactory};

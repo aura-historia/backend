@@ -126,7 +126,7 @@ impl TryFrom<ProductEventRow> for ProductEvent {
     }
 }
 
-fn parse_payload(
+pub(crate) fn parse_payload(
     event_type: &str,
     payload: &Value,
 ) -> Result<(ProductEventType, ProductEventPayload), ProductEventReadError> {

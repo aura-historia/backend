@@ -2,49 +2,129 @@ use std::sync::Arc;
 
 use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
+use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{
     QueueConfig, WorkerConfig, WorkerConfigError, WorkerRunError, WorkerRuntime,
     run_until_shutdown_with_runtime,
 };
-use common::postgres::{PostgresConnectError, connect_from_env};
+use common::postgres::{PostgresConnectError, SqlxUnitOfWork, connect_from_env};
+use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
+use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use opensearch::{
     OpenSearch,
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
+};
+use product_postgres::SqlxProductWatchlistNotificationSourceReaderFactory;
+use product_service::use_cases::{
+    GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
 };
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::SqlxSearchFilterIndexReader;
 use search_filter_service::use_cases::{
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
 };
+use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
+
+const WORKER_SCOPE_ENV: &str = "AURA_HISTORIA_WORKER_SCOPE";
+const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
     common::logging::init_logging();
     let config = WorkerConfig::from_env()?;
     let pool = connect_from_env().await?;
-    let client = opensearch_client_from_env()?;
 
-    let projection_handler: Arc<dyn ProjectSearchFilterChangeUseCase> =
+    match WorkerScope::from_env()? {
+        WorkerScope::SearchFilterProjection => run_search_filter_projection(config, pool).await,
+        WorkerScope::WatchlistNotification => run_watchlist_notifications(config, pool).await,
+    }
+}
+
+async fn run_search_filter_projection(
+    config: WorkerConfig,
+    pool: sqlx::PgPool,
+) -> Result<(), MainError> {
+    let client = opensearch_client_from_env()?;
+    let handler: Arc<dyn ProjectSearchFilterChangeUseCase> =
         Arc::new(ProjectSearchFilterChangeHandler::new(
             SqlxSearchFilterIndexReader::new(pool),
             OpenSearchSearchFilterIndex::new(client),
         ));
     let (runtime, mut receivers) =
         WorkerRuntime::with_search_filter_projection_queue(QueueConfig::new(1024))?;
-    let receiver = receivers
-        .take(WorkerQueue::SearchFilterOpenSearch)
-        .ok_or(MainError::MissingSearchFilterQueue)?;
-    let projection_task = tokio::spawn(consume_search_filter_projection_queue(
-        receiver,
-        projection_handler,
-    ));
+    let receiver =
+        receivers
+            .take(WorkerQueue::SearchFilterOpenSearch)
+            .ok_or(MainError::MissingQueue {
+                queue: "search filter OpenSearch",
+            })?;
+    let task = tokio::spawn(consume_search_filter_projection_queue(receiver, handler));
+    finish_runtime(config, runtime, task).await
+}
 
+async fn run_watchlist_notifications(
+    config: WorkerConfig,
+    pool: sqlx::PgPool,
+) -> Result<(), MainError> {
+    let table = std::env::var(DYNAMODB_TABLE_NAME_ENV).map_err(|_| MainError::MissingEnv {
+        name: DYNAMODB_TABLE_NAME_ENV,
+    })?;
+    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let notification_writer = ConditionalDynamoDbNotificationWriter::new(
+        aws_sdk_dynamodb::Client::new(&aws_config),
+        table,
+    );
+    let handler: Arc<dyn GenerateWatchlistNotificationsUseCase> =
+        Arc::new(GenerateWatchlistNotificationsHandler::new(
+            SqlxUnitOfWork::new(pool),
+            SqlxProductWatchlistNotificationSourceReaderFactory::new(),
+            SqlxWatchlistNotificationRecipientReaderFactory,
+            CreateNotificationHandler::new(notification_writer),
+        ));
+    let (runtime, mut receivers) =
+        WorkerRuntime::with_watchlist_notification_queue(QueueConfig::new(1024))?;
+    let receiver =
+        receivers
+            .take(WorkerQueue::WatchlistNotification)
+            .ok_or(MainError::MissingQueue {
+                queue: "watchlist notification",
+            })?;
+    let task = tokio::spawn(consume_watchlist_notification_queue(receiver, handler));
+    finish_runtime(config, runtime, task).await
+}
+
+async fn finish_runtime(
+    config: WorkerConfig,
+    runtime: WorkerRuntime,
+    task: tokio::task::JoinHandle<()>,
+) -> Result<(), MainError> {
     let result = run_until_shutdown_with_runtime(config, runtime, shutdown_signal()).await;
-    projection_task.abort();
-    let _ = projection_task.await;
+    task.abort();
+    let _ = task.await;
     result?;
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+enum WorkerScope {
+    SearchFilterProjection,
+    WatchlistNotification,
+}
+
+impl WorkerScope {
+    fn from_env() -> Result<Self, MainError> {
+        match std::env::var(WORKER_SCOPE_ENV)
+            .unwrap_or_else(|_| "search-filter-projection".to_owned())
+            .as_str()
+        {
+            "search-filter-projection" => Ok(Self::SearchFilterProjection),
+            "watchlist-notification" => Ok(Self::WatchlistNotification),
+            value => Err(MainError::InvalidScope {
+                value: value.to_owned(),
+            }),
+        }
+    }
 }
 
 fn opensearch_client_from_env() -> Result<OpenSearch, MainError> {
@@ -88,10 +168,12 @@ enum MainError {
     Postgres(#[from] PostgresConnectError),
     #[error(transparent)]
     QueueConfig(#[from] aura_historia_worker::QueueConfigError),
-    #[error("search filter OpenSearch queue is not registered")]
-    MissingSearchFilterQueue,
+    #[error("{queue} queue is not registered")]
+    MissingQueue { queue: &'static str },
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
+    #[error("invalid worker scope {value}")]
+    InvalidScope { value: String },
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
     #[error(transparent)]

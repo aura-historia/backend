@@ -288,6 +288,7 @@ pub struct CdcFanout {
 enum CdcFanoutScope {
     All,
     SearchFilterProjection,
+    WatchlistNotification,
 }
 
 impl CdcFanout {
@@ -295,6 +296,13 @@ impl CdcFanout {
         Self {
             registry,
             scope: CdcFanoutScope::All,
+        }
+    }
+
+    pub fn watchlist_notification(registry: WorkerQueueRegistry) -> Self {
+        Self {
+            registry,
+            scope: CdcFanoutScope::WatchlistNotification,
         }
     }
 
@@ -330,6 +338,23 @@ impl CdcFanout {
     fn route_change(&self, change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
         match self.scope {
             CdcFanoutScope::All => route_change(change),
+            CdcFanoutScope::WatchlistNotification => {
+                if matches!(
+                    CdcTable::from(change.table.as_str()),
+                    CdcTable::ProductEvents
+                ) && change.operation == CdcOperation::Insert
+                {
+                    let jobs = product_event_jobs(change)?;
+                    Ok(jobs
+                        .into_iter()
+                        .filter(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+                        .collect())
+                } else {
+                    Err(CdcRouteError::UnsupportedTableForWorker(
+                        change.table.clone(),
+                    ))
+                }
+            }
             CdcFanoutScope::SearchFilterProjection => {
                 if matches!(
                     CdcTable::from(change.table.as_str()),
@@ -527,7 +552,7 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
 
     if matches!(
         event_type.as_str(),
-        "DOMAIN_PRICE_CHANGED" | "DOMAIN_STATE_CHANGED"
+        "PRODUCT_PRICE_CHANGED" | "PRODUCT_STATE_CHANGED"
     ) {
         jobs.push(domain_job(
             WorkerQueue::WatchlistNotification,
@@ -781,7 +806,7 @@ mod tests {
     #[test]
     fn should_route_product_price_event_to_watchlist_notifications()
     -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&product_event_change("DOMAIN_PRICE_CHANGED", "DOMAIN"))?;
+        let jobs = route_change(&product_event_change("PRODUCT_PRICE_CHANGED", "DOMAIN"))?;
 
         assert!(
             jobs.iter()

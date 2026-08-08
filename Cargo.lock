@@ -359,8 +359,14 @@ name = "aura-historia-worker"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
  "common",
+ "notification-dynamodb",
+ "notification-service",
  "opensearch",
+ "product-postgres",
+ "product-service",
  "rstest",
  "search-filter-core",
  "search-filter-opensearch",
@@ -376,6 +382,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+ "watchlist-postgres",
 ]
 
 [[package]]
@@ -9802,6 +9809,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "product-service",
  "serial_test",
  "sqlx",
  "test-api",

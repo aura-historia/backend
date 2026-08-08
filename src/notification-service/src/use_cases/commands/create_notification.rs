@@ -1,4 +1,4 @@
-use crate::ports::notification_repository::{NotificationRepository, NotificationRepositoryError};
+use crate::ports::{NotificationWriter, notification_repository::NotificationRepositoryError};
 use common::{event_id::EventId, user_id::UserId};
 use notification_core::notification::{Notification, NotificationPayload};
 
@@ -42,7 +42,7 @@ impl<R> CreateNotificationHandler<R> {
 #[async_trait::async_trait]
 impl<R> CreateNotificationUseCase for CreateNotificationHandler<R>
 where
-    R: NotificationRepository,
+    R: NotificationWriter,
 {
     async fn execute(
         &self,

@@ -130,7 +130,7 @@ Crash rule:
 
 | Source table | Operation | Route |
 |---|---|---|
-| `product_events` | INSERT | Product projector; percolator for domain/enrichment; watchlist notifications for price/state; enrichment pipeline for create/embed; delete cleanup for lifecycle delete. |
+| `product_events` | INSERT | Product projector; percolator for domain/enrichment; watchlist notifications for canonical `PRODUCT_PRICE_CHANGED` / `PRODUCT_STATE_CHANGED`; enrichment pipeline for create/embed; delete cleanup for lifecycle delete. |
 | `products` | INSERT/MODIFY/DELETE | No default downstream route. Product events are the projection trigger to avoid double-firing. Use products CDC only for future explicit non-event projections. |
 | `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. Idempotency: `(shop_id, version, op)`. |
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
@@ -169,7 +169,15 @@ Examples:
 | User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
 | Periodic matcher | ECS periodic matcher | Scheduled job | OpenSearch product search, Postgres matches, DynamoDB notifications. |
 
-The canonical search-filter OpenSearch sync is implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+The canonical search-filter OpenSearch sync and watchlist notification generator are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+
+## Canonical watchlist notification generator
+
+The watchlist worker scope accepts only `product_events` inserts and enqueues canonical price/state events. Its product-service use case rereads the immutable event plus current Product source and all active recipients in one short Postgres transaction, commits, then conditionally inserts DynamoDB notification records. Recipients with watchlist email notifications disabled still receive the in-app record with `external = false`.
+
+The DynamoDB target conditionally creates the `(user_id, origin_event_id)` record. Duplicate webhook delivery and retry after partial success therefore preserve the original notification rather than overwriting it or emitting another DynamoDB stream insert. No currency conversion is invented: price-change payloads carry only each stored source price; conversion remains deferred to #1466.
+
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=watchlist-notification`; its Sequin subscription must contain only `product_events` inserts. The default `search-filter-projection` scope remains separately subscribed to `search_filters`.
 
 ## Canonical search-filter OpenSearch projection
 

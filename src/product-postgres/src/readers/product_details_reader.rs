@@ -567,7 +567,7 @@ fn price(amount: Option<i64>, currency: Option<String>) -> Result<Option<Price>,
     }
 }
 
-fn images(value: serde_json::Value) -> Result<IndexSet<ProductImage>, ()> {
+pub(crate) fn images(value: serde_json::Value) -> Result<IndexSet<ProductImage>, ()> {
     serde_json::from_value::<Vec<ProductImageJson>>(value)
         .map_err(|_| ())?
         .into_iter()

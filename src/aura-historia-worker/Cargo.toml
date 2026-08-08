@@ -4,13 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
 common = { workspace = true, features = ["postgres"] }
+notification-dynamodb = { workspace = true }
+notification-service = { workspace = true }
 opensearch = { workspace = true }
+product-postgres = { workspace = true }
+product-service = { workspace = true }
 search-filter-opensearch = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
+watchlist-postgres = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
@@ -21,6 +29,5 @@ async-trait = { workspace = true }
 rstest = { workspace = true }
 search-filter-core = { workspace = true }
 serial_test = { workspace = true }
-sqlx = { workspace = true }
 test-api = { workspace = true, features = ["opensearch", "postgres", "sequin"] }
 uuid = { workspace = true }

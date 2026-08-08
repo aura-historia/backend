@@ -21,8 +21,8 @@ smoking-tests-macros = []
 # No internal dependencies
 test-api-macros = []
 
-# Depends on: common, search-filter-opensearch, search-filter-postgres, search-filter-service
-aura-historia-worker = ["common", "search-filter-opensearch", "search-filter-postgres", "search-filter-service"]
+# Depends on: common, notification-dynamodb, notification-service, product-postgres, product-service, search-filter-opensearch, search-filter-postgres, search-filter-service, watchlist-postgres
+aura-historia-worker = ["common", "notification-dynamodb", "notification-service", "product-postgres", "product-service", "search-filter-opensearch", "search-filter-postgres", "search-filter-service", "watchlist-postgres"]
 
 # Depends on: common
 cloudwatch-log-retention-lambda = ["common"]
@@ -108,8 +108,8 @@ product-pipeline-embed-text = ["common", "fxrate", "product", "shop"]
 # Depends on: common, fxrate, product, shop
 product-pipeline-translate = ["common", "fxrate", "product", "shop"]
 
-# Depends on: common, geo, notification-service, product-core
-product-service = ["common", "geo", "notification-service", "product-core"]
+# Depends on: common, geo, notification-core, notification-service, product-core
+product-service = ["common", "geo", "notification-core", "notification-service", "product-core"]
 
 # Depends on: common, product, user
 product-watchlist = ["common", "product", "user"]
@@ -183,8 +183,8 @@ shop-partner-service = ["common", "geo", "shop-core", "shop-partner-core", "shop
 # Depends on: common, geo, shop-core, shop-service
 shop-postgres = ["common", "geo", "shop-core", "shop-service"]
 
-# Depends on: common, watchlist-core, watchlist-service
-watchlist-postgres = ["common", "watchlist-core", "watchlist-service"]
+# Depends on: common, product-service, watchlist-core, watchlist-service
+watchlist-postgres = ["common", "product-service", "watchlist-core", "watchlist-service"]
 
 # Depends on: cognito, common, fxrate, geo, product, product-lambda-ingest-partner-products, shop, user
 webhook-api = ["cognito", "common", "fxrate", "geo", "product", "product-lambda-ingest-partner-products", "shop", "user"]
