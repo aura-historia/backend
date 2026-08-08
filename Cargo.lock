@@ -360,15 +360,20 @@ dependencies = [
  "common",
  "opensearch",
  "rstest",
+ "search-filter-core",
  "search-filter-opensearch",
  "search-filter-postgres",
  "search-filter-service",
  "serde",
  "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]

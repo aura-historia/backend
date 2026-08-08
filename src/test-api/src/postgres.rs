@@ -55,6 +55,10 @@ pub fn get_postgres_host_gateway_connection_string(database: &str) -> String {
     postgres_connection_string(HOST_GATEWAY, database)
 }
 
+pub(crate) fn get_postgres_host_port() -> u16 {
+    postgres_host_port()
+}
+
 fn postgres_connection_string(host: &str, database: &str) -> String {
     format!(
         "postgres://{}:{}@{}:{}/{}",

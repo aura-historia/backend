@@ -11,6 +11,7 @@
 - `cdc.rs` normalizes Sequin webhook JSON to domain jobs and fans out after route validation.
 - `search_filter_projection.rs` consumes `SearchFilterOpenSearch` jobs, rereads committed Postgres state, and writes the canonical OpenSearch projection with target-side version protection.
 - `retry.rs` owns in-process retry, idempotency memory, and in-memory DLQ helpers.
+- `tests/search_filter_projection.rs` independently proves committed Postgres filter insert, update, and delete → Sequin webhook → worker HTTP/queue → OpenSearch percolation; rolled-back inserts stay absent.
 - No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs.
 
 ## Ownership

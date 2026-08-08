@@ -397,25 +397,34 @@ impl From<SequinWebhookMessage> for CdcBatch {
 
 impl From<SequinWebhookMessage> for CdcChange {
     fn from(message: SequinWebhookMessage) -> Self {
-        let changed_columns = message
-            .changes
+        let SequinWebhookMessage {
+            record,
+            changes,
+            action,
+            metadata,
+        } = message;
+        let changed_columns = changes
             .as_ref()
             .map(|changes| changes.keys().cloned().collect())
             .unwrap_or_default();
+        let (record, old_record) = match action {
+            CdcOperation::Delete => (None, record.or_else(|| changes.map(Value::Object))),
+            CdcOperation::Insert | CdcOperation::Update => (record, changes.map(Value::Object)),
+        };
 
         Self {
-            schema: Some(message.metadata.table_schema),
-            table: message.metadata.table_name,
-            operation: message.action,
+            schema: Some(metadata.table_schema),
+            table: metadata.table_name,
+            operation: action,
             primary_key: BTreeMap::new(),
-            record: message.record,
-            old_record: message.changes.map(Value::Object),
+            record,
+            old_record,
             changed_columns,
-            commit_lsn: message.metadata.commit_lsn.map(|value| match value {
+            commit_lsn: metadata.commit_lsn.map(|value| match value {
                 Value::String(value) => value,
                 other => other.to_string(),
             }),
-            commit_timestamp: message.metadata.commit_timestamp,
+            commit_timestamp: metadata.commit_timestamp,
         }
     }
 }
@@ -1083,6 +1092,38 @@ mod tests {
         assert_eq!("product_events", batch.changes[0].table);
         assert_eq!(CdcOperation::Insert, batch.changes[0].operation);
         assert_eq!(Some("123456789".to_owned()), batch.changes[0].commit_lsn);
+        Ok(())
+    }
+
+    #[test]
+    fn should_parse_real_sequin_delete_webhook_message_as_old_record()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let batch = parse_cdc_batch(
+            r#"{
+                "record": {
+                    "user_id": "10000000-0000-0000-0000-000000000001",
+                    "user_search_filter_id": "50000000-0000-0000-0000-000000000001",
+                    "version": 2
+                },
+                "changes": null,
+                "action": "delete",
+                "metadata": {
+                    "table_schema": "public",
+                    "table_name": "search_filters"
+                }
+            }"#,
+        )?;
+
+        assert_eq!(CdcOperation::Delete, batch.changes[0].operation);
+        assert!(batch.changes[0].record.is_none());
+        assert_eq!(
+            Some(&serde_json::json!({
+                "user_id": "10000000-0000-0000-0000-000000000001",
+                "user_search_filter_id": "50000000-0000-0000-0000-000000000001",
+                "version": 2
+            })),
+            batch.changes[0].old_record.as_ref()
+        );
         Ok(())
     }
 

@@ -19,3 +19,8 @@ tracing = { workspace = true }
 [dev-dependencies]
 async-trait = { workspace = true }
 rstest = { workspace = true }
+search-filter-core = { workspace = true }
+serial_test = { workspace = true }
+sqlx = { workspace = true }
+test-api = { workspace = true, features = ["opensearch", "postgres", "sequin"] }
+uuid = { workspace = true }

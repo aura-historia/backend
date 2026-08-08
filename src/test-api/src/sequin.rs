@@ -1,5 +1,6 @@
 use crate::{
     IntegrationTestService, get_postgres_client, get_postgres_host_gateway_connection_string,
+    postgres::get_postgres_host_port,
 };
 use async_trait::async_trait;
 use base64::Engine;
@@ -202,7 +203,9 @@ fn sequin_resource_suffix() -> String {
 }
 
 fn sequin_config_yaml(webhook_url: Option<&str>, suffix: &str) -> String {
-    let mut config = include_str!("sequin/base.yaml").replace("__SUFFIX__", suffix);
+    let mut config = include_str!("sequin/base.yaml")
+        .replace("__SUFFIX__", suffix)
+        .replace("__POSTGRES_PORT__", &get_postgres_host_port().to_string());
 
     if let Some(url) = webhook_url {
         let sink_yaml = include_str!("sequin/webhook-sink.yaml")

@@ -37,7 +37,7 @@
 - Prefer `Postgres`/`OperationalBackendPostgres` and `postgres` feature over legacy `Rds`/`rds` in new tests.
 - Use process-lived `AuraHistoriaApi` helper for local black-box tests against `aura-historia-api`.
 - Use `Postgres::new("migrations")` for the shared business schema.
-- Use `Sequin::worker_webhook()` in `#[aura_integration_test]` plus `get_sequin_worker_webhook_bind_addr()` when a test must verify real Sequin webhook delivery to a local worker endpoint.
+- Use `Sequin::worker_webhook()` in `#[aura_integration_test]` plus `get_sequin_worker_webhook_bind_addr()` when a test must verify real Sequin webhook delivery to a local worker endpoint. Its test sink sends insert, update, and delete changes for `product_events` and `search_filters`.
 
 ## Verification
 

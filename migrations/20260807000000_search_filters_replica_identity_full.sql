@@ -1,0 +1,1 @@
+ALTER TABLE search_filters REPLICA IDENTITY FULL;
