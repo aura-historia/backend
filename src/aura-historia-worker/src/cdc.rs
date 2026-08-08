@@ -253,8 +253,16 @@ impl WorkerQueueReceivers {
         Self::default()
     }
 
-    fn insert(&mut self, queue: WorkerQueue, receiver: InMemoryQueueReceiver<DomainJob>) {
+    pub(crate) fn insert(
+        &mut self,
+        queue: WorkerQueue,
+        receiver: InMemoryQueueReceiver<DomainJob>,
+    ) {
         self.receivers.insert(queue, receiver);
+    }
+
+    pub fn take(&mut self, queue: WorkerQueue) -> Option<InMemoryQueueReceiver<DomainJob>> {
+        self.receivers.remove(&queue)
     }
 
     pub async fn recv(&mut self, queue: WorkerQueue) -> Option<DomainJob> {
@@ -273,11 +281,28 @@ impl WorkerQueueReceivers {
 #[derive(Debug, Clone)]
 pub struct CdcFanout {
     registry: WorkerQueueRegistry,
+    scope: CdcFanoutScope,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CdcFanoutScope {
+    All,
+    SearchFilterProjection,
 }
 
 impl CdcFanout {
     pub fn new(registry: WorkerQueueRegistry) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            scope: CdcFanoutScope::All,
+        }
+    }
+
+    pub fn search_filter_projection(registry: WorkerQueueRegistry) -> Self {
+        Self {
+            registry,
+            scope: CdcFanoutScope::SearchFilterProjection,
+        }
     }
 
     pub async fn ingest_json(&self, body: &str) -> Result<usize, CdcIngestError> {
@@ -289,7 +314,7 @@ impl CdcFanout {
         let mut enqueued = 0;
 
         for change in &batch.changes {
-            for job in route_change(change)? {
+            for job in self.route_change(change)? {
                 self.registry.enqueue(job).await?;
                 enqueued += 1;
             }
@@ -300,6 +325,24 @@ impl CdcFanout {
             enqueued, "CDC batch fanned out"
         );
         Ok(enqueued)
+    }
+
+    fn route_change(&self, change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
+        match self.scope {
+            CdcFanoutScope::All => route_change(change),
+            CdcFanoutScope::SearchFilterProjection => {
+                if matches!(
+                    CdcTable::from(change.table.as_str()),
+                    CdcTable::SearchFilters
+                ) {
+                    search_filter_changed_job(change, change.operation)
+                } else {
+                    Err(CdcRouteError::UnsupportedTableForWorker(
+                        change.table.clone(),
+                    ))
+                }
+            }
+        }
     }
 }
 
@@ -354,25 +397,34 @@ impl From<SequinWebhookMessage> for CdcBatch {
 
 impl From<SequinWebhookMessage> for CdcChange {
     fn from(message: SequinWebhookMessage) -> Self {
-        let changed_columns = message
-            .changes
+        let SequinWebhookMessage {
+            record,
+            changes,
+            action,
+            metadata,
+        } = message;
+        let changed_columns = changes
             .as_ref()
             .map(|changes| changes.keys().cloned().collect())
             .unwrap_or_default();
+        let (record, old_record) = match action {
+            CdcOperation::Delete => (None, record.or_else(|| changes.map(Value::Object))),
+            CdcOperation::Insert | CdcOperation::Update => (record, changes.map(Value::Object)),
+        };
 
         Self {
-            schema: Some(message.metadata.table_schema),
-            table: message.metadata.table_name,
-            operation: message.action,
+            schema: Some(metadata.table_schema),
+            table: metadata.table_name,
+            operation: action,
             primary_key: BTreeMap::new(),
-            record: message.record,
-            old_record: message.changes.map(Value::Object),
+            record,
+            old_record,
             changed_columns,
-            commit_lsn: message.metadata.commit_lsn.map(|value| match value {
+            commit_lsn: metadata.commit_lsn.map(|value| match value {
                 Value::String(value) => value,
                 other => other.to_string(),
             }),
-            commit_timestamp: message.metadata.commit_timestamp,
+            commit_timestamp: metadata.commit_timestamp,
         }
     }
 }
@@ -542,26 +594,10 @@ fn search_filter_changed_job(
     change: &CdcChange,
     operation: CdcOperation,
 ) -> Result<Vec<DomainJob>, CdcRouteError> {
-    if operation == CdcOperation::Update
-        && !has_any_changed_column(
-            change,
-            &[
-                "search",
-                "embedding",
-                "language",
-                "currency",
-                "state",
-                "notifications",
-            ],
-        )
-    {
-        return Ok(Vec::new());
-    }
-
     let row = row_for_operation(change)?;
     let user_search_filter_id = required_string(row, "user_search_filter_id")?;
     let user_id = required_string(row, "user_id")?;
-    let version = integer_field(row, "version").unwrap_or(0);
+    let version = required_integer(row, "version")?;
 
     Ok(vec![domain_job(
         WorkerQueue::SearchFilterOpenSearch,
@@ -637,12 +673,8 @@ fn integer_field(row: &Value, field: &str) -> Option<i64> {
     row.get(field)?.as_i64()
 }
 
-fn has_any_changed_column(change: &CdcChange, relevant_columns: &[&str]) -> bool {
-    change.changed_columns.is_empty()
-        || change
-            .changed_columns
-            .iter()
-            .any(|column| relevant_columns.contains(&column.as_str()))
+fn required_integer(row: &Value, field: &'static str) -> Result<i64, CdcRouteError> {
+    integer_field(row, field).ok_or(CdcRouteError::MissingColumn(field))
 }
 
 fn has_tier_change(change: &CdcChange) -> bool {
@@ -672,6 +704,8 @@ pub enum CdcIngestError {
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum CdcRouteError {
+    #[error("CDC table is not configured for this worker: {0}")]
+    UnsupportedTableForWorker(String),
     #[error("CDC change missing row data")]
     MissingRow,
     #[error("CDC row missing required column {0}")]
@@ -842,7 +876,7 @@ mod tests {
     }
 
     #[test]
-    fn should_ignore_search_filter_when_irrelevant_columns_change()
+    fn should_route_search_filter_when_any_persisted_column_changes()
     -> Result<(), Box<dyn std::error::Error>> {
         let jobs = route_change(&CdcChange {
             schema: Some("public".to_owned()),
@@ -855,13 +889,37 @@ mod tests {
                 "version": 3,
             })),
             old_record: None,
-            changed_columns: vec!["updated".to_owned()],
+            changed_columns: vec!["name".to_owned()],
             commit_lsn: None,
             commit_timestamp: None,
         })?;
 
-        assert!(jobs.is_empty());
+        assert_eq!(1, jobs.len());
+        assert_eq!(WorkerQueue::SearchFilterOpenSearch, jobs[0].target_queue);
         Ok(())
+    }
+
+    #[test]
+    fn should_reject_search_filter_change_without_source_version() {
+        let result = route_change(&CdcChange {
+            schema: Some("public".to_owned()),
+            table: "search_filters".to_owned(),
+            operation: CdcOperation::Update,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "user_id": "10000000-0000-0000-0000-000000000001",
+                "user_search_filter_id": "50000000-0000-0000-0000-000000000001",
+            })),
+            old_record: None,
+            changed_columns: vec!["name".to_owned()],
+            commit_lsn: None,
+            commit_timestamp: None,
+        });
+
+        assert!(matches!(
+            result,
+            Err(CdcRouteError::MissingColumn("version"))
+        ));
     }
 
     #[test]
@@ -939,6 +997,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_reject_non_search_filter_change_for_search_filter_projection_worker() {
+        let (sender, _receiver) = in_memory_queue(QueueConfig::new(1))
+            .unwrap_or_else(|error| panic!("queue setup failed: {error}"));
+        let fanout = CdcFanout::search_filter_projection(
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::SearchFilterOpenSearch, sender),
+        );
+        let batch = CdcBatch {
+            delivery_id: Some("delivery-1".to_owned()),
+            source: Some("postgres".to_owned()),
+            changes: vec![product_event_change("DOMAIN_CREATED", "DOMAIN")],
+        };
+
+        let result = fanout.ingest_batch(&batch).await;
+
+        assert!(matches!(
+            result,
+            Err(CdcIngestError::Route(CdcRouteError::UnsupportedTableForWorker(table)))
+                if table == "product_events"
+        ));
+    }
+
+    #[tokio::test]
     async fn should_fail_fanout_when_target_queue_is_missing() {
         let fanout = CdcFanout::new(WorkerQueueRegistry::new());
         let batch = CdcBatch {
@@ -1012,6 +1092,38 @@ mod tests {
         assert_eq!("product_events", batch.changes[0].table);
         assert_eq!(CdcOperation::Insert, batch.changes[0].operation);
         assert_eq!(Some("123456789".to_owned()), batch.changes[0].commit_lsn);
+        Ok(())
+    }
+
+    #[test]
+    fn should_parse_real_sequin_delete_webhook_message_as_old_record()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let batch = parse_cdc_batch(
+            r#"{
+                "record": {
+                    "user_id": "10000000-0000-0000-0000-000000000001",
+                    "user_search_filter_id": "50000000-0000-0000-0000-000000000001",
+                    "version": 2
+                },
+                "changes": null,
+                "action": "delete",
+                "metadata": {
+                    "table_schema": "public",
+                    "table_name": "search_filters"
+                }
+            }"#,
+        )?;
+
+        assert_eq!(CdcOperation::Delete, batch.changes[0].operation);
+        assert!(batch.changes[0].record.is_none());
+        assert_eq!(
+            Some(&serde_json::json!({
+                "user_id": "10000000-0000-0000-0000-000000000001",
+                "user_search_filter_id": "50000000-0000-0000-0000-000000000001",
+                "version": 2
+            })),
+            batch.changes[0].old_record.as_ref()
+        );
         Ok(())
     }
 

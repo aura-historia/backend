@@ -8,8 +8,8 @@
 ## Core Design
 
 - Depends on `product-core`, `product-service`, `shop-core`, `geo`, and `common` OpenSearch response types.
-- Exports public OpenSearch reader factory/type only.
-- Keeps OpenSearch documents, request builders, and mapping private.
+- Exports public OpenSearch reader factory/type and JSON-only canonical percolator builder.
+- Keeps OpenSearch documents and mappings private; the percolator builder exposes no document type.
 - OpenSearch reads are ordinary readers. No transaction or unit of work.
 
 ## Ownership
@@ -29,7 +29,7 @@
 - Think caveman. Talk caveman. Few word.
 - Search documents do not escape this adapter.
 - Map OpenSearch payloads into `product-service` read models.
-- Preserve query-building tests for every filter/sort/cursor branch.
+- Preserve query-building tests for every filter/sort/cursor branch and canonical percolator semantics.
 
 ## Verification
 

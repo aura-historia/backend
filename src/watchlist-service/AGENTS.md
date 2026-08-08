@@ -16,6 +16,7 @@
 - Watchlist pagination uses `created DESC, product_id ASC`; the cursor contains both values so tied creation times cannot skip or duplicate products.
 - Product views are public `common::personalized::Personalized` Product-service contracts. Watchlist owns orchestration, authorization, notification hydration, and hidden-product redaction.
 - Watchlist writes require `watchlist:write`.
+- Create and reactivation lock the authoritative user tier through transaction-scoped `UserTierEntitlements` before quota counts and writes; quotas are Free 20, Pro 100, Ultimate unlimited.
 - Watchlist list reads require owner/service/system access and delegated `watchlist:read`.
 
 ## Ownership

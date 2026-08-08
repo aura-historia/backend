@@ -8,7 +8,7 @@
 ## Core Design
 
 - Implements `search-filter-service` repositories for `SqlxTransaction`.
-- Implements ordinary `SqlxSearchFilterReader` for read models.
+- Implements ordinary `SqlxSearchFilterReader` for read models, `SqlxSearchFilterIndexReader` for complete versioned index reads, and transaction-scoped `SqlxSearchFilterQuotaReaderFactory` for tier invariants.
 - Maps `search_filters` and `search_filter_matches` rows.
 - Repository writes return storage-neutral persisted search-filter state.
 - Product id is enough for product references.

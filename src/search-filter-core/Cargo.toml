@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 common = { workspace = true }
 product-core = { workspace = true }
-time = { workspace = true }
 fake = { workspace = true, optional = true }
 serde_fields = { workspace = true }
 

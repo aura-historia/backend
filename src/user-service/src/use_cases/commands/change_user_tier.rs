@@ -1,6 +1,7 @@
 use crate::ports::{
     UserAdminReadError, UserAdminReaderFactory, UserDetailsView, UserRepository,
-    UserRepositoryError, UserRepositoryFactory,
+    UserRepositoryError, UserRepositoryFactory, UserTierEntitlements, UserTierEntitlementsError,
+    UserTierEntitlementsFactory,
 };
 use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
@@ -32,6 +33,16 @@ pub enum ChangeUserTierError {
     UserNotFound,
     #[error("concurrent user update")]
     ConcurrencyConflict,
+    #[error("user tier entitlement lock failed")]
+    TierEntitlementsLockFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("user tier entitlement reconciliation failed")]
+    TierEntitlementsReconciliationFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("user email already exists")]
     EmailConflict {
         #[source]
@@ -72,28 +83,31 @@ pub trait ChangeUserTierUseCase: Send + Sync {
     ) -> Result<ChangeUserTierResult, ChangeUserTierError>;
 }
 
-pub struct ChangeUserTierHandler<U, R, A> {
+pub struct ChangeUserTierHandler<U, R, A, E> {
     unit_of_work: U,
     users: R,
     admin_reader: A,
+    tier_entitlements: E,
 }
 
-impl<U, R, A> ChangeUserTierHandler<U, R, A> {
-    pub fn new(unit_of_work: U, users: R, admin_reader: A) -> Self {
+impl<U, R, A, E> ChangeUserTierHandler<U, R, A, E> {
+    pub fn new(unit_of_work: U, users: R, admin_reader: A, tier_entitlements: E) -> Self {
         Self {
             unit_of_work,
             users,
             admin_reader,
+            tier_entitlements,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, A> ChangeUserTierUseCase for ChangeUserTierHandler<U, R, A>
+impl<U, R, A, E> ChangeUserTierUseCase for ChangeUserTierHandler<U, R, A, E>
 where
     U: UnitOfWork,
     R: UserRepositoryFactory<U::Tx>,
     A: UserAdminReaderFactory<U::Tx>,
+    E: UserTierEntitlementsFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "change_user_tier",
@@ -126,20 +140,35 @@ where
             let mut admin_reader = self.admin_reader.in_transaction(&mut tx);
             require_admin_actor(context, &mut admin_reader).await?;
         }
-        let mut users = self.users.in_transaction(&mut tx);
+        self.tier_entitlements
+            .in_transaction(&mut tx)
+            .lock_user_tier(command.user_id)
+            .await?
+            .ok_or(ChangeUserTierError::UserNotFound)?;
+
         let common::versioned::Versioned {
             value: mut user,
             version,
-        } = users
+        } = self
+            .users
+            .in_transaction(&mut tx)
             .find_by_id(command.user_id)
             .await?
             .ok_or(ChangeUserTierError::UserNotFound)?;
 
         let outcome = user.change_tier(command.tier);
         if outcome.changed() {
-            user = users.update(&user, version).await?.value;
+            user = self
+                .users
+                .in_transaction(&mut tx)
+                .update(&user, version)
+                .await?
+                .value;
+            self.tier_entitlements
+                .in_transaction(&mut tx)
+                .reconcile_for_tier(command.user_id, user.account().tier)
+                .await?;
         }
-        drop(users);
 
         tx.commit()
             .await
@@ -191,6 +220,19 @@ impl From<UserAdminReadError> for ChangeUserTierError {
     }
 }
 
+impl From<UserTierEntitlementsError> for ChangeUserTierError {
+    fn from(error: UserTierEntitlementsError) -> Self {
+        match error {
+            UserTierEntitlementsError::LockFailed { source } => {
+                Self::TierEntitlementsLockFailed { source }
+            }
+            UserTierEntitlementsError::ReconciliationFailed { source } => {
+                Self::TierEntitlementsReconciliationFailed { source }
+            }
+        }
+    }
+}
+
 impl From<UserRepositoryError> for ChangeUserTierError {
     fn from(error: UserRepositoryError) -> Self {
         match error {
@@ -221,6 +263,7 @@ mod tests {
     use crate::ports::{
         UserAdminActorView, UserAdminReader, UserAdminReaderFactory, UserDetailsView,
         UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion,
+        UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
         VersionedUser,
     };
     use common::error::boxed::{BoxError, box_error};
@@ -272,6 +315,8 @@ mod tests {
         find_by_id_calls: usize,
         insert_calls: usize,
         update_calls: usize,
+        lock_user_tier_calls: usize,
+        reconcile_for_tier_calls: usize,
     }
 
     #[derive(Clone, Default)]
@@ -280,6 +325,10 @@ mod tests {
     }
 
     struct FakeUserRepository {
+        state: Arc<Mutex<RepoState>>,
+    }
+
+    struct FakeUserTierEntitlements {
         state: Arc<Mutex<RepoState>>,
     }
 
@@ -515,6 +564,35 @@ mod tests {
         }
     }
 
+    impl UserTierEntitlementsFactory<FakeTx> for FakeUserRepositoryFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut FakeTx) -> impl UserTierEntitlements + 'tx {
+            FakeUserTierEntitlements {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UserTierEntitlements for FakeUserTierEntitlements {
+        async fn lock_user_tier(
+            &mut self,
+            _user_id: UserId,
+        ) -> Result<Option<UserTier>, UserTierEntitlementsError> {
+            let mut state = lock(&self.state);
+            state.lock_user_tier_calls += 1;
+            Ok(state.user.as_ref().map(|user| user.value.account().tier))
+        }
+
+        async fn reconcile_for_tier(
+            &mut self,
+            _user_id: UserId,
+            _tier: UserTier,
+        ) -> Result<(), UserTierEntitlementsError> {
+            lock(&self.state).reconcile_for_tier_calls += 1;
+            Ok(())
+        }
+    }
+
     #[async_trait::async_trait]
     impl UserAdminReader for FakeUserAdminReader {
         async fn find_admin_actor(
@@ -544,11 +622,13 @@ mod tests {
         let user_id = UserId::new();
         let begin_uow = FakeUnitOfWork::default();
         lock(&begin_uow.state).begin_error = true;
+        let begin_repo = FakeUserRepositoryFactory::default();
         assert_error(
             ChangeUserTierHandler::new(
                 begin_uow,
-                FakeUserRepositoryFactory::default(),
+                begin_repo.clone(),
                 no_admin_reader(),
+                begin_repo,
             )
             .execute(
                 &ctx(Principal::System),
@@ -571,7 +651,7 @@ mod tests {
             UserTier::Free,
         )));
         assert_error(
-            ChangeUserTierHandler::new(commit_uow, repo, no_admin_reader())
+            ChangeUserTierHandler::new(commit_uow, repo.clone(), no_admin_reader(), repo)
                 .execute(
                     &ctx(Principal::System),
                     ChangeUserTierCommand {
@@ -601,6 +681,7 @@ mod tests {
                 uow.clone(),
                 repo.clone(),
                 admin_reader(user_id, UserRole::Admin),
+                repo.clone(),
             )
             .execute(
                 &ctx(Principal::User(user_id)),
@@ -619,15 +700,20 @@ mod tests {
             UserTier::Free,
         )));
         assert_error(
-            ChangeUserTierHandler::new(uow, repo.clone(), admin_reader(user_id, UserRole::User))
-                .execute(
-                    &ctx(Principal::User(user_id)),
-                    ChangeUserTierCommand {
-                        user_id,
-                        tier: UserTier::Ultimate,
-                    },
-                )
-                .await,
+            ChangeUserTierHandler::new(
+                uow,
+                repo.clone(),
+                admin_reader(user_id, UserRole::User),
+                repo.clone(),
+            )
+            .execute(
+                &ctx(Principal::User(user_id)),
+                ChangeUserTierCommand {
+                    user_id,
+                    tier: UserTier::Ultimate,
+                },
+            )
+            .await,
             |error| matches!(error, ChangeUserTierError::Forbidden),
         );
     }
@@ -639,7 +725,7 @@ mod tests {
         let repo = FakeUserRepositoryFactory::default();
 
         assert_error(
-            ChangeUserTierHandler::new(uow.clone(), repo, no_admin_reader())
+            ChangeUserTierHandler::new(uow.clone(), repo.clone(), no_admin_reader(), repo)
                 .execute(
                     &ctx(Principal::DelegatedUser {
                         user_id,
@@ -661,7 +747,8 @@ mod tests {
         let user_id = UserId::new();
         let uow = FakeUnitOfWork::default();
         let repo = FakeUserRepositoryFactory::default();
-        let handler = ChangeUserTierHandler::new(uow.clone(), repo.clone(), no_admin_reader());
+        let handler =
+            ChangeUserTierHandler::new(uow.clone(), repo.clone(), no_admin_reader(), repo.clone());
         assert_error(
             handler
                 .execute(
@@ -719,5 +806,7 @@ mod tests {
                 .await,
             |error| matches!(error, ChangeUserTierError::Internal { .. }),
         );
+        assert_eq!(4, lock(&repo.state).lock_user_tier_calls);
+        assert_eq!(1, lock(&repo.state).reconcile_for_tier_calls);
     }
 }

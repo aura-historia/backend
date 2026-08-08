@@ -224,7 +224,9 @@ dependencies = [
  "axum",
  "base64 0.23.0",
  "common",
+ "embedding",
  "geo",
+ "google-cloud-auth",
  "http 1.5.0",
  "httpdate",
  "indexmap 2.14.0",
@@ -243,6 +245,8 @@ dependencies = [
  "product-service",
  "reqwest 0.12.28",
  "rstest",
+ "search-filter-postgres",
+ "search-filter-service",
  "serde",
  "serde-email",
  "serde_json",
@@ -284,6 +288,7 @@ dependencies = [
  "cognito",
  "cognito-post-confirmation",
  "common",
+ "embedding",
  "fxrate",
  "fxrate-lambda",
  "geo",
@@ -353,13 +358,24 @@ dependencies = [
 name = "aura-historia-worker"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "common",
+ "opensearch",
  "rstest",
+ "search-filter-core",
+ "search-filter-opensearch",
+ "search-filter-postgres",
+ "search-filter-service",
  "serde",
  "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -2543,6 +2559,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e079f19b08ca6239f47f8ba8509c11cf3ea30095831f7fed61441475edd8c449"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "embedding"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.23.0",
+ "google-cloud-auth",
+ "lru 0.16.4",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -7063,7 +7095,6 @@ dependencies = [
  "fake",
  "product-core",
  "serde_fields",
- "time",
 ]
 
 [[package]]
@@ -7138,14 +7169,19 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "geo",
+ "isocountry",
  "opensearch",
  "product-core",
+ "product-opensearch",
  "search-filter-core",
  "search-filter-service",
  "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
  "test-api",
+ "thiserror 2.0.19",
  "time",
  "tokio",
 ]
@@ -7182,11 +7218,15 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "geo",
+ "isocountry",
  "product-core",
  "search-filter-core",
  "search-filter-service",
+ "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
  "sqlx",
  "test-api",
  "time",
@@ -7200,12 +7240,23 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "embedding",
+ "geo",
+ "indexmap 2.14.0",
+ "isocountry",
+ "notification-service",
  "product-core",
+ "product-service",
  "search-filter-core",
  "serde_json",
+ "shop-core",
  "thiserror 2.0.19",
  "time",
+ "tokio",
  "tracing",
+ "url",
+ "user-core",
+ "user-service",
 ]
 
 [[package]]
@@ -9773,11 +9824,14 @@ dependencies = [
  "notification-service",
  "product-core",
  "product-service",
+ "serde-email",
  "thiserror 2.0.19",
  "time",
  "tokio",
  "tracing",
  "url",
+ "user-core",
+ "user-service",
  "watchlist-core",
 ]
 

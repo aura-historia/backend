@@ -1,0 +1,383 @@
+use common::postgres::SqlxUnitOfWork;
+use common::transaction::{Transaction, UnitOfWork};
+use common::user_id::UserId;
+use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::{Duration, OffsetDateTime};
+use user_core::tier::UserTier;
+use user_postgres::SqlxUserTierEntitlementsFactory;
+use user_service::ports::{UserTierEntitlements, UserTierEntitlementsFactory};
+
+const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_another_transaction_lock_while_tier_entitlements_are_locked() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let user_id = seed_user(&pool, "tier-entitlements-lock@example.com", "FREE").await;
+
+    let mut tx = begin(&unit).await;
+    entitlements
+        .in_transaction(&mut tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to lock user tier: {error:?}"));
+
+    let concurrent_lock = sqlx::query("SELECT 1 FROM users WHERE user_id = $1 FOR UPDATE NOWAIT")
+        .bind(uuid::Uuid::from(user_id))
+        .execute(&pool)
+        .await;
+
+    assert!(concurrent_lock.is_err());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reconcile_legacy_newest_first_quotas() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let user_id = seed_user(&pool, "tier-entitlements-free@example.com", "FREE").await;
+    let now = OffsetDateTime::now_utc();
+
+    let old_filter = seed_search_filter(
+        &pool,
+        user_id,
+        "old eligible",
+        "Active",
+        None,
+        now - Duration::seconds(30),
+    )
+    .await;
+    let middle_filter = seed_search_filter(
+        &pool,
+        user_id,
+        "middle eligible",
+        "Active",
+        None,
+        now - Duration::seconds(20),
+    )
+    .await;
+    let newest_eligible_filter = seed_search_filter(
+        &pool,
+        user_id,
+        "newest eligible",
+        "Active",
+        None,
+        now - Duration::seconds(10),
+    )
+    .await;
+    let newest_restricted_filter = seed_search_filter(
+        &pool,
+        user_id,
+        "newest feature restricted",
+        "Active",
+        Some("gold ring"),
+        now,
+    )
+    .await;
+    let watchlist_ids = seed_watchlist_entries(&pool, user_id, 21, now).await;
+
+    let mut tx = begin(&unit).await;
+    let locked_tier = entitlements
+        .in_transaction(&mut tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to lock user tier: {error:?}"));
+    assert_eq!(Some(UserTier::Free), locked_tier);
+    entitlements
+        .in_transaction(&mut tx)
+        .reconcile_for_tier(user_id, UserTier::Free)
+        .await
+        .unwrap_or_else(|error| panic!("failed to reconcile tier entitlements: {error:?}"));
+    commit(tx).await;
+
+    assert_eq!(
+        "InactiveByRestrictedPlan",
+        state_for_search_filter(&pool, old_filter).await
+    );
+    assert_eq!(
+        "InactiveByRestrictedPlan",
+        state_for_search_filter(&pool, middle_filter).await
+    );
+    assert_eq!(
+        "Active",
+        state_for_search_filter(&pool, newest_eligible_filter).await
+    );
+    assert_eq!(
+        "InactiveByRestrictedPlan",
+        state_for_search_filter(&pool, newest_restricted_filter).await
+    );
+    assert_eq!(
+        1,
+        count_state(&pool, "search_filters", user_id, "Active").await
+    );
+    assert_eq!(
+        "InactiveByRestrictedPlan",
+        state_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await
+    );
+    assert_eq!(
+        "Active",
+        state_for_watchlist_entry(&pool, user_id, watchlist_ids[20]).await
+    );
+    assert_eq!(
+        20,
+        count_state(&pool, "product_watchlist", user_id, "Active").await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_keep_legacy_free_tier_product_exclusions_and_lifecycle_filters_active() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let user_id = seed_user(&pool, "tier-entitlements-legacy-free@example.com", "FREE").await;
+    let filter_id = uuid::Uuid::new_v4();
+
+    sqlx::query(
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency) VALUES ($1, $2, 'legacy-compatible', 'Active', $3, 'en', 'EUR')",
+    )
+    .bind(filter_id)
+    .bind(uuid::Uuid::from(user_id))
+    .bind(serde_json::json!({
+        "exclude_product_id_query": [uuid::Uuid::new_v4()],
+        "lifecycle_query": ["Deleted"],
+    }))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed legacy-compatible filter: {error:?}"));
+
+    let mut tx = begin(&unit).await;
+    entitlements
+        .in_transaction(&mut tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to lock user tier: {error:?}"));
+    entitlements
+        .in_transaction(&mut tx)
+        .reconcile_for_tier(user_id, UserTier::Free)
+        .await
+        .unwrap_or_else(|error| panic!("failed to reconcile tier entitlements: {error:?}"));
+    commit(tx).await;
+
+    assert_eq!("Active", state_for_search_filter(&pool, filter_id).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let user_id = seed_user(&pool, "tier-entitlements-ultimate@example.com", "ULTIMATE").await;
+    let now = OffsetDateTime::now_utc();
+
+    let plan_restricted_filter = seed_search_filter(
+        &pool,
+        user_id,
+        "plan restricted",
+        "InactiveByRestrictedPlan",
+        None,
+        now,
+    )
+    .await;
+    let user_inactive_filter = seed_search_filter(
+        &pool,
+        user_id,
+        "user inactive",
+        "InactiveByUser",
+        None,
+        now - Duration::seconds(1),
+    )
+    .await;
+    let watchlist_ids = seed_watchlist_entries(&pool, user_id, 2, now).await;
+    sqlx::query(
+        "UPDATE product_watchlist SET state = 'InactiveByRestrictedPlan' WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(watchlist_ids[0])
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to plan-restrict watchlist entry: {error:?}"));
+    sqlx::query(
+        "UPDATE product_watchlist SET state = 'InactiveByUser' WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(watchlist_ids[1])
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to inactivate watchlist entry by user: {error:?}"));
+
+    let mut tx = begin(&unit).await;
+    entitlements
+        .in_transaction(&mut tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("failed to lock user tier: {error:?}"));
+    entitlements
+        .in_transaction(&mut tx)
+        .reconcile_for_tier(user_id, UserTier::Ultimate)
+        .await
+        .unwrap_or_else(|error| panic!("failed to reconcile tier entitlements: {error:?}"));
+    commit(tx).await;
+
+    assert_eq!(
+        "Active",
+        state_for_search_filter(&pool, plan_restricted_filter).await
+    );
+    assert_eq!(
+        "InactiveByUser",
+        state_for_search_filter(&pool, user_inactive_filter).await
+    );
+    assert_eq!(
+        "Active",
+        state_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await
+    );
+    assert_eq!(
+        "InactiveByUser",
+        state_for_watchlist_entry(&pool, user_id, watchlist_ids[1]).await
+    );
+}
+
+async fn begin(unit: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+    unit.begin()
+        .await
+        .unwrap_or_else(|error| panic!("failed to begin transaction: {error:?}"))
+}
+
+async fn commit(tx: common::postgres::SqlxTransaction) {
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("failed to commit transaction: {error:?}"));
+}
+
+async fn seed_user(pool: &sqlx::PgPool, email: &str, tier: &str) -> UserId {
+    let user_id = UserId::new();
+    sqlx::query("INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, $3, 'User')")
+        .bind(uuid::Uuid::from(user_id))
+        .bind(email)
+        .bind(tier)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed user: {error:?}"));
+    user_id
+}
+
+async fn seed_search_filter(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    name: &str,
+    state: &str,
+    enhanced_search_description: Option<&str>,
+    created: OffsetDateTime,
+) -> uuid::Uuid {
+    let filter_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, enhanced_search_description, language, currency, created, updated) VALUES ($1, $2, $3, $4, '{}'::jsonb, $5, 'en', 'EUR', $6, $6)",
+    )
+    .bind(filter_id)
+    .bind(uuid::Uuid::from(user_id))
+    .bind(name)
+    .bind(state)
+    .bind(enhanced_search_description)
+    .bind(created)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed search filter: {error:?}"));
+    filter_id
+}
+
+async fn seed_watchlist_entries(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    count: usize,
+    start: OffsetDateTime,
+) -> Vec<uuid::Uuid> {
+    let shop_id = uuid::Uuid::new_v4();
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("failed to begin product seed transaction: {error:?}"));
+    sqlx::query(
+        "INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'Online', 'None', '{}')",
+    )
+    .bind(shop_id)
+    .bind(format!("tier-entitlements-shop-{shop_id}"))
+    .bind("Tier entitlement test shop")
+    .execute(&mut *tx)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed shop: {error:?}"));
+
+    let mut product_ids = Vec::with_capacity(count);
+    for index in 0..count {
+        let product_id = uuid::Uuid::new_v4();
+        let event_id = uuid::Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'Created', 'DOMAIN', '{}', now())",
+        )
+        .bind(event_id)
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed product event: {error:?}"));
+        sqlx::query(
+            "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'Listed', 'Active', 'https://example.com/product')",
+        )
+        .bind(product_id)
+        .bind(format!("tier-entitlements-product-{product_id}"))
+        .bind(event_id)
+        .bind(shop_id)
+        .bind(format!("tier-entitlements-{index}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed product: {error:?}"));
+        product_ids.push(product_id);
+    }
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("failed to commit product seed transaction: {error:?}"));
+
+    for (index, product_id) in product_ids.iter().enumerate() {
+        let created = start - Duration::seconds((count - index) as i64);
+        sqlx::query(
+            "INSERT INTO product_watchlist (user_id, product_id, state, created, updated) VALUES ($1, $2, 'Active', $3, $3)",
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .bind(product_id)
+        .bind(created)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed watchlist entry: {error:?}"));
+    }
+
+    product_ids
+}
+
+async fn state_for_search_filter(pool: &sqlx::PgPool, filter_id: uuid::Uuid) -> String {
+    sqlx::query_scalar("SELECT state FROM search_filters WHERE user_search_filter_id = $1")
+        .bind(filter_id)
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read search filter state: {error:?}"))
+}
+
+async fn state_for_watchlist_entry(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: uuid::Uuid,
+) -> String {
+    sqlx::query_scalar("SELECT state FROM product_watchlist WHERE user_id = $1 AND product_id = $2")
+        .bind(uuid::Uuid::from(user_id))
+        .bind(product_id)
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to read watchlist state: {error:?}"))
+}
+
+async fn count_state(pool: &sqlx::PgPool, table: &str, user_id: UserId, state: &str) -> i64 {
+    let sql = format!("SELECT count(*) FROM {table} WHERE user_id = $1 AND state = $2");
+    sqlx::query_scalar(&sql)
+        .bind(uuid::Uuid::from(user_id))
+        .bind(state)
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to count resource state: {error:?}"))
+}

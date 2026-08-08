@@ -46,8 +46,8 @@ struct SqlxProductDetailsReader<'tx> {
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct ProductDetailsRow {
-    product_id: uuid::Uuid,
+pub(super) struct ProductDetailsRow {
+    pub(super) product_id: uuid::Uuid,
     product_slug_id: String,
     event_id: uuid::Uuid,
     shop_id: uuid::Uuid,
@@ -165,7 +165,7 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
     }
 }
 
-const SELECT_PRODUCT_DETAILS: &str = r#"
+pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
     SELECT
         p.product_id, p.product_slug_id, p.event_id, p.shop_id, p.seller_id, p.shops_product_id,
         shop.name AS shop_name, shop.shop_slug_id,

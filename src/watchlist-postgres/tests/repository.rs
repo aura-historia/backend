@@ -5,9 +5,12 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use watchlist_core::WatchlistProduct;
-use watchlist_postgres::{SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory};
+use watchlist_postgres::{
+    SqlxWatchlistQuotaReaderFactory, SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory,
+};
 use watchlist_service::ports::{
-    WatchlistReader, WatchlistReaderFactory, WatchlistRepository, WatchlistRepositoryFactory,
+    WatchlistQuotaReader, WatchlistQuotaReaderFactory, WatchlistReader, WatchlistReaderFactory,
+    WatchlistRepository, WatchlistRepositoryFactory,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -67,6 +70,45 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
         .delete(user_id, product_id)
         .await
         .unwrap_or_else(|error| panic!("delete failed: {error:?}"));
+    commit(tx).await;
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_count_only_active_watchlist_entries_in_transaction() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxWatchlistRepositoryFactory;
+    let quotas = SqlxWatchlistQuotaReaderFactory;
+    let user_id = seed_user(&pool, "watchlist-postgres-quota@example.com").await;
+    let active_product_id = seed_product(&pool, "watchlist-postgres-active-product").await;
+    let inactive_product_id = seed_product(&pool, "watchlist-postgres-inactive-product").await;
+    let active =
+        WatchlistProduct::rehydrate(user_id, active_product_id, true, ResourceState::Active);
+    let inactive = WatchlistProduct::rehydrate(
+        user_id,
+        inactive_product_id,
+        true,
+        ResourceState::InactiveByUser,
+    );
+
+    let mut tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut tx)
+        .insert(&active)
+        .await
+        .unwrap_or_else(|error| panic!("insert active entry failed: {error:?}"));
+    repository
+        .in_transaction(&mut tx)
+        .insert(&inactive)
+        .await
+        .unwrap_or_else(|error| panic!("insert inactive entry failed: {error:?}"));
+    let active_count = quotas
+        .in_transaction(&mut tx)
+        .count_active_for_user(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("count active entries failed: {error:?}"));
+
+    assert_eq!(1, active_count);
     commit(tx).await;
 }
 

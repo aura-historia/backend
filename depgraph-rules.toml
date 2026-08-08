@@ -21,8 +21,8 @@ smoking-tests-macros = []
 # No internal dependencies
 test-api-macros = []
 
-# Depends on: common
-aura-historia-worker = ["common"]
+# Depends on: common, search-filter-opensearch, search-filter-postgres, search-filter-service
+aura-historia-worker = ["common", "search-filter-opensearch", "search-filter-postgres", "search-filter-service"]
 
 # Depends on: common
 cloudwatch-log-retention-lambda = ["common"]
@@ -32,6 +32,9 @@ cognito = ["common"]
 
 # Depends on: common
 fxrate = ["common"]
+
+# No internal dependencies
+embedding = []
 
 # Depends on: common, geo
 shop = ["common", "geo"]
@@ -144,8 +147,8 @@ user-lambda-index-opensearch = ["common", "user"]
 # Depends on: common, geo, user-core, user-service
 user-postgres = ["common", "geo", "user-core", "user-service"]
 
-# Depends on: common, notification-core, notification-service, product-core, product-service, watchlist-core
-watchlist-service = ["common", "notification-core", "notification-service", "product-core", "product-service", "watchlist-core"]
+# Depends on: common, notification-core, notification-service, product-core, product-service, user-core, user-service, watchlist-core
+watchlist-service = ["common", "notification-core", "notification-service", "product-core", "product-service", "user-core", "user-service", "watchlist-core"]
 
 # Depends on: common, notification-core
 notification-service = ["common", "notification-core"]
@@ -171,8 +174,8 @@ product-postgres = ["common", "geo", "product-core", "product-service"]
 # Depends on: common, geo, product, product-pipeline-embed-text, shop, user
 search-filter = ["common", "geo", "product", "product-pipeline-embed-text", "shop", "user"]
 
-# Depends on: common, product-core, search-filter-core
-search-filter-service = ["common", "product-core", "search-filter-core"]
+# Depends on: common, embedding, geo, notification-service, product-core, product-service, search-filter-core, shop-core, user-core, user-service
+search-filter-service = ["common", "embedding", "geo", "notification-service", "product-core", "product-service", "search-filter-core", "shop-core", "user-core", "user-service"]
 
 # Depends on: common, geo, shop-core, shop-partner-core, shop-service, user-core, user-service
 shop-partner-service = ["common", "geo", "shop-core", "shop-partner-core", "shop-service", "user-core", "user-service"]
@@ -198,11 +201,11 @@ product-lambda-delete-product = ["common", "product", "product-watchlist", "sear
 # Depends on: common, search-filter
 search-filter-lambda-opensearch-sync = ["common", "search-filter"]
 
-# Depends on: common, product-core, search-filter-core, search-filter-service
-search-filter-opensearch = ["common", "product-core", "search-filter-core", "search-filter-service"]
+# Depends on: common, geo, product-core, product-opensearch, search-filter-core, search-filter-service, shop-core
+search-filter-opensearch = ["common", "geo", "product-core", "product-opensearch", "search-filter-core", "search-filter-service", "shop-core"]
 
-# Depends on: common, product-core, search-filter-core, search-filter-service
-search-filter-postgres = ["common", "product-core", "search-filter-core", "search-filter-service"]
+# Depends on: common, geo, product-core, search-filter-core, search-filter-service, shop-core
+search-filter-postgres = ["common", "geo", "product-core", "search-filter-core", "search-filter-service", "shop-core"]
 
 # Depends on: common, shop-core, shop-partner-core, shop-partner-service, shop-postgres, shop-service
 shop-partner-postgres = ["common", "shop-core", "shop-partner-core", "shop-partner-service", "shop-postgres", "shop-service"]
@@ -210,8 +213,8 @@ shop-partner-postgres = ["common", "shop-core", "shop-partner-core", "shop-partn
 # Depends on: common, product-watchlist, search-filter, user
 user-lambda-tier-update = ["common", "product-watchlist", "search-filter", "user"]
 
-# Depends on: common, geo, notification-dynamodb, oauth-core, oauth-dynamodb, oauth-service, product-core, product-opensearch, product-postgres, product-service, shop-core, shop-partner-core, shop-partner-postgres, shop-partner-service, shop-postgres, shop-service, user-core, user-dynamodb, user-postgres, user-service, watchlist-core, watchlist-postgres, watchlist-service
-aura-historia-api = ["common", "geo", "notification-dynamodb", "oauth-core", "oauth-dynamodb", "oauth-service", "product-core", "product-opensearch", "product-postgres", "product-service", "shop-core", "shop-partner-core", "shop-partner-postgres", "shop-partner-service", "shop-postgres", "shop-service", "user-core", "user-dynamodb", "user-postgres", "user-service", "watchlist-core", "watchlist-postgres", "watchlist-service"]
+# Depends on: common, embedding, geo, notification-dynamodb, oauth-core, oauth-dynamodb, oauth-service, product-core, product-opensearch, product-postgres, product-service, search-filter-postgres, search-filter-service, shop-core, shop-partner-core, shop-partner-postgres, shop-partner-service, shop-postgres, shop-service, user-core, user-dynamodb, user-postgres, user-service, watchlist-core, watchlist-postgres, watchlist-service
+aura-historia-api = ["common", "embedding", "geo", "notification-dynamodb", "oauth-core", "oauth-dynamodb", "oauth-service", "product-core", "product-opensearch", "product-postgres", "product-service", "search-filter-postgres", "search-filter-service", "shop-core", "shop-partner-core", "shop-partner-postgres", "shop-partner-service", "shop-postgres", "shop-service", "user-core", "user-dynamodb", "user-postgres", "user-service", "watchlist-core", "watchlist-postgres", "watchlist-service"]
 
 # Depends on: common, notification, product, product-watchlist, search-filter, shop, user
 aws-tests-common = ["common", "notification", "product", "product-watchlist", "search-filter", "shop", "user"]
@@ -267,8 +270,8 @@ acceptance-tests = ["aws-tests-common", "common", "fxrate", "notification", "par
 # Depends on: aws-tests-common, smoking-tests
 aws-tests = ["aws-tests-common", "smoking-tests"]
 
-# Depends on: acceptance-tests, aura-historia-api, aura-historia-worker, aws-tests, cloudwatch-log-retention-lambda, cognito, cognito-post-confirmation, common, fxrate, fxrate-lambda, geo, newsletter-api, notification, notification-api, notification-core, notification-dynamodb, notification-send, notification-service, oauth, oauth-api, oauth-core, oauth-dynamodb, oauth-service, partner-shop-application, partner-shop-application-api, partner-shop-application-lambda, product, product-api, product-api-partner, product-core, product-lambda, product-lambda-delete-product, product-opensearch, product-personalization, product-pipeline, product-postgres, product-service, product-watchlist, product-watchlist-api, search-filter, search-filter-api, search-filter-core, search-filter-lambda, search-filter-opensearch, search-filter-periodic-match, search-filter-postgres, search-filter-service, shop, shop-api, shop-core, shop-lambda, shop-partner-core, shop-partner-postgres, shop-partner-service, shop-postgres, shop-service, shopify-lambda, stripe-api, stripe-lambda, test-api, user, user-api, user-core, user-dynamodb, user-lambda, user-postgres, user-service, watchlist-core, watchlist-postgres, watchlist-service, webhook-api
-aura-historia-parent = ["acceptance-tests", "aura-historia-api", "aura-historia-worker", "aws-tests", "cloudwatch-log-retention-lambda", "cognito", "cognito-post-confirmation", "common", "fxrate", "fxrate-lambda", "geo", "newsletter-api", "notification", "notification-api", "notification-core", "notification-dynamodb", "notification-send", "notification-service", "oauth", "oauth-api", "oauth-core", "oauth-dynamodb", "oauth-service", "partner-shop-application", "partner-shop-application-api", "partner-shop-application-lambda", "product", "product-api", "product-api-partner", "product-core", "product-lambda", "product-lambda-delete-product", "product-opensearch", "product-personalization", "product-pipeline", "product-postgres", "product-service", "product-watchlist", "product-watchlist-api", "search-filter", "search-filter-api", "search-filter-core", "search-filter-lambda", "search-filter-opensearch", "search-filter-periodic-match", "search-filter-postgres", "search-filter-service", "shop", "shop-api", "shop-core", "shop-lambda", "shop-partner-core", "shop-partner-postgres", "shop-partner-service", "shop-postgres", "shop-service", "shopify-lambda", "stripe-api", "stripe-lambda", "test-api", "user", "user-api", "user-core", "user-dynamodb", "user-lambda", "user-postgres", "user-service", "watchlist-core", "watchlist-postgres", "watchlist-service", "webhook-api"]
+# Depends on: acceptance-tests, aura-historia-api, aura-historia-worker, aws-tests, cloudwatch-log-retention-lambda, cognito, cognito-post-confirmation, common, embedding, fxrate, fxrate-lambda, geo, newsletter-api, notification, notification-api, notification-core, notification-dynamodb, notification-send, notification-service, oauth, oauth-api, oauth-core, oauth-dynamodb, oauth-service, partner-shop-application, partner-shop-application-api, partner-shop-application-lambda, product, product-api, product-api-partner, product-core, product-lambda, product-lambda-delete-product, product-opensearch, product-personalization, product-pipeline, product-postgres, product-service, product-watchlist, product-watchlist-api, search-filter, search-filter-api, search-filter-core, search-filter-lambda, search-filter-opensearch, search-filter-periodic-match, search-filter-postgres, search-filter-service, shop, shop-api, shop-core, shop-lambda, shop-partner-core, shop-partner-postgres, shop-partner-service, shop-postgres, shop-service, shopify-lambda, stripe-api, stripe-lambda, test-api, user, user-api, user-core, user-dynamodb, user-lambda, user-postgres, user-service, watchlist-core, watchlist-postgres, watchlist-service, webhook-api
+aura-historia-parent = ["acceptance-tests", "aura-historia-api", "aura-historia-worker", "aws-tests", "cloudwatch-log-retention-lambda", "cognito", "cognito-post-confirmation", "common", "embedding", "fxrate", "fxrate-lambda", "geo", "newsletter-api", "notification", "notification-api", "notification-core", "notification-dynamodb", "notification-send", "notification-service", "oauth", "oauth-api", "oauth-core", "oauth-dynamodb", "oauth-service", "partner-shop-application", "partner-shop-application-api", "partner-shop-application-lambda", "product", "product-api", "product-api-partner", "product-core", "product-lambda", "product-lambda-delete-product", "product-opensearch", "product-personalization", "product-pipeline", "product-postgres", "product-service", "product-watchlist", "product-watchlist-api", "search-filter", "search-filter-api", "search-filter-core", "search-filter-lambda", "search-filter-opensearch", "search-filter-periodic-match", "search-filter-postgres", "search-filter-service", "shop", "shop-api", "shop-core", "shop-lambda", "shop-partner-core", "shop-partner-postgres", "shop-partner-service", "shop-postgres", "shop-service", "shopify-lambda", "stripe-api", "stripe-lambda", "test-api", "user", "user-api", "user-core", "user-dynamodb", "user-lambda", "user-postgres", "user-service", "watchlist-core", "watchlist-postgres", "watchlist-service", "webhook-api"]
 
 [options]
 strict = true

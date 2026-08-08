@@ -7,6 +7,11 @@ use product_service::use_cases::{
     CreateProductError, DeleteProductError, GetProductError, GetProductEventsError,
     GetSimilarProductsError, SearchProductsError, UpdateProductError, UpsertProductError,
 };
+use search_filter_service::use_cases::{
+    CreateSearchFilterError, DeleteOwnedSearchFilterError, GetOwnedSearchFilterError,
+    ListOwnedSearchFiltersError, ListSearchFilterMatchesError, UpdateOwnedSearchFilterError,
+    UpdateSearchFilterMatchFeedbackError,
+};
 use serde::Serialize;
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationError, AdminGetPartnerShopApplicationError,
@@ -83,12 +88,28 @@ pub(crate) const PRODUCT_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("PRODUCT_IN
 pub(crate) const PRODUCT_NOT_FOUND: ApiErrorCode = ApiErrorCode("PRODUCT_NOT_FOUND");
 pub(crate) const PRODUCT_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("PRODUCT_TEMPORARILY_UNAVAILABLE");
+pub(crate) const SEARCH_FILTER_ALREADY_EXISTS: ApiErrorCode =
+    ApiErrorCode("SEARCH_FILTER_ALREADY_EXISTS");
+pub(crate) const SEARCH_FILTER_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("SEARCH_FILTER_INTERNAL_ERROR");
+pub(crate) const SEARCH_FILTER_INVALID_PATCH: ApiErrorCode =
+    ApiErrorCode("SEARCH_FILTER_INVALID_PATCH");
+pub(crate) const SEARCH_FILTER_MATCH_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("SEARCH_FILTER_MATCH_NOT_FOUND");
+pub(crate) const SEARCH_FILTER_NOT_FOUND: ApiErrorCode = ApiErrorCode("SEARCH_FILTER_NOT_FOUND");
+pub(crate) const SEARCH_FILTER_QUOTA_EXCEEDED: ApiErrorCode =
+    ApiErrorCode("SEARCH_FILTER_QUOTA_EXCEEDED");
+pub(crate) const SEARCH_FILTER_RESTRICTED_FEATURE: ApiErrorCode =
+    ApiErrorCode("SEARCH_FILTER_RESTRICTED_FEATURE");
+pub(crate) const SEARCH_FILTER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("SEARCH_FILTER_TEMPORARILY_UNAVAILABLE");
 pub(crate) const USER_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("USER_INTERNAL_ERROR");
 pub(crate) const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
 pub(crate) const USER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("USER_TEMPORARILY_UNAVAILABLE");
 pub(crate) const WATCHLIST_ENTRY_NOT_FOUND: ApiErrorCode =
     ApiErrorCode("WATCHLIST_ENTRY_NOT_FOUND");
+pub(crate) const WATCHLIST_QUOTA_EXCEEDED: ApiErrorCode = ApiErrorCode("WATCHLIST_QUOTA_EXCEEDED");
 pub(crate) const WATCHLIST_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("WATCHLIST_INTERNAL_ERROR");
 pub(crate) const WATCHLIST_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("WATCHLIST_TEMPORARILY_UNAVAILABLE");
@@ -173,6 +194,14 @@ impl ApiError {
 
     pub(crate) fn conflict(error: ApiErrorCode) -> Self {
         Self::new(StatusCode::CONFLICT, "Conflict", error)
+    }
+
+    pub(crate) fn unprocessable_content(error: ApiErrorCode) -> Self {
+        Self::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Unprocessable Content",
+            error,
+        )
     }
 
     pub(crate) fn internal_server_error(error: ApiErrorCode) -> Self {
@@ -262,6 +291,251 @@ impl From<AuthError> for ApiError {
             | AuthError::JwksFetch(_) => ApiError::unauthorized(INVALID_CREDENTIALS)
                 .with_header_field("Authorization")
                 .with_detail("Bearer token is invalid."),
+        }
+    }
+}
+
+impl From<ListOwnedSearchFiltersError> for ApiError {
+    fn from(error: ListOwnedSearchFiltersError) -> Self {
+        match error {
+            ListOwnedSearchFiltersError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            ListOwnedSearchFiltersError::ActorMayNotManageSearchFilter => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. } => {
+                ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Search filters are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<GetOwnedSearchFilterError> for ApiError {
+    fn from(error: GetOwnedSearchFilterError) -> Self {
+        match error {
+            GetOwnedSearchFilterError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            GetOwnedSearchFilterError::ActorMayNotManageSearchFilter => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GetOwnedSearchFilterError::SearchFilterNotFound => {
+                ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
+                    .with_detail("Search filter was not found.")
+            }
+            GetOwnedSearchFilterError::SearchFilterReadFailed { .. } => {
+                ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Search filter is temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<CreateSearchFilterError> for ApiError {
+    fn from(error: CreateSearchFilterError) -> Self {
+        match error {
+            CreateSearchFilterError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreateSearchFilterError::ActorMayNotManageSearchFilter => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreateSearchFilterError::SearchFilterAlreadyExists => {
+                ApiError::conflict(SEARCH_FILTER_ALREADY_EXISTS)
+                    .with_detail("Search filter already exists.")
+            }
+            CreateSearchFilterError::UserNotFound => ApiError::not_found(USER_NOT_FOUND)
+                .with_detail("User was not found."),
+            CreateSearchFilterError::SearchFilterQuotaExceeded {
+                active_count,
+                quota,
+            } => ApiError::unprocessable_content(SEARCH_FILTER_QUOTA_EXCEEDED).with_detail(
+                format!(
+                    "Exceeded the maximum amount of search filters. There are already {active_count}/{quota} active search filters occupied."
+                ),
+            ),
+            CreateSearchFilterError::SearchFilterFeatureRestricted { feature } => {
+                ApiError::unprocessable_content(SEARCH_FILTER_RESTRICTED_FEATURE).with_detail(
+                    format!(
+                        "Search filter contains forbidden search field '{feature}' which requires a higher user tier."
+                    ),
+                )
+            }
+            CreateSearchFilterError::PersistedSearchFilterStateInvalid { .. } => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filter state is invalid.")
+            }
+            CreateSearchFilterError::EmbeddingGenerationFailed { .. }
+            | CreateSearchFilterError::UserTierEntitlementsLockFailed { .. }
+            | CreateSearchFilterError::SearchFilterQuotaReadFailed { .. }
+            | CreateSearchFilterError::SearchFilterInsertFailed { .. }
+            | CreateSearchFilterError::BeginTransactionFailed
+            | CreateSearchFilterError::CommitTransactionFailed => {
+                ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Search filter could not be created right now.")
+            }
+        }
+    }
+}
+
+impl From<UpdateOwnedSearchFilterError> for ApiError {
+    fn from(error: UpdateOwnedSearchFilterError) -> Self {
+        match error {
+            UpdateOwnedSearchFilterError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateOwnedSearchFilterError::ActorMayNotManageSearchFilter => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateOwnedSearchFilterError::SearchFilterNotFound => {
+                ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
+                    .with_detail("Search filter was not found.")
+            }
+            UpdateOwnedSearchFilterError::UserNotFound => ApiError::not_found(USER_NOT_FOUND)
+                .with_detail("User was not found."),
+            UpdateOwnedSearchFilterError::SearchFilterQuotaExceeded {
+                active_count,
+                quota,
+            } => ApiError::unprocessable_content(SEARCH_FILTER_QUOTA_EXCEEDED).with_detail(
+                format!(
+                    "Exceeded the maximum amount of search filters. There are already {active_count}/{quota} active search filters occupied."
+                ),
+            ),
+            UpdateOwnedSearchFilterError::SearchFilterFeatureRestricted { feature } => {
+                ApiError::unprocessable_content(SEARCH_FILTER_RESTRICTED_FEATURE).with_detail(
+                    format!(
+                        "Search filter contains forbidden search field '{feature}' which requires a higher user tier."
+                    ),
+                )
+            }
+            UpdateOwnedSearchFilterError::InvalidSearchFilterPatch => {
+                ApiError::bad_request(SEARCH_FILTER_INVALID_PATCH)
+                    .with_detail("Search filter patch is invalid.")
+            }
+            UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict => {
+                ApiError::conflict(CONFLICT).with_detail("Search filter was changed concurrently.")
+            }
+            UpdateOwnedSearchFilterError::PersistedSearchFilterStateInvalid { .. } => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filter state is invalid.")
+            }
+            UpdateOwnedSearchFilterError::EmbeddingGenerationFailed { .. }
+            | UpdateOwnedSearchFilterError::UserTierEntitlementsLockFailed { .. }
+            | UpdateOwnedSearchFilterError::SearchFilterQuotaReadFailed { .. }
+            | UpdateOwnedSearchFilterError::SearchFilterLookupFailed { .. }
+            | UpdateOwnedSearchFilterError::SearchFilterUpdateFailed { .. }
+            | UpdateOwnedSearchFilterError::BeginTransactionFailed
+            | UpdateOwnedSearchFilterError::CommitTransactionFailed => {
+                ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Search filter could not be updated right now.")
+            }
+        }
+    }
+}
+
+impl From<DeleteOwnedSearchFilterError> for ApiError {
+    fn from(error: DeleteOwnedSearchFilterError) -> Self {
+        match error {
+            DeleteOwnedSearchFilterError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            DeleteOwnedSearchFilterError::ActorMayNotManageSearchFilter => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            DeleteOwnedSearchFilterError::SearchFilterNotFound => {
+                ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
+                    .with_detail("Search filter was not found.")
+            }
+            DeleteOwnedSearchFilterError::PersistedSearchFilterStateInvalid { .. } => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filter state is invalid.")
+            }
+            DeleteOwnedSearchFilterError::SearchFilterLookupFailed { .. }
+            | DeleteOwnedSearchFilterError::SearchFilterDeletionFailed { .. }
+            | DeleteOwnedSearchFilterError::BeginTransactionFailed
+            | DeleteOwnedSearchFilterError::CommitTransactionFailed => {
+                ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Search filter could not be deleted right now.")
+            }
+        }
+    }
+}
+
+impl From<ListSearchFilterMatchesError> for ApiError {
+    fn from(error: ListSearchFilterMatchesError) -> Self {
+        match error {
+            ListSearchFilterMatchesError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            ListSearchFilterMatchesError::ActorMayNotManageSearchFilter => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListSearchFilterMatchesError::SearchFilterNotFound => {
+                ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
+                    .with_detail("Search filter was not found.")
+            }
+            ListSearchFilterMatchesError::ProductDetailsInvalid { .. }
+            | ListSearchFilterMatchesError::MatchedProductMissing { .. }
+            | ListSearchFilterMatchesError::HiddenProductRedactionFailed { .. } => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filter match product data is invalid.")
+            }
+            ListSearchFilterMatchesError::SearchFilterMatchReadFailed { .. }
+            | ListSearchFilterMatchesError::ProductDetailsReadFailed { .. }
+            | ListSearchFilterMatchesError::NotificationReadFailed { .. } => {
+                ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Search filter matches are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<UpdateSearchFilterMatchFeedbackError> for ApiError {
+    fn from(error: UpdateSearchFilterMatchFeedbackError) -> Self {
+        match error {
+            UpdateSearchFilterMatchFeedbackError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateSearchFilterMatchFeedbackError::ActorMayNotManageSearchFilter => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateSearchFilterMatchFeedbackError::SearchFilterNotFound => {
+                ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
+                    .with_detail("Search filter was not found.")
+            }
+            UpdateSearchFilterMatchFeedbackError::SearchFilterMatchNotFound => {
+                ApiError::not_found(SEARCH_FILTER_MATCH_NOT_FOUND)
+                    .with_detail("Search filter match was not found.")
+            }
+            UpdateSearchFilterMatchFeedbackError::PersistedSearchFilterStateInvalid { .. }
+            | UpdateSearchFilterMatchFeedbackError::PersistedSearchFilterMatchStateInvalid {
+                ..
+            } => ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                .with_detail("Search filter state is invalid."),
+            UpdateSearchFilterMatchFeedbackError::SearchFilterLookupFailed { .. }
+            | UpdateSearchFilterMatchFeedbackError::SearchFilterMatchLookupFailed { .. }
+            | UpdateSearchFilterMatchFeedbackError::SearchFilterMatchUpdateFailed { .. }
+            | UpdateSearchFilterMatchFeedbackError::BeginTransactionFailed
+            | UpdateSearchFilterMatchFeedbackError::CommitTransactionFailed => {
+                ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Search filter match could not be updated right now.")
+            }
         }
     }
 }
@@ -711,6 +985,8 @@ impl From<ChangeUserTierError> for ApiError {
             | ChangeUserTierError::StripeCustomerConflict { .. } => ApiError::conflict(CONFLICT)
                 .with_detail("User update conflicts with current state."),
             ChangeUserTierError::TemporarilyUnavailable { .. }
+            | ChangeUserTierError::TierEntitlementsLockFailed { .. }
+            | ChangeUserTierError::TierEntitlementsReconciliationFailed { .. }
             | ChangeUserTierError::BeginTransactionFailed
             | ChangeUserTierError::CommitTransactionFailed => {
                 ApiError::service_unavailable(USER_TEMPORARILY_UNAVAILABLE)
@@ -936,7 +1212,18 @@ impl From<WatchProductError> for ApiError {
             WatchProductError::AlreadyExists => {
                 ApiError::conflict(CONFLICT).with_detail("Watchlist entry already exists.")
             }
+            WatchProductError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            WatchProductError::WatchlistQuotaExceeded {
+                active_count,
+                quota,
+            } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
+                "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
+            )),
             WatchProductError::TemporarilyUnavailable
+            | WatchProductError::UserTierEntitlementsLockFailed { .. }
+            | WatchProductError::WatchlistQuotaReadFailed { .. }
             | WatchProductError::BeginTransactionFailed
             | WatchProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
@@ -962,7 +1249,18 @@ impl From<UpdateWatchlistProductError> for ApiError {
             }
             UpdateWatchlistProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 .with_detail("Watchlist entry was not found."),
+            UpdateWatchlistProductError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            UpdateWatchlistProductError::WatchlistQuotaExceeded {
+                active_count,
+                quota,
+            } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
+                "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
+            )),
             UpdateWatchlistProductError::TemporarilyUnavailable
+            | UpdateWatchlistProductError::UserTierEntitlementsLockFailed { .. }
+            | UpdateWatchlistProductError::WatchlistQuotaReadFailed { .. }
             | UpdateWatchlistProductError::BeginTransactionFailed
             | UpdateWatchlistProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)

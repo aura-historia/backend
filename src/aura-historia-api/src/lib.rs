@@ -4,6 +4,7 @@ pub mod oauth;
 pub mod partner_applications;
 pub mod partner_products;
 pub mod products;
+pub mod search_filters;
 pub mod shops;
 pub mod state;
 pub mod users;
@@ -15,11 +16,13 @@ use crate::auth::{
 };
 use crate::state::{
     AppState, OAuthState, PartnerApplicationsState, PartnerProductsState, ProductsState,
-    ShopsState, UsersState, WatchlistState,
+    SearchFiltersState, ShopsState, UsersState, WatchlistState,
 };
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
+use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
+use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
@@ -34,16 +37,26 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
-    SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsReaderFactory,
-    SqlxProductEmbeddingReaderFactory, SqlxProductEventReaderFactory, SqlxProductEventStoreFactory,
-    SqlxProductRepositoryFactory, SqlxProductUserStateReader,
-    SqlxProductWatchlistDetailsReaderFactory,
+    SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsBatchReader,
+    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+    SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
 };
 use product_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
     GetSimilarProductsHandler, SearchProductsHandler, UpdateProductHandler, UpsertProductHandler,
+};
+use search_filter_postgres::{
+    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
+    SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
+};
+use search_filter_service::use_cases::{
+    CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
+    ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
+    UpdateSearchFilterMatchFeedbackHandler,
 };
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
@@ -73,7 +86,7 @@ use tracing::info;
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_postgres::{
     SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserRepositoryFactory,
-    SqlxUserSearchReaderFactory,
+    SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
 };
 use user_service::use_cases::AuthenticateAccessTokenHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
@@ -89,18 +102,24 @@ use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
 use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
-use watchlist_postgres::SqlxWatchlistRepositoryFactory;
+use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
 pub const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
+pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
+pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
+const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "project-2c6e1dcc-3fb9-4910-adc";
+const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
+const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiConfig {
     bind_addr: SocketAddr,
+    vertex_ai_embedding: VertexAiEmbeddingConfig,
 }
 
 impl ApiConfig {
@@ -122,11 +141,24 @@ impl ApiConfig {
                     source,
                 })?;
 
-        Ok(Self { bind_addr })
+        let vertex_ai_embedding = VertexAiEmbeddingConfig::new(
+            get(VERTEX_AI_PROJECT_ID_ENV)
+                .unwrap_or_else(|| DEFAULT_VERTEX_AI_PROJECT_ID.to_owned()),
+            get(VERTEX_AI_LOCATION_ENV).unwrap_or_else(|| DEFAULT_VERTEX_AI_LOCATION.to_owned()),
+        );
+
+        Ok(Self {
+            bind_addr,
+            vertex_ai_embedding,
+        })
     }
 
     pub const fn bind_addr(&self) -> SocketAddr {
         self.bind_addr
+    }
+
+    pub fn vertex_ai_embedding(&self) -> &VertexAiEmbeddingConfig {
+        &self.vertex_ai_embedding
     }
 }
 
@@ -287,6 +319,10 @@ pub fn app(state: AppState) -> Router {
         );
     }
 
+    if let Some(search_filters) = state.search_filters {
+        routes = routes.merge(search_filters::router(search_filters));
+    }
+
     if let Some(partner_applications) = state.partner_applications {
         routes = routes.merge(
             Router::new()
@@ -329,11 +365,22 @@ async fn ready() -> &'static str {
 }
 
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
+    let config = ApiConfig::from_env().map_err(ApiStateError::Config)?;
+    app_state_from_config(&config).await
+}
+
+async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
     let pool = common::postgres::connect_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let get_product_events =
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
+    let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let opensearch_client = opensearch_client_from_env()?;
+    let search_filter_embeddings: Arc<dyn EmbeddingGenerator> =
+        Arc::new(VertexAiEmbeddingGenerator::new(
+            config.vertex_ai_embedding().clone(),
+            google_application_default_credentials()?,
+        ));
 
     let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
     let search_shops =
@@ -381,16 +428,25 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
+        SqlxUserTierEntitlementsFactory::new(),
     );
     let delete_user = DeleteUserHandler::new(
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let watch_product =
-        WatchProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
-    let update_watchlist_product =
-        UpdateWatchlistProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
+    let watch_product = WatchProductHandler::new(
+        unit_of_work.clone(),
+        SqlxWatchlistRepositoryFactory,
+        SqlxWatchlistQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory::new(),
+    );
+    let update_watchlist_product = UpdateWatchlistProductHandler::new(
+        unit_of_work.clone(),
+        SqlxWatchlistRepositoryFactory,
+        SqlxWatchlistQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory::new(),
+    );
     let unwatch_product =
         UnwatchProductHandler::new(unit_of_work.clone(), SqlxWatchlistRepositoryFactory);
     let create_partner_application = CreatePartnerShopApplicationHandler::new(
@@ -442,7 +498,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         })?;
     let table_name = Box::leak(table_name.into_boxed_str());
     let table_name_ref: &str = table_name;
-    let product_user_states = SqlxProductUserStateReader::new(pool);
+    let product_user_states = SqlxProductUserStateReader::new(pool.clone());
     let get_similar_products = GetSimilarProductsHandler::new(
         unit_of_work.clone(),
         SqlxProductEmbeddingReaderFactory::new(),
@@ -519,6 +575,44 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         delete_access_token: Arc::new(DeleteAccessTokenHandler::new(access_token_store)),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    let search_filters_state = SearchFiltersState::new(
+        Arc::new(ListOwnedSearchFiltersHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(CreateSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            search_filter_embeddings.clone(),
+            SqlxSearchFilterQuotaReaderFactory,
+            SqlxUserTierEntitlementsFactory::new(),
+        )),
+        Arc::new(GetOwnedSearchFilterHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(UpdateOwnedSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            search_filter_embeddings,
+            search_filter_reader.clone(),
+            SqlxSearchFilterQuotaReaderFactory,
+            SqlxUserTierEntitlementsFactory::new(),
+        )),
+        Arc::new(DeleteOwnedSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+        )),
+        Arc::new(ListSearchFilterMatchesHandler::new(
+            search_filter_reader.clone(),
+            SqlxProductDetailsBatchReader::new(pool.clone()),
+            DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+        )),
+        Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            SqlxSearchFilterMatchRepositoryFactory,
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let watchlist_state = WatchlistState {
         list_watchlist: Arc::new(list_watchlist),
         watch_product: Arc::new(watch_product),
@@ -588,7 +682,8 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
         .with_product_events(Arc::new(get_product_events)),
     )
     .with_partner_products(partner_products_state)
-    .with_oauth(oauth_state))
+    .with_oauth(oauth_state)
+    .with_search_filters(search_filters_state))
 }
 
 fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
@@ -621,6 +716,16 @@ fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
     Ok(OpenSearch::new(transport))
 }
 
+fn google_application_default_credentials()
+-> Result<google_cloud_auth::credentials::AccessTokenCredentials, ApiStateError> {
+    GoogleCredentialsBuilder::default()
+        .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
+        .build_access_token_credentials()
+        .map_err(|error| ApiStateError::VertexAiCredentials {
+            detail: error.to_string(),
+        })
+}
+
 #[derive(Clone, Copy)]
 struct UnavailableShopGeocoder;
 
@@ -651,17 +756,23 @@ impl TokenAuthenticator for JwtUnavailableAuthenticator {
 pub enum ApiStateError {
     #[error(transparent)]
     Postgres(#[from] PostgresConnectError),
+    #[error(transparent)]
+    Config(#[from] ApiConfigError),
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
+    #[error("failed to initialize Vertex AI credentials: {detail}")]
+    VertexAiCredentials { detail: String },
 }
 
 pub async fn run_until_shutdown<S>(config: ApiConfig, shutdown: S) -> Result<(), ApiRunError>
 where
     S: Future<Output = ()> + Send + 'static,
 {
-    let state = app_state_from_env().await.map_err(ApiRunError::State)?;
+    let state = app_state_from_config(&config)
+        .await
+        .map_err(ApiRunError::State)?;
     let listener = TcpListener::bind(config.bind_addr())
         .await
         .map_err(ApiRunError::Bind)?;
@@ -729,6 +840,24 @@ mod tests {
         let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
 
         assert_eq!("127.0.0.1:9000".parse::<SocketAddr>()?, config.bind_addr());
+        Ok(())
+    }
+
+    #[test]
+    fn should_read_vertex_ai_embedding_config_from_environment()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let values = env(&[
+            (VERTEX_AI_PROJECT_ID_ENV, "embedding-project"),
+            (VERTEX_AI_LOCATION_ENV, "europe-west3"),
+        ]);
+
+        let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
+
+        assert_eq!(
+            "embedding-project",
+            config.vertex_ai_embedding().project_id()
+        );
+        assert_eq!("europe-west3", config.vertex_ai_embedding().location());
         Ok(())
     }
 

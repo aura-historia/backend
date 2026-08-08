@@ -11,15 +11,15 @@ use common::user_search_filter_name::UserSearchFilterName;
 use product_core::product_search::ProductSearch;
 use search_filter_core::{NewSearchFilter, SearchFilter, SearchFilterProductMatch};
 use search_filter_postgres::{
-    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterReader,
-    SqlxSearchFilterRepositoryFactory,
+    SqlxSearchFilterIndexReader, SqlxSearchFilterMatchRepositoryFactory,
+    SqlxSearchFilterQuotaReaderFactory, SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
 };
 use search_filter_service::ports::{
-    SearchFilterMatchRepository, SearchFilterMatchRepositoryFactory, SearchFilterReader,
+    SearchFilterIndexReader, SearchFilterMatchRepository, SearchFilterMatchRepositoryFactory,
+    SearchFilterQuotaReader, SearchFilterQuotaReaderFactory, SearchFilterReader,
     SearchFilterRepository, SearchFilterRepositoryFactory,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
-use time::OffsetDateTime;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -42,10 +42,14 @@ async fn should_insert_find_update_read_and_delete_search_filter() {
         .find_by_id(filter.id())
         .await
         .unwrap_or_else(|error| panic!("find failed: {error:?}"));
-    assert!(matches!(loaded, Some(ref value) if value.notifications()));
+    assert!(matches!(loaded, Some(ref value) if value.filter.notifications()));
+    let expected_version = match loaded {
+        Some(value) => value.version,
+        None => panic!("inserted filter was not found"),
+    };
     filter.change_notifications(false);
     repo.in_transaction(&mut tx)
-        .update(&filter)
+        .update(&filter, expected_version)
         .await
         .unwrap_or_else(|error| panic!("update failed: {error:?}"));
     commit(tx).await;
@@ -55,7 +59,7 @@ async fn should_insert_find_update_read_and_delete_search_filter() {
         .await
         .unwrap_or_else(|error| panic!("list failed: {error:?}"));
     assert_eq!(1, filters.len());
-    assert!(!filters[0].filter.notifications());
+    assert!(!filters[0].notifications);
     assert!(filters[0].updated >= filters[0].created);
 
     let mut tx = begin(&unit).await;
@@ -64,6 +68,55 @@ async fn should_insert_find_update_read_and_delete_search_filter() {
         .await
         .unwrap_or_else(|error| panic!("delete failed: {error:?}"));
     commit(tx).await;
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_read_complete_versioned_projection_pages_from_postgres() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxSearchFilterRepositoryFactory;
+    let reader = SqlxSearchFilterIndexReader::new(pool.clone());
+    let user_id = seed_user(&pool, "search-filter-projection-reader@example.com").await;
+    let first = sample_filter(user_id, "first projection");
+    let second = sample_filter(user_id, "second projection");
+
+    let mut tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut tx)
+        .insert(&first)
+        .await
+        .unwrap_or_else(|error| panic!("first insert failed: {error:?}"));
+    repository
+        .in_transaction(&mut tx)
+        .insert(&second)
+        .await
+        .unwrap_or_else(|error| panic!("second insert failed: {error:?}"));
+    commit(tx).await;
+
+    let projection = reader
+        .find_by_id(first.id())
+        .await
+        .unwrap_or_else(|error| panic!("projection read failed: {error:?}"));
+    assert!(matches!(
+        projection,
+        Some(ref projection)
+            if projection.view.search_filter_id == first.id() && projection.source_version == 1
+    ));
+
+    let first_page = reader
+        .list_after(None, 1)
+        .await
+        .unwrap_or_else(|error| panic!("first projection page failed: {error:?}"));
+    assert_eq!(1, first_page.len());
+    let second_page = reader
+        .list_after(Some(first_page[0].view.search_filter_id), 10)
+        .await
+        .unwrap_or_else(|error| panic!("second projection page failed: {error:?}"));
+    assert_eq!(1, second_page.len());
+    assert_ne!(
+        first_page[0].view.search_filter_id,
+        second_page[0].view.search_filter_id
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -88,6 +141,38 @@ async fn should_return_already_exists_when_search_filter_exists() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_count_only_active_search_filters_in_transaction() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let filters = SqlxSearchFilterRepositoryFactory;
+    let quotas = SqlxSearchFilterQuotaReaderFactory;
+    let user_id = seed_user(&pool, "search-filter-postgres-quota@example.com").await;
+    let active = sample_filter(user_id, "active filter");
+    let mut inactive = sample_filter(user_id, "inactive filter");
+    let _ = inactive.change_state(ResourceState::InactiveByUser);
+
+    let mut tx = begin(&unit).await;
+    filters
+        .in_transaction(&mut tx)
+        .insert(&active)
+        .await
+        .unwrap_or_else(|error| panic!("insert active filter failed: {error:?}"));
+    filters
+        .in_transaction(&mut tx)
+        .insert(&inactive)
+        .await
+        .unwrap_or_else(|error| panic!("insert inactive filter failed: {error:?}"));
+
+    let active_count = quotas
+        .in_transaction(&mut tx)
+        .count_active_for_user(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("count active filters failed: {error:?}"));
+    assert_eq!(1, active_count);
+    commit(tx).await;
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_insert_find_and_update_search_filter_match() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -97,7 +182,6 @@ async fn should_insert_find_and_update_search_filter_match() {
     let filter = sample_filter(user_id, "match filter");
     let product_id = seed_product(&pool, "search-filter-match-product").await;
     let event_id = seed_product_event(&pool, product_id).await;
-    let now = OffsetDateTime::now_utc();
     let mut product_match = SearchFilterProductMatch {
         user_id,
         user_search_filter_id: filter.id(),
@@ -106,8 +190,6 @@ async fn should_insert_find_and_update_search_filter_match() {
         origin_event_id: event_id,
         enhanced_match_reason: None,
         feedback: None,
-        created: now,
-        updated: now,
     };
 
     let mut tx = begin(&unit).await;
@@ -116,24 +198,26 @@ async fn should_insert_find_and_update_search_filter_match() {
         .insert(&filter)
         .await
         .unwrap_or_else(|error| panic!("insert filter failed: {error:?}"));
-    matches
+    let inserted = matches
         .in_transaction(&mut tx)
         .insert(&product_match)
         .await
         .unwrap_or_else(|error| panic!("insert match failed: {error:?}"));
+    assert!(inserted.updated >= inserted.created);
     let loaded = matches
         .in_transaction(&mut tx)
         .find_by_filter_and_product(filter.id(), product_id)
         .await
         .unwrap_or_else(|error| panic!("find match failed: {error:?}"));
-    assert!(loaded.is_some());
-    product_match.feedback = Some(true);
-    product_match.updated = OffsetDateTime::now_utc();
-    matches
+    assert!(matches!(loaded, Some(ref value) if value.product_match == product_match));
+    product_match.change_feedback(Some(true));
+    let updated = matches
         .in_transaction(&mut tx)
         .update(&product_match)
         .await
         .unwrap_or_else(|error| panic!("update match failed: {error:?}"));
+    assert_eq!(inserted.created, updated.created);
+    assert!(updated.updated >= inserted.updated);
     commit(tx).await;
 }
 

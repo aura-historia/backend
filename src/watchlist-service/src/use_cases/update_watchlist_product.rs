@@ -1,10 +1,19 @@
-use crate::ports::{WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory};
+use crate::ports::{
+    WatchlistQuotaReadError, WatchlistQuotaReader, WatchlistQuotaReaderFactory,
+    WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
+};
+use crate::tier_policy::active_watchlist_quota;
+use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::product_id::ProductId;
+use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use user_service::ports::{
+    UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
+};
 use watchlist_core::WatchlistProduct;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -12,6 +21,7 @@ pub struct UpdateWatchlistProductCommand {
     pub user_id: UserId,
     pub product_id: ProductId,
     pub notifications: Option<bool>,
+    pub state: Option<ResourceState>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +37,20 @@ pub enum UpdateWatchlistProductError {
     Forbidden,
     #[error("watchlist entry not found")]
     NotFound,
+    #[error("user not found")]
+    UserNotFound,
+    #[error("watchlist quota exceeded: {active_count}/{quota} active entries are already in use")]
+    WatchlistQuotaExceeded { active_count: usize, quota: usize },
+    #[error("user tier entitlement lock failed")]
+    UserTierEntitlementsLockFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("watchlist quota read failed")]
+    WatchlistQuotaReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("temporary watchlist persistence failure")]
     TemporarilyUnavailable,
     #[error("invalid persisted watchlist state")]
@@ -46,25 +70,31 @@ pub trait UpdateWatchlistProductUseCase: Send + Sync {
     ) -> Result<UpdateWatchlistProductResult, UpdateWatchlistProductError>;
 }
 
-pub struct UpdateWatchlistProductHandler<U, R> {
+pub struct UpdateWatchlistProductHandler<U, R, Q, A> {
     unit_of_work: U,
     watchlist: R,
+    quotas: Q,
+    tier_entitlements: A,
 }
 
-impl<U, R> UpdateWatchlistProductHandler<U, R> {
-    pub fn new(unit_of_work: U, watchlist: R) -> Self {
+impl<U, R, Q, A> UpdateWatchlistProductHandler<U, R, Q, A> {
+    pub fn new(unit_of_work: U, watchlist: R, quotas: Q, tier_entitlements: A) -> Self {
         Self {
             unit_of_work,
             watchlist,
+            quotas,
+            tier_entitlements,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R> UpdateWatchlistProductUseCase for UpdateWatchlistProductHandler<U, R>
+impl<U, R, Q, A> UpdateWatchlistProductUseCase for UpdateWatchlistProductHandler<U, R, Q, A>
 where
     U: UnitOfWork,
     R: WatchlistRepositoryFactory<U::Tx>,
+    Q: WatchlistQuotaReaderFactory<U::Tx>,
+    A: UserTierEntitlementsFactory<U::Tx>,
 {
     #[tracing::instrument(name = "update_watchlist_product", skip_all, fields(user_id = %command.user_id, product_id = %command.product_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -86,8 +116,45 @@ where
             .await?
             .ok_or(UpdateWatchlistProductError::NotFound)?;
 
-        if let Some(notifications) = command.notifications {
+        let reactivating =
+            matches!(command.state, Some(ResourceState::Active)) && !entry.state().is_active();
+        if reactivating {
+            let tier = self
+                .tier_entitlements
+                .in_transaction(&mut tx)
+                .lock_user_tier(command.user_id)
+                .await
+                .map_err(tier_entitlements_error)?
+                .ok_or(UpdateWatchlistProductError::UserNotFound)?;
+            if let Some(quota) = active_watchlist_quota(tier) {
+                let active_count = self
+                    .quotas
+                    .in_transaction(&mut tx)
+                    .count_active_for_user(command.user_id)
+                    .await
+                    .map_err(watchlist_quota_read_error)?;
+                if active_count >= quota {
+                    return Err(UpdateWatchlistProductError::WatchlistQuotaExceeded {
+                        active_count,
+                        quota,
+                    });
+                }
+            }
+        }
+        let mut changed = false;
+        if let Some(notifications) = command.notifications
+            && entry.notifications() != notifications
+        {
             entry.change_notifications(notifications);
+            changed = true;
+        }
+        if let Some(state) = command.state
+            && entry.state() != state
+        {
+            entry.change_state(state);
+            changed = true;
+        }
+        if changed {
             entry = self
                 .watchlist
                 .in_transaction(&mut tx)
@@ -98,6 +165,14 @@ where
         tx.commit()
             .await
             .map_err(|_| UpdateWatchlistProductError::CommitTransactionFailed)?;
+        tracing::info!(
+            event = "watchlist_product.updated",
+            actor_type = context.principal.kind(),
+            actor_id = ?context.principal.actor_id(),
+            user_id = %command.user_id,
+            product_id = %command.product_id,
+            outcome = if changed { "success" } else { "unchanged" },
+        );
         Ok(UpdateWatchlistProductResult { entry })
     }
 }
@@ -126,6 +201,21 @@ impl From<OperationAuthorizationError> for UpdateWatchlistProductError {
     }
 }
 
+fn tier_entitlements_error(error: UserTierEntitlementsError) -> UpdateWatchlistProductError {
+    match error {
+        UserTierEntitlementsError::LockFailed { source }
+        | UserTierEntitlementsError::ReconciliationFailed { source } => {
+            UpdateWatchlistProductError::UserTierEntitlementsLockFailed { source }
+        }
+    }
+}
+
+fn watchlist_quota_read_error(error: WatchlistQuotaReadError) -> UpdateWatchlistProductError {
+    UpdateWatchlistProductError::WatchlistQuotaReadFailed {
+        source: box_error(error),
+    }
+}
+
 impl From<WatchlistRepositoryError> for UpdateWatchlistProductError {
     fn from(value: WatchlistRepositoryError) -> Self {
         match value {
@@ -146,7 +236,8 @@ mod tests {
     use super::*;
 
     use crate::ports::{
-        WatchlistProductView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
+        WatchlistProductView, WatchlistQuotaReadError, WatchlistQuotaReader,
+        WatchlistQuotaReaderFactory, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
         WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
     };
     use common::operation_context::{
@@ -157,6 +248,10 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
+    use user_core::tier::UserTier;
+    use user_service::ports::{
+        UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
+    };
     use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
     #[derive(Clone, Default)]
@@ -174,6 +269,15 @@ mod tests {
     #[derive(Clone, Default)]
     struct TestWatchlistFactory {
         state: SharedState,
+    }
+
+    #[derive(Clone, Copy)]
+    struct TestAccountFactory {
+        tier: UserTier,
+    }
+
+    struct TestAccountReader {
+        tier: UserTier,
     }
 
     #[derive(Clone, Default)]
@@ -251,11 +355,62 @@ mod tests {
         }
     }
 
+    impl<Tx> WatchlistQuotaReaderFactory<Tx> for TestWatchlistFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl WatchlistQuotaReader + 'tx {
+            TestWatchlistPort {
+                state: self.state.clone(),
+            }
+        }
+    }
+
+    impl<Tx> UserTierEntitlementsFactory<Tx> for TestAccountFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl UserTierEntitlements + 'tx {
+            TestAccountReader { tier: self.tier }
+        }
+    }
+
     impl<Tx> WatchlistReaderFactory<Tx> for TestWatchlistFactory {
         fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl WatchlistReader + 'tx {
             TestWatchlistPort {
                 state: self.state.clone(),
             }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UserTierEntitlements for TestAccountReader {
+        async fn lock_user_tier(
+            &mut self,
+            _user_id: UserId,
+        ) -> Result<Option<UserTier>, UserTierEntitlementsError> {
+            Ok(Some(self.tier))
+        }
+
+        async fn reconcile_for_tier(
+            &mut self,
+            _user_id: UserId,
+            _tier: UserTier,
+        ) -> Result<(), UserTierEntitlementsError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl WatchlistQuotaReader for TestWatchlistPort {
+        async fn count_active_for_user(
+            &mut self,
+            user_id: UserId,
+        ) -> Result<usize, WatchlistQuotaReadError> {
+            self.state
+                .entries
+                .lock()
+                .map_err(|_| WatchlistQuotaReadError::ReadFailed)
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter(|entry| entry.user_id() == user_id && entry.state().is_active())
+                        .count()
+                })
         }
     }
 
@@ -428,6 +583,12 @@ mod tests {
             TestWatchlistFactory {
                 state: state.clone(),
             },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
+            TestAccountFactory {
+                tier: UserTier::Free,
+            },
         )
         .execute(
             &context_for_user(user_id),
@@ -435,6 +596,7 @@ mod tests {
                 user_id,
                 product_id,
                 notifications: Some(false),
+                state: None,
             },
         )
         .await
@@ -456,7 +618,13 @@ mod tests {
                 state: state.clone(),
                 ..Default::default()
             },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
             TestWatchlistFactory { state },
+            TestAccountFactory {
+                tier: UserTier::Free,
+            },
         )
         .execute(
             &context_for_user(user_id),
@@ -464,6 +632,7 @@ mod tests {
                 user_id,
                 product_id: ProductId::new(),
                 notifications: Some(false),
+                state: None,
             },
         )
         .await;
@@ -481,7 +650,13 @@ mod tests {
                 state: state.clone(),
                 ..Default::default()
             },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
             TestWatchlistFactory { state },
+            TestAccountFactory {
+                tier: UserTier::Free,
+            },
         )
         .execute(
             &delegated_context(user_id, BTreeSet::new()),
@@ -489,6 +664,7 @@ mod tests {
                 user_id,
                 product_id: ProductId::new(),
                 notifications: Some(false),
+                state: None,
             },
         )
         .await;

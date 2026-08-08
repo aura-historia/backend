@@ -11,6 +11,7 @@
 - Exports public SQLx factories only.
 - Keeps SQL rows, SQL, mapping, repositories, and readers private.
 - Readers and repositories bind to caller-owned transactions through service factory ports.
+- `SqlxUserTierEntitlementsFactory` locks `users` with `FOR UPDATE` and reconciles search-filter and watchlist plan state with legacy newest-first semantics in that same transaction.
 - User repository writes use `RETURNING` and expose only storage-neutral persisted user state; delete returns row-existence only.
 - Access tokens stay outside this crate until their source-of-truth moves off DynamoDB.
 - User search sort maps `Name` to `first_name`, then `last_name`; no score sort.

@@ -6,7 +6,7 @@ use aura_historia_api::auth::{
 };
 use aura_historia_api::state::{
     AppState, OAuthState, PartnerApplicationsState, PartnerProductsState, ProductsState,
-    ShopsState, UsersState, WatchlistState,
+    SearchFiltersState, ShopsState, UsersState, WatchlistState,
 };
 use aura_historia_api::{app, state};
 use common::domain::Domain;
@@ -15,6 +15,7 @@ use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingInput, EmbeddingVector};
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
@@ -26,14 +27,23 @@ use oauth_service::use_cases::{
 };
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
-    SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsReaderFactory,
-    SqlxProductEmbeddingReaderFactory, SqlxProductEventReaderFactory, SqlxProductEventStoreFactory,
-    SqlxProductRepositoryFactory, SqlxProductUserStateReader,
-    SqlxProductWatchlistDetailsReaderFactory,
+    SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsBatchReader,
+    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+    SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
 };
 use product_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
     GetSimilarProductsHandler, SearchProductsHandler, UpdateProductHandler, UpsertProductHandler,
+};
+use search_filter_postgres::{
+    SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
+    SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
+};
+use search_filter_service::use_cases::{
+    CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
+    ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
+    UpdateSearchFilterMatchFeedbackHandler,
 };
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
@@ -64,6 +74,7 @@ use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
     Scope,
 };
+use user_core::tier::UserTier;
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_service::ports::AccessTokenStore;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
@@ -79,10 +90,20 @@ use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
 use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
-use watchlist_postgres::SqlxWatchlistRepositoryFactory;
+use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
 };
+
+#[derive(Clone, Copy)]
+struct TestEmbeddingGenerator;
+
+#[async_trait::async_trait]
+impl EmbeddingGenerator for TestEmbeddingGenerator {
+    async fn generate(&self, _input: &EmbeddingInput) -> Result<EmbeddingVector, EmbeddingError> {
+        EmbeddingVector::try_new(vec![1.0; embedding::EMBEDDING_DIMENSIONS])
+    }
+}
 
 #[derive(Clone, Copy)]
 struct RejectGeocoder;
@@ -127,17 +148,27 @@ pub fn assert_problem(
 }
 
 pub async fn seed_user(role: &'static str) -> UserId {
+    seed_user_with_tier(role, UserTier::Free).await
+}
+
+pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
     let user_id = UserId::new();
     let email = format!("{}@example.test", user_id);
+    let tier = match tier {
+        UserTier::Free => "FREE",
+        UserTier::Pro => "PRO",
+        UserTier::Ultimate => "ULTIMATE",
+    };
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
         r#"
         INSERT INTO users (user_id, email, tier, role)
-        VALUES ($1, $2, 'FREE', $3)
+        VALUES ($1, $2, $3, $4)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(email)
+    .bind(tier)
     .bind(role)
     .execute(&pool)
     .await
@@ -147,14 +178,45 @@ pub async fn seed_user(role: &'static str) -> UserId {
     user_id
 }
 
+pub async fn seed_active_watchlist_entries(user_id: UserId, count: usize) {
+    for _ in 0..count {
+        let product_id = seed_product().await;
+        seed_watchlist_entry(user_id, product_id, "Active").await;
+    }
+}
+
+pub async fn seed_inactive_watchlist_entry(user_id: UserId) -> ProductId {
+    let product_id = seed_product().await;
+    seed_watchlist_entry(user_id, product_id, "InactiveByUser").await;
+    product_id
+}
+
+async fn seed_watchlist_entry(user_id: UserId, product_id: ProductId, state: &'static str) {
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query(
+        "INSERT INTO product_watchlist (user_id, product_id, notifications, state) VALUES ($1, $2, true, $3)",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::from(product_id))
+    .bind(state)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed watchlist entry: {error}");
+    }
+}
+
 pub async fn seed_partner_shop(user_id: UserId, shop_id: ShopId) {
     let pool = get_postgres_client().await;
-    let result = sqlx::query("INSERT INTO user_partner_shops (user_id, shop_id) VALUES ($1, $2)")
-        .bind(uuid::Uuid::from(user_id))
-        .bind(uuid::Uuid::from(shop_id))
-        .execute(&pool)
-        .await;
-    assert!(result.is_ok(), "failed to seed partner-shop membership");
+    if let Err(error) =
+        sqlx::query("INSERT INTO user_partner_shops (user_id, shop_id) VALUES ($1, $2)")
+            .bind(uuid::Uuid::from(user_id))
+            .bind(uuid::Uuid::from(shop_id))
+            .execute(&pool)
+            .await
+    {
+        panic!("failed to seed partner-shop membership: {error}");
+    }
 }
 
 pub async fn seed_access_token_for(user_id: UserId, scopes: HashSet<Scope>) -> RawAccessToken {
@@ -429,6 +491,7 @@ async fn test_state() -> AppState {
             unit_of_work.clone(),
             user_postgres::SqlxUserRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(DeleteUserHandler::new(
             unit_of_work.clone(),
@@ -443,6 +506,46 @@ async fn test_state() -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
+    let search_filter_reader = SqlxSearchFilterReader::new(get_postgres_client().await);
+    let search_filters_state = SearchFiltersState::new(
+        Arc::new(ListOwnedSearchFiltersHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(CreateSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            TestEmbeddingGenerator,
+            SqlxSearchFilterQuotaReaderFactory,
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
+        )),
+        Arc::new(GetOwnedSearchFilterHandler::new(
+            search_filter_reader.clone(),
+        )),
+        Arc::new(UpdateOwnedSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            TestEmbeddingGenerator,
+            search_filter_reader.clone(),
+            SqlxSearchFilterQuotaReaderFactory,
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
+        )),
+        Arc::new(DeleteOwnedSearchFilterHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+        )),
+        Arc::new(ListSearchFilterMatchesHandler::new(
+            search_filter_reader.clone(),
+            SqlxProductDetailsBatchReader::new(get_postgres_client().await),
+            DynamoDbAllNotificationsReader::new(client, "table_1"),
+        )),
+        Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
+            unit_of_work.clone(),
+            SqlxSearchFilterRepositoryFactory,
+            SqlxSearchFilterMatchRepositoryFactory,
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
+
     let watchlist_state = WatchlistState::new(
         Arc::new(ListWatchlistHandler::new(
             unit_of_work.clone(),
@@ -452,10 +555,14 @@ async fn test_state() -> AppState {
         Arc::new(WatchProductHandler::new(
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
+            SqlxWatchlistQuotaReaderFactory,
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(UpdateWatchlistProductHandler::new(
             unit_of_work.clone(),
             SqlxWatchlistRepositoryFactory,
+            SqlxWatchlistQuotaReaderFactory,
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
         Arc::new(UnwatchProductHandler::new(
             unit_of_work.clone(),
@@ -537,6 +644,7 @@ async fn test_state() -> AppState {
         .with_products(products_state)
         .with_partner_products(partner_products_state)
         .with_oauth(oauth_state)
+        .with_search_filters(search_filters_state)
 }
 
 struct RejectJwtAuthenticator;

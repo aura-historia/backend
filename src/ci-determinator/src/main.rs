@@ -9,6 +9,7 @@ use std::process::Command;
 /// These paths are relative to the workspace root.
 const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/aura-historia-api",
+    "src/aura-historia-worker",
     "src/common",
     "src/product-core",
     "src/product-opensearch",

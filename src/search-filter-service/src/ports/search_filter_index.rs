@@ -1,6 +1,13 @@
-use crate::ports::SearchFilterView;
+use crate::ports::{SearchFilterProjection, SearchFilterView};
+use common::error::boxed::BoxError;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::user_search_filter_id::UserSearchFilterId;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchFilterProjectionWriteOutcome {
+    Applied,
+    Stale,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SearchFilterIndexQuery {
@@ -12,21 +19,43 @@ pub struct SearchFilterIndexQuery {
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterIndexError {
     #[error("search filter index write failed")]
-    WriteFailed,
+    WriteFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter index delete failed")]
-    DeleteFailed,
+    DeleteFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter percolation failed")]
-    PercolateFailed,
+    PercolateFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter query failed")]
-    QueryFailed,
+    QueryFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter document invalid")]
-    InvalidDocument,
+    InvalidDocument {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]
 pub trait SearchFilterIndex: Send + Sync {
-    async fn index(&self, filter: &SearchFilterView) -> Result<(), SearchFilterIndexError>;
-    async fn delete(&self, id: UserSearchFilterId) -> Result<(), SearchFilterIndexError>;
+    async fn upsert(
+        &self,
+        projection: &SearchFilterProjection,
+    ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError>;
+    async fn delete(
+        &self,
+        id: UserSearchFilterId,
+        source_version: i64,
+    ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError>;
     async fn percolate(
         &self,
         product_document: serde_json::Value,

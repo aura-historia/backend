@@ -41,6 +41,7 @@ pub async fn patch_watchlist(
                 user_id,
                 product_id,
                 notifications: data.notifications,
+                state: data.state.map(Into::into),
             },
         )
         .await

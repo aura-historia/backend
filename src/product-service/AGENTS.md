@@ -16,6 +16,7 @@
 - `ProductUserStateReader` is an ordinary one-query batch read for relational state of OpenSearch result pages. Its lookup contains only the user and Product IDs; adapters derive image safety from authoritative Product data. Search and KNN handlers compose it with one required all-user DynamoDB notification read; no per-product reads or partial fallback.
 - Product detail, search, KNN, and watchlist result contracts use `common::personalized::Personalized<Item, ProductUserState>`; item views never inline `user_state`.
 - `ProductWatchlistDetailsReader` is a transaction-scoped, cursor-paged batch read contract for full localized personalized Product views and relational user state. Its cursor uses watchlist creation time plus Product ID.
+- `ProductDetailsBatchReader` is an ordinary one-query batch read for full localized personalized Product views and relational user state by Product ID; callers preserve their own source order.
 - Ports are public because adapter crates implement them.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
 - No SQLx, DynamoDB, OpenSearch, transport, or legacy `product` dependency.
