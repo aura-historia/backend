@@ -12,7 +12,6 @@
 - `search_filter_projection.rs` consumes `SearchFilterOpenSearch` jobs, rereads committed Postgres state, and writes the canonical OpenSearch projection with target-side version protection.
 - `watchlist_notifications.rs` consumes price/state Product event jobs, rereads committed Postgres source plus active watchlist recipients, then creates idempotent DynamoDB notification records.
 - `retry.rs` owns in-process retry, idempotency memory, and in-memory DLQ helpers.
-- `tests/search_filter_projection.rs` independently proves committed Postgres filter insert, update, and delete → Sequin webhook → worker HTTP/queue → OpenSearch percolation; rolled-back inserts stay absent.
 - No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs.
 
 ## Ownership
@@ -37,6 +36,7 @@
 - Ack Sequin only after all relevant bounded queue enqueues succeed.
 - Use domain idempotency keys; Sequin IDs/LSNs are logs only.
 - Keep queue abstraction replaceable by SQS/Lambda/ECS later.
+- Every production worker route needs rigorous black-box acceptance tests in `tests/` using real Postgres, Sequin, the running worker server, and every written target store. Cover happy path, rollback, ignored changes, redelivery/idempotency, filtering, and persisted output shape.
 
 ## Verification
 

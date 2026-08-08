@@ -28,6 +28,8 @@ tracing = { workspace = true }
 async-trait = { workspace = true }
 rstest = { workspace = true }
 search-filter-core = { workspace = true }
+notification-core = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 serial_test = { workspace = true }
-test-api = { workspace = true, features = ["opensearch", "postgres", "sequin"] }
+test-api = { workspace = true, features = ["dynamodb", "opensearch", "postgres", "sequin"] }
 uuid = { workspace = true }
