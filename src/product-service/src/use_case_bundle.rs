@@ -1,12 +1,13 @@
 use crate::use_cases::{
     CreateProductUseCase, DeleteProductUseCase, GetProductEventsUseCase, GetProductUseCase,
-    GetSimilarProductsUseCase, SearchProductsUseCase, UpdateProductUseCase,
+    GetSimilarProductsUseCase, SearchProductsUseCase, UpdateProductUseCase, UpsertProductUseCase,
 };
 use std::sync::Arc;
 
 pub struct ProductUseCases {
     pub create: Arc<dyn CreateProductUseCase>,
     pub update: Arc<dyn UpdateProductUseCase>,
+    pub upsert: Arc<dyn UpsertProductUseCase>,
     pub delete: Arc<dyn DeleteProductUseCase>,
     pub get: Arc<dyn GetProductUseCase>,
     pub get_history: Arc<dyn GetProductEventsUseCase>,
@@ -17,6 +18,7 @@ pub struct ProductUseCases {
 pub struct ProductUseCasesInput {
     pub create: Arc<dyn CreateProductUseCase>,
     pub update: Arc<dyn UpdateProductUseCase>,
+    pub upsert: Arc<dyn UpsertProductUseCase>,
     pub delete: Arc<dyn DeleteProductUseCase>,
     pub get: Arc<dyn GetProductUseCase>,
     pub get_history: Arc<dyn GetProductEventsUseCase>,
@@ -29,6 +31,7 @@ impl ProductUseCases {
         Self {
             create: input.create,
             update: input.update,
+            upsert: input.upsert,
             delete: input.delete,
             get: input.get,
             get_history: input.get_history,

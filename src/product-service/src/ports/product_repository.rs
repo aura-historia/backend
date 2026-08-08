@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
+use common::error::boxed::BoxError;
 use common::event_id::EventId;
-use common::product_id::ProductId;
+use common::product_id::{ProductId, ProductKey};
 use common::versioned::Versioned;
 use product_core::product::Product;
 
@@ -15,6 +16,11 @@ pub enum ProductRepositoryError {
     ProductSlugAlreadyExists,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
+    #[error("product lookup by shop product identity failed")]
+    ProductLookupByKeyFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -56,6 +62,11 @@ pub trait ProductRepository: Send {
     async fn find_by_id(
         &mut self,
         id: ProductId,
+    ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>;
+
+    async fn find_by_key(
+        &mut self,
+        key: &ProductKey,
     ) -> Result<Option<Versioned<Product, EventId>>, ProductRepositoryError>;
 
     async fn insert(

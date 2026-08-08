@@ -4,7 +4,8 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use oauth_service::error::OAuthServiceError;
 use product_service::use_cases::{
-    GetProductError, GetProductEventsError, GetSimilarProductsError, SearchProductsError,
+    CreateProductError, DeleteProductError, GetProductError, GetProductEventsError,
+    GetSimilarProductsError, SearchProductsError, UpdateProductError, UpsertProductError,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterError, DeleteOwnedSearchFilterError, GetOwnedSearchFilterError,
@@ -160,6 +161,10 @@ enum ApiErrorSourceType {
 }
 
 impl ApiError {
+    pub(crate) fn code(&self) -> ApiErrorCode {
+        self.error
+    }
+
     pub(crate) fn new(status: StatusCode, title: &'static str, error: ApiErrorCode) -> Self {
         Self {
             status: status.as_u16(),
@@ -530,6 +535,171 @@ impl From<UpdateSearchFilterMatchFeedbackError> for ApiError {
             | UpdateSearchFilterMatchFeedbackError::CommitTransactionFailed => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter match could not be updated right now.")
+            }
+        }
+    }
+}
+
+impl From<CreateProductError> for ApiError {
+    fn from(error: CreateProductError) -> Self {
+        match error {
+            CreateProductError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreateProductError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreateProductError::ShopNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            }
+            CreateProductError::ShopProductAlreadyExists
+            | CreateProductError::ProductSlugAlreadyExists
+            | CreateProductError::ProductCurrentEventIdConflict
+            | CreateProductError::ProductEventAlreadyExists => {
+                ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
+            }
+            CreateProductError::InvalidProductState => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Product create is invalid.")
+            }
+            CreateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
+            | CreateProductError::ProductLookupByIdFailed
+            | CreateProductError::ProductLookupByKeyFailed { .. }
+            | CreateProductError::ProductInsertFailed
+            | CreateProductError::ProductUpdateFailed
+            | CreateProductError::ProductEventAppendFailed
+            | CreateProductError::CurrentProductEventLookupFailed
+            | CreateProductError::BeginTransactionFailed
+            | CreateProductError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Product create is temporarily unavailable.")
+            }
+            _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                .with_detail("Product create failed internally."),
+        }
+    }
+}
+
+impl From<UpdateProductError> for ApiError {
+    fn from(error: UpdateProductError) -> Self {
+        match error {
+            UpdateProductError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateProductError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateProductError::ShopNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            }
+            UpdateProductError::ProductNotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            }
+            UpdateProductError::ProductCurrentEventIdConflict
+            | UpdateProductError::ShopProductAlreadyExists
+            | UpdateProductError::ProductSlugAlreadyExists
+            | UpdateProductError::ProductEventAlreadyExists => {
+                ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
+            }
+            UpdateProductError::StateRequired | UpdateProductError::UrlRequired => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Product update is invalid.")
+            }
+            UpdateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
+            | UpdateProductError::ProductLookupByIdFailed
+            | UpdateProductError::ProductLookupByKeyFailed { .. }
+            | UpdateProductError::ProductInsertFailed
+            | UpdateProductError::ProductUpdateFailed
+            | UpdateProductError::ProductEventAppendFailed
+            | UpdateProductError::CurrentProductEventLookupFailed
+            | UpdateProductError::BeginTransactionFailed
+            | UpdateProductError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Product update is temporarily unavailable.")
+            }
+            _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                .with_detail("Product update failed internally."),
+        }
+    }
+}
+
+impl From<DeleteProductError> for ApiError {
+    fn from(error: DeleteProductError) -> Self {
+        match error {
+            DeleteProductError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            DeleteProductError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            DeleteProductError::ShopNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            }
+            DeleteProductError::ProductNotFound => {
+                ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
+            }
+            DeleteProductError::ProductCurrentEventIdConflict
+            | DeleteProductError::ShopProductAlreadyExists
+            | DeleteProductError::ProductSlugAlreadyExists
+            | DeleteProductError::ProductEventAlreadyExists => {
+                ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
+            }
+            DeleteProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
+            | DeleteProductError::ProductLookupByIdFailed
+            | DeleteProductError::ProductLookupByKeyFailed { .. }
+            | DeleteProductError::ProductInsertFailed
+            | DeleteProductError::ProductUpdateFailed
+            | DeleteProductError::ProductEventAppendFailed
+            | DeleteProductError::CurrentProductEventLookupFailed
+            | DeleteProductError::BeginTransactionFailed
+            | DeleteProductError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Product delete is temporarily unavailable.")
+            }
+            _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                .with_detail("Product delete failed internally."),
+        }
+    }
+}
+
+impl From<UpsertProductError> for ApiError {
+    fn from(error: UpsertProductError) -> Self {
+        match error {
+            UpsertProductError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpsertProductError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpsertProductError::ShopNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            }
+            UpsertProductError::ProductCurrentEventIdConflict
+            | UpsertProductError::ProductKeyAlreadyExists
+            | UpsertProductError::ProductSlugAlreadyExists => {
+                ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
+            }
+            UpsertProductError::InvalidProductState => {
+                ApiError::bad_request(BAD_BODY_VALUE).with_detail("Product upsert is invalid.")
+            }
+            UpsertProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
+            | UpsertProductError::ProductPersistenceTemporarilyUnavailable { .. }
+            | UpsertProductError::ProductEventStoreTemporarilyUnavailable { .. }
+            | UpsertProductError::BeginTransactionFailed
+            | UpsertProductError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Product upsert is temporarily unavailable.")
+            }
+            UpsertProductError::PartnerProductAuthorizationInternal { .. }
+            | UpsertProductError::InvalidPersistedProductState { .. } => {
+                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                    .with_detail("Product upsert failed internally.")
             }
         }
     }

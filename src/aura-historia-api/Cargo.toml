@@ -14,6 +14,7 @@ geo = { workspace = true, features = ["data"] }
 google-cloud-auth = { workspace = true }
 http = { workspace = true }
 httpdate = { workspace = true }
+indexmap = { workspace = true }
 oauth-core = { workspace = true }
 oauth-dynamodb = { workspace = true }
 oauth-service = { workspace = true }
@@ -54,6 +55,7 @@ watchlist-service = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }
+mockall = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] }
 rstest = { workspace = true }
 serial_test = { workspace = true }

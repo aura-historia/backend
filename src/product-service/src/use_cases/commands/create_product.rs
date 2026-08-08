@@ -1,12 +1,14 @@
 use crate::ports::{
+    PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
+use common::error::boxed::BoxError;
 use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::product_id::ProductId;
 use common::product_slug_id::ProductSlugId;
@@ -14,6 +16,7 @@ use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::transaction::{Transaction, UnitOfWork};
+use common::user_id::UserId;
 use indexmap::IndexSet;
 use product_core::description::Description;
 use product_core::product::{
@@ -51,6 +54,18 @@ pub enum CreateProductError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
+    #[error("shop not found")]
+    ShopNotFound,
+    #[error("partner product authorization is temporarily unavailable")]
+    PartnerProductAuthorizationTemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("partner product authorization failed internally")]
+    PartnerProductAuthorizationInternal {
+        #[source]
+        source: BoxError,
+    },
     #[error("product already exists for shop product identity")]
     ShopProductAlreadyExists,
     #[error("product slug already exists")]
@@ -63,6 +78,11 @@ pub enum CreateProductError {
     ProductCurrentEventIdConflict,
     #[error("product lookup by id failed")]
     ProductLookupByIdFailed,
+    #[error("product lookup by shop product identity failed")]
+    ProductLookupByKeyFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product insert failed")]
     ProductInsertFailed,
     #[error("product update failed")]
@@ -118,28 +138,31 @@ pub trait CreateProductUseCase: Send + Sync {
     ) -> Result<CreateProductResult, CreateProductError>;
 }
 
-pub struct CreateProductHandler<U, R, E> {
+pub struct CreateProductHandler<U, R, E, A> {
     unit_of_work: U,
     products: R,
     events: E,
+    authorizer: A,
 }
 
-impl<U, R, E> CreateProductHandler<U, R, E> {
-    pub fn new(unit_of_work: U, products: R, events: E) -> Self {
+impl<U, R, E, A> CreateProductHandler<U, R, E, A> {
+    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
         Self {
             unit_of_work,
             products,
             events,
+            authorizer,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E> CreateProductUseCase for CreateProductHandler<U, R, E>
+impl<U, R, E, A> CreateProductUseCase for CreateProductHandler<U, R, E, A>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
+    A: PartnerProductAuthorizerFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "create_product",
@@ -167,6 +190,7 @@ where
             tracing::field::display(context.principal.label()),
         );
 
+        let shop_id = command.shop_id;
         let product = Product::create(command.into_new_product(ProductId::new()))?;
         let event_id = product
             .pending_events()
@@ -179,6 +203,13 @@ where
             .begin()
             .await
             .map_err(|_| CreateProductError::BeginTransactionFailed)?;
+
+        if let Some(actor_id) = partner_actor(&context.principal) {
+            self.authorizer
+                .in_transaction(&mut tx)
+                .authorize(actor_id, shop_id)
+                .await?;
+        }
 
         let persisted_product = self
             .products
@@ -260,6 +291,28 @@ impl From<OperationAuthorizationError> for CreateProductError {
     }
 }
 
+fn partner_actor(principal: &Principal) -> Option<UserId> {
+    match principal {
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
+        Principal::Anonymous | Principal::Service(_) | Principal::System => None,
+    }
+}
+
+impl From<PartnerProductAuthorizationError> for CreateProductError {
+    fn from(error: PartnerProductAuthorizationError) -> Self {
+        match error {
+            PartnerProductAuthorizationError::ShopNotFound => Self::ShopNotFound,
+            PartnerProductAuthorizationError::Forbidden => Self::Forbidden,
+            PartnerProductAuthorizationError::TemporarilyUnavailable { source } => {
+                Self::PartnerProductAuthorizationTemporarilyUnavailable { source }
+            }
+            PartnerProductAuthorizationError::Internal { source } => {
+                Self::PartnerProductAuthorizationInternal { source }
+            }
+        }
+    }
+}
+
 impl From<ProductRepositoryError> for CreateProductError {
     fn from(error: ProductRepositoryError) -> Self {
         match error {
@@ -269,6 +322,9 @@ impl From<ProductRepositoryError> for CreateProductError {
             ProductRepositoryError::ShopProductAlreadyExists => Self::ShopProductAlreadyExists,
             ProductRepositoryError::ProductSlugAlreadyExists => Self::ProductSlugAlreadyExists,
             ProductRepositoryError::ProductLookupByIdFailed => Self::ProductLookupByIdFailed,
+            ProductRepositoryError::ProductLookupByKeyFailed { source } => {
+                Self::ProductLookupByKeyFailed { source }
+            }
             ProductRepositoryError::ProductInsertFailed => Self::ProductInsertFailed,
             ProductRepositoryError::ProductUpdateFailed => Self::ProductUpdateFailed,
             ProductRepositoryError::InvalidProductSlugPersisted => {
@@ -378,6 +434,31 @@ mod tests {
         state: SharedState,
     }
 
+    #[derive(Clone, Copy)]
+    struct AllowPartnerProductAuthorizer;
+
+    struct AllowPartnerProductAuthorizerTx;
+
+    impl PartnerProductAuthorizerFactory<FakeTx> for AllowPartnerProductAuthorizer {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl PartnerProductAuthorizer + 'tx {
+            AllowPartnerProductAuthorizerTx
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductAuthorizer for AllowPartnerProductAuthorizerTx {
+        async fn authorize(
+            &mut self,
+            _actor_id: UserId,
+            _shop_id: ShopId,
+        ) -> Result<(), PartnerProductAuthorizationError> {
+            Ok(())
+        }
+    }
+
     fn state() -> SharedState {
         Arc::new(Mutex::new(FakeState::default()))
     }
@@ -450,6 +531,14 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ProductId,
+        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
+        {
+            Ok(None)
+        }
+
+        async fn find_by_key(
+            &mut self,
+            _key: &common::product_id::ProductKey,
         ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
         {
             Ok(None)
@@ -578,6 +667,7 @@ mod tests {
             uow(&state),
             repository_factory(&state),
             event_store_factory(&state),
+            AllowPartnerProductAuthorizer,
         );
 
         let result = handler.execute(&context(), create_command()?).await;
@@ -599,6 +689,7 @@ mod tests {
             uow(&state),
             repository_factory(&state),
             event_store_factory(&state),
+            AllowPartnerProductAuthorizer,
         );
 
         let result = handler.execute(&context(), create_command()?).await;
@@ -619,6 +710,7 @@ mod tests {
             uow(&state),
             repository_factory(&state),
             event_store_factory(&state),
+            AllowPartnerProductAuthorizer,
         );
 
         let result = handler.execute(&context(), create_command()?).await;
@@ -639,6 +731,7 @@ mod tests {
             uow(&state),
             repository_factory(&state),
             event_store_factory(&state),
+            AllowPartnerProductAuthorizer,
         );
 
         let result = handler.execute(&context(), create_command()?).await;
@@ -660,6 +753,7 @@ mod tests {
             uow(&state),
             repository_factory(&state),
             event_store_factory(&state),
+            AllowPartnerProductAuthorizer,
         );
 
         let result = handler.execute(&context(), create_command()?).await;

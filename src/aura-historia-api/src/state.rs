@@ -5,7 +5,8 @@ use oauth_service::use_cases::{
     TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
 use product_service::use_cases::{
-    GetProductEventsUseCase, GetProductUseCase, GetSimilarProductsUseCase, SearchProductsUseCase,
+    CreateProductUseCase, DeleteProductUseCase, GetProductEventsUseCase, GetProductUseCase,
+    GetSimilarProductsUseCase, SearchProductsUseCase, UpdateProductUseCase, UpsertProductUseCase,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
@@ -44,6 +45,7 @@ use watchlist_service::use_cases::{
 pub struct AppState {
     pub(crate) shops: ShopsState,
     pub(crate) products: Option<ProductsState>,
+    pub(crate) partner_products: Option<PartnerProductsState>,
     pub(crate) users: Option<UsersState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partner_applications: Option<PartnerApplicationsState>,
@@ -61,6 +63,7 @@ impl AppState {
         Self {
             shops,
             products: None,
+            partner_products: None,
             users: Some(users),
             watchlist: Some(watchlist),
             partner_applications: Some(partner_applications),
@@ -73,6 +76,7 @@ impl AppState {
         Self {
             shops,
             products: None,
+            partner_products: None,
             users: None,
             watchlist: None,
             partner_applications: None,
@@ -83,6 +87,11 @@ impl AppState {
 
     pub fn with_products(mut self, products: ProductsState) -> Self {
         self.products = Some(products);
+        self
+    }
+
+    pub fn with_partner_products(mut self, partner_products: PartnerProductsState) -> Self {
+        self.partner_products = Some(partner_products);
         self
     }
 
@@ -241,6 +250,33 @@ impl ProductsState {
     ) -> Self {
         self.get_product_events = Some(get_product_events);
         self
+    }
+}
+
+#[derive(Clone)]
+pub struct PartnerProductsState {
+    pub(crate) create: Arc<dyn CreateProductUseCase>,
+    pub(crate) update: Arc<dyn UpdateProductUseCase>,
+    pub(crate) upsert: Arc<dyn UpsertProductUseCase>,
+    pub(crate) delete: Arc<dyn DeleteProductUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl PartnerProductsState {
+    pub fn new(
+        create: Arc<dyn CreateProductUseCase>,
+        update: Arc<dyn UpdateProductUseCase>,
+        upsert: Arc<dyn UpsertProductUseCase>,
+        delete: Arc<dyn DeleteProductUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            create,
+            update,
+            upsert,
+            delete,
+            authenticator,
+        }
     }
 }
 

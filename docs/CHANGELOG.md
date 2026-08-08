@@ -6,6 +6,7 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+
 ## 2026-08-06 - Align Search Filter and Watchlist API Contracts
 
 ### Changed
@@ -35,6 +36,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Filter and match reads return `Cache-Control: no-store`; creation returns relative `Location` and `Content-Language` headers.
 - Match-list responses are fully hydrated localized `PersonalizedData<ProductDetailsData, ProductUserStateData>` values. They use `searchAfter` as a JSON `[match creation RFC3339 timestamp, product UUID]` cursor and default `language` to `en`; the feedback route uses canonical `productId`. The legacy `/products` preview route is intentionally not migrated to `aura-historia-api`.
 - Saved-search filter create and text-search updates now create normalized 768-dimensional Gemini embeddings through Vertex AI. Provider failures return the existing temporary-service error response rather than persisting a missing embedding.
+
+## 2026-08-05 - Synchronous Partner Product Batches (`backend#1341`)
+
+### Changed
+
+- Partner product `POST`, `PATCH`, and `PUT /api/v1/shops/{shopId}/products` now execute synchronously against canonical Product PostgreSQL storage. Each batch entry has its own transaction and no longer returns `202 Accepted` or forwards to an ingestion queue.
+- These routes return `200 OK` with `[]` when all entries succeed. If one or more entries succeed and others fail, the `200` body lists failed `{ shopId, shopsProductId, error }` entries; `error` is the stable API error key for that item. If every non-empty batch entry fails, the first failure returns as the normal problem response.
+- Product deletion is now batch `DELETE /api/v1/shops/{shopId}/products`, with an array body of `{ shopsProductId }` items. The former item delete route `DELETE /api/v1/shops/{shopId}/products/{shopsProductId}` is removed.
+- Partner product writes retain admin-or-linked-partner authorization; Aura Historia access tokens require `products:write`. Batches allow at most 100 entries.
+
 
 ## 2026-08-04 - Personalize Canonical Watchlist Products
 

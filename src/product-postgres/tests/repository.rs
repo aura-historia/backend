@@ -4,7 +4,7 @@ use common::language::domain::Language;
 use common::localized::Localized;
 use common::postgres::SqlxUnitOfWork;
 use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::ProductId;
+use common::product_id::{ProductId, ProductKey};
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
@@ -69,6 +69,18 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
         Ok(None) => panic!("missing product by id"),
         Err(error) => panic!("failed to find product by id: {error:?}"),
     };
+
+    let loaded_by_key = products
+        .in_transaction(&mut tx)
+        .find_by_key(&ProductKey::new(
+            product.shop_id(),
+            product.shops_product_id().clone(),
+        ))
+        .await;
+    assert!(matches!(
+        loaded_by_key,
+        Ok(Some(Versioned { ref value, .. })) if value.id() == product.id()
+    ));
 
     let current_event_id = match events
         .in_transaction(&mut tx)

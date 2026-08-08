@@ -5,8 +5,8 @@ use aura_historia_api::auth::{
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, OAuthState, PartnerApplicationsState, ProductsState, SearchFiltersState, ShopsState,
-    UsersState, WatchlistState,
+    AppState, OAuthState, PartnerApplicationsState, PartnerProductsState, ProductsState,
+    SearchFiltersState, ShopsState, UsersState, WatchlistState,
 };
 use aura_historia_api::{app, state};
 use common::domain::Domain;
@@ -27,12 +27,14 @@ use oauth_service::use_cases::{
 };
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
-    SqlxProductDetailsBatchReader, SqlxProductDetailsReaderFactory,
-    SqlxProductEmbeddingReaderFactory, SqlxProductEventReaderFactory, SqlxProductUserStateReader,
-    SqlxProductWatchlistDetailsReaderFactory,
+    SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsBatchReader,
+    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
+    SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
 };
 use product_service::use_cases::{
-    GetProductEventsHandler, GetProductHandler, GetSimilarProductsHandler, SearchProductsHandler,
+    CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
+    GetSimilarProductsHandler, SearchProductsHandler, UpdateProductHandler, UpsertProductHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -201,6 +203,19 @@ async fn seed_watchlist_entry(user_id: UserId, product_id: ProductId, state: &'s
     .await
     {
         panic!("failed to seed watchlist entry: {error}");
+    }
+}
+
+pub async fn seed_partner_shop(user_id: UserId, shop_id: ShopId) {
+    let pool = get_postgres_client().await;
+    if let Err(error) =
+        sqlx::query("INSERT INTO user_partner_shops (user_id, shop_id) VALUES ($1, $2)")
+            .bind(uuid::Uuid::from(user_id))
+            .bind(uuid::Uuid::from(shop_id))
+            .execute(&pool)
+            .await
+    {
+        panic!("failed to seed partner-shop membership: {error}");
     }
 }
 
@@ -383,6 +398,34 @@ async fn test_state() -> AppState {
         unit_of_work.clone(),
         SqlxProductEventReaderFactory::new(),
     )));
+
+    let partner_products_state = PartnerProductsState::new(
+        Arc::new(CreateProductHandler::new(
+            unit_of_work.clone(),
+            SqlxProductRepositoryFactory::new(),
+            SqlxProductEventStoreFactory::new(),
+            SqlxPartnerProductAuthorizerFactory::new(),
+        )),
+        Arc::new(UpdateProductHandler::new(
+            unit_of_work.clone(),
+            SqlxProductRepositoryFactory::new(),
+            SqlxProductEventStoreFactory::new(),
+            SqlxPartnerProductAuthorizerFactory::new(),
+        )),
+        Arc::new(UpsertProductHandler::new(
+            unit_of_work.clone(),
+            SqlxProductRepositoryFactory::new(),
+            SqlxProductEventStoreFactory::new(),
+            SqlxPartnerProductAuthorizerFactory::new(),
+        )),
+        Arc::new(DeleteProductHandler::new(
+            unit_of_work.clone(),
+            SqlxProductRepositoryFactory::new(),
+            SqlxProductEventStoreFactory::new(),
+            SqlxPartnerProductAuthorizerFactory::new(),
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
 
     let shops_state = ShopsState::new(
         Arc::new(GetShopHandler::new(
@@ -599,6 +642,7 @@ async fn test_state() -> AppState {
     );
     state::AppState::new(shops_state, users_state, watchlist_state, partner_state)
         .with_products(products_state)
+        .with_partner_products(partner_products_state)
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)
 }
