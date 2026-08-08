@@ -270,6 +270,8 @@ CREATE TABLE IF NOT EXISTS search_filters (
 CREATE INDEX IF NOT EXISTS search_filters_user_created_idx ON search_filters (user_id, created DESC);
 CREATE INDEX IF NOT EXISTS search_filters_state_updated_idx ON search_filters (state, updated DESC);
 
+ALTER TABLE search_filters REPLICA IDENTITY FULL;
+
 CREATE TABLE IF NOT EXISTS search_filter_matches (
     user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     user_search_filter_id uuid NOT NULL REFERENCES search_filters(user_search_filter_id) ON DELETE CASCADE,
