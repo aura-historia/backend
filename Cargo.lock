@@ -13,7 +13,7 @@ dependencies = [
  "aws-sdk-eventbridge",
  "aws-sdk-sqs",
  "aws-tests-common",
- "base64 0.23.0",
+ "base64 0.23.1",
  "common",
  "fake",
  "futures-util",
@@ -1145,9 +1145,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
-version = "0.23.0"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "base64-simd"
@@ -3190,7 +3190,7 @@ checksum = "bf23a50d1e4f5ca342b75308a309466882f672a324654a363e26ff723a40e791"
 dependencies = [
  "ahash",
  "astral-tl",
- "base64 0.23.0",
+ "base64 0.23.1",
  "bitflags 2.11.0",
  "html-escape",
  "html5ever 0.39.0",
@@ -4658,7 +4658,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws-sdk-dynamodb",
- "base64 0.23.0",
+ "base64 0.23.1",
  "common",
  "fake",
  "http 1.5.0",
@@ -4688,7 +4688,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
- "base64 0.23.0",
+ "base64 0.23.1",
  "common",
  "fake",
  "http 1.5.0",
@@ -5706,7 +5706,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
- "base64 0.23.0",
+ "base64 0.23.1",
  "common",
  "fake",
  "fxrate",
@@ -9171,7 +9171,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "aws-sdk-sqs",
  "aws_lambda_events",
- "base64 0.23.0",
+ "base64 0.23.1",
  "cognito",
  "common",
  "fake",
