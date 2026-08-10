@@ -1,5 +1,7 @@
 pub mod cdc;
 pub mod retry;
+pub mod search_filter_match_notifications;
+pub mod search_filter_percolator;
 pub mod search_filter_projection;
 pub mod watchlist_notifications;
 
@@ -166,6 +168,34 @@ impl WorkerRuntime {
         receivers.insert(WorkerQueue::WatchlistNotification, receiver);
         Ok((
             Self::new(CdcFanout::watchlist_notification(registry)),
+            receivers,
+        ))
+    }
+
+    pub fn with_search_filter_percolator_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::SearchFilterPercolator, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::SearchFilterPercolator, receiver);
+        Ok((
+            Self::new(CdcFanout::search_filter_percolator(registry)),
+            receivers,
+        ))
+    }
+
+    pub fn with_search_filter_match_notification_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry = WorkerQueueRegistry::new()
+            .with_queue(WorkerQueue::SearchFilterMatchNotification, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::SearchFilterMatchNotification, receiver);
+        Ok((
+            Self::new(CdcFanout::search_filter_match_notification(registry)),
             receivers,
         ))
     }

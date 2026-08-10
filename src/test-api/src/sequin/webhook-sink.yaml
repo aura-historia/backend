@@ -6,9 +6,7 @@ sinks:
   - name: "worker-changes"
     database: "aura-historia-business-__SUFFIX__"
     source:
-      include_tables:
-        - "public.product_events"
-        - "public.search_filters"
+      include_tables: [__INCLUDE_TABLES__]
     actions:
       - insert
       - update

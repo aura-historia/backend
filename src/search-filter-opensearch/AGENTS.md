@@ -8,7 +8,7 @@
 ## Core Design
 
 - Writes canonical documents directly through `user_search_filters`.
-- Builds percolator documents from complete canonical search-filter projection views using the public product percolator JSON builder.
+- Builds percolator queries from complete canonical search-filter projection views using the public product percolator JSON builder.
 - Uses Postgres `version` as OpenSearch external versioning; stale or duplicate writes are no-op outcomes.
 - Persists every ProductSearch field and rejects incomplete or unknown persisted search payloads.
 - Keeps OpenSearch document types private.

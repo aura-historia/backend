@@ -2,6 +2,7 @@ use crate::ports::{SearchFilterProjection, SearchFilterView};
 use common::error::boxed::BoxError;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::user_search_filter_id::UserSearchFilterId;
+use product_service::ports::ProductSearchFilterMatchSource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchFilterProjectionWriteOutcome {
@@ -58,7 +59,7 @@ pub trait SearchFilterIndex: Send + Sync {
     ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError>;
     async fn percolate(
         &self,
-        product_document: serde_json::Value,
+        product: &ProductSearchFilterMatchSource,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError>;
     async fn query(
         &self,

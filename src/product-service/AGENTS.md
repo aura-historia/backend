@@ -18,6 +18,7 @@
 - `GenerateWatchlistNotifications` owns Product-event-driven watchlist notifications: it reads the immutable Product event/source and active recipients in one short Postgres transaction, commits, then invokes the Notification write use case. DynamoDB work stays outside the Postgres transaction.
 - `ProductWatchlistDetailsReader` is a transaction-scoped, cursor-paged batch read contract for full localized personalized Product views and relational user state. Its cursor uses watchlist creation time plus Product ID.
 - `ProductDetailsBatchReader` is an ordinary one-query batch read for full localized personalized Product views and relational user state by Product ID; callers preserve their own source order.
+- `ProductSearchFilterMatchSourceReader` is a transaction-scoped canonical current-Product source for accepted Product CDC events. It returns typed Product, Shop, localized text, image, pricing, and query data; adapter rows stay private.
 - Ports are public because adapter crates implement them.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
 - No SQLx, DynamoDB, OpenSearch, transport, or legacy `product` dependency.

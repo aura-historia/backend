@@ -10,7 +10,9 @@
 - `lib.rs` owns runtime config, `/health`, `/ready`, `/cdc/sequin`, server loop, default all-queue runtime, and bounded queue primitives.
 - `cdc.rs` normalizes Sequin webhook JSON to domain jobs and fans out after route validation.
 - `search_filter_projection.rs` consumes `SearchFilterOpenSearch` jobs, rereads committed Postgres state, and writes the canonical OpenSearch projection with target-side version protection.
-- `watchlist_notifications.rs` consumes price/state Product event jobs, rereads committed Postgres source plus active watchlist recipients, then creates idempotent DynamoDB notification records.
+- `search_filter_percolator.rs` consumes domain/enrichment `ProductEvent` jobs, rereads the committed Product source, and persists canonical Postgres matches only. Enhanced filters fail closed until canonical Gemini adapter exists; no legacy evaluator is linked.
+- `search_filter_match_notifications.rs` consumes persisted-match insert jobs, rereads typed Postgres match and Product sources, and conditionally creates one DynamoDB SearchFilter notification.
+- `watchlist_notifications.rs consumes price/state Product event jobs, rereads committed Postgres source plus active watchlist recipients, then creates idempotent DynamoDB notification records.
 - `retry.rs` owns in-process retry, idempotency memory, and in-memory DLQ helpers.
 - No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs.
 
@@ -23,8 +25,8 @@
 
 - Read repo root, `src/AGENTS.md`, then here before edit.
 - Update this doc when env vars, queue behavior, dependencies, or runtime behavior changes.
-- Runtime scope comes from `AURA_HISTORIA_WORKER_SCOPE`: `search-filter-projection` (default) accepts only `search_filters`; `watchlist-notification` accepts only `product_events` inserts and routes canonical `PRODUCT_PRICE_CHANGED` / `PRODUCT_STATE_CHANGED` events. Other tables fail delivery rather than filling unconsumed queues. Configure each Sequin subscription accordingly.
-- Every scope requires `POSTGRES_*`. Search-filter scope requires `OPENSEARCH_ENDPOINT_URL` and outside `STAGE=ephemeral`, OpenSearch credentials. Watchlist scope requires `DYNAMODB_TABLE_NAME` and DynamoDB write credentials.
+- Runtime scope comes from `AURA_HISTORIA_WORKER_SCOPE`: `search-filter-projection` (default) accepts only `search_filters`; `search-filter-percolator` accepts only domain/enrichment `product_events` inserts; `search-filter-match-notification` accepts only `search_filter_matches` inserts; `watchlist-notification` accepts only canonical price/state `product_events` inserts. Other tables fail delivery rather than filling unconsumed queues. Configure each Sequin subscription accordingly.
+- Every scope requires `POSTGRES_*`. Search-filter projection/percolator scopes require `OPENSEARCH_ENDPOINT_URL` and outside `STAGE=ephemeral`, OpenSearch credentials. Match-notification and watchlist scopes require `DYNAMODB_TABLE_NAME` and DynamoDB write credentials.
 - Event-flow changes must update `docs/events/flow.md`.
 
 ## Work Guidance

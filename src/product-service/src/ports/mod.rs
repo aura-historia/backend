@@ -5,6 +5,7 @@ pub mod product_embedding_reader;
 pub mod product_event_reader;
 pub mod product_event_store;
 pub mod product_repository;
+pub mod product_search_filter_match_source_reader;
 pub mod product_search_reader;
 pub mod product_similar_products_reader;
 pub mod product_user_state_reader;
@@ -32,6 +33,11 @@ pub use product_event_store::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory,
 };
 pub use product_repository::{ProductRepository, ProductRepositoryError, ProductRepositoryFactory};
+pub use product_search_filter_match_source_reader::{
+    ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
+    ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
+    ProductSearchFilterMatchSourceReaderFactory,
+};
 pub use product_search_reader::{ProductSearchReadError, ProductSearchReader};
 pub use product_similar_products_reader::{
     ProductSimilarProductsReadError, ProductSimilarProductsReader, ProductSimilarProductsRequest,

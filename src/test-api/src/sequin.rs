@@ -22,6 +22,11 @@ const SEQUIN_CONTAINER_PORT: u16 = 7376;
 const SEQUIN_STATE_DB: &str = "sequin";
 const SECRET_KEY_BASE: &str = "wDPLYus0pvD6qJhKJICO4dauYPXfO/Yl782Zjtpew5qRBDp7CZvbWtQmY0eB13If";
 const VAULT_KEY: &str = "2Sig69bIpuSm2kv0VQfDekET2qy8qUZGI8v3/h3ASiY=";
+const WORKER_WEBHOOK_TABLES: &[&str] = &[
+    "public.product_events",
+    "public.search_filters",
+    "public.search_filter_matches",
+];
 static SEQUIN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static DEFAULT_SEQUIN: OnceCell<RunningSequin> = OnceCell::const_new();
 static WORKER_WEBHOOK_SEQUIN: OnceCell<RunningSequin> = OnceCell::const_new();
@@ -101,7 +106,7 @@ impl RunningSequin {
 
 pub async fn get_or_start_sequin() -> &'static RunningSequin {
     DEFAULT_SEQUIN
-        .get_or_init(|| async { start_sequin_container(None).await })
+        .get_or_init(|| async { start_sequin_container(None, WORKER_WEBHOOK_TABLES).await })
         .await
 }
 
@@ -110,7 +115,7 @@ pub async fn get_or_start_worker_webhook_sequin() -> &'static RunningSequin {
         .get_or_init(|| async {
             let port = worker_webhook_port();
             let webhook_url = format!("http://host.docker.internal:{port}/cdc/sequin");
-            start_sequin_container(Some(&webhook_url)).await
+            start_sequin_container(Some(&webhook_url), WORKER_WEBHOOK_TABLES).await
         })
         .await
 }
@@ -120,10 +125,14 @@ pub fn get_sequin_worker_webhook_bind_addr() -> SocketAddr {
 }
 
 pub async fn start_sequin(webhook_url: &str) -> RunningSequin {
-    start_sequin_container(Some(webhook_url)).await
+    start_sequin_for_tables(webhook_url, WORKER_WEBHOOK_TABLES).await
 }
 
-async fn start_sequin_container(webhook_url: Option<&str>) -> RunningSequin {
+pub async fn start_sequin_for_tables(webhook_url: &str, tables: &[&str]) -> RunningSequin {
+    start_sequin_container(Some(webhook_url), tables).await
+}
+
+async fn start_sequin_container(webhook_url: Option<&str>, tables: &[&str]) -> RunningSequin {
     ensure_sequin_state_database().await;
 
     let suffix = sequin_resource_suffix();
@@ -135,7 +144,7 @@ async fn start_sequin_container(webhook_url: Option<&str>) -> RunningSequin {
         .await
         .expect("shouldn't fail starting Redis test container for Sequin");
 
-    let config_yaml = sequin_config_yaml(webhook_url, &suffix);
+    let config_yaml = sequin_config_yaml(webhook_url, &suffix, tables);
     let config_yaml_base64 = STANDARD.encode(config_yaml);
     let redis_url = format!("redis://host.docker.internal:{redis_port}");
     let sequin_state_pg_url = get_postgres_host_gateway_connection_string(SEQUIN_STATE_DB);
@@ -202,15 +211,23 @@ fn sequin_resource_suffix() -> String {
     format!("{}_{}", std::process::id(), sequence)
 }
 
-fn sequin_config_yaml(webhook_url: Option<&str>, suffix: &str) -> String {
+fn sequin_config_yaml(webhook_url: Option<&str>, suffix: &str, tables: &[&str]) -> String {
+    let publication_tables = tables.join(", ");
+    let include_tables = tables
+        .iter()
+        .map(|table| format!("\"{table}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     let mut config = include_str!("sequin/base.yaml")
         .replace("__SUFFIX__", suffix)
-        .replace("__POSTGRES_PORT__", &get_postgres_host_port().to_string());
+        .replace("__POSTGRES_PORT__", &get_postgres_host_port().to_string())
+        .replace("__PUBLICATION_TABLES__", &publication_tables);
 
     if let Some(url) = webhook_url {
         let sink_yaml = include_str!("sequin/webhook-sink.yaml")
             .replace("__SUFFIX__", suffix)
-            .replace("__WEBHOOK_URL__", url);
+            .replace("__WEBHOOK_URL__", url)
+            .replace("__INCLUDE_TABLES__", &include_tables);
         config.push_str(&sink_yaml);
     }
 

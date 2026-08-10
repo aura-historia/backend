@@ -261,7 +261,7 @@ fn state(v: &str) -> Result<ResourceState, SearchFilterRowMappingError> {
         _ => Err(SearchFilterRowMappingError::InvalidState),
     }
 }
-fn name(v: String) -> Result<UserSearchFilterName, SearchFilterRowMappingError> {
+pub(crate) fn name(v: String) -> Result<UserSearchFilterName, SearchFilterRowMappingError> {
     if v.len() > 255 {
         Err(SearchFilterRowMappingError::NameTooLong)
     } else {

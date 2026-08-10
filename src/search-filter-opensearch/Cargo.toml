@@ -11,6 +11,7 @@ isocountry = { workspace = true }
 opensearch = { workspace = true }
 product-core = { workspace = true }
 product-opensearch = { workspace = true }
+product-service = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -20,6 +21,8 @@ time = { workspace = true, features = ["formatting", "serde"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+indexmap = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["opensearch"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
+url = { workspace = true }

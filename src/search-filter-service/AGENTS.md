@@ -16,6 +16,8 @@
 - Update generates an external embedding before the short write transaction, then revalidates the derived search state before persisting.
 - Search filter timestamps live on reader/index views, not aggregates.
 - CDC projection handlers reread complete Postgres index state then write through a versioned index port.
+- Canonical product-event matching percolates typed `ProductSearchFilterMatchSource` before a short transaction, evaluates enhanced filters through a port, then authoritatively batch-validates candidates, locks user tiers, applies monthly match quota, and persists idempotent Postgres matches only. Match CDC drives notification generation separately.
+- `GenerateSearchFilterMatchNotification` maps one typed persisted-match source plus a typed Product source to the canonical Notification write use case. DynamoDB remains outside Postgres transactions.
 - Persisted-match lists compose one tie-safe match page, one batched Product-details read, and one batched notification read in the service. Returned Product order follows the match page.
 
 ## Ownership
