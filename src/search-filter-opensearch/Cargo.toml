@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true, features = ["opensearch"] }
+embedding = { workspace = true }
 geo = { workspace = true, features = ["data"] }
 google-cloud-auth = { workspace = true }
 isocountry = { workspace = true }

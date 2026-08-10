@@ -10,6 +10,7 @@
 - Writes canonical documents directly through `user_search_filters`.
 - Builds percolator queries from complete canonical search-filter projection views using the public product percolator JSON builder, and implements `ProductMatchEvaluator` through direct Vertex AI Gemini access.
 - Uses Postgres `version` as OpenSearch external versioning; stale or duplicate writes are no-op outcomes.
+- The Vertex matcher sends legacy-equivalent text plus at most the first five Product images, fetched only through `embedding::SafeImageFetcher`; it logs no product or image payloads.
 - Persists every ProductSearch field and rejects incomplete or unknown persisted search payloads.
 - Keeps OpenSearch document types private.
 

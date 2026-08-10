@@ -1,29 +1,25 @@
-use crate::product_document::ProductDocument;
+use crate::{
+    continent_document::ContinentDocument, product_document::ProductDocument,
+    product_image_document::ProductImageDocument, product_state_document::ProductStateDocument,
+    shop_type_document::ShopTypeDocument,
+};
 use common::{
     currency::domain::Currency,
-    language::{document::LanguageDocument, domain::Language},
+    language::{
+        document::{LanguageDocument, TextDocument},
+        domain::Language,
+    },
     price::domain::Price,
-    product_lifecycle::domain::ProductLifecycle,
-    product_state::domain::ProductState,
+    product_lifecycle::document::ProductLifecycleDocument,
 };
 use product_service::ports::{ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource};
-use serde_json::{Map, Value, json};
-use time::format_description::well_known::Rfc3339;
+use serde_json::Value;
 
 /// Builds the canonical Product JSON consumed by search-filter percolation.
 ///
 /// This is intentionally JSON-only. `ProductDocument` stays private to this adapter.
 #[derive(Debug, thiserror::Error)]
 pub enum ProductPercolationDocumentError {
-    #[error("product percolation timestamp formatting failed")]
-    Timestamp(#[source] time::error::Format),
-    #[error("product percolation country serialization failed")]
-    Country(#[source] serde_json::Error),
-    #[error("product percolation document is invalid")]
-    InvalidDocument {
-        #[source]
-        source: serde_json::Error,
-    },
     #[error("product percolation document serialization failed")]
     Serialize {
         #[source]
@@ -34,148 +30,242 @@ pub enum ProductPercolationDocumentError {
 pub fn product_percolation_document(
     product: &ProductSearchFilterMatchSource,
 ) -> Result<Value, ProductPercolationDocumentError> {
-    // Decode through the private canonical Product document before serializing. This keeps the
-    // percolation payload aligned with the product index without exporting its storage type.
-    let document = serde_json::from_value::<ProductDocument>(percolation_fields(product)?)
-        .map_err(|source| ProductPercolationDocumentError::InvalidDocument { source })?;
-    serde_json::to_value(document)
+    serde_json::to_value(ProductDocument::from(product))
         .map_err(|source| ProductPercolationDocumentError::Serialize { source })
 }
 
-fn percolation_fields(
-    product: &ProductSearchFilterMatchSource,
-) -> Result<Value, ProductPercolationDocumentError> {
-    let mut document = Map::new();
-    document.insert("productId".to_owned(), json!(product.product_id));
-    document.insert("productSlugId".to_owned(), json!(product.product_slug_id));
-    document.insert("shopId".to_owned(), json!(product.shop_id));
-    document.insert("shopSlugId".to_owned(), json!(product.shop_slug_id));
-    document.insert("shopName".to_owned(), json!(product.shop_name));
-    document.insert("shopType".to_owned(), json!(shop_type(product.shop_type)));
-    document.insert("sellerId".to_owned(), json!(product.seller_id));
-    document.insert("sellerSlugId".to_owned(), json!(product.seller_slug_id));
-    document.insert("sellerName".to_owned(), json!(product.seller_name));
-    document.insert("shopsProductId".to_owned(), json!(product.shops_product_id));
-    document.insert("eventId".to_owned(), json!(product.current_event_id));
-    document.insert("state".to_owned(), json!(product_state(product.state)));
-    document.insert("lifecycle".to_owned(), json!(lifecycle(product.lifecycle)));
-    document.insert("url".to_owned(), json!(product.url.as_str()));
-    document.insert("viewUrl".to_owned(), json!(product.view_url.as_str()));
-    document.insert(
-        "created".to_owned(),
-        json!(
-            product
-                .created
-                .format(&Rfc3339)
-                .map_err(ProductPercolationDocumentError::Timestamp)?
-        ),
-    );
-    document.insert(
-        "updated".to_owned(),
-        json!(
-            product
-                .updated
-                .format(&Rfc3339)
-                .map_err(ProductPercolationDocumentError::Timestamp)?
-        ),
-    );
-    if let Some(auction_start) = product.auction.start {
-        document.insert(
-            "auctionStart".to_owned(),
-            json!(
-                auction_start
-                    .format(&Rfc3339)
-                    .map_err(ProductPercolationDocumentError::Timestamp)?
+impl From<&ProductSearchFilterMatchSource> for ProductDocument {
+    fn from(product: &ProductSearchFilterMatchSource) -> Self {
+        let (title, language) = selected_title(product);
+        let structured_address = product.address.structured.as_ref();
+
+        Self {
+            product_id: product.product_id,
+            product_slug_id: product.product_slug_id.clone(),
+            shop_slug_id: product.shop_slug_id.clone(),
+            seller_slug_id: product.seller_slug_id.clone(),
+            event_id: product.current_event_id,
+            shop_id: product.shop_id,
+            seller_id: product.seller_id,
+            shops_product_id: product.shops_product_id.clone(),
+            shop_name: product.shop_name.to_string(),
+            seller_name: product.seller_name.to_string(),
+            shop_type: product.shop_type.into(),
+            structured_address_addressline: structured_address
+                .and_then(|address| address.addressline.clone()),
+            structured_address_addressline_extra: structured_address
+                .and_then(|address| address.addressline_extra.clone()),
+            structured_address_locality: structured_address
+                .and_then(|address| address.locality.clone()),
+            structured_address_region: structured_address
+                .and_then(|address| address.region.clone()),
+            structured_address_postal_code: structured_address
+                .and_then(|address| address.postal_code.clone()),
+            structured_address_country: structured_address.and_then(|address| address.country),
+            structured_address_continent: structured_address
+                .and_then(|address| address.continent)
+                .map(ContinentDocument::from),
+            geo_address: product
+                .address
+                .geo
+                .as_ref()
+                .map(|geo| format!("{},{}", geo.lat, geo.lon)),
+            title: TextDocument::new(title, LanguageDocument::from(language)),
+            title_de: translated_title(product, Language::De),
+            title_en: translated_title(product, Language::En),
+            title_fr: translated_title(product, Language::Fr),
+            title_es: translated_title(product, Language::Es),
+            title_it: translated_title(product, Language::It),
+            price_eur: price_amount_in(product.pricing.price, Currency::Eur),
+            price_usd: price_amount_in(product.pricing.price, Currency::Usd),
+            price_gbp: price_amount_in(product.pricing.price, Currency::Gbp),
+            price_aud: price_amount_in(product.pricing.price, Currency::Aud),
+            price_cad: price_amount_in(product.pricing.price, Currency::Cad),
+            price_nzd: price_amount_in(product.pricing.price, Currency::Nzd),
+            price_cny: price_amount_in(product.pricing.price, Currency::Cny),
+            price_brl: price_amount_in(product.pricing.price, Currency::Brl),
+            price_pln: price_amount_in(product.pricing.price, Currency::Pln),
+            price_try: price_amount_in(product.pricing.price, Currency::Try),
+            price_jpy: price_amount_in(product.pricing.price, Currency::Jpy),
+            price_czk: price_amount_in(product.pricing.price, Currency::Czk),
+            price_rub: price_amount_in(product.pricing.price, Currency::Rub),
+            price_aed: price_amount_in(product.pricing.price, Currency::Aed),
+            price_sar: price_amount_in(product.pricing.price, Currency::Sar),
+            price_hkd: price_amount_in(product.pricing.price, Currency::Hkd),
+            price_sgd: price_amount_in(product.pricing.price, Currency::Sgd),
+            price_chf: price_amount_in(product.pricing.price, Currency::Chf),
+            price_estimate_min_eur: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Eur,
             ),
-        );
-    }
-    if let Some(auction_end) = product.auction.end {
-        document.insert(
-            "auctionEnd".to_owned(),
-            json!(
-                auction_end
-                    .format(&Rfc3339)
-                    .map_err(ProductPercolationDocumentError::Timestamp)?
+            price_estimate_min_usd: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Usd,
             ),
-        );
-    }
-
-    let (title, language) = selected_title(product);
-    document.insert(
-        "title".to_owned(),
-        json!({"text": title, "language": LanguageDocument::from(language)}),
-    );
-    for (language, field) in [
-        (Language::De, "titleDe"),
-        (Language::En, "titleEn"),
-        (Language::Fr, "titleFr"),
-        (Language::Es, "titleEs"),
-        (Language::It, "titleIt"),
-    ] {
-        if let Some(title) = product.titles.get(&language) {
-            document.insert(field.to_owned(), json!(title.as_ref()));
+            price_estimate_min_gbp: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Gbp,
+            ),
+            price_estimate_min_aud: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Aud,
+            ),
+            price_estimate_min_cad: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Cad,
+            ),
+            price_estimate_min_nzd: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Nzd,
+            ),
+            price_estimate_min_cny: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Cny,
+            ),
+            price_estimate_min_brl: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Brl,
+            ),
+            price_estimate_min_pln: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Pln,
+            ),
+            price_estimate_min_try: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Try,
+            ),
+            price_estimate_min_jpy: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Jpy,
+            ),
+            price_estimate_min_czk: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Czk,
+            ),
+            price_estimate_min_rub: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Rub,
+            ),
+            price_estimate_min_aed: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Aed,
+            ),
+            price_estimate_min_sar: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Sar,
+            ),
+            price_estimate_min_hkd: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Hkd,
+            ),
+            price_estimate_min_sgd: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Sgd,
+            ),
+            price_estimate_min_chf: price_amount_in(
+                product.pricing.price_estimate_min,
+                Currency::Chf,
+            ),
+            price_estimate_max_eur: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Eur,
+            ),
+            price_estimate_max_usd: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Usd,
+            ),
+            price_estimate_max_gbp: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Gbp,
+            ),
+            price_estimate_max_aud: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Aud,
+            ),
+            price_estimate_max_cad: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Cad,
+            ),
+            price_estimate_max_nzd: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Nzd,
+            ),
+            price_estimate_max_cny: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Cny,
+            ),
+            price_estimate_max_brl: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Brl,
+            ),
+            price_estimate_max_pln: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Pln,
+            ),
+            price_estimate_max_try: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Try,
+            ),
+            price_estimate_max_jpy: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Jpy,
+            ),
+            price_estimate_max_czk: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Czk,
+            ),
+            price_estimate_max_rub: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Rub,
+            ),
+            price_estimate_max_aed: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Aed,
+            ),
+            price_estimate_max_sar: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Sar,
+            ),
+            price_estimate_max_hkd: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Hkd,
+            ),
+            price_estimate_max_sgd: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Sgd,
+            ),
+            price_estimate_max_chf: price_amount_in(
+                product.pricing.price_estimate_max,
+                Currency::Chf,
+            ),
+            state: ProductStateDocument::from(product.state),
+            lifecycle: ProductLifecycleDocument::from(product.lifecycle),
+            url: product.url.clone(),
+            view_url: product.view_url.clone(),
+            images: product
+                .images
+                .iter()
+                .cloned()
+                .map(ProductImageDocument::from)
+                .collect(),
+            embedding: None,
+            auction_start: product.auction.start,
+            auction_end: product.auction.end,
+            created: product.created,
+            updated: product.updated,
         }
     }
+}
 
-    insert_price(&mut document, "price", product.pricing.price);
-    insert_price(
-        &mut document,
-        "priceEstimateMin",
-        product.pricing.price_estimate_min,
-    );
-    insert_price(
-        &mut document,
-        "priceEstimateMax",
-        product.pricing.price_estimate_max,
-    );
-
-    if let Some(structured) = &product.address.structured {
-        insert_optional_string(
-            &mut document,
-            "structuredAddressAddressline",
-            structured.addressline.as_deref(),
-        );
-        insert_optional_string(
-            &mut document,
-            "structuredAddressAddresslineExtra",
-            structured.addressline_extra.as_deref(),
-        );
-        insert_optional_string(
-            &mut document,
-            "structuredAddressLocality",
-            structured.locality.as_deref(),
-        );
-        insert_optional_string(
-            &mut document,
-            "structuredAddressRegion",
-            structured.region.as_deref(),
-        );
-        insert_optional_string(
-            &mut document,
-            "structuredAddressPostalCode",
-            structured.postal_code.as_deref(),
-        );
-        if let Some(country) = structured.country {
-            document.insert(
-                "structuredAddressCountry".to_owned(),
-                serde_json::to_value(country).map_err(ProductPercolationDocumentError::Country)?,
-            );
-        }
-        if let Some(continent) = structured.continent {
-            document.insert(
-                "structuredAddressContinent".to_owned(),
-                json!(continent_name(continent)),
-            );
+impl From<ProductSearchFilterMatchShopType> for ShopTypeDocument {
+    fn from(value: ProductSearchFilterMatchShopType) -> Self {
+        match value {
+            ProductSearchFilterMatchShopType::AuctionHouse => Self::AuctionHouse,
+            ProductSearchFilterMatchShopType::AuctionPlatform => Self::AuctionPlatform,
+            ProductSearchFilterMatchShopType::CommercialDealer => Self::CommercialDealer,
+            ProductSearchFilterMatchShopType::Marketplace => Self::Marketplace,
         }
     }
-    if let Some(geo) = product.address.geo {
-        document.insert(
-            "geoAddress".to_owned(),
-            json!(format!("{},{}", geo.lat, geo.lon)),
-        );
-    }
-
-    Ok(Value::Object(document))
 }
 
 fn selected_title(product: &ProductSearchFilterMatchSource) -> (&str, Language) {
@@ -199,82 +289,20 @@ fn selected_title(product: &ProductSearchFilterMatchSource) -> (&str, Language) 
         .unwrap_or(("", Language::En))
 }
 
-fn insert_optional_string(document: &mut Map<String, Value>, field: &str, value: Option<&str>) {
-    if let Some(value) = value {
-        document.insert(field.to_owned(), json!(value));
-    }
+fn translated_title(
+    product: &ProductSearchFilterMatchSource,
+    language: Language,
+) -> Option<String> {
+    product
+        .titles
+        .get(&language)
+        .map(|title| title.as_ref().to_owned())
 }
 
-fn insert_price(document: &mut Map<String, Value>, prefix: &str, price: Option<Price>) {
-    let Some(price) = price else {
-        return;
-    };
-    document.insert(
-        format!("{prefix}{}", currency_suffix(price.currency)),
-        json!(u64::from(price.monetary_amount)),
-    );
-}
-
-fn currency_suffix(currency: Currency) -> &'static str {
-    match currency {
-        Currency::Eur => "Eur",
-        Currency::Gbp => "Gbp",
-        Currency::Usd => "Usd",
-        Currency::Aud => "Aud",
-        Currency::Cad => "Cad",
-        Currency::Nzd => "Nzd",
-        Currency::Cny => "Cny",
-        Currency::Brl => "Brl",
-        Currency::Pln => "Pln",
-        Currency::Try => "Try",
-        Currency::Jpy => "Jpy",
-        Currency::Czk => "Czk",
-        Currency::Rub => "Rub",
-        Currency::Aed => "Aed",
-        Currency::Sar => "Sar",
-        Currency::Hkd => "Hkd",
-        Currency::Sgd => "Sgd",
-        Currency::Chf => "Chf",
-    }
-}
-
-fn shop_type(value: ProductSearchFilterMatchShopType) -> &'static str {
-    match value {
-        ProductSearchFilterMatchShopType::AuctionHouse => "AUCTION_HOUSE",
-        ProductSearchFilterMatchShopType::AuctionPlatform => "AUCTION_PLATFORM",
-        ProductSearchFilterMatchShopType::CommercialDealer => "COMMERCIAL_DEALER",
-        ProductSearchFilterMatchShopType::Marketplace => "MARKETPLACE",
-    }
-}
-
-fn product_state(value: ProductState) -> &'static str {
-    match value {
-        ProductState::Listed => "LISTED",
-        ProductState::Available => "AVAILABLE",
-        ProductState::Reserved => "RESERVED",
-        ProductState::Sold => "SOLD",
-        ProductState::Removed => "REMOVED",
-        ProductState::Unknown => "UNKNOWN",
-    }
-}
-
-fn lifecycle(value: ProductLifecycle) -> &'static str {
-    match value {
-        ProductLifecycle::Active => "ACTIVE",
-        ProductLifecycle::Deleted => "DELETED",
-    }
-}
-
-fn continent_name(value: geo::core::continent::Continent) -> &'static str {
-    match value {
-        geo::core::continent::Continent::Africa => "AFRICA",
-        geo::core::continent::Continent::Antarctica => "ANTARCTICA",
-        geo::core::continent::Continent::Asia => "ASIA",
-        geo::core::continent::Continent::Europe => "EUROPE",
-        geo::core::continent::Continent::NorthAmerica => "NORTH_AMERICA",
-        geo::core::continent::Continent::Oceania => "OCEANIA",
-        geo::core::continent::Continent::SouthAmerica => "SOUTH_AMERICA",
-    }
+fn price_amount_in(price: Option<Price>, currency: Currency) -> Option<u64> {
+    price
+        .filter(|price| price.currency == currency)
+        .map(|price| u64::from(price.monetary_amount))
 }
 
 #[cfg(test)]
@@ -284,7 +312,9 @@ mod tests {
         event_id::EventId,
         localized::Localized,
         price::domain::{MonetaryAmount, Price},
+        product_lifecycle::domain::ProductLifecycle,
         product_slug_id::ProductSlugId,
+        product_state::domain::ProductState,
         shop_id::ShopId,
         shop_name::ShopName,
         shop_slug_id::ShopSlugId,
@@ -295,6 +325,7 @@ mod tests {
         product::{ProductAddress, ProductAuction, ProductPricing},
         title::Title,
     };
+    use serde_json::json;
     use std::collections::HashMap;
     use url::Url;
 
@@ -337,8 +368,8 @@ mod tests {
     }
 
     #[test]
-    fn should_map_typed_product_source_to_canonical_percolation_json()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn should_map_typed_product_source_to_canonical_percolation_json(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let source = source()?;
 
         let document = product_percolation_document(&source)?;

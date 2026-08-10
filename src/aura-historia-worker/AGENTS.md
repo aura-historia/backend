@@ -38,7 +38,7 @@
 - Ack Sequin only after all relevant bounded queue enqueues succeed.
 - Use domain idempotency keys; Sequin IDs/LSNs are logs only.
 - Keep queue abstraction replaceable by SQS/Lambda/ECS later.
-- Every production worker route needs rigorous black-box acceptance tests in `tests/` using real Postgres, Sequin, the running worker server, and every written target store. Cover happy path, rollback, ignored changes, redelivery/idempotency, filtering, and persisted output shape.
+- Every production worker route needs rigorous black-box acceptance tests in `tests/` using real Postgres, Sequin, the running worker server, and every written target store. Cover happy path, rollback, ignored changes, redelivery/idempotency, filtering, and persisted output shape. Start an isolated Sequin subscription scoped to the exact routed source tables.
 
 ## Verification
 

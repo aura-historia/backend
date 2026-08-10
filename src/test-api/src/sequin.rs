@@ -19,7 +19,7 @@ use tracing::debug;
 
 const REDIS_CONTAINER_PORT: u16 = 6379;
 const SEQUIN_CONTAINER_PORT: u16 = 7376;
-const SEQUIN_STATE_DB: &str = "sequin";
+const SEQUIN_STATE_DB_PREFIX: &str = "sequin";
 const SECRET_KEY_BASE: &str = "wDPLYus0pvD6qJhKJICO4dauYPXfO/Yl782Zjtpew5qRBDp7CZvbWtQmY0eB13If";
 const VAULT_KEY: &str = "2Sig69bIpuSm2kv0VQfDekET2qy8qUZGI8v3/h3ASiY=";
 const WORKER_WEBHOOK_TABLES: &[&str] = &[
@@ -93,6 +93,10 @@ impl RunningSequin {
         &self.endpoint_url
     }
 
+    pub async fn stop_delivery(self) -> Result<(), testcontainers::TestcontainersError> {
+        self._sequin.stop_with_timeout(Some(0)).await
+    }
+
     pub async fn stdout_string(&self) -> String {
         String::from_utf8_lossy(&self._sequin.stdout_to_vec().await.unwrap_or_default())
             .into_owned()
@@ -133,9 +137,9 @@ pub async fn start_sequin_for_tables(webhook_url: &str, tables: &[&str]) -> Runn
 }
 
 async fn start_sequin_container(webhook_url: Option<&str>, tables: &[&str]) -> RunningSequin {
-    ensure_sequin_state_database().await;
-
     let suffix = sequin_resource_suffix();
+    let state_database = format!("{SEQUIN_STATE_DB_PREFIX}_{suffix}");
+    ensure_sequin_state_database(&state_database).await;
     let redis_port = find_free_port();
     let redis = GenericImage::new("redis", "7-alpine")
         .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
@@ -147,7 +151,7 @@ async fn start_sequin_container(webhook_url: Option<&str>, tables: &[&str]) -> R
     let config_yaml = sequin_config_yaml(webhook_url, &suffix, tables);
     let config_yaml_base64 = STANDARD.encode(config_yaml);
     let redis_url = format!("redis://host.docker.internal:{redis_port}");
-    let sequin_state_pg_url = get_postgres_host_gateway_connection_string(SEQUIN_STATE_DB);
+    let sequin_state_pg_url = get_postgres_host_gateway_connection_string(&state_database);
 
     let sequin_port = find_free_port();
     let sequin = GenericImage::new("sequin/sequin", "latest")
@@ -178,17 +182,17 @@ async fn start_sequin_container(webhook_url: Option<&str>, tables: &[&str]) -> R
     }
 }
 
-async fn ensure_sequin_state_database() {
+async fn ensure_sequin_state_database(database: &str) {
     let pool = get_postgres_client().await;
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
-            .bind(SEQUIN_STATE_DB)
+            .bind(database)
             .fetch_one(&pool)
             .await
             .expect("shouldn't fail checking Sequin state database");
 
     if !exists {
-        pool.execute(sqlx::raw_sql(&format!("CREATE DATABASE {SEQUIN_STATE_DB}")))
+        pool.execute(sqlx::raw_sql(&format!("CREATE DATABASE {database}")))
             .await
             .expect("shouldn't fail creating Sequin state database");
     }

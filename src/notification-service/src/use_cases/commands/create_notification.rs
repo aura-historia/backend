@@ -64,6 +64,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::ports::notification_repository::NotificationRepository;
+
     use super::*;
     use common::{
         error::boxed::{BoxError, box_error},
