@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
-use aura_historia_worker::search_filter_percolator::{
-    FailClosedEnhancedSearchFilterEvaluator, consume_search_filter_percolator_queue,
-};
+use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{
@@ -12,6 +10,7 @@ use aura_historia_worker::{
     run_until_shutdown_with_runtime,
 };
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork, connect_from_env};
+use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
 use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use opensearch::{
@@ -26,9 +25,11 @@ use product_postgres::{
 use product_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
 };
-use search_filter_opensearch::OpenSearchSearchFilterIndex;
+use search_filter_opensearch::{
+    OpenSearchSearchFilterIndex, VertexAiProductMatchEvaluator, VertexAiProductMatchEvaluatorConfig,
+};
 use search_filter_postgres::{
-    SqlxSearchFilterIndexReader, SqlxSearchFilterMatchCandidateValidatorFactory,
+    SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
     SqlxSearchFilterMatchNotificationSourceReaderFactory, SqlxSearchFilterMatchWriterFactory,
     SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
 };
@@ -42,6 +43,11 @@ use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
 
 const WORKER_SCOPE_ENV: &str = "AURA_HISTORIA_WORKER_SCOPE";
 const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
+const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
+const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
+const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "aura-historia";
+const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
+const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
@@ -86,14 +92,13 @@ async fn run_search_filter_percolator(
     pool: sqlx::PgPool,
 ) -> Result<(), MainError> {
     let client = opensearch_client_from_env()?;
+    let evaluator = vertex_ai_product_match_evaluator()?;
     let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         OpenSearchSearchFilterIndex::new(client),
-        FailClosedEnhancedSearchFilterEvaluator,
-        SqlxSearchFilterMatchCandidateValidatorFactory,
-        SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
+        evaluator,
+        SqlxActiveSearchFilterMatchCandidateReaderFactory,
         SqlxSearchFilterMatchWriterFactory,
-        SqlxUserTierEntitlementsFactory::new(),
     ));
     let (runtime, mut receivers) =
         WorkerRuntime::with_search_filter_percolator_queue(QueueConfig::new(1024))?;
@@ -122,6 +127,9 @@ async fn run_search_filter_match_notifications(
     let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
     let handler: Arc<dyn GenerateSearchFilterMatchNotificationUseCase> =
         Arc::new(GenerateSearchFilterMatchNotificationHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
+            SqlxUserTierEntitlementsFactory::new(),
             CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
                 aws_sdk_dynamodb::Client::new(&aws_config),
                 table,
@@ -213,6 +221,22 @@ impl WorkerScope {
     }
 }
 
+fn vertex_ai_product_match_evaluator() -> Result<VertexAiProductMatchEvaluator, MainError> {
+    let config = VertexAiProductMatchEvaluatorConfig::new(
+        std::env::var(VERTEX_AI_PROJECT_ID_ENV)
+            .unwrap_or_else(|_| DEFAULT_VERTEX_AI_PROJECT_ID.to_owned()),
+        std::env::var(VERTEX_AI_LOCATION_ENV)
+            .unwrap_or_else(|_| DEFAULT_VERTEX_AI_LOCATION.to_owned()),
+    );
+    let credentials = GoogleCredentialsBuilder::default()
+        .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
+        .build_access_token_credentials()
+        .map_err(|error| MainError::VertexAiCredentials {
+            detail: error.to_string(),
+        })?;
+    Ok(VertexAiProductMatchEvaluator::new(config, credentials))
+}
+
 fn opensearch_client_from_env() -> Result<OpenSearch, MainError> {
     let endpoint = std::env::var("OPENSEARCH_ENDPOINT_URL").map_err(|_| MainError::MissingEnv {
         name: "OPENSEARCH_ENDPOINT_URL",
@@ -262,6 +286,8 @@ enum MainError {
     InvalidScope { value: String },
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
+    #[error("failed to initialize Vertex AI credentials: {detail}")]
+    VertexAiCredentials { detail: String },
     #[error(transparent)]
     Run(#[from] WorkerRunError),
 }

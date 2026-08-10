@@ -174,17 +174,17 @@ The canonical search-filter OpenSearch sync, search-filter percolator, search-fi
 
 ## Canonical search-filter percolator
 
-The percolator scope accepts only `product_events` inserts. It enqueues only `DOMAIN` and `ENRICHMENT` Product events, rereads the committed typed Product match source, and invokes `MatchProductEventUseCase`. The use case percolates the canonical OpenSearch filter projection, revalidates candidates and quotas in Postgres, and stores idempotent match rows only.
+The percolator scope accepts only `product_events` inserts. It enqueues only `DOMAIN` and `ENRICHMENT` Product events, rereads the committed typed Product match source, and invokes `MatchProductEventUseCase`. The use case percolates the canonical OpenSearch filter projection, evaluates enhanced filters through the Vertex-backed `ProductMatchEvaluator`, authoritatively rereads active candidates, and stores every active idempotent match row.
 
 Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; its Sequin subscription must contain only `product_events` inserts. `POLICY` and `LIFECYCLE` events are acknowledged without a percolator job. Product-event redelivery is safe through the match uniqueness key.
 
 ## Search-filter match notification generator
 
-The match-notification scope accepts only `search_filter_matches` inserts. It rereads the typed persisted match and the committed Product source, then invokes `GenerateSearchFilterMatchNotificationUseCase`. DynamoDB conditionally creates `(user_id, origin_event_id)`, so match CDC redelivery or concurrent matched filters cannot overwrite or duplicate the notification. The Product source is read after the Postgres match read; DynamoDB remains outside Postgres transactions.
+The match-notification scope accepts only `search_filter_matches` inserts. It rereads the typed persisted match and accepts only the deterministic lowest filter ID for each `(user_id, origin_event_id)`, then reads the committed Product source and invokes `GenerateSearchFilterMatchNotificationUseCase`. The use case locks the user tier and calculates the event's stable monthly notification rank; this gates notification selection only, never match persistence. DynamoDB conditionally creates `(user_id, origin_event_id)`, so match CDC redelivery or concurrent matched filters cannot overwrite or duplicate the notification. The Product source is read after the Postgres match read; DynamoDB remains outside Postgres transactions.
 
 Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-match-notification`; its Sequin subscription must contain only `search_filter_matches` inserts. Match updates and deletes have no notification route.
 
-Enhanced search filters are **not complete** in this scope: until the canonical Gemini evaluator adapter exists, the worker evaluator returns an explicit failure for an enhanced filter. The job retries and can enter the in-memory DLQ; it never treats that filter as matched or silently bypasses enhanced evaluation. No legacy evaluator dependency is used.
+Enhanced search filters use the canonical Vertex AI Gemini `ProductMatchEvaluator`. Provider, authentication, and malformed-response failures are retryable worker failures; the worker never treats an enhanced filter as matched or silently bypasses evaluation. No legacy evaluator dependency is used.
 
 ## Canonical watchlist notification generator
 

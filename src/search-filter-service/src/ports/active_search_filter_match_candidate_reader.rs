@@ -1,6 +1,5 @@
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::error::boxed::BoxError;
-use common::product_id::ProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
@@ -13,7 +12,7 @@ pub struct SearchFilterMatchCandidate {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ValidatedSearchFilterMatchCandidate {
+pub struct ActiveSearchFilterMatchCandidate {
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
     pub search_filter_name: UserSearchFilterName,
@@ -21,13 +20,13 @@ pub struct ValidatedSearchFilterMatchCandidate {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SearchFilterMatchCandidateValidationError {
-    #[error("search filter match candidate validation failed")]
-    ValidationFailed {
+pub enum ActiveSearchFilterMatchCandidateReadError {
+    #[error("active search filter match candidate read failed")]
+    ReadFailed {
         #[source]
         source: BoxError,
     },
-    #[error("authoritative search filter state is invalid")]
+    #[error("active search filter match candidate state is invalid")]
     InvalidPersistedState {
         #[source]
         source: BoxError,
@@ -35,17 +34,16 @@ pub enum SearchFilterMatchCandidateValidationError {
 }
 
 #[async_trait::async_trait]
-pub trait SearchFilterMatchCandidateValidator: Send {
-    async fn validate_for_product(
+pub trait ActiveSearchFilterMatchCandidateReader: Send {
+    async fn find_active(
         &mut self,
-        product_id: ProductId,
         candidates: &[SearchFilterMatchCandidate],
-    ) -> Result<Vec<ValidatedSearchFilterMatchCandidate>, SearchFilterMatchCandidateValidationError>;
+    ) -> Result<Vec<ActiveSearchFilterMatchCandidate>, ActiveSearchFilterMatchCandidateReadError>;
 }
 
-pub trait SearchFilterMatchCandidateValidatorFactory<Tx>: Send + Sync {
+pub trait ActiveSearchFilterMatchCandidateReaderFactory<Tx>: Send + Sync {
     fn in_transaction<'tx>(
         &'tx self,
         tx: &'tx mut Tx,
-    ) -> impl SearchFilterMatchCandidateValidator + 'tx;
+    ) -> impl ActiveSearchFilterMatchCandidateReader + 'tx;
 }

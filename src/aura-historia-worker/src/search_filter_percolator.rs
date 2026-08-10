@@ -15,34 +15,9 @@ use product_service::ports::{
     ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
     ProductSearchFilterMatchSourceReaderFactory,
 };
-use search_filter_service::{
-    ports::{
-        EnhancedSearchFilterEvaluation, EnhancedSearchFilterEvaluator,
-        EnhancedSearchFilterEvaluatorError, SearchFilterView,
-    },
-    use_cases::{MatchProductEventCommand, MatchProductEventUseCase},
-};
+use search_filter_service::use_cases::{MatchProductEventCommand, MatchProductEventUseCase};
 use std::sync::Arc;
 use tracing::{error, info};
-
-/// Temporary evaluator. This is deliberately not a matcher.
-///
-/// Until the canonical Gemini adapter exists, enhanced filters must fail closed rather than
-/// becoming regular percolator matches. This makes the missing capability visible through retry
-/// and DLQ logs without taking a dependency on the legacy evaluator.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct FailClosedEnhancedSearchFilterEvaluator;
-
-#[async_trait::async_trait]
-impl EnhancedSearchFilterEvaluator for FailClosedEnhancedSearchFilterEvaluator {
-    async fn evaluate(
-        &self,
-        _product: &product_service::ports::ProductSearchFilterMatchSource,
-        _filter: &SearchFilterView,
-    ) -> Result<EnhancedSearchFilterEvaluation, EnhancedSearchFilterEvaluatorError> {
-        Err(unavailable_enhanced_evaluator_error())
-    }
-}
 
 pub async fn consume_search_filter_percolator_queue(
     mut receiver: InMemoryQueueReceiver<DomainJob>,
@@ -120,7 +95,6 @@ async fn match_product_event(
             event_id,
             product_id,
         })?;
-    let occurred_at = product.updated;
     source_tx.commit().await.map_err(|source| {
         SearchFilterPercolatorWorkerError::CommitSourceReadTransaction {
             source: box_error(source),
@@ -130,7 +104,6 @@ async fn match_product_event(
     handler
         .execute(MatchProductEventCommand {
             origin_event_id: event_id,
-            occurred_at,
             product,
         })
         .await
@@ -168,14 +141,6 @@ fn source_read_error(
         error => SearchFilterPercolatorWorkerError::ReadSource {
             source: box_error(error),
         },
-    }
-}
-
-fn unavailable_enhanced_evaluator_error() -> EnhancedSearchFilterEvaluatorError {
-    EnhancedSearchFilterEvaluatorError::EvaluationFailed {
-        source: box_error(std::io::Error::other(
-            "canonical Gemini enhanced search-filter evaluator is not configured",
-        )),
     }
 }
 
@@ -223,17 +188,4 @@ enum SearchFilterPercolatorWorkerError {
         #[source]
         source: BoxError,
     },
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_describe_unavailable_enhanced_evaluator_as_a_failure() {
-        assert!(matches!(
-            unavailable_enhanced_evaluator_error(),
-            EnhancedSearchFilterEvaluatorError::EvaluationFailed { .. }
-        ));
-    }
 }

@@ -1,7 +1,5 @@
 use aura_historia_worker::cdc::WorkerQueue;
-use aura_historia_worker::search_filter_percolator::{
-    FailClosedEnhancedSearchFilterEvaluator, consume_search_filter_percolator_queue,
-};
+use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use common::currency::domain::Currency;
 use common::event_id::EventId;
@@ -25,11 +23,14 @@ use product_postgres::SqlxProductSearchFilterMatchSourceReaderFactory;
 use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
-    SqlxSearchFilterIndexReader, SqlxSearchFilterMatchCandidateValidatorFactory,
+    SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
     SqlxSearchFilterMatchNotificationSourceReaderFactory, SqlxSearchFilterMatchWriterFactory,
     SqlxSearchFilterMonthlyMatchQuotaReaderFactory, SqlxSearchFilterRepositoryFactory,
 };
-use search_filter_service::ports::{SearchFilterRepository, SearchFilterRepositoryFactory};
+use search_filter_service::ports::{
+    ProductMatchEvaluation, ProductMatchEvaluator, ProductMatchEvaluatorError,
+    SearchFilterRepository, SearchFilterRepositoryFactory, SearchFilterView,
+};
 use search_filter_service::use_cases::{
     GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationUseCase,
     MatchProductEventHandler, MatchProductEventUseCase, ProjectSearchFilterChangeCommand,
@@ -37,13 +38,16 @@ use search_filter_service::use_cases::{
     SearchFilterProjectionOperation,
 };
 use serde_json::json;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use test_api::{
     DynamoDB, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
     get_dynamodb_client, get_opensearch_client, get_postgres_client,
     get_sequin_worker_webhook_bind_addr, refresh_index,
 };
+
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use user_postgres::SqlxUserTierEntitlementsFactory;
@@ -52,6 +56,19 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_SIDE_EFFECT_OBSERVATION: Duration = Duration::from_secs(2);
+
+struct NonMatchingProductMatchEvaluator;
+
+#[async_trait::async_trait]
+impl ProductMatchEvaluator for NonMatchingProductMatchEvaluator {
+    async fn evaluate(
+        &self,
+        _product: &product_service::ports::ProductSearchFilterMatchSource,
+        _filter: &SearchFilterView,
+    ) -> Result<ProductMatchEvaluation, ProductMatchEvaluatorError> {
+        Ok(ProductMatchEvaluation::NotMatched)
+    }
+}
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch()])]
 async fn should_match_non_enhanced_filter_for_committed_product_event() {
@@ -100,6 +117,16 @@ async fn should_create_one_notification_from_committed_search_filter_match() {
     assert!(
         result.is_ok(),
         "search-filter match notification CDC acceptance test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DynamoDB()])]
+async fn should_select_lowest_filter_id_for_one_user_event_notification() {
+    let result = select_lowest_filter_id_for_one_user_event_notification().await;
+
+    assert!(
+        result.is_ok(),
+        "search-filter match notification selection acceptance test failed: {result:?}"
     );
 }
 
@@ -267,6 +294,67 @@ async fn create_one_notification_from_committed_search_filter_match()
     worker.finish(result).await
 }
 
+async fn select_lowest_filter_id_for_one_user_event_notification()
+-> Result<(), Box<dyn std::error::Error>> {
+    let pool = get_postgres_client().await;
+    let user_id = seed_user(&pool).await?;
+    let product_id = seed_product(&pool).await?;
+    let first_filter = search_filter_with_name(
+        user_id,
+        UserSearchFilterName::from("First notification candidate"),
+    )?;
+    let second_filter = search_filter_with_name(
+        user_id,
+        UserSearchFilterName::from("Second notification candidate"),
+    )?;
+    insert_filter(&pool, &first_filter).await?;
+    insert_filter(&pool, &second_filter).await?;
+    let origin_event_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT event_id FROM products WHERE product_id = $1")
+            .bind(uuid::Uuid::from(product_id))
+            .fetch_one(&pool)
+            .await?;
+    let selected_filter_id = [first_filter.id(), second_filter.id()]
+        .into_iter()
+        .min_by_key(ToString::to_string)
+        .ok_or_else(|| std::io::Error::other("notification candidates are missing"))?;
+    let worker = MatchNotificationWorker::start(pool.clone()).await?;
+    let result = async {
+        let _sequin = worker.start_sequin().await;
+        insert_search_filter_matches(
+            &pool,
+            user_id,
+            &[first_filter.id(), second_filter.id()],
+            product_id,
+            EventId::from(origin_event_id),
+        )
+        .await?;
+
+        let notifications = wait_for_notifications(&worker.notifications, user_id, 1).await?;
+        let NotificationPayload::SearchFilter {
+            search_filter_payload,
+            ..
+        } = &notifications[0].notification_payload
+        else {
+            return Err(std::io::Error::other("expected a search-filter notification").into());
+        };
+        assert_eq!(
+            selected_filter_id,
+            search_filter_payload.user_search_filter_id
+        );
+        assert_no_more_than_notifications(
+            &worker.notifications,
+            user_id,
+            1,
+            NO_SIDE_EFFECT_OBSERVATION,
+        )
+        .await
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
 struct MatchNotificationWorker {
     notifications: DynamoDbAllNotificationsReader<'static>,
     consumer: JoinHandle<()>,
@@ -277,11 +365,16 @@ struct MatchNotificationWorker {
 impl MatchNotificationWorker {
     async fn start(pool: sqlx::PgPool) -> Result<Self, Box<dyn std::error::Error>> {
         let dynamodb = get_dynamodb_client().await;
-        let handler: Arc<dyn GenerateSearchFilterMatchNotificationUseCase> = Arc::new(
-            GenerateSearchFilterMatchNotificationHandler::new(CreateNotificationHandler::new(
-                ConditionalDynamoDbNotificationWriter::new(dynamodb.clone(), "table_1"),
-            )),
-        );
+        let handler: Arc<dyn GenerateSearchFilterMatchNotificationUseCase> =
+            Arc::new(GenerateSearchFilterMatchNotificationHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
+                SqlxUserTierEntitlementsFactory::new(),
+                CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
+                    dynamodb.clone(),
+                    "table_1",
+                )),
+            ));
         let (runtime, mut receivers) =
             WorkerRuntime::with_search_filter_match_notification_queue(QueueConfig::new(16))?;
         let receiver = receivers
@@ -360,11 +453,9 @@ impl PercolatorWorker {
         let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
             index.clone(),
-            FailClosedEnhancedSearchFilterEvaluator,
-            SqlxSearchFilterMatchCandidateValidatorFactory,
-            SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
+            NonMatchingProductMatchEvaluator,
+            SqlxActiveSearchFilterMatchCandidateReaderFactory,
             SqlxSearchFilterMatchWriterFactory,
-            SqlxUserTierEntitlementsFactory::new(),
         ));
         let (runtime, mut receivers) =
             WorkerRuntime::with_search_filter_percolator_queue(QueueConfig::new(16))?;
@@ -488,10 +579,20 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<common::product_id::Product
 }
 
 fn search_filter(user_id: UserId) -> Result<SearchFilter, Box<dyn std::error::Error>> {
+    search_filter_with_name(
+        user_id,
+        UserSearchFilterName::from("Percolator acceptance filter"),
+    )
+}
+
+fn search_filter_with_name(
+    user_id: UserId,
+    name: UserSearchFilterName,
+) -> Result<SearchFilter, Box<dyn std::error::Error>> {
     Ok(SearchFilter::create(NewSearchFilter {
         user_search_filter_id: UserSearchFilterId::new(),
         user_id,
-        name: UserSearchFilterName::from("Percolator acceptance filter"),
+        name,
         notifications: true,
         state: ResourceState::Active,
         search: ProductSearch::new(Language::En, Currency::Eur)
@@ -556,16 +657,37 @@ async fn insert_search_filter_match(
     product_id: common::product_id::ProductId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query(
-        "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_id, origin_event_id, user_search_filter_name) VALUES ($1, $2, $3, $4, $5)",
+    insert_search_filter_matches(
+        pool,
+        user_id,
+        &[search_filter_id],
+        product_id,
+        origin_event_id,
     )
-    .bind(uuid::Uuid::from(user_id))
-    .bind(uuid::Uuid::parse_str(&search_filter_id.to_string())?)
-    .bind(uuid::Uuid::from(product_id))
-    .bind(uuid::Uuid::from(origin_event_id))
-    .bind("Percolator acceptance filter")
-    .execute(pool)
-    .await?;
+    .await
+}
+
+async fn insert_search_filter_matches(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    search_filter_ids: &[UserSearchFilterId],
+    product_id: common::product_id::ProductId,
+    origin_event_id: EventId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut transaction = pool.begin().await?;
+    for search_filter_id in search_filter_ids {
+        sqlx::query(
+            "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_id, origin_event_id, user_search_filter_name) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(uuid::Uuid::from(user_id))
+        .bind(uuid::Uuid::parse_str(&search_filter_id.to_string())?)
+        .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(origin_event_id))
+        .bind("Percolator acceptance filter")
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
     Ok(())
 }
 

@@ -124,19 +124,15 @@ async fn generate_search_filter_match_notification(
         .in_transaction(&mut match_tx)
         .find_source(user_id, search_filter_id, product_id)
         .await
-        .map_err(match_source_read_error)?
-        .ok_or(
-            SearchFilterMatchNotificationWorkerError::MatchSourceNotFound {
-                user_id,
-                search_filter_id,
-                product_id,
-            },
-        )?;
+        .map_err(match_source_read_error)?;
     match_tx.commit().await.map_err(|source| {
         SearchFilterMatchNotificationWorkerError::CommitMatchReadTransaction {
             source: box_error(source),
         }
     })?;
+    let Some(match_source) = match_source else {
+        return Ok(());
+    };
 
     let mut product_tx = product_unit_of_work.begin().await.map_err(|source| {
         SearchFilterMatchNotificationWorkerError::BeginProductReadTransaction {
@@ -234,12 +230,7 @@ enum SearchFilterMatchNotificationWorkerError {
         #[source]
         source: BoxError,
     },
-    #[error("search filter match notification source was not found")]
-    MatchSourceNotFound {
-        user_id: UserId,
-        search_filter_id: UserSearchFilterId,
-        product_id: ProductId,
-    },
+
     #[error("failed to commit search filter match source read transaction")]
     CommitMatchReadTransaction {
         #[source]

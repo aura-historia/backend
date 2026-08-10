@@ -4,6 +4,7 @@ use common::product_id::ProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterMatchNotificationSource {
@@ -12,6 +13,8 @@ pub struct SearchFilterMatchNotificationSource {
     pub search_filter_name: UserSearchFilterName,
     pub product_id: ProductId,
     pub origin_event_id: EventId,
+    /// Database-assigned match time used for stable monthly notification ranking.
+    pub matched_at: OffsetDateTime,
     pub external: bool,
 }
 

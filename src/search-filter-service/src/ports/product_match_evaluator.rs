@@ -4,14 +4,14 @@ use common::error::boxed::BoxError;
 use product_service::ports::ProductSearchFilterMatchSource;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EnhancedSearchFilterEvaluation {
+pub enum ProductMatchEvaluation {
     Matched { reason: Option<EnhancedMatchReason> },
     NotMatched,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum EnhancedSearchFilterEvaluatorError {
-    #[error("enhanced search filter evaluation failed")]
+pub enum ProductMatchEvaluatorError {
+    #[error("product match evaluation failed")]
     EvaluationFailed {
         #[source]
         source: BoxError,
@@ -19,10 +19,10 @@ pub enum EnhancedSearchFilterEvaluatorError {
 }
 
 #[async_trait::async_trait]
-pub trait EnhancedSearchFilterEvaluator: Send + Sync {
+pub trait ProductMatchEvaluator: Send + Sync {
     async fn evaluate(
         &self,
         product: &ProductSearchFilterMatchSource,
         filter: &SearchFilterView,
-    ) -> Result<EnhancedSearchFilterEvaluation, EnhancedSearchFilterEvaluatorError>;
+    ) -> Result<ProductMatchEvaluation, ProductMatchEvaluatorError>;
 }

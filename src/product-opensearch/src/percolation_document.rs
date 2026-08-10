@@ -1,3 +1,4 @@
+use crate::product_document::ProductDocument;
 use common::{
     currency::domain::Currency,
     language::{document::LanguageDocument, domain::Language},
@@ -9,17 +10,41 @@ use product_service::ports::{ProductSearchFilterMatchShopType, ProductSearchFilt
 use serde_json::{Map, Value, json};
 use time::format_description::well_known::Rfc3339;
 
+/// Builds the canonical Product JSON consumed by search-filter percolation.
+///
+/// This is intentionally JSON-only. `ProductDocument` stays private to this adapter.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ProductMatchDocumentMappingError {
-    #[error("product match source timestamp formatting failed")]
+pub enum ProductPercolationDocumentError {
+    #[error("product percolation timestamp formatting failed")]
     Timestamp(#[source] time::error::Format),
-    #[error("product match source country serialization failed")]
+    #[error("product percolation country serialization failed")]
     Country(#[source] serde_json::Error),
+    #[error("product percolation document is invalid")]
+    InvalidDocument {
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("product percolation document serialization failed")]
+    Serialize {
+        #[source]
+        source: serde_json::Error,
+    },
 }
 
-pub(crate) fn product_match_document(
+pub fn product_percolation_document(
     product: &ProductSearchFilterMatchSource,
-) -> Result<Value, ProductMatchDocumentMappingError> {
+) -> Result<Value, ProductPercolationDocumentError> {
+    // Decode through the private canonical Product document before serializing. This keeps the
+    // percolation payload aligned with the product index without exporting its storage type.
+    let document = serde_json::from_value::<ProductDocument>(percolation_fields(product)?)
+        .map_err(|source| ProductPercolationDocumentError::InvalidDocument { source })?;
+    serde_json::to_value(document)
+        .map_err(|source| ProductPercolationDocumentError::Serialize { source })
+}
+
+fn percolation_fields(
+    product: &ProductSearchFilterMatchSource,
+) -> Result<Value, ProductPercolationDocumentError> {
     let mut document = Map::new();
     document.insert("productId".to_owned(), json!(product.product_id));
     document.insert("productSlugId".to_owned(), json!(product.product_slug_id));
@@ -42,7 +67,7 @@ pub(crate) fn product_match_document(
             product
                 .created
                 .format(&Rfc3339)
-                .map_err(ProductMatchDocumentMappingError::Timestamp)?
+                .map_err(ProductPercolationDocumentError::Timestamp)?
         ),
     );
     document.insert(
@@ -51,7 +76,7 @@ pub(crate) fn product_match_document(
             product
                 .updated
                 .format(&Rfc3339)
-                .map_err(ProductMatchDocumentMappingError::Timestamp)?
+                .map_err(ProductPercolationDocumentError::Timestamp)?
         ),
     );
     if let Some(auction_start) = product.auction.start {
@@ -60,7 +85,7 @@ pub(crate) fn product_match_document(
             json!(
                 auction_start
                     .format(&Rfc3339)
-                    .map_err(ProductMatchDocumentMappingError::Timestamp)?
+                    .map_err(ProductPercolationDocumentError::Timestamp)?
             ),
         );
     }
@@ -70,7 +95,7 @@ pub(crate) fn product_match_document(
             json!(
                 auction_end
                     .format(&Rfc3339)
-                    .map_err(ProductMatchDocumentMappingError::Timestamp)?
+                    .map_err(ProductPercolationDocumentError::Timestamp)?
             ),
         );
     }
@@ -133,7 +158,7 @@ pub(crate) fn product_match_document(
         if let Some(country) = structured.country {
             document.insert(
                 "structuredAddressCountry".to_owned(),
-                serde_json::to_value(country).map_err(ProductMatchDocumentMappingError::Country)?,
+                serde_json::to_value(country).map_err(ProductPercolationDocumentError::Country)?,
             );
         }
         if let Some(continent) = structured.continent {
@@ -271,7 +296,6 @@ mod tests {
         title::Title,
     };
     use std::collections::HashMap;
-
     use url::Url;
 
     fn source() -> Result<ProductSearchFilterMatchSource, url::ParseError> {
@@ -313,11 +337,11 @@ mod tests {
     }
 
     #[test]
-    fn should_map_typed_product_source_to_product_percolation_json()
+    fn should_map_typed_product_source_to_canonical_percolation_json()
     -> Result<(), Box<dyn std::error::Error>> {
         let source = source()?;
 
-        let document = product_match_document(&source)?;
+        let document = product_percolation_document(&source)?;
 
         assert_eq!(document["productId"], json!(source.product_id));
         assert_eq!(document["title"]["text"], json!("Blue vase"));

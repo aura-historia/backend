@@ -1,4 +1,5 @@
 use common::error::boxed::BoxError;
+use common::event_id::EventId;
 use common::user_id::UserId;
 use time::OffsetDateTime;
 
@@ -13,10 +14,13 @@ pub enum SearchFilterMonthlyMatchQuotaReadError {
 
 #[async_trait::async_trait]
 pub trait SearchFilterMonthlyMatchQuotaReader: Send {
-    async fn count_for_user_in_month(
+    /// Returns the stable one-based notification-selection rank for this user's event.
+    /// One lowest-filter match is counted for each origin event, not every persisted match row.
+    async fn notification_selection_rank_for_user_in_month(
         &mut self,
         user_id: UserId,
-        occurred_at: OffsetDateTime,
+        matched_at: OffsetDateTime,
+        origin_event_id: EventId,
     ) -> Result<usize, SearchFilterMonthlyMatchQuotaReadError>;
 }
 

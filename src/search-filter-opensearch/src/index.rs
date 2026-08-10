@@ -1,4 +1,4 @@
-use crate::{document::SearchFilterDocument, product_match_document::product_match_document};
+use crate::document::SearchFilterDocument;
 use common::error::boxed::box_error;
 use common::opensearch::search_response::SearchResponse;
 use common::pagination::cursor::{Cursor, CursoredResult};
@@ -84,11 +84,12 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
         &self,
         product: &product_service::ports::ProductSearchFilterMatchSource,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
-        let product_document = product_match_document(product).map_err(|source| {
-            SearchFilterIndexError::PercolateFailed {
-                source: box_error(source),
-            }
-        })?;
+        let product_document =
+            product_opensearch::product_percolation_document(product).map_err(|source| {
+                SearchFilterIndexError::PercolateFailed {
+                    source: box_error(source),
+                }
+            })?;
         let body = json!({"query":{"percolate":{"field":"query","document": product_document}}});
         let response = self
             .client

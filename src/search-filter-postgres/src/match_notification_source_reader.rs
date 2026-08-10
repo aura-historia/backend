@@ -7,6 +7,7 @@ use search_filter_service::ports::{
     SearchFilterMatchNotificationSourceReader, SearchFilterMatchNotificationSourceReaderFactory,
 };
 use sqlx::FromRow;
+use time::OffsetDateTime;
 
 use crate::mapping::{name, user_search_filter_uuid};
 
@@ -34,6 +35,7 @@ struct SearchFilterMatchNotificationSourceRow {
     user_search_filter_id: uuid::Uuid,
     product_id: uuid::Uuid,
     origin_event_id: uuid::Uuid,
+    created: OffsetDateTime,
     user_search_filter_name: String,
     external: bool,
 }
@@ -63,6 +65,7 @@ impl SearchFilterMatchNotificationSourceReader
                 matched.user_search_filter_id,
                 matched.product_id,
                 matched.origin_event_id,
+                matched.created,
                 COALESCE(matched.user_search_filter_name, filter.name) AS user_search_filter_name,
                 filter.notifications AS external
             FROM search_filter_matches matched
@@ -71,6 +74,13 @@ impl SearchFilterMatchNotificationSourceReader
             WHERE matched.user_id = $1
                 AND matched.user_search_filter_id = $2
                 AND matched.product_id = $3
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM search_filter_matches selected
+                    WHERE selected.user_id = matched.user_id
+                        AND selected.origin_event_id = matched.origin_event_id
+                        AND selected.user_search_filter_id < matched.user_search_filter_id
+                )
             "#,
         )
         .bind(uuid::Uuid::from(user_id))
@@ -95,6 +105,7 @@ impl SearchFilterMatchNotificationSourceReader
                 })?,
                 product_id: ProductId::from(row.product_id),
                 origin_event_id: row.origin_event_id.into(),
+                matched_at: row.created,
                 external: row.external,
             })
         })

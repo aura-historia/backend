@@ -1,29 +1,20 @@
 use crate::ports::{
-    EnhancedSearchFilterEvaluation, EnhancedSearchFilterEvaluator,
-    EnhancedSearchFilterEvaluatorError, SearchFilterIndex, SearchFilterIndexError,
-    SearchFilterMatchCandidate, SearchFilterMatchCandidateValidationError,
-    SearchFilterMatchCandidateValidator, SearchFilterMatchCandidateValidatorFactory,
-    SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError, SearchFilterMatchWriter,
-    SearchFilterMatchWriterFactory, SearchFilterMonthlyMatchQuotaReadError,
-    SearchFilterMonthlyMatchQuotaReader, SearchFilterMonthlyMatchQuotaReaderFactory,
-    ValidatedSearchFilterMatchCandidate,
+    ActiveSearchFilterMatchCandidate, ActiveSearchFilterMatchCandidateReadError,
+    ActiveSearchFilterMatchCandidateReader, ActiveSearchFilterMatchCandidateReaderFactory,
+    ProductMatchEvaluation, ProductMatchEvaluator, ProductMatchEvaluatorError, SearchFilterIndex,
+    SearchFilterIndexError, SearchFilterMatchCandidate, SearchFilterMatchPersistOutcome,
+    SearchFilterMatchWriteError, SearchFilterMatchWriter, SearchFilterMatchWriterFactory,
 };
-use crate::tier_policy::monthly_match_quota;
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
 use product_service::ports::ProductSearchFilterMatchSource;
 use search_filter_core::SearchFilterProductMatch;
-use time::OffsetDateTime;
-use user_service::ports::{
-    UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
-};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchProductEventCommand {
     pub origin_event_id: EventId,
-    pub occurred_at: OffsetDateTime,
     pub product: ProductSearchFilterMatchSource,
 }
 
@@ -40,8 +31,8 @@ pub enum MatchProductEventError {
         #[source]
         source: BoxError,
     },
-    #[error("enhanced search filter evaluation failed")]
-    EnhancedEvaluationFailed {
+    #[error("product match evaluation failed")]
+    ProductMatchEvaluationFailed {
         #[source]
         source: BoxError,
     },
@@ -50,26 +41,17 @@ pub enum MatchProductEventError {
         #[source]
         source: BoxError,
     },
-    #[error("authoritative search filter match candidate validation failed")]
-    CandidateValidationFailed {
+    #[error("active search filter match candidate read failed")]
+    CandidateReadFailed {
         #[source]
         source: BoxError,
     },
-    #[error("authoritative search filter match candidate state is invalid")]
+    #[error("active search filter match candidate state is invalid")]
     CandidateStateInvalid {
         #[source]
         source: BoxError,
     },
-    #[error("user tier entitlement lock failed")]
-    UserTierEntitlementsLockFailed {
-        #[source]
-        source: BoxError,
-    },
-    #[error("monthly search filter match quota read failed")]
-    MonthlyMatchQuotaReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("search filter match persistence failed")]
     MatchPersistenceFailed {
         #[source]
@@ -96,49 +78,34 @@ pub trait MatchProductEventUseCase: Send + Sync {
     ) -> Result<MatchProductEventResult, MatchProductEventError>;
 }
 
-pub struct MatchProductEventHandler<U, I, E, V, Q, W, A> {
+pub struct MatchProductEventHandler<U, I, E, R, W> {
     unit_of_work: U,
     index: I,
     evaluator: E,
-    candidates: V,
-    quotas: Q,
+    candidates: R,
     matches: W,
-    tier_entitlements: A,
 }
 
-impl<U, I, E, V, Q, W, A> MatchProductEventHandler<U, I, E, V, Q, W, A> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        unit_of_work: U,
-        index: I,
-        evaluator: E,
-        candidates: V,
-        quotas: Q,
-        matches: W,
-        tier_entitlements: A,
-    ) -> Self {
+impl<U, I, E, R, W> MatchProductEventHandler<U, I, E, R, W> {
+    pub fn new(unit_of_work: U, index: I, evaluator: E, candidates: R, matches: W) -> Self {
         Self {
             unit_of_work,
             index,
             evaluator,
             candidates,
-            quotas,
             matches,
-            tier_entitlements,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, I, E, V, Q, W, A> MatchProductEventUseCase for MatchProductEventHandler<U, I, E, V, Q, W, A>
+impl<U, I, E, R, W> MatchProductEventUseCase for MatchProductEventHandler<U, I, E, R, W>
 where
     U: UnitOfWork,
     I: SearchFilterIndex,
-    E: EnhancedSearchFilterEvaluator,
-    V: SearchFilterMatchCandidateValidatorFactory<U::Tx>,
-    Q: SearchFilterMonthlyMatchQuotaReaderFactory<U::Tx>,
+    E: ProductMatchEvaluator,
+    R: ActiveSearchFilterMatchCandidateReaderFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
-    A: UserTierEntitlementsFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "match_product_event",
@@ -169,65 +136,32 @@ where
         } else {
             self.candidates
                 .in_transaction(&mut tx)
-                .validate_for_product(command.product.product_id, &candidates)
+                .find_active(&candidates)
                 .await
-                .map_err(candidate_validation_error)?
+                .map_err(candidate_read_error)?
         };
         sort_candidates(&mut candidates);
 
         let mut persisted_match_count = 0;
-        let mut offset = 0;
-        while offset < candidates.len() {
-            let user_id = candidates[offset].user_id;
-            let end = candidates[offset..]
-                .iter()
-                .position(|candidate| candidate.user_id != user_id)
-                .map_or(candidates.len(), |position| offset + position);
-            let Some(tier) = self
-                .tier_entitlements
-                .in_transaction(&mut tx)
-                .lock_user_tier(user_id)
-                .await
-                .map_err(tier_entitlements_error)?
-            else {
-                offset = end;
-                continue;
+        for candidate in candidates {
+            let product_match = SearchFilterProductMatch {
+                user_id: candidate.user_id,
+                user_search_filter_id: candidate.search_filter_id,
+                user_search_filter_name: Some(candidate.search_filter_name),
+                product_id: command.product.product_id,
+                origin_event_id: command.origin_event_id,
+                enhanced_match_reason: candidate.enhanced_match_reason,
+                feedback: None,
             };
-            let quota = monthly_match_quota(tier);
-            let mut used = self
-                .quotas
+            let outcome = self
+                .matches
                 .in_transaction(&mut tx)
-                .count_for_user_in_month(user_id, command.occurred_at)
+                .insert_if_absent(&product_match)
                 .await
-                .map_err(monthly_match_quota_error)?;
-
-            for candidate in &candidates[offset..end] {
-                if used >= quota {
-                    break;
-                }
-                let product_match = SearchFilterProductMatch {
-                    user_id,
-                    user_search_filter_id: candidate.search_filter_id,
-                    user_search_filter_name: Some(candidate.search_filter_name.clone()),
-                    product_id: command.product.product_id,
-                    origin_event_id: command.origin_event_id,
-                    enhanced_match_reason: candidate.enhanced_match_reason.clone(),
-                    feedback: None,
-                };
-                let outcome = self
-                    .matches
-                    .in_transaction(&mut tx)
-                    .insert_if_absent(&product_match)
-                    .await
-                    .map_err(match_write_error)?;
-                if outcome == SearchFilterMatchPersistOutcome::AlreadyExists {
-                    continue;
-                }
-
+                .map_err(match_write_error)?;
+            if outcome == SearchFilterMatchPersistOutcome::Inserted {
                 persisted_match_count += 1;
-                used = used.saturating_add(1);
             }
-            offset = end;
         }
 
         tx.commit()
@@ -249,7 +183,7 @@ async fn evaluate_candidates<E>(
     mut filters: Vec<crate::ports::SearchFilterView>,
 ) -> Result<Vec<SearchFilterMatchCandidate>, MatchProductEventError>
 where
-    E: EnhancedSearchFilterEvaluator,
+    E: ProductMatchEvaluator,
 {
     filters.retain(|filter| filter.state == ResourceState::Active);
     filters.sort_by_key(|filter| filter.search_filter_id.to_string());
@@ -261,10 +195,10 @@ where
             Some(_) => match evaluator
                 .evaluate(product, &filter)
                 .await
-                .map_err(enhanced_evaluation_error)?
+                .map_err(product_match_evaluation_error)?
             {
-                EnhancedSearchFilterEvaluation::Matched { reason } => reason,
-                EnhancedSearchFilterEvaluation::NotMatched => continue,
+                ProductMatchEvaluation::Matched { reason } => reason,
+                ProductMatchEvaluation::NotMatched => continue,
             },
             None => None,
         };
@@ -277,7 +211,7 @@ where
     Ok(candidates)
 }
 
-fn sort_candidates(candidates: &mut Vec<ValidatedSearchFilterMatchCandidate>) {
+fn sort_candidates(candidates: &mut Vec<ActiveSearchFilterMatchCandidate>) {
     candidates.sort_by_key(|candidate| {
         (
             candidate.user_id.to_string(),
@@ -295,39 +229,22 @@ fn percolation_error(error: SearchFilterIndexError) -> MatchProductEventError {
     }
 }
 
-fn enhanced_evaluation_error(error: EnhancedSearchFilterEvaluatorError) -> MatchProductEventError {
-    MatchProductEventError::EnhancedEvaluationFailed {
+fn product_match_evaluation_error(error: ProductMatchEvaluatorError) -> MatchProductEventError {
+    MatchProductEventError::ProductMatchEvaluationFailed {
         source: box_error(error),
     }
 }
 
-fn candidate_validation_error(
-    error: SearchFilterMatchCandidateValidationError,
+fn candidate_read_error(
+    error: ActiveSearchFilterMatchCandidateReadError,
 ) -> MatchProductEventError {
     match error {
-        SearchFilterMatchCandidateValidationError::InvalidPersistedState { source } => {
+        ActiveSearchFilterMatchCandidateReadError::InvalidPersistedState { source } => {
             MatchProductEventError::CandidateStateInvalid { source }
         }
-        error => MatchProductEventError::CandidateValidationFailed {
+        error => MatchProductEventError::CandidateReadFailed {
             source: box_error(error),
         },
-    }
-}
-
-fn tier_entitlements_error(error: UserTierEntitlementsError) -> MatchProductEventError {
-    match error {
-        UserTierEntitlementsError::LockFailed { source }
-        | UserTierEntitlementsError::ReconciliationFailed { source } => {
-            MatchProductEventError::UserTierEntitlementsLockFailed { source }
-        }
-    }
-}
-
-fn monthly_match_quota_error(
-    error: SearchFilterMonthlyMatchQuotaReadError,
-) -> MatchProductEventError {
-    MatchProductEventError::MonthlyMatchQuotaReadFailed {
-        source: box_error(error),
     }
 }
 
@@ -368,14 +285,12 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
     use url::Url;
-    use user_core::tier::UserTier;
 
     #[derive(Default)]
     struct State {
         committed: usize,
         persisted: Vec<SearchFilterProductMatch>,
-        validated: usize,
-        quota_reads: usize,
+        active_reads: usize,
     }
 
     #[derive(Clone, Default)]
@@ -443,42 +358,37 @@ mod tests {
     struct Evaluator;
 
     #[async_trait::async_trait]
-    impl EnhancedSearchFilterEvaluator for Evaluator {
+    impl ProductMatchEvaluator for Evaluator {
         async fn evaluate(
             &self,
             _product: &ProductSearchFilterMatchSource,
             _filter: &SearchFilterView,
-        ) -> Result<EnhancedSearchFilterEvaluation, EnhancedSearchFilterEvaluatorError> {
-            Ok(EnhancedSearchFilterEvaluation::NotMatched)
+        ) -> Result<ProductMatchEvaluation, ProductMatchEvaluatorError> {
+            Ok(ProductMatchEvaluation::NotMatched)
         }
     }
 
     #[derive(Clone)]
-    struct Validator(Arc<Mutex<State>>);
+    struct Candidates(Arc<Mutex<State>>);
 
-    struct Validating<'a>(&'a Arc<Mutex<State>>);
+    struct ReadingActiveCandidates<'a>(&'a Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
-    impl SearchFilterMatchCandidateValidator for Validating<'_> {
-        async fn validate_for_product(
+    impl ActiveSearchFilterMatchCandidateReader for ReadingActiveCandidates<'_> {
+        async fn find_active(
             &mut self,
-            _product_id: common::product_id::ProductId,
             candidates: &[SearchFilterMatchCandidate],
-        ) -> Result<
-            Vec<ValidatedSearchFilterMatchCandidate>,
-            SearchFilterMatchCandidateValidationError,
-        > {
+        ) -> Result<Vec<ActiveSearchFilterMatchCandidate>, ActiveSearchFilterMatchCandidateReadError>
+        {
             self.0
                 .lock()
-                .map_err(
-                    |_| SearchFilterMatchCandidateValidationError::ValidationFailed {
-                        source: box_error(std::io::Error::other("test mutex poisoned")),
-                    },
-                )?
-                .validated += 1;
+                .map_err(|_| ActiveSearchFilterMatchCandidateReadError::ReadFailed {
+                    source: box_error(std::io::Error::other("test mutex poisoned")),
+                })?
+                .active_reads += 1;
             Ok(candidates
                 .iter()
-                .map(|candidate| ValidatedSearchFilterMatchCandidate {
+                .map(|candidate| ActiveSearchFilterMatchCandidate {
                     user_id: candidate.user_id,
                     search_filter_id: candidate.search_filter_id,
                     search_filter_name: UserSearchFilterName::from(
@@ -490,43 +400,12 @@ mod tests {
         }
     }
 
-    impl SearchFilterMatchCandidateValidatorFactory<FakeTransaction> for Validator {
+    impl ActiveSearchFilterMatchCandidateReaderFactory<FakeTransaction> for Candidates {
         fn in_transaction<'tx>(
             &'tx self,
             _tx: &'tx mut FakeTransaction,
-        ) -> impl SearchFilterMatchCandidateValidator + 'tx {
-            Validating(&self.0)
-        }
-    }
-
-    #[derive(Clone)]
-    struct Quotas(Arc<Mutex<State>>);
-
-    struct ReadingQuota<'a>(&'a Arc<Mutex<State>>);
-
-    #[async_trait::async_trait]
-    impl SearchFilterMonthlyMatchQuotaReader for ReadingQuota<'_> {
-        async fn count_for_user_in_month(
-            &mut self,
-            _user_id: UserId,
-            _occurred_at: OffsetDateTime,
-        ) -> Result<usize, SearchFilterMonthlyMatchQuotaReadError> {
-            self.0
-                .lock()
-                .map_err(|_| SearchFilterMonthlyMatchQuotaReadError::ReadFailed {
-                    source: box_error(std::io::Error::other("test mutex poisoned")),
-                })?
-                .quota_reads += 1;
-            Ok(0)
-        }
-    }
-
-    impl SearchFilterMonthlyMatchQuotaReaderFactory<FakeTransaction> for Quotas {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _tx: &'tx mut FakeTransaction,
-        ) -> impl SearchFilterMonthlyMatchQuotaReader + 'tx {
-            ReadingQuota(&self.0)
+        ) -> impl ActiveSearchFilterMatchCandidateReader + 'tx {
+            ReadingActiveCandidates(&self.0)
         }
     }
 
@@ -558,37 +437,6 @@ mod tests {
             _tx: &'tx mut FakeTransaction,
         ) -> impl SearchFilterMatchWriter + 'tx {
             WritingMatches(&self.0)
-        }
-    }
-
-    struct Tiers;
-
-    struct LockingTier;
-
-    #[async_trait::async_trait]
-    impl UserTierEntitlements for LockingTier {
-        async fn lock_user_tier(
-            &mut self,
-            _user_id: UserId,
-        ) -> Result<Option<UserTier>, UserTierEntitlementsError> {
-            Ok(Some(UserTier::Free))
-        }
-
-        async fn reconcile_for_tier(
-            &mut self,
-            _user_id: UserId,
-            _tier: UserTier,
-        ) -> Result<(), UserTierEntitlementsError> {
-            Ok(())
-        }
-    }
-
-    impl UserTierEntitlementsFactory<FakeTransaction> for Tiers {
-        fn in_transaction<'tx>(
-            &'tx self,
-            _tx: &'tx mut FakeTransaction,
-        ) -> impl UserTierEntitlements + 'tx {
-            LockingTier
         }
     }
 
@@ -642,8 +490,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_validate_and_persist_all_candidates() -> Result<(), Box<dyn std::error::Error>>
-    {
+    async fn should_persist_all_active_candidates_without_a_notification_quota()
+    -> Result<(), Box<dyn std::error::Error>> {
         let state = Arc::new(Mutex::new(State::default()));
         let user_id = UserId::new();
         let handler = MatchProductEventHandler::new(
@@ -655,17 +503,14 @@ mod tests {
                 ],
             },
             Evaluator,
-            Validator(Arc::clone(&state)),
-            Quotas(Arc::clone(&state)),
+            Candidates(Arc::clone(&state)),
             Matches(Arc::clone(&state)),
-            Tiers,
         );
         let product = product()?;
 
         let result = handler
             .execute(MatchProductEventCommand {
                 origin_event_id: product.event_id,
-                occurred_at: OffsetDateTime::UNIX_EPOCH,
                 product,
             })
             .await?;
@@ -676,8 +521,7 @@ mod tests {
         assert_eq!(2, result.percolated_count);
         assert_eq!(2, result.persisted_match_count);
         assert_eq!(1, state.committed);
-        assert_eq!(1, state.validated);
-        assert_eq!(1, state.quota_reads);
+        assert_eq!(1, state.active_reads);
         assert_eq!(2, state.persisted.len());
         Ok(())
     }
@@ -695,17 +539,14 @@ mod tests {
                 filters: vec![enhanced],
             },
             Evaluator,
-            Validator(Arc::clone(&state)),
-            Quotas(Arc::clone(&state)),
+            Candidates(Arc::clone(&state)),
             Matches(Arc::clone(&state)),
-            Tiers,
         );
         let product = product()?;
 
         let result = handler
             .execute(MatchProductEventCommand {
                 origin_event_id: product.event_id,
-                occurred_at: OffsetDateTime::UNIX_EPOCH,
                 product,
             })
             .await?;
@@ -716,7 +557,7 @@ mod tests {
         assert_eq!(1, result.percolated_count);
         assert_eq!(0, result.persisted_match_count);
         assert_eq!(1, state.committed);
-        assert_eq!(0, state.validated);
+        assert_eq!(0, state.active_reads);
         Ok(())
     }
 }
