@@ -40,20 +40,20 @@ use search_filter_service::use_cases::{
 };
 use serde_json::json;
 use std::{
-    net::SocketAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
 use test_api::{
-    DynamoDB, IntegrationTestService, OpenSearch, Postgres, RunningSequin, aura_integration_test,
-    get_dynamodb_client, get_opensearch_client, get_postgres_client, refresh_index,
-    start_sequin_for_tables,
+    DynamoDB, IntegrationTestService, OpenSearch, Postgres, Sequin, aura_integration_test,
+    get_dynamodb_client, get_opensearch_client, get_postgres_client,
+    get_sequin_worker_webhook_bind_addr, refresh_index,
 };
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use user_postgres::SqlxUserTierEntitlementsFactory;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_SIDE_EFFECT_OBSERVATION: Duration = Duration::from_secs(2);
@@ -71,7 +71,7 @@ impl ProductMatchEvaluator for NonMatchingProductMatchEvaluator {
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
 async fn should_create_notifications_for_committed_product_create_and_update_events() {
     let result = committed_product_create_and_update_flow().await;
 
@@ -81,7 +81,7 @@ async fn should_create_notifications_for_committed_product_create_and_update_eve
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
 async fn should_match_only_active_filter_when_other_filters_are_inactive_or_do_not_match() {
     let result = active_inactive_and_no_match_flow().await;
 
@@ -91,7 +91,7 @@ async fn should_match_only_active_filter_when_other_filters_are_inactive_or_do_n
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
 async fn should_suppress_notification_after_free_tier_monthly_quota() {
     let result = quota_flow().await;
 
@@ -101,7 +101,7 @@ async fn should_suppress_notification_after_free_tier_monthly_quota() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
 async fn should_ignore_policy_and_lifecycle_product_events_without_side_effects() {
     let result = ignored_product_events_flow().await;
 
@@ -111,7 +111,7 @@ async fn should_ignore_policy_and_lifecycle_product_events_without_side_effects(
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
 async fn should_not_process_rolled_back_product_event() {
     let result = rolled_back_product_event_flow().await;
 
@@ -121,7 +121,7 @@ async fn should_not_process_rolled_back_product_event() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
 async fn should_keep_one_deterministic_notification_on_product_and_match_redelivery() {
     let result = redelivery_and_deterministic_selection_flow().await;
 
@@ -132,7 +132,7 @@ async fn should_keep_one_deterministic_notification_on_product_and_match_redeliv
 }
 
 async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::error::Error>> {
-    let mut worker = FullFlowWorker::start().await?;
+    let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "Ultimate").await?;
         let product_query = format!("Worker percolator product {user_id}");
@@ -144,9 +144,6 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         )?;
         worker.project_filter(&filter).await?;
         refresh_index("user_search_filters").await;
-
-        let (updated_product_id, _) = seed_product(&worker.pool, &product_query).await?;
-        worker.start_scoped_sequin_subscription().await;
 
         let (created_product_id, created_event_id) =
             create_product_with_domain_event(&worker.pool, &product_query).await?;
@@ -173,8 +170,17 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             created_event_id,
         )?;
 
+        let update_filter = search_filter(
+            user_id,
+            UserSearchFilterName::from("Update notification filter"),
+            ResourceState::Active,
+            &product_query,
+        )?;
+        worker.project_filter(&update_filter).await?;
+        refresh_index("user_search_filters").await;
+
         let updated_event_id =
-            update_product_and_insert_event(&worker.pool, updated_product_id, &product_query)
+            update_product_and_insert_event(&worker.pool, created_product_id, &product_query)
                 .await?;
         assert_eq!(
             "PRODUCT_STATE_CHANGED",
@@ -185,8 +191,8 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             &worker.pool,
             updated_event_id,
             user_id,
-            filter.id(),
-            updated_product_id,
+            update_filter.id(),
+            created_product_id,
         )
         .await?;
         let notifications = wait_for_notifications(&worker.notifications, user_id, 2).await?;
@@ -208,11 +214,10 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         assert_search_filter_notification(
             updated_notification,
             user_id,
-            filter.id(),
-            updated_product_id,
+            update_filter.id(),
+            created_product_id,
             updated_event_id,
         )?;
-        assert_ne!(created_product_id, updated_product_id);
         Ok(())
     }
     .await;
@@ -221,7 +226,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
 }
 
 async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::Error>> {
-    let mut worker = FullFlowWorker::start().await?;
+    let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "Ultimate").await?;
         let product_query = format!("Worker percolator product {user_id}");
@@ -248,7 +253,6 @@ async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::E
         worker.project_filter(&no_match_filter).await?;
         refresh_index("user_search_filters").await;
 
-        worker.start_scoped_sequin_subscription().await;
         let (product_id, event_id) =
             create_product_with_domain_event(&worker.pool, &product_query).await?;
 
@@ -271,7 +275,7 @@ async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::E
 }
 
 async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
-    let mut worker = FullFlowWorker::start().await?;
+    let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "Free").await?;
         let product_query = format!("Worker percolator product {user_id}");
@@ -281,25 +285,35 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
             ResourceState::Active,
             &product_query,
         )?;
-        worker.project_filter(&filter).await?;
-        refresh_index("user_search_filters").await;
+        let filter_version = insert_filter(&worker.pool, &filter).await?;
 
         for _ in 0..10 {
             let (product_id, event_id) =
-                seed_product(&worker.pool, "Historical quota product").await?;
-            insert_search_filter_match(&worker.pool, user_id, filter.id(), product_id, event_id)
-                .await?;
-            age_match_before_current_event(&worker.pool, filter.id(), product_id).await?;
+                create_product_with_domain_event(&worker.pool, "Historical quota product").await?;
+            insert_historical_search_filter_match(
+                &worker.pool,
+                user_id,
+                filter.id(),
+                product_id,
+                event_id,
+            )
+            .await?;
         }
+        let _historical_notifications =
+            wait_for_notifications(&worker.notifications, user_id, 10).await?;
 
-        worker.start_scoped_sequin_subscription().await;
+        worker
+            .project_existing_filter(&filter, filter_version)
+            .await?;
+        refresh_index("user_search_filters").await;
+
         let (_, event_id) = create_product_with_domain_event(&worker.pool, &product_query).await?;
 
         wait_for_match(&worker.pool, event_id, 1).await?;
         assert_no_more_than_notifications(
             &worker.notifications,
             user_id,
-            0,
+            10,
             NO_SIDE_EFFECT_OBSERVATION,
         )
         .await
@@ -310,7 +324,7 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn ignored_product_events_flow() -> Result<(), Box<dyn std::error::Error>> {
-    let mut worker = FullFlowWorker::start().await?;
+    let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "Ultimate").await?;
         let product_query = format!("Worker percolator product {user_id}");
@@ -322,11 +336,10 @@ async fn ignored_product_events_flow() -> Result<(), Box<dyn std::error::Error>>
         )?;
         worker.project_filter(&filter).await?;
         refresh_index("user_search_filters").await;
-        let (product_id, _) = seed_product(&worker.pool, &product_query).await?;
-        worker.start_scoped_sequin_subscription().await;
 
-        let policy_event =
-            insert_product_event(&worker.pool, product_id, "POLICY_ACCEPTED", "POLICY").await?;
+        let (product_id, policy_event) =
+            create_product_with_event(&worker.pool, &product_query, "POLICY_ACCEPTED", "POLICY")
+                .await?;
         let lifecycle_event =
             insert_product_event(&worker.pool, product_id, "LIFECYCLE_DELETED", "LIFECYCLE")
                 .await?;
@@ -347,7 +360,7 @@ async fn ignored_product_events_flow() -> Result<(), Box<dyn std::error::Error>>
 }
 
 async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Error>> {
-    let mut worker = FullFlowWorker::start().await?;
+    let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "Ultimate").await?;
         let product_query = format!("Worker percolator product {user_id}");
@@ -359,16 +372,9 @@ async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Erro
         )?;
         worker.project_filter(&filter).await?;
         refresh_index("user_search_filters").await;
-        let (product_id, _) = seed_product(&worker.pool, &product_query).await?;
-        worker.start_scoped_sequin_subscription().await;
 
-        let event_id = insert_product_event_then_rollback(
-            &worker.pool,
-            product_id,
-            "PRODUCT_STATE_CHANGED",
-            "DOMAIN",
-        )
-        .await?;
+        let event_id =
+            create_product_with_event_then_rollback(&worker.pool, &product_query).await?;
 
         assert_event_is_not_persisted(&worker.pool, event_id).await?;
         assert_no_matches_for(&worker.pool, event_id, NO_SIDE_EFFECT_OBSERVATION).await?;
@@ -386,7 +392,7 @@ async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Erro
 }
 
 async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std::error::Error>> {
-    let mut worker = FullFlowWorker::start().await?;
+    let worker = FullFlowWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "Ultimate").await?;
         let product_query = format!("Worker percolator product {user_id}");
@@ -409,12 +415,9 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
         worker.project_filter(&first_filter).await?;
         worker.project_filter(&second_filter).await?;
         refresh_index("user_search_filters").await;
-        let (product_id, _) = seed_product(&worker.pool, &product_query).await?;
-        worker.start_scoped_sequin_subscription().await;
 
-        let event_id =
-            insert_product_event(&worker.pool, product_id, "PRODUCT_STATE_CHANGED", "DOMAIN")
-                .await?;
+        let (product_id, event_id) =
+            create_product_with_domain_event(&worker.pool, &product_query).await?;
         wait_for_match(&worker.pool, event_id, 2).await?;
         let notifications = wait_for_notifications(&worker.notifications, user_id, 1).await?;
         assert_search_filter_notification(
@@ -425,7 +428,7 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
             event_id,
         )?;
 
-        redeliver_product_event(&worker.server, product_id, event_id).await?;
+        redeliver_product_event(&worker.server, product_id, event_id, "PRODUCT_CREATED").await?;
         assert_match_count_for_duration(&worker.pool, event_id, 2, NO_SIDE_EFFECT_OBSERVATION)
             .await?;
         redeliver_search_filter_match(
@@ -454,7 +457,6 @@ struct FullFlowWorker {
     index: OpenSearchSearchFilterIndex,
     notifications: DynamoDbAllNotificationsReader<'static>,
     server: ScopedWorkerServer,
-    scoped_sequin: Option<RunningSequin>,
     _unused_receivers: aura_historia_worker::cdc::WorkerQueueReceivers,
     percolator_consumer: JoinHandle<()>,
     notification_consumer: JoinHandle<()>,
@@ -513,7 +515,6 @@ impl FullFlowWorker {
             index,
             notifications: DynamoDbAllNotificationsReader::new(dynamodb, "table_1"),
             server,
-            scoped_sequin: None,
             _unused_receivers: receivers,
             percolator_consumer,
             notification_consumer,
@@ -525,6 +526,14 @@ impl FullFlowWorker {
         filter: &SearchFilter,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let version = insert_filter(&self.pool, filter).await?;
+        self.project_existing_filter(filter, version).await
+    }
+
+    async fn project_existing_filter(
+        &self,
+        filter: &SearchFilter,
+        version: i64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         ProjectSearchFilterChangeHandler::new(
             SqlxSearchFilterIndexReader::new(self.pool.clone()),
             self.index.clone(),
@@ -536,16 +545,6 @@ impl FullFlowWorker {
         })
         .await?;
         Ok(())
-    }
-
-    async fn start_scoped_sequin_subscription(&mut self) {
-        self.scoped_sequin = Some(
-            start_sequin_for_tables(
-                &self.server.webhook_url(),
-                &["public.product_events", "public.search_filter_matches"],
-            )
-            .await,
-        );
     }
 
     async fn finish(
@@ -560,22 +559,16 @@ impl FullFlowWorker {
     async fn shutdown(self) -> Result<(), Box<dyn std::error::Error>> {
         let Self {
             server,
-            scoped_sequin,
             _unused_receivers,
             percolator_consumer,
             notification_consumer,
             ..
         } = self;
-        let sequin_shutdown_result = match scoped_sequin {
-            Some(sequin) => sequin.stop_delivery().await,
-            None => Ok(()),
-        };
         let server_shutdown_result = server.shutdown().await;
         let (percolator_shutdown_result, notification_shutdown_result) =
             tokio::join!(percolator_consumer, notification_consumer);
 
         drop(_unused_receivers);
-        sequin_shutdown_result?;
         server_shutdown_result?;
         percolator_shutdown_result?;
         notification_shutdown_result?;
@@ -584,36 +577,29 @@ impl FullFlowWorker {
 }
 
 struct ScopedWorkerServer {
-    address: SocketAddr,
     shutdown_tx: oneshot::Sender<()>,
     server: JoinHandle<Result<(), WorkerRunError>>,
 }
 
 impl ScopedWorkerServer {
     async fn start(runtime: WorkerRuntime) -> Result<Self, std::io::Error> {
-        let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await?;
-        let address = listener.local_addr()?;
+        let listener = tokio::net::TcpListener::bind(get_sequin_worker_webhook_bind_addr()).await?;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let server = tokio::spawn(serve_with_runtime(listener, runtime, async move {
             let _ = shutdown_rx.await;
         }));
 
         Ok(Self {
-            address,
             shutdown_tx,
             server,
         })
     }
 
-    fn webhook_url(&self) -> String {
-        format!(
-            "http://host.docker.internal:{}/cdc/sequin",
-            self.address.port()
-        )
-    }
-
     fn local_webhook_url(&self) -> String {
-        format!("http://127.0.0.1:{}/cdc/sequin", self.address.port())
+        format!(
+            "http://127.0.0.1:{}/cdc/sequin",
+            get_sequin_worker_webhook_bind_addr().port()
+        )
     }
 
     async fn shutdown(self) -> Result<(), Box<dyn std::error::Error>> {
@@ -636,24 +622,18 @@ async fn seed_user(pool: &sqlx::PgPool, tier: &str) -> Result<UserId, sqlx::Erro
     Ok(user_id)
 }
 
-async fn seed_product(
-    pool: &sqlx::PgPool,
-    title: &str,
-) -> Result<(common::product_id::ProductId, EventId), sqlx::Error> {
-    seed_product_with_event(pool, "LIFECYCLE", title).await
-}
-
 async fn create_product_with_domain_event(
     pool: &sqlx::PgPool,
     title: &str,
 ) -> Result<(common::product_id::ProductId, EventId), sqlx::Error> {
-    seed_product_with_event(pool, "DOMAIN", title).await
+    create_product_with_event(pool, title, "PRODUCT_CREATED", "DOMAIN").await
 }
 
-async fn seed_product_with_event(
+async fn create_product_with_event(
     pool: &sqlx::PgPool,
-    event_group: &str,
     title: &str,
+    event_type: &str,
+    event_group: &str,
 ) -> Result<(common::product_id::ProductId, EventId), sqlx::Error> {
     let product_id = common::product_id::ProductId::new();
     let product_uuid = uuid::Uuid::from(product_id);
@@ -676,9 +656,10 @@ async fn seed_product_with_event(
         .bind(title)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', $3, '{}', now())")
+    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(product_uuid)
+        .bind(event_type)
         .bind(event_group)
         .execute(&mut *tx)
         .await?;
@@ -758,26 +739,41 @@ async fn update_product_and_insert_event(
     Ok(event_id)
 }
 
-async fn insert_product_event_then_rollback(
+async fn create_product_with_event_then_rollback(
     pool: &sqlx::PgPool,
-    product_id: common::product_id::ProductId,
-    event_type: &str,
-    event_group: &str,
+    title: &str,
 ) -> Result<EventId, sqlx::Error> {
+    let product_id = common::product_id::ProductId::new();
+    let product_uuid = uuid::Uuid::from(product_id);
     let event_id = EventId::new();
+    let shop_id = uuid::Uuid::new_v4();
+    let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
+    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
+        .bind(shop_id)
+        .bind(format!("worker-percolator-shop-{shop_id}"))
+        .bind("Worker percolator shop")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, description_text, description_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Worker percolator description', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
+        .bind(product_uuid)
+        .bind(format!("worker-percolator-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))
-        .bind(uuid::Uuid::from(product_id))
-        .bind(event_type)
-        .bind(event_group)
+        .bind(shop_id)
+        .bind(product_uuid.to_string())
+        .bind(title)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())")
+        .bind(uuid::Uuid::from(event_id))
+        .bind(product_uuid)
         .execute(&mut *tx)
         .await?;
     drop(tx);
     Ok(event_id)
 }
 
-async fn insert_search_filter_match(
+async fn insert_historical_search_filter_match(
     pool: &sqlx::PgPool,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
@@ -785,28 +781,13 @@ async fn insert_search_filter_match(
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query(
-        "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_id, origin_event_id, user_search_filter_name) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO search_filter_matches (user_id, user_search_filter_id, product_id, origin_event_id, user_search_filter_name, created, updated) VALUES ($1, $2, $3, $4, $5, now() - INTERVAL '1 day', now() - INTERVAL '1 day')",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(uuid::Uuid::parse_str(&search_filter_id.to_string())?)
     .bind(uuid::Uuid::from(product_id))
     .bind(uuid::Uuid::from(origin_event_id))
     .bind("Free tier quota filter")
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-async fn age_match_before_current_event(
-    pool: &sqlx::PgPool,
-    search_filter_id: UserSearchFilterId,
-    product_id: common::product_id::ProductId,
-) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query(
-        "UPDATE search_filter_matches SET created = now() - INTERVAL '1 day', updated = now() - INTERVAL '1 day' WHERE user_search_filter_id = $1 AND product_id = $2",
-    )
-    .bind(uuid::Uuid::parse_str(&search_filter_id.to_string())?)
-    .bind(uuid::Uuid::from(product_id))
     .execute(pool)
     .await?;
     Ok(())
@@ -998,6 +979,7 @@ async fn redeliver_product_event(
     server: &ScopedWorkerServer,
     product_id: common::product_id::ProductId,
     event_id: EventId,
+    event_type: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     post_sequin_change(
         server.local_webhook_url(),
@@ -1005,7 +987,7 @@ async fn redeliver_product_event(
             "record": {
                 "event_id": event_id.to_string(),
                 "product_id": product_id.to_string(),
-                "event_type": "PRODUCT_STATE_CHANGED",
+                "event_type": event_type,
                 "event_group": "DOMAIN"
             },
             "action": "insert",

@@ -55,6 +55,7 @@ pub fn get_postgres_host_gateway_connection_string(database: &str) -> String {
     postgres_connection_string(HOST_GATEWAY, database)
 }
 
+#[cfg(feature = "sequin")]
 pub(crate) fn get_postgres_host_port() -> u16 {
     postgres_host_port()
 }
@@ -186,12 +187,10 @@ pub async fn get_postgres_client() -> PgPool {
 ///
 /// # Lifecycle
 ///
-/// - **Before each test** (`set_up`): Starts the Postgres container once per process, then
-///   runs every `*.sql` file found in `migrations_dir` in lexicographic (filename) order —
-///   mirroring exactly what `sqlx::migrate!` does at runtime — and runs `setup_script` when
-///   supplied. This restores migration-provided seed data after cleanup.
-/// - [`Postgres::new_schema_once`] is an opt-in for schema-only migration directories. It
-///   applies that directory once per test process; setup scripts still run before each test.
+/// - **Before each test** (`set_up`): Starts the Postgres container once per process.
+///   [`Postgres::new`] and [`Postgres::new_schema_once`] apply schema-only migrations once per
+///   test process; `setup_script` still runs before each test. [`Postgres::new_per_test`]
+///   replays migrations before each test when they provide seed data.
 /// - **After each test** (`tear_down`): Opens a fresh connection and truncates every user
 ///   table in the `public` schema so that each test starts with a clean slate. Table
 ///   definitions (DDL) are preserved.
@@ -306,21 +305,31 @@ async fn apply_setup_script(setup_script: &'static str) {
 }
 
 impl Postgres {
+    /// Uses a migration directory containing schema only, without migration-provided seed data.
+    /// The directory is applied once per test process; data isolation still uses truncation.
     pub const fn new(migrations_dir: &'static str) -> Self {
         Self {
             migrations_dir,
             setup_script: None,
-            migrate_once: false,
+            migrate_once: true,
         }
     }
 
-    /// Uses a migration directory containing schema only, without migration-provided seed data.
-    /// The directory is applied once per test process; data isolation still uses truncation.
+    /// Alias for [`Postgres::new`] for callers that want to document schema-only intent.
     pub const fn new_schema_once(migrations_dir: &'static str) -> Self {
         Self {
             migrations_dir,
             setup_script: None,
             migrate_once: true,
+        }
+    }
+
+    /// Reapplies migrations before each test to restore migration-provided seed data.
+    pub const fn new_per_test(migrations_dir: &'static str) -> Self {
+        Self {
+            migrations_dir,
+            setup_script: None,
+            migrate_once: false,
         }
     }
 

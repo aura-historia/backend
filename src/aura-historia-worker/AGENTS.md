@@ -38,7 +38,7 @@
 - Ack Sequin only after all relevant bounded queue enqueues succeed.
 - Use domain idempotency keys; Sequin IDs/LSNs are logs only.
 - Keep queue abstraction replaceable by SQS/Lambda/ECS later.
-- Every production worker route needs rigorous black-box acceptance tests in `tests/` using real Postgres, Sequin, the running worker server, and every written target store. Cover happy path, rollback, ignored changes, redelivery/idempotency, filtering, and persisted output shape. Start an isolated Sequin subscription scoped to the exact routed source tables.
+- Every production worker route needs rigorous black-box acceptance tests in `tests/` using real Postgres, Sequin, the running worker server, and every written target store. Cover happy path, rollback, ignored changes, redelivery/idempotency, filtering, and persisted output shape. Declare `Sequin::worker_webhook()` after fixtures in `#[aura_integration_test]`; it owns one process-lived subscription. Worker helpers bind `get_sequin_worker_webhook_bind_addr()` and own only runtime shutdown. Start the worker before writing watched source rows; fixture helpers must not emit those rows.
 
 ## Verification
 

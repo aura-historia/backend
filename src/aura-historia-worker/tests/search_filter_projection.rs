@@ -36,18 +36,19 @@ use search_filter_service::use_cases::{
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
 };
 use test_api::{
-    IntegrationTestService, OpenSearch, Postgres, aura_integration_test, get_opensearch_client,
-    get_postgres_client, get_sequin_worker_webhook_bind_addr, refresh_index,
+    IntegrationTestService, OpenSearch, Postgres, Sequin, aura_integration_test,
+    get_opensearch_client, get_postgres_client, get_sequin_worker_webhook_bind_addr, refresh_index,
 };
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const POLL_ATTEMPTS: usize = 120;
 const ROLLBACK_OBSERVATION_DURATION: Duration = Duration::from_secs(2);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_project_search_filter_insert_from_sequin() {
     let result = project_search_filter_insert_from_sequin().await;
 
@@ -57,7 +58,7 @@ async fn should_project_search_filter_insert_from_sequin() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_replace_search_filter_projection_after_sequin_update() {
     let result = project_search_filter_update_from_sequin().await;
 
@@ -67,7 +68,7 @@ async fn should_replace_search_filter_projection_after_sequin_update() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_not_project_rolled_back_search_filter_insert_from_sequin() {
     let result = reject_rolled_back_search_filter_insert_from_sequin().await;
 
@@ -77,7 +78,7 @@ async fn should_not_project_rolled_back_search_filter_insert_from_sequin() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_remove_search_filter_projection_after_sequin_delete() {
     let result = project_search_filter_delete_from_sequin().await;
 
@@ -91,7 +92,6 @@ async fn project_search_filter_insert_from_sequin() -> Result<(), Box<dyn std::e
     let worker = ProjectionWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool).await?;
-        let _sequin = worker.start_sequin().await;
         let filter = search_filter(user_id, "Sequin insert cabinet")?;
 
         let version = insert_filter(&worker.pool, &filter).await?;
@@ -109,7 +109,6 @@ async fn project_search_filter_update_from_sequin() -> Result<(), Box<dyn std::e
     let worker = ProjectionWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool).await?;
-        let _sequin = worker.start_sequin().await;
         let mut filter = search_filter(user_id, "Sequin original cabinet")?;
         let inserted_version = insert_filter(&worker.pool, &filter).await?;
         wait_for_percolation(&worker.index, filter.id(), "Sequin original cabinet", true).await?;
@@ -142,7 +141,6 @@ async fn reject_rolled_back_search_filter_insert_from_sequin()
     let worker = ProjectionWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool).await?;
-        let _sequin = worker.start_sequin().await;
         let filter = search_filter(user_id, "Sequin rolled-back cabinet")?;
 
         insert_filter_then_rollback(&worker.pool, &filter).await?;
@@ -165,7 +163,6 @@ async fn project_search_filter_delete_from_sequin() -> Result<(), Box<dyn std::e
     let worker = ProjectionWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool).await?;
-        let _sequin = worker.start_sequin().await;
         let filter = search_filter(user_id, "Sequin deleted cabinet")?;
 
         insert_filter(&worker.pool, &filter).await?;
@@ -217,17 +214,6 @@ impl ProjectionWorker {
             shutdown_tx,
             server,
         })
-    }
-
-    async fn start_sequin(&self) -> test_api::RunningSequin {
-        test_api::start_sequin_for_tables(
-            &format!(
-                "http://host.docker.internal:{}/cdc/sequin",
-                get_sequin_worker_webhook_bind_addr().port(),
-            ),
-            &["public.search_filters"],
-        )
-        .await
     }
 
     async fn finish(

@@ -25,18 +25,19 @@ use product_service::use_cases::{
 use serde_json::json;
 use test_api::{
     DynamoDB, IntegrationTestService, Postgres, Sequin, aura_integration_test, get_dynamodb_client,
-    get_or_start_worker_webhook_sequin, get_postgres_client, get_sequin_worker_webhook_bind_addr,
+    get_postgres_client, get_sequin_worker_webhook_bind_addr,
 };
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_NOTIFICATION_OBSERVATION: Duration = Duration::from_secs(2);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DynamoDB(), Sequin::worker_webhook()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DynamoDB(), WORKER_SEQUIN])]
 async fn should_create_state_notification_from_committed_product_event() {
     let result = create_state_notification_from_committed_product_event().await;
 
@@ -46,7 +47,7 @@ async fn should_create_state_notification_from_committed_product_event() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DynamoDB(), Sequin::worker_webhook()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DynamoDB(), WORKER_SEQUIN])]
 async fn should_create_price_notifications_only_for_active_watchers() {
     let result = create_price_notifications_only_for_active_watchers().await;
 
@@ -56,7 +57,7 @@ async fn should_create_price_notifications_only_for_active_watchers() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DynamoDB(), Sequin::worker_webhook()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DynamoDB(), WORKER_SEQUIN])]
 async fn should_preserve_one_notification_when_product_event_delivery_is_retried() {
     let result = preserve_one_notification_when_product_event_delivery_is_retried().await;
 
@@ -66,7 +67,7 @@ async fn should_preserve_one_notification_when_product_event_delivery_is_retried
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, DynamoDB(), Sequin::worker_webhook()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DynamoDB(), WORKER_SEQUIN])]
 async fn should_not_notify_for_rolled_back_or_unrouted_product_events() {
     let result = not_notify_for_rolled_back_or_unrouted_product_events().await;
 
@@ -81,15 +82,19 @@ async fn create_state_notification_from_committed_product_event()
     let worker = WatchlistWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "state-recipient").await?;
-        let product_id = seed_product(&worker.pool).await?;
-        seed_watchlist(&worker.pool, user_id, product_id, true, "Active").await?;
-        let event_id = insert_product_event(
-            &worker.pool,
+        let event_id = EventId::new();
+        let mut transaction = worker.pool.begin().await?;
+        let product_id = seed_product(&mut transaction, event_id).await?;
+        seed_watchlist(&mut transaction, user_id, product_id, true, "Active").await?;
+        insert_product_event(
+            &mut transaction,
+            event_id,
             product_id,
             "PRODUCT_STATE_CHANGED",
             json!({"oldState": "Available", "newState": "Sold"}),
         )
         .await?;
+        transaction.commit().await?;
 
         let notifications = wait_for_notifications(&worker.notifications, user_id, 1).await?;
         assert_eq!(event_id, notifications[0].origin_event_id);
@@ -108,19 +113,36 @@ async fn create_price_notifications_only_for_active_watchers()
         let email_recipient = seed_user(&worker.pool, "price-email").await?;
         let in_app_recipient = seed_user(&worker.pool, "price-in-app").await?;
         let inactive_recipient = seed_user(&worker.pool, "price-inactive").await?;
-        let product_id = seed_product(&worker.pool).await?;
-        seed_watchlist(&worker.pool, email_recipient, product_id, true, "Active").await?;
-        seed_watchlist(&worker.pool, in_app_recipient, product_id, false, "Active").await?;
+        let event_id = EventId::new();
+        let mut transaction = worker.pool.begin().await?;
+        let product_id = seed_product(&mut transaction, event_id).await?;
         seed_watchlist(
-            &worker.pool,
+            &mut transaction,
+            email_recipient,
+            product_id,
+            true,
+            "Active",
+        )
+        .await?;
+        seed_watchlist(
+            &mut transaction,
+            in_app_recipient,
+            product_id,
+            false,
+            "Active",
+        )
+        .await?;
+        seed_watchlist(
+            &mut transaction,
             inactive_recipient,
             product_id,
             true,
             "InactiveByUser",
         )
         .await?;
-        let event_id = insert_product_event(
-            &worker.pool,
+        insert_product_event(
+            &mut transaction,
+            event_id,
             product_id,
             "PRODUCT_PRICE_CHANGED",
             json!({
@@ -129,6 +151,7 @@ async fn create_price_notifications_only_for_active_watchers()
             }),
         )
         .await?;
+        transaction.commit().await?;
 
         let email_notifications =
             wait_for_notifications(&worker.notifications, email_recipient, 1).await?;
@@ -155,15 +178,19 @@ async fn preserve_one_notification_when_product_event_delivery_is_retried()
     let worker = WatchlistWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "duplicate-recipient").await?;
-        let product_id = seed_product(&worker.pool).await?;
-        seed_watchlist(&worker.pool, user_id, product_id, true, "Active").await?;
-        let event_id = insert_product_event(
-            &worker.pool,
+        let event_id = EventId::new();
+        let mut transaction = worker.pool.begin().await?;
+        let product_id = seed_product(&mut transaction, event_id).await?;
+        seed_watchlist(&mut transaction, user_id, product_id, true, "Active").await?;
+        insert_product_event(
+            &mut transaction,
+            event_id,
             product_id,
             "PRODUCT_STATE_CHANGED",
             json!({"oldState": "Listed", "newState": "Available"}),
         )
         .await?;
+        transaction.commit().await?;
         let _ = wait_for_notifications(&worker.notifications, user_id, 1).await?;
 
         let response = reqwest::Client::new()
@@ -202,22 +229,49 @@ async fn not_notify_for_rolled_back_or_unrouted_product_events()
     let worker = WatchlistWorker::start().await?;
     let result = async {
         let user_id = seed_user(&worker.pool, "absence-recipient").await?;
-        let product_id = seed_product(&worker.pool).await?;
-        seed_watchlist(&worker.pool, user_id, product_id, true, "Active").await?;
-        insert_product_event_then_rollback(
-            &worker.pool,
-            product_id,
+        let rolled_back_event_id = EventId::new();
+        let mut rolled_back_transaction = worker.pool.begin().await?;
+        let rolled_back_product_id =
+            seed_product(&mut rolled_back_transaction, rolled_back_event_id).await?;
+        seed_watchlist(
+            &mut rolled_back_transaction,
+            user_id,
+            rolled_back_product_id,
+            true,
+            "Active",
+        )
+        .await?;
+        insert_product_event(
+            &mut rolled_back_transaction,
+            rolled_back_event_id,
+            rolled_back_product_id,
             "PRODUCT_STATE_CHANGED",
             json!({"oldState": "Available", "newState": "Sold"}),
         )
         .await?;
+        drop(rolled_back_transaction);
+
+        let unrouted_event_id = EventId::new();
+        let mut unrouted_transaction = worker.pool.begin().await?;
+        let unrouted_product_id =
+            seed_product(&mut unrouted_transaction, unrouted_event_id).await?;
+        seed_watchlist(
+            &mut unrouted_transaction,
+            user_id,
+            unrouted_product_id,
+            true,
+            "Active",
+        )
+        .await?;
         insert_product_event(
-            &worker.pool,
-            product_id,
+            &mut unrouted_transaction,
+            unrouted_event_id,
+            unrouted_product_id,
             "PRODUCT_URL_CHANGED",
             json!({"oldUrl": "https://example.test/old", "newUrl": "https://example.test/new"}),
         )
         .await?;
+        unrouted_transaction.commit().await?;
 
         assert_no_notifications_for(&worker.notifications, user_id, NO_NOTIFICATION_OBSERVATION)
             .await
@@ -260,7 +314,6 @@ impl WatchlistWorker {
         let server = tokio::spawn(serve_with_runtime(listener, runtime, async move {
             let _ = shutdown_rx.await;
         }));
-        let _sequin = get_or_start_worker_webhook_sequin().await;
 
         Ok(Self {
             pool,
@@ -302,18 +355,19 @@ async fn seed_user(pool: &sqlx::PgPool, label: &str) -> Result<UserId, sqlx::Err
     Ok(user_id)
 }
 
-async fn seed_product(pool: &sqlx::PgPool) -> Result<ProductId, sqlx::Error> {
+async fn seed_product(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event_id: EventId,
+) -> Result<ProductId, sqlx::Error> {
     let product_id = ProductId::new();
     let product_uuid = uuid::Uuid::from(product_id);
-    let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
     let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
-    let mut tx = pool.begin().await?;
     sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
         .bind(shop_id)
         .bind(format!("worker-watchlist-shop-{shop_id}"))
         .bind("Worker watchlist shop")
-        .execute(&mut *tx)
+        .execute(&mut **transaction)
         .await?;
     sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Worker watchlist product', 'en', 'Listed', 'Active', 'https://example.test/product', '[]')")
         .bind(product_uuid)
@@ -322,19 +376,13 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<ProductId, sqlx::Error> {
         .bind(shop_id)
         .bind(shop_id)
         .bind(product_uuid.to_string())
-        .execute(&mut *tx)
+        .execute(&mut **transaction)
         .await?;
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())")
-        .bind(uuid::Uuid::from(event_id))
-        .bind(product_uuid)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
     Ok(product_id)
 }
 
 async fn seed_watchlist(
-    pool: &sqlx::PgPool,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: UserId,
     product_id: ProductId,
     notifications: bool,
@@ -345,44 +393,25 @@ async fn seed_watchlist(
         .bind(uuid::Uuid::from(product_id))
         .bind(notifications)
         .bind(state)
-        .execute(pool)
+        .execute(&mut **transaction)
         .await?;
     Ok(())
 }
 
 async fn insert_product_event(
-    pool: &sqlx::PgPool,
-    product_id: ProductId,
-    event_type: &str,
-    payload: serde_json::Value,
-) -> Result<EventId, sqlx::Error> {
-    let event_id = EventId::new();
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, 'DOMAIN', $4, now())")
-        .bind(uuid::Uuid::from(event_id))
-        .bind(uuid::Uuid::from(product_id))
-        .bind(event_type)
-        .bind(payload)
-        .execute(pool)
-        .await?;
-    Ok(event_id)
-}
-
-async fn insert_product_event_then_rollback(
-    pool: &sqlx::PgPool,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event_id: EventId,
     product_id: ProductId,
     event_type: &str,
     payload: serde_json::Value,
 ) -> Result<(), sqlx::Error> {
-    let mut tx = pool.begin().await?;
-    let event_id = EventId::new();
     sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, 'DOMAIN', $4, now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_id))
         .bind(event_type)
         .bind(payload)
-        .execute(&mut *tx)
+        .execute(&mut **transaction)
         .await?;
-    drop(tx);
     Ok(())
 }
 
