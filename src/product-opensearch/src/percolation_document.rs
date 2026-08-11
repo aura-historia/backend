@@ -368,8 +368,8 @@ mod tests {
     }
 
     #[test]
-    fn should_map_typed_product_source_to_canonical_percolation_json(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn should_map_typed_product_source_to_canonical_percolation_json()
+    -> Result<(), Box<dyn std::error::Error>> {
         let source = source()?;
 
         let document = product_percolation_document(&source)?;
