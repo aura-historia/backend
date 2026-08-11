@@ -36,6 +36,9 @@ pub struct MatchProductEventResult {
     pub outcome: MatchProductEventOutcome,
     pub percolated_count: usize,
     pub persisted_match_count: usize,
+    /// Enhanced candidates that were not evaluated. Their failures are explicit
+    /// operational outcomes; they never make a plain percolation match implicit.
+    pub enhanced_evaluation_failure_count: usize,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -172,6 +175,7 @@ where
                     outcome: MatchProductEventOutcome::SourceNotFound,
                     percolated_count: 0,
                     persisted_match_count: 0,
+                    enhanced_evaluation_failure_count: 0,
                 });
             }
             ProductSourceReadOutcome::IgnoredEventType => {
@@ -179,6 +183,7 @@ where
                     outcome: MatchProductEventOutcome::IgnoredEventType,
                     percolated_count: 0,
                     persisted_match_count: 0,
+                    enhanced_evaluation_failure_count: 0,
                 });
             }
             ProductSourceReadOutcome::Stale => {
@@ -186,6 +191,7 @@ where
                     outcome: MatchProductEventOutcome::StaleSourceSkipped,
                     percolated_count: 0,
                     persisted_match_count: 0,
+                    enhanced_evaluation_failure_count: 0,
                 });
             }
             ProductSourceReadOutcome::Current(product) => *product,
@@ -197,7 +203,8 @@ where
             .await
             .map_err(percolation_error)?;
         let percolated_count = percolated.len();
-        let candidates = evaluate_candidates(&self.evaluator, &product, percolated).await?;
+        let evaluated = evaluate_candidates(&self.evaluator, &product, percolated).await;
+        let candidates = evaluated.candidates;
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             MatchProductEventError::BeginTransactionFailed {
                 source: box_error(source),
@@ -244,6 +251,10 @@ where
                 source: box_error(source),
             })?;
 
+        if let Some(error) = evaluated.retryable_error {
+            return Err(product_match_evaluation_error(error));
+        }
+
         Ok(MatchProductEventResult {
             outcome: if persisted_match_count == 0 && duplicate_match_count > 0 {
                 MatchProductEventOutcome::DuplicateAlreadyPersisted
@@ -252,6 +263,7 @@ where
             },
             percolated_count,
             persisted_match_count,
+            enhanced_evaluation_failure_count: evaluated.enhanced_evaluation_failure_count,
         })
     }
 }
@@ -306,11 +318,17 @@ where
     Ok(outcome)
 }
 
+struct EvaluatedCandidates {
+    candidates: Vec<SearchFilterMatchCandidate>,
+    enhanced_evaluation_failure_count: usize,
+    retryable_error: Option<ProductMatchEvaluatorError>,
+}
+
 async fn evaluate_candidates<E>(
     evaluator: &E,
     product: &ProductSearchFilterMatchSource,
     mut filters: Vec<crate::ports::SearchFilterView>,
-) -> Result<Vec<SearchFilterMatchCandidate>, MatchProductEventError>
+) -> EvaluatedCandidates
 where
     E: ProductMatchEvaluator,
 {
@@ -318,18 +336,50 @@ where
     filters.sort_by_key(|filter| filter.search_filter_id.to_string());
     filters.dedup_by(|left, right| left.search_filter_id == right.search_filter_id);
 
+    let enhanced_filters = filters
+        .iter()
+        .filter(|filter| filter.search.enhanced_search_description.is_some())
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut enhanced_evaluations = evaluator
+        .evaluate_batch(product, &enhanced_filters)
+        .await
+        .into_iter()
+        .map(|evaluation| (evaluation.search_filter_id, evaluation.result))
+        .collect::<std::collections::HashMap<_, _>>();
+
     let mut candidates = Vec::with_capacity(filters.len());
+    let mut enhanced_evaluation_failure_count = 0;
+    let mut retryable_error = None;
     for filter in filters {
-        let enhanced_match_reason = match filter.search.enhanced_search_description {
-            Some(_) => match evaluator
-                .evaluate(product, &filter)
-                .await
-                .map_err(product_match_evaluation_error)?
-            {
-                ProductMatchEvaluation::Matched { reason } => reason,
-                ProductMatchEvaluation::NotMatched => continue,
-            },
-            None => None,
+        let enhanced_match_reason = if filter.search.enhanced_search_description.is_some() {
+            match enhanced_evaluations.remove(&filter.search_filter_id) {
+                Some(Ok(ProductMatchEvaluation::Matched { reason })) => reason,
+                Some(Ok(ProductMatchEvaluation::NotMatched)) => continue,
+                Some(Err(error)) => {
+                    enhanced_evaluation_failure_count += 1;
+                    let retryable = error.is_retryable();
+                    tracing::warn!(
+                        user_search_filter_id = %filter.search_filter_id,
+                        error_category = %error,
+                        "enhanced product match evaluation failed; plain and successful candidates remain eligible"
+                    );
+                    if retryable && retryable_error.is_none() {
+                        retryable_error = Some(error);
+                    }
+                    continue;
+                }
+                None => {
+                    enhanced_evaluation_failure_count += 1;
+                    tracing::warn!(
+                        user_search_filter_id = %filter.search_filter_id,
+                        "enhanced product match evaluator omitted a candidate; plain and successful candidates remain eligible"
+                    );
+                    continue;
+                }
+            }
+        } else {
+            None
         };
         candidates.push(SearchFilterMatchCandidate {
             user_id: filter.user_id,
@@ -337,7 +387,11 @@ where
             enhanced_match_reason,
         });
     }
-    Ok(candidates)
+    EvaluatedCandidates {
+        candidates,
+        enhanced_evaluation_failure_count,
+        retryable_error,
+    }
 }
 
 fn sort_candidates(candidates: &mut Vec<ActiveSearchFilterMatchCandidate>) {
@@ -405,8 +459,8 @@ fn match_write_error(error: SearchFilterMatchWriteError) -> MatchProductEventErr
 mod tests {
     use super::*;
     use crate::ports::{
-        SearchFilterIndexQuery, SearchFilterProjection, SearchFilterProjectionWriteOutcome,
-        SearchFilterView,
+        ProductMatchEvaluatorError, SearchFilterIndexQuery, SearchFilterProjection,
+        SearchFilterProjectionWriteOutcome, SearchFilterView,
     };
     use common::{
         currency::domain::Currency, language::domain::Language,
@@ -528,6 +582,7 @@ mod tests {
     }
 
     struct Evaluator;
+    struct PermanentlyFailingEvaluator;
 
     #[async_trait::async_trait]
     impl ProductMatchEvaluator for Evaluator {
@@ -537,6 +592,19 @@ mod tests {
             _filter: &SearchFilterView,
         ) -> Result<ProductMatchEvaluation, ProductMatchEvaluatorError> {
             Ok(ProductMatchEvaluation::NotMatched)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProductMatchEvaluator for PermanentlyFailingEvaluator {
+        async fn evaluate(
+            &self,
+            _product: &ProductSearchFilterMatchSource,
+            _filter: &SearchFilterView,
+        ) -> Result<ProductMatchEvaluation, ProductMatchEvaluatorError> {
+            Err(ProductMatchEvaluatorError::Permanent {
+                source: box_error(std::io::Error::other("invalid Vertex request")),
+            })
         }
     }
 
@@ -721,6 +789,46 @@ mod tests {
         assert_eq!(2, state.committed);
         assert_eq!(1, state.active_reads);
         assert_eq!(2, state.persisted.len());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_persist_plain_candidate_when_enhanced_candidate_fails_permanently()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let user_id = UserId::new();
+        let product = product()?;
+        let plain = filter(user_id, UserSearchFilterId::new());
+        let mut enhanced = filter(user_id, UserSearchFilterId::new());
+        enhanced.search.enhanced_search_description = Some("only paintings".into());
+        let handler = MatchProductEventHandler::new(
+            FakeUnitOfWork(Arc::clone(&state)),
+            Sources(vec![product.clone()]),
+            Index {
+                filters: vec![plain.clone(), enhanced],
+            },
+            PermanentlyFailingEvaluator,
+            Candidates(Arc::clone(&state)),
+            Matches(Arc::clone(&state)),
+        );
+
+        let result = handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: product.event_id,
+                product_id: product.product_id,
+            })
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(1, result.persisted_match_count);
+        assert_eq!(1, result.enhanced_evaluation_failure_count);
+        assert_eq!(1, state.persisted.len());
+        assert_eq!(
+            plain.search_filter_id,
+            state.persisted[0].user_search_filter_id
+        );
         Ok(())
     }
 

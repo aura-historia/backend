@@ -7184,6 +7184,7 @@ dependencies = [
  "async-trait",
  "common",
  "embedding",
+ "futures",
  "geo",
  "google-cloud-auth",
  "indexmap 2.14.0",
