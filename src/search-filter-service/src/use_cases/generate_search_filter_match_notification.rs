@@ -15,7 +15,7 @@ use common::{
 };
 use notification_core::notification::{NotificationPayload, NotificationSearchFilterPayload};
 use notification_service::use_cases::commands::create_notification::{
-    CreateNotificationCommand, CreateNotificationUseCase,
+    CreateNotificationCommand, CreateNotificationResult, CreateNotificationUseCase,
 };
 use product_service::ports::{
     ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
@@ -36,6 +36,7 @@ pub struct GenerateSearchFilterMatchNotificationCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenerateSearchFilterMatchNotificationResult {
     Created,
+    AlreadyExists,
     SuppressedByQuota,
     SuppressedForMissingUser,
     SuppressedForMissingMatch,
@@ -238,8 +239,14 @@ where
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedByQuota);
         }
 
-        create_notification(&self.notifications, match_source, product).await?;
-        Ok(GenerateSearchFilterMatchNotificationResult::Created)
+        match create_notification(&self.notifications, match_source, product).await? {
+            CreateNotificationResult::Created { .. } => {
+                Ok(GenerateSearchFilterMatchNotificationResult::Created)
+            }
+            CreateNotificationResult::AlreadyExists => {
+                Ok(GenerateSearchFilterMatchNotificationResult::AlreadyExists)
+            }
+        }
     }
 }
 
@@ -257,7 +264,7 @@ async fn create_notification<N>(
     notifications: &N,
     match_source: SearchFilterMatchNotificationSource,
     product: ProductSearchFilterMatchSource,
-) -> Result<(), GenerateSearchFilterMatchNotificationError>
+) -> Result<CreateNotificationResult, GenerateSearchFilterMatchNotificationError>
 where
     N: CreateNotificationUseCase,
 {
@@ -284,7 +291,6 @@ where
             external: match_source.external,
         })
         .await
-        .map(|_| ())
         .map_err(
             |source| GenerateSearchFilterMatchNotificationError::NotificationCreateFailed {
                 source: box_error(source),
@@ -526,7 +532,7 @@ mod tests {
                 let commits = state.commits;
                 state.notification_commit_counts.push(commits);
             }
-            Ok(notification_service::use_cases::commands::create_notification::CreateNotificationResult {
+            Ok(notification_service::use_cases::commands::create_notification::CreateNotificationResult::Created {
                 notification: notification_core::notification::Notification::new(
                     command.user_id,
                     command.origin_event_id,

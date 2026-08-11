@@ -1,12 +1,29 @@
-use crate::ports::notification_repository::{NotificationRepository, NotificationRepositoryError};
+use crate::ports::notification_repository::NotificationRepository;
+use common::error::boxed::{BoxError, box_error};
 use notification_core::notification::Notification;
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum NotificationWriteOutcome {
+    Inserted(Notification),
+    AlreadyExists,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum NotificationWriteError {
+    #[error("notification write failed")]
+    WriteFailed {
+        #[source]
+        source: BoxError,
+    },
+}
 
 #[async_trait::async_trait]
 pub trait NotificationWriter: Send + Sync {
     async fn insert(
         &self,
         notification: &Notification,
-    ) -> Result<Notification, NotificationRepositoryError>;
+    ) -> Result<NotificationWriteOutcome, NotificationWriteError>;
 }
 
 #[async_trait::async_trait]
@@ -17,7 +34,12 @@ where
     async fn insert(
         &self,
         notification: &Notification,
-    ) -> Result<Notification, NotificationRepositoryError> {
-        NotificationRepository::insert(self, notification).await
+    ) -> Result<NotificationWriteOutcome, NotificationWriteError> {
+        NotificationRepository::insert(self, notification)
+            .await
+            .map(NotificationWriteOutcome::Inserted)
+            .map_err(|source| NotificationWriteError::WriteFailed {
+                source: box_error(source),
+            })
     }
 }

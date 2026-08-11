@@ -58,9 +58,27 @@ async fn generate_watchlist_notifications(
             source: box_error(source),
         }
     })?;
-    handler.execute(GenerateWatchlistNotificationsCommand { event_id, product_id }).await
-        .map(|result| info!(job_type = "watchlist_notification", %event_id, %product_id, recipient_count = result.recipient_count, outcome = "applied", "watchlist notification write completed"))
-        .map_err(|source| WatchlistNotificationWorkerError::Generate { source: box_error(source) })
+    handler
+        .execute(GenerateWatchlistNotificationsCommand {
+            event_id,
+            product_id,
+        })
+        .await
+        .map(|result| {
+            info!(
+                job_type = "watchlist_notification",
+                %event_id,
+                %product_id,
+                recipient_count = result.recipient_count,
+                inserted_count = result.inserted_count,
+                already_exists_count = result.already_exists_count,
+                outcome = "applied",
+                "watchlist notification writes completed"
+            )
+        })
+        .map_err(|source| WatchlistNotificationWorkerError::Generate {
+            source: box_error(source),
+        })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -116,7 +134,11 @@ mod tests {
                     product_service::use_cases::GenerateWatchlistNotificationsError::SourceNotFound
                 })?
                 .push(command);
-            Ok(GenerateWatchlistNotificationsResult { recipient_count: 1 })
+            Ok(GenerateWatchlistNotificationsResult {
+                recipient_count: 1,
+                inserted_count: 1,
+                already_exists_count: 0,
+            })
         }
     }
 

@@ -3,7 +3,7 @@ mod support;
 use common::{event_id::EventId, product_id::ProductId, user_id::UserId};
 use notification_core::notification_type::NotificationType;
 use notification_service::ports::{
-    NotificationWriter, all_notifications_reader::AllNotificationsReader,
+    NotificationWriteOutcome, NotificationWriter, all_notifications_reader::AllNotificationsReader,
     notification_repository::NotificationRepository,
 };
 use test_api::*;
@@ -43,8 +43,14 @@ fn should_preserve_existing_notification_when_conditional_writer_is_retried() {
     let user_id = UserId::new();
     let notification = support::product_notification(user_id, EventId::new(), ProductId::new());
 
-    writer.insert(&notification).await.unwrap();
-    writer.insert(&notification).await.unwrap();
+    let initial = writer.insert(&notification).await.unwrap();
+    assert!(matches!(initial, NotificationWriteOutcome::Inserted(_)));
+
+    let retry =
+        support::product_notification(user_id, notification.origin_event_id(), ProductId::new());
+    assert_ne!(notification.notification_id(), retry.notification_id());
+    let retry_outcome = writer.insert(&retry).await.unwrap();
+    assert_eq!(NotificationWriteOutcome::AlreadyExists, retry_outcome);
 
     let items = reader.list_all_by_user(&user_id).await.unwrap();
     assert_eq!(1, items.len());

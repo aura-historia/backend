@@ -11,7 +11,8 @@ use common::{
     user_search_filter_id::UserSearchFilterId,
 };
 use search_filter_service::use_cases::{
-    GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationUseCase,
+    GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationResult,
+    GenerateSearchFilterMatchNotificationUseCase,
 };
 use std::sync::Arc;
 use tracing::{error, info};
@@ -57,11 +58,32 @@ async fn execute_job(
     job: DomainJob,
 ) -> Result<(), BoxError> {
     let command = command_from_job(job).map_err(box_error)?;
-    use_case
-        .execute(command)
-        .await
-        .map(|_| ())
-        .map_err(box_error)
+    let result = use_case.execute(command).await.map_err(box_error)?;
+    let notification_outcome = match result {
+        GenerateSearchFilterMatchNotificationResult::Created => "inserted",
+        GenerateSearchFilterMatchNotificationResult::AlreadyExists => "deduplicated",
+        GenerateSearchFilterMatchNotificationResult::SuppressedByQuota => "suppressed_by_quota",
+        GenerateSearchFilterMatchNotificationResult::SuppressedForMissingUser => {
+            "suppressed_for_missing_user"
+        }
+        GenerateSearchFilterMatchNotificationResult::SuppressedForMissingMatch => {
+            "suppressed_for_missing_match"
+        }
+        GenerateSearchFilterMatchNotificationResult::SuppressedForNonSelectedFilter => {
+            "suppressed_for_non_selected_filter"
+        }
+        GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProduct => {
+            "suppressed_for_missing_product"
+        }
+        GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductEvent => {
+            "suppressed_for_stale_product_event"
+        }
+    };
+    info!(
+        job_type = "search_filter_match_notification",
+        notification_outcome, "search filter match notification write completed"
+    );
+    Ok(())
 }
 
 fn command_from_job(

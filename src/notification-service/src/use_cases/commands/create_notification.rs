@@ -1,4 +1,6 @@
-use crate::ports::{NotificationWriter, notification_repository::NotificationRepositoryError};
+use crate::ports::{
+    NotificationWriteOutcome, NotificationWriter, notification_writer::NotificationWriteError,
+};
 use common::{event_id::EventId, user_id::UserId};
 use notification_core::notification::{Notification, NotificationPayload};
 
@@ -10,15 +12,17 @@ pub struct CreateNotificationCommand {
     pub external: bool,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
-pub struct CreateNotificationResult {
-    pub notification: Notification,
+pub enum CreateNotificationResult {
+    Created { notification: Notification },
+    AlreadyExists,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum CreateNotificationError {
     #[error("notification insert failed")]
-    InsertFailed(#[source] NotificationRepositoryError),
+    InsertFailed(#[source] NotificationWriteError),
 }
 
 #[async_trait::async_trait]
@@ -54,18 +58,22 @@ where
             command.notification_payload,
             command.external,
         );
-        self.repository
+        match self
+            .repository
             .insert(&notification)
             .await
-            .map_err(CreateNotificationError::InsertFailed)?;
-        Ok(CreateNotificationResult { notification })
+            .map_err(CreateNotificationError::InsertFailed)?
+        {
+            NotificationWriteOutcome::Inserted(notification) => {
+                Ok(CreateNotificationResult::Created { notification })
+            }
+            NotificationWriteOutcome::AlreadyExists => Ok(CreateNotificationResult::AlreadyExists),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::ports::notification_repository::NotificationRepository;
-
     use super::*;
     use common::{
         error::boxed::{BoxError, box_error},
@@ -75,10 +83,26 @@ mod tests {
     use notification_core::notification::NotificationPartnerApplicationPayload;
     use std::sync::{Arc, Mutex};
 
-    #[derive(Clone, Default)]
-    struct FakeRepository {
+    #[derive(Clone, Copy)]
+    enum FakeWriteOutcome {
+        Inserted,
+        AlreadyExists,
+        Fails,
+    }
+
+    #[derive(Clone)]
+    struct FakeWriter {
         notifications: Arc<Mutex<Vec<Notification>>>,
-        fail: bool,
+        outcome: FakeWriteOutcome,
+    }
+
+    impl Default for FakeWriter {
+        fn default() -> Self {
+            Self {
+                notifications: Arc::default(),
+                outcome: FakeWriteOutcome::Inserted,
+            }
+        }
     }
 
     fn boxed() -> BoxError {
@@ -96,40 +120,30 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl NotificationRepository for FakeRepository {
+    impl NotificationWriter for FakeWriter {
         async fn insert(
             &self,
             notification: &Notification,
-        ) -> Result<Notification, NotificationRepositoryError> {
-            if self.fail {
-                return Err(NotificationRepositoryError::OperationFailed { source: boxed() });
+        ) -> Result<NotificationWriteOutcome, NotificationWriteError> {
+            match self.outcome {
+                FakeWriteOutcome::Inserted => {
+                    self.notifications
+                        .lock()
+                        .map_err(|_| NotificationWriteError::WriteFailed { source: boxed() })?
+                        .push(notification.clone());
+                    Ok(NotificationWriteOutcome::Inserted(notification.clone()))
+                }
+                FakeWriteOutcome::AlreadyExists => Ok(NotificationWriteOutcome::AlreadyExists),
+                FakeWriteOutcome::Fails => {
+                    Err(NotificationWriteError::WriteFailed { source: boxed() })
+                }
             }
-            self.notifications
-                .lock()
-                .unwrap()
-                .push(notification.clone());
-            Ok(notification.clone())
-        }
-
-        async fn find_by_origin_event_id(
-            &self,
-            _user_id: &UserId,
-            _origin_event_id: &EventId,
-        ) -> Result<Option<Notification>, NotificationRepositoryError> {
-            Ok(None)
-        }
-
-        async fn update(
-            &self,
-            notification: &Notification,
-        ) -> Result<Notification, NotificationRepositoryError> {
-            Ok(notification.clone())
         }
     }
 
     #[tokio::test]
     async fn should_create_notification_when_insert_succeeds() {
-        let repository = FakeRepository::default();
+        let repository = FakeWriter::default();
         let user_id = UserId::new();
         let origin_event_id = EventId::new();
 
@@ -143,15 +157,18 @@ mod tests {
             .await
             .expect("create should succeed");
 
-        assert_eq!(user_id, result.notification.user_id());
+        assert!(matches!(
+            result,
+            CreateNotificationResult::Created { notification } if notification.user_id() == user_id
+        ));
         assert_eq!(1, repository.notifications.lock().unwrap().len());
     }
 
     #[tokio::test]
     async fn should_fail_create_notification_when_insert_fails() {
-        let repository = FakeRepository {
-            fail: true,
-            ..Default::default()
+        let repository = FakeWriter {
+            notifications: Arc::default(),
+            outcome: FakeWriteOutcome::Fails,
         };
 
         let result = CreateNotificationHandler::new(repository)
@@ -166,6 +183,28 @@ mod tests {
         assert!(matches!(
             result,
             Err(CreateNotificationError::InsertFailed(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_report_already_exists_without_returning_a_notification() {
+        let writer = FakeWriter {
+            notifications: Arc::default(),
+            outcome: FakeWriteOutcome::AlreadyExists,
+        };
+
+        let result = CreateNotificationHandler::new(writer)
+            .execute(CreateNotificationCommand {
+                user_id: UserId::new(),
+                origin_event_id: EventId::new(),
+                notification_payload: payload(),
+                external: true,
+            })
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(CreateNotificationResult::AlreadyExists)
         ));
     }
 }

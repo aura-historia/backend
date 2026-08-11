@@ -2,7 +2,7 @@ use aws_sdk_dynamodb::{Client, error::SdkError, operation::put_item::PutItemErro
 use common::error::boxed::box_error;
 use notification_core::notification::Notification;
 use notification_service::ports::{
-    NotificationWriter, notification_repository::NotificationRepositoryError,
+    NotificationWriteError, NotificationWriteOutcome, NotificationWriter,
 };
 
 use crate::notification_record::NotificationRecord;
@@ -43,18 +43,18 @@ impl NotificationWriter for ConditionalDynamoDbNotificationWriter {
     async fn insert(
         &self,
         notification: &Notification,
-    ) -> Result<Notification, NotificationRepositoryError> {
+    ) -> Result<NotificationWriteOutcome, NotificationWriteError> {
         match self
             .insert_if_absent(NotificationRecord::from_notification(notification))
             .await
         {
-            Ok(()) => Ok(notification.clone()),
+            Ok(()) => Ok(NotificationWriteOutcome::Inserted(notification.clone())),
             Err(SdkError::ServiceError(error))
                 if error.err().is_conditional_check_failed_exception() =>
             {
-                Ok(notification.clone())
+                Ok(NotificationWriteOutcome::AlreadyExists)
             }
-            Err(source) => Err(NotificationRepositoryError::OperationFailed {
+            Err(source) => Err(NotificationWriteError::WriteFailed {
                 source: box_error(source),
             }),
         }

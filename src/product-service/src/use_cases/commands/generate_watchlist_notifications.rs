@@ -11,7 +11,7 @@ use common::{
 };
 use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
 use notification_service::use_cases::commands::create_notification::{
-    CreateNotificationCommand, CreateNotificationUseCase,
+    CreateNotificationCommand, CreateNotificationResult, CreateNotificationUseCase,
 };
 use std::collections::HashMap;
 
@@ -24,6 +24,8 @@ pub struct GenerateWatchlistNotificationsCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenerateWatchlistNotificationsResult {
     pub recipient_count: usize,
+    pub inserted_count: usize,
+    pub already_exists_count: usize,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -131,11 +133,18 @@ where
 
         let recipient_count = recipients.len();
         if recipients.is_empty() {
-            return Ok(GenerateWatchlistNotificationsResult { recipient_count });
+            return Ok(GenerateWatchlistNotificationsResult {
+                recipient_count,
+                inserted_count: 0,
+                already_exists_count: 0,
+            });
         }
         let notification_payload = notification_payload(source);
+        let mut inserted_count = 0;
+        let mut already_exists_count = 0;
         for recipient in recipients {
-            self.notifications
+            match self
+                .notifications
                 .execute(CreateNotificationCommand {
                     user_id: recipient.user_id,
                     origin_event_id: command.event_id,
@@ -143,14 +152,21 @@ where
                     external: recipient.external,
                 })
                 .await
-                .map_err(|source| {
-                    GenerateWatchlistNotificationsError::NotificationCreateFailed {
+                .map_err(
+                    |source| GenerateWatchlistNotificationsError::NotificationCreateFailed {
                         source: box_error(source),
-                    }
-                })?;
+                    },
+                )? {
+                CreateNotificationResult::Created { .. } => inserted_count += 1,
+                CreateNotificationResult::AlreadyExists => already_exists_count += 1,
+            }
         }
 
-        Ok(GenerateWatchlistNotificationsResult { recipient_count })
+        Ok(GenerateWatchlistNotificationsResult {
+            recipient_count,
+            inserted_count,
+            already_exists_count,
+        })
     }
 }
 
