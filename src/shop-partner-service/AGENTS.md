@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `shop-partner-core`, `shop-core`, `shop-service`, `user-core`, `user-service`, and `common` app contracts.
+- Depends on `shop-partner-core`, `shop-core`, `shop-service`, `user-core`, `user-service`, shared `common` app contracts, and shared `geo::{Geocoder, GeocodingError}`.
 - Root modules: `ports`, `use_cases`, `use_case_bundle`.
 - Handlers use `UnitOfWork` and transaction-scoped repository/reader factories.
 - New shop application creates a draft shop first, then the application row.

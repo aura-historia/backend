@@ -8,6 +8,7 @@ use common::domain::Domain;
 use common::postgres::SqlxUnitOfWork;
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use geo::{Geocoder, GeocodingError};
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{
     NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration, WoocommerceIntegration,
@@ -15,7 +16,6 @@ use shop_core::shop::{
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_postgres::SqlxShopRepositoryFactory;
-use shop_service::ports::{ShopGeocoder, ShopGeocoderError};
 use shop_service::ports::{ShopRepository, ShopRepositoryFactory};
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
@@ -47,12 +47,14 @@ static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(aura_api_app);
 struct RejectGeocoder;
 
 #[async_trait::async_trait]
-impl ShopGeocoder for RejectGeocoder {
+impl Geocoder for RejectGeocoder {
     async fn geocode(
         &self,
         _address: &shop_core::address::StructuredAddress,
-    ) -> Result<shop_core::address::GeoAddress, ShopGeocoderError> {
-        Err(ShopGeocoderError::TemporarilyUnavailable)
+    ) -> Result<shop_core::address::GeoAddress, GeocodingError> {
+        Err(GeocodingError::temporarily_unavailable(
+            std::io::Error::other("geocoding unavailable"),
+        ))
     }
 }
 
