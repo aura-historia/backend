@@ -369,6 +369,7 @@ fn product_source(
 
     Ok(ProductSearchFilterMatchSource {
         event_id,
+        event_kind: product_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
         current_event_id: event_id,
         product_id: ProductId::new(),
         product_slug_id: ProductSlugId::from("test-product"),

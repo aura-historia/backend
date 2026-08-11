@@ -35,8 +35,8 @@ pub use product_event_store::{
 pub use product_repository::{ProductRepository, ProductRepositoryError, ProductRepositoryFactory};
 pub use product_search_filter_match_source_reader::{
     ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
-    ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
-    ProductSearchFilterMatchSourceReaderFactory,
+    ProductSearchFilterMatchSourceEventKind, ProductSearchFilterMatchSourceReadError,
+    ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
 };
 pub use product_search_reader::{ProductSearchReadError, ProductSearchReader};
 pub use product_similar_products_reader::{

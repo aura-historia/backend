@@ -23,10 +23,25 @@ pub enum ProductSearchFilterMatchShopType {
     Marketplace,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductSearchFilterMatchSourceEventKind {
+    Domain,
+    Enrichment,
+    Ignored,
+}
+
+impl ProductSearchFilterMatchSourceEventKind {
+    pub fn is_percolation_trigger(self) -> bool {
+        matches!(self, Self::Domain | Self::Enrichment)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductSearchFilterMatchSource {
-    /// Stable identifier of the accepted CDC source event.
+    /// Stable identifier of the source Product event.
     pub event_id: EventId,
+    /// Whether this event type is routed to search-filter percolation.
+    pub event_kind: ProductSearchFilterMatchSourceEventKind,
     /// Current Product version for a rebuilt OpenSearch document.
     pub current_event_id: EventId,
     pub product_id: ProductId,

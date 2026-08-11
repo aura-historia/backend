@@ -325,6 +325,7 @@ mod tests {
         product::{ProductAddress, ProductAuction, ProductPricing},
         title::Title,
     };
+    use product_service::ports::ProductSearchFilterMatchSourceEventKind;
     use serde_json::json;
     use std::collections::HashMap;
     use url::Url;
@@ -335,6 +336,7 @@ mod tests {
         let event_id = EventId::new();
         Ok(ProductSearchFilterMatchSource {
             event_id,
+            event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
             current_event_id: event_id,
             product_id: common::product_id::ProductId::new(),
             product_slug_id: ProductSlugId::from("blue-vase"),

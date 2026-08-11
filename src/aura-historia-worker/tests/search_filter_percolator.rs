@@ -141,6 +141,16 @@ async fn should_keep_one_deterministic_notification_on_product_and_match_redeliv
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
+async fn should_keep_current_enrichment_match_for_each_product_event_delivery_order() {
+    let result = stale_event_ordering_flow().await;
+
+    assert!(
+        result.is_ok(),
+        "search-filter stale-event ordering acceptance test failed: {result:?}"
+    );
+}
+
 async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
@@ -444,6 +454,76 @@ async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Erro
     worker.finish(result).await
 }
 
+async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
+    let worker = PercolatorWorker::start().await?;
+    let result = async {
+        let user_id = seed_user(&worker.pool, "Ultimate").await?;
+        let product_query = format!("Worker stale event product {user_id}");
+        let filter = search_filter(
+            user_id,
+            UserSearchFilterName::from("Stale event ordering filter"),
+            ResourceState::Active,
+            &product_query,
+        )?;
+        worker.project_filter(&filter).await?;
+        refresh_index("user_search_filters").await;
+
+        let (product_id, event_a) =
+            create_product_with_domain_event(&worker.pool, &product_query).await?;
+        let event_b = update_product_and_insert_event_with_group(
+            &worker.pool,
+            product_id,
+            &product_query,
+            "PRODUCT_ENRICHED",
+            "ENRICHMENT",
+        )
+        .await?;
+
+        redeliver_product_event(
+            &worker.server,
+            product_id,
+            event_a,
+            "PRODUCT_CREATED",
+            "DOMAIN",
+        )
+        .await?;
+        redeliver_product_event(
+            &worker.server,
+            product_id,
+            event_b,
+            "PRODUCT_ENRICHED",
+            "ENRICHMENT",
+        )
+        .await?;
+        wait_for_match(&worker.pool, event_b, 1).await?;
+        assert_no_matches_for(&worker.pool, event_a, NO_SIDE_EFFECT_OBSERVATION).await?;
+
+        redeliver_product_event(
+            &worker.server,
+            product_id,
+            event_b,
+            "PRODUCT_ENRICHED",
+            "ENRICHMENT",
+        )
+        .await?;
+        redeliver_product_event(
+            &worker.server,
+            product_id,
+            event_a,
+            "PRODUCT_CREATED",
+            "DOMAIN",
+        )
+        .await?;
+        assert_match_count_for_duration(&worker.pool, event_b, 1, NO_SIDE_EFFECT_OBSERVATION)
+            .await?;
+        assert_no_matches_for(&worker.pool, event_a, NO_SIDE_EFFECT_OBSERVATION).await?;
+        Ok(())
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
 async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
@@ -481,7 +561,14 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
             event_id,
         )?;
 
-        redeliver_product_event(&worker.server, product_id, event_id, "PRODUCT_CREATED").await?;
+        redeliver_product_event(
+            &worker.server,
+            product_id,
+            event_id,
+            "PRODUCT_CREATED",
+            "DOMAIN",
+        )
+        .await?;
         assert_match_count_for_duration(&worker.pool, event_id, 2, NO_SIDE_EFFECT_OBSERVATION)
             .await?;
         redeliver_search_filter_match(
@@ -849,11 +936,30 @@ async fn update_product_and_insert_event(
     product_id: common::product_id::ProductId,
     title: &str,
 ) -> Result<EventId, sqlx::Error> {
+    update_product_and_insert_event_with_group(
+        pool,
+        product_id,
+        title,
+        "PRODUCT_STATE_CHANGED",
+        "DOMAIN",
+    )
+    .await
+}
+
+async fn update_product_and_insert_event_with_group(
+    pool: &sqlx::PgPool,
+    product_id: common::product_id::ProductId,
+    title: &str,
+    event_type: &str,
+    event_group: &str,
+) -> Result<EventId, sqlx::Error> {
     let event_id = EventId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_STATE_CHANGED', 'DOMAIN', '{}', now())")
+    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, $4, '{}', now())")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_id))
+        .bind(event_type)
+        .bind(event_group)
         .execute(&mut *tx)
         .await?;
     sqlx::query(
@@ -1109,6 +1215,7 @@ async fn redeliver_product_event(
     product_id: common::product_id::ProductId,
     event_id: EventId,
     event_type: &str,
+    event_group: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     post_sequin_change(
         server.local_webhook_url(),
@@ -1117,7 +1224,7 @@ async fn redeliver_product_event(
                 "event_id": event_id.to_string(),
                 "product_id": product_id.to_string(),
                 "event_type": event_type,
-                "event_group": "DOMAIN"
+                "event_group": event_group
             },
             "action": "insert",
             "metadata": {"table_schema": "public", "table_name": "product_events"}

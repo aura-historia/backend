@@ -174,9 +174,9 @@ The canonical search-filter OpenSearch sync, search-filter percolator, search-fi
 
 ## Canonical search-filter percolator
 
-The percolator scope accepts only `product_events` inserts. It enqueues only `DOMAIN` and `ENRICHMENT` Product events, rereads the committed typed Product match source, and invokes `MatchProductEventUseCase`. The use case percolates the canonical OpenSearch filter projection, evaluates enhanced filters through the Vertex-backed `ProductMatchEvaluator`, authoritatively rereads active candidates, and stores every active idempotent match row.
+The percolator scope accepts only `product_events` inserts. It enqueues only `DOMAIN` and `ENRICHMENT` Product events, rereads the committed typed Product match source, and invokes `MatchProductEventUseCase`. The use case compares the source event ID with `products.event_id` before percolating; a superseded trigger is skipped, never evaluated against newer Product state with its old origin ID. Current events percolate the canonical OpenSearch filter projection, evaluate enhanced filters through the Vertex-backed `ProductMatchEvaluator`, authoritatively reread active candidates, and store every active idempotent match row.
 
-Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; its Sequin subscription must contain only `product_events` inserts. `POLICY` and `LIFECYCLE` events are acknowledged without a percolator job. Product-event redelivery is safe through the match uniqueness key.
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; its Sequin subscription must contain only `product_events` inserts. `POLICY` and `LIFECYCLE` events are acknowledged without a percolator job. Product-event redelivery is safe through the match uniqueness key; processed, duplicate, stale, missing-source, and ignored-event outcomes are recorded separately.
 
 ## Search-filter match notification generator
 

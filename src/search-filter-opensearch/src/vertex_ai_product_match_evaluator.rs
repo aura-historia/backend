@@ -453,6 +453,7 @@ mod tests {
         let url = Url::parse("https://shop.example.test/products/product")?;
         Ok(ProductSearchFilterMatchSource {
             event_id,
+            event_kind: product_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
             current_event_id: event_id,
             product_id: common::product_id::ProductId::new(),
             product_slug_id: ProductSlugId::from("product"),

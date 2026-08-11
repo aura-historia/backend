@@ -8,8 +8,11 @@ use common::{
     event_id::EventId,
     product_id::ProductId,
 };
-use search_filter_service::use_cases::{MatchProductEventCommand, MatchProductEventUseCase};
+use search_filter_service::use_cases::{
+    MatchProductEventCommand, MatchProductEventOutcome, MatchProductEventUseCase,
+};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{error, info};
 
 pub async fn consume_search_filter_percolator_queue(
@@ -22,21 +25,31 @@ pub async fn consume_search_filter_percolator_queue(
         let idempotency_key = job.idempotency_key.as_str().to_owned();
         let ordering_key = job.ordering_key.as_str().to_owned();
         let use_case_for_retry = Arc::clone(&use_case);
+        let outcome = Arc::new(Mutex::new(None));
+        let outcome_for_retry = Arc::clone(&outcome);
         let result = run_with_retry(job, RetryConfig::default(), &dead_letters, move |job| {
             let use_case = Arc::clone(&use_case_for_retry);
-            async move { execute_job(use_case, job).await }
+            let outcome = Arc::clone(&outcome_for_retry);
+            async move { execute_job(use_case, job, outcome).await }
         })
         .await;
 
-        match result {
-            Ok(()) => info!(
+        match (result, outcome.lock().await.take()) {
+            (Ok(()), Some(outcome)) => info!(
                 job_type = "search_filter_percolator",
                 %idempotency_key,
                 %ordering_key,
-                outcome = "applied",
+                ?outcome,
                 "search filter percolator job completed"
             ),
-            Err(error) => error!(
+            (Ok(()), None) => error!(
+                job_type = "search_filter_percolator",
+                %idempotency_key,
+                %ordering_key,
+                outcome = "missing",
+                "search filter percolator job completed without an outcome"
+            ),
+            (Err(error), _) => error!(
                 job_type = "search_filter_percolator",
                 %idempotency_key,
                 %ordering_key,
@@ -51,13 +64,12 @@ pub async fn consume_search_filter_percolator_queue(
 async fn execute_job(
     use_case: Arc<dyn MatchProductEventUseCase>,
     job: DomainJob,
+    outcome: Arc<Mutex<Option<MatchProductEventOutcome>>>,
 ) -> Result<(), BoxError> {
     let command = command_from_job(job).map_err(box_error)?;
-    use_case
-        .execute(command)
-        .await
-        .map(|_| ())
-        .map_err(box_error)
+    let result = use_case.execute(command).await.map_err(box_error)?;
+    *outcome.lock().await = Some(result.outcome);
+    Ok(())
 }
 
 fn command_from_job(

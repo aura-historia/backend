@@ -24,9 +24,11 @@ pub struct MatchProductEventCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatchProductEventOutcome {
-    Matched,
-    IgnoredMissingSource,
-    IgnoredStaleEvent,
+    Processed,
+    DuplicateAlreadyPersisted,
+    StaleSourceSkipped,
+    SourceNotFound,
+    IgnoredEventType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,14 +169,21 @@ where
         let product = match product {
             ProductSourceReadOutcome::Missing => {
                 return Ok(MatchProductEventResult {
-                    outcome: MatchProductEventOutcome::IgnoredMissingSource,
+                    outcome: MatchProductEventOutcome::SourceNotFound,
+                    percolated_count: 0,
+                    persisted_match_count: 0,
+                });
+            }
+            ProductSourceReadOutcome::IgnoredEventType => {
+                return Ok(MatchProductEventResult {
+                    outcome: MatchProductEventOutcome::IgnoredEventType,
                     percolated_count: 0,
                     persisted_match_count: 0,
                 });
             }
             ProductSourceReadOutcome::Stale => {
                 return Ok(MatchProductEventResult {
-                    outcome: MatchProductEventOutcome::IgnoredStaleEvent,
+                    outcome: MatchProductEventOutcome::StaleSourceSkipped,
                     percolated_count: 0,
                     persisted_match_count: 0,
                 });
@@ -206,6 +215,7 @@ where
         sort_candidates(&mut candidates);
 
         let mut persisted_match_count = 0;
+        let mut duplicate_match_count = 0;
         for candidate in candidates {
             let product_match = SearchFilterProductMatch {
                 user_id: candidate.user_id,
@@ -222,8 +232,9 @@ where
                 .insert_if_absent(&product_match)
                 .await
                 .map_err(match_write_error)?;
-            if outcome == SearchFilterMatchPersistOutcome::Inserted {
-                persisted_match_count += 1;
+            match outcome {
+                SearchFilterMatchPersistOutcome::Inserted => persisted_match_count += 1,
+                SearchFilterMatchPersistOutcome::AlreadyExists => duplicate_match_count += 1,
             }
         }
 
@@ -234,7 +245,11 @@ where
             })?;
 
         Ok(MatchProductEventResult {
-            outcome: MatchProductEventOutcome::Matched,
+            outcome: if persisted_match_count == 0 && duplicate_match_count > 0 {
+                MatchProductEventOutcome::DuplicateAlreadyPersisted
+            } else {
+                MatchProductEventOutcome::Processed
+            },
             percolated_count,
             persisted_match_count,
         })
@@ -243,6 +258,7 @@ where
 
 enum ProductSourceReadOutcome {
     Missing,
+    IgnoredEventType,
     Stale,
     Current(Box<ProductSearchFilterMatchSource>),
 }
@@ -273,6 +289,9 @@ where
                 || product.product_id != command.product_id =>
         {
             return Err(MatchProductEventError::ProductSourceMismatch);
+        }
+        Some(product) if !product.event_kind.is_percolation_trigger() => {
+            ProductSourceReadOutcome::IgnoredEventType
         }
         Some(product) if product.current_event_id != command.origin_event_id => {
             ProductSourceReadOutcome::Stale
@@ -404,6 +423,7 @@ mod tests {
     };
     use product_service::ports::{
         ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
+        ProductSearchFilterMatchSourceEventKind,
     };
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
@@ -439,19 +459,23 @@ mod tests {
         }
     }
 
-    struct Sources(Option<ProductSearchFilterMatchSource>);
+    struct Sources(Vec<ProductSearchFilterMatchSource>);
 
-    struct ReadingSource(Option<ProductSearchFilterMatchSource>);
+    struct ReadingSource(Vec<ProductSearchFilterMatchSource>);
 
     #[async_trait::async_trait]
     impl ProductSearchFilterMatchSourceReader for ReadingSource {
         async fn find_source(
             &mut self,
-            _event_id: EventId,
-            _product_id: ProductId,
+            event_id: EventId,
+            product_id: ProductId,
         ) -> Result<Option<ProductSearchFilterMatchSource>, ProductSearchFilterMatchSourceReadError>
         {
-            Ok(self.0.clone())
+            Ok(self
+                .0
+                .iter()
+                .find(|source| source.event_id == event_id && source.product_id == product_id)
+                .cloned())
         }
     }
 
@@ -568,13 +592,19 @@ mod tests {
             &mut self,
             product_match: &SearchFilterProductMatch,
         ) -> Result<SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError> {
-            self.0
-                .lock()
-                .map_err(|_| SearchFilterMatchWriteError::WriteFailed {
-                    source: box_error(std::io::Error::other("test mutex poisoned")),
-                })?
-                .persisted
-                .push(product_match.clone());
+            let mut state =
+                self.0
+                    .lock()
+                    .map_err(|_| SearchFilterMatchWriteError::WriteFailed {
+                        source: box_error(std::io::Error::other("test mutex poisoned")),
+                    })?;
+            if state.persisted.iter().any(|persisted| {
+                persisted.user_search_filter_id == product_match.user_search_filter_id
+                    && persisted.product_id == product_match.product_id
+            }) {
+                return Ok(SearchFilterMatchPersistOutcome::AlreadyExists);
+            }
+            state.persisted.push(product_match.clone());
             Ok(SearchFilterMatchPersistOutcome::Inserted)
         }
     }
@@ -593,6 +623,7 @@ mod tests {
         let event_id = EventId::new();
         Ok(ProductSearchFilterMatchSource {
             event_id,
+            event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
             current_event_id: event_id,
             product_id: common::product_id::ProductId::new(),
             product_slug_id: ProductSlugId::from("product"),
@@ -637,6 +668,24 @@ mod tests {
         }
     }
 
+    fn matching_handler(
+        state: Arc<Mutex<State>>,
+        sources: Vec<ProductSearchFilterMatchSource>,
+        search_filter: SearchFilterView,
+    ) -> MatchProductEventHandler<FakeUnitOfWork, Sources, Index, Evaluator, Candidates, Matches>
+    {
+        MatchProductEventHandler::new(
+            FakeUnitOfWork(Arc::clone(&state)),
+            Sources(sources),
+            Index {
+                filters: vec![search_filter],
+            },
+            Evaluator,
+            Candidates(Arc::clone(&state)),
+            Matches(state),
+        )
+    }
+
     #[tokio::test]
     async fn should_persist_all_active_candidates_without_a_notification_quota()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -645,7 +694,7 @@ mod tests {
         let product = product()?;
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
-            Sources(Some(product.clone())),
+            Sources(vec![product.clone()]),
             Index {
                 filters: vec![
                     filter(user_id, UserSearchFilterId::new()),
@@ -685,7 +734,7 @@ mod tests {
         let product = product()?;
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
-            Sources(Some(product.clone())),
+            Sources(vec![product.clone()]),
             Index {
                 filters: vec![enhanced],
             },
@@ -712,6 +761,142 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_keep_matches_order_invariant_for_domain_and_enrichment_events()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let search_filter_id = UserSearchFilterId::new();
+        let mut event_a = product()?;
+        let mut event_b = event_a.clone();
+        event_b.event_id = EventId::new();
+        event_b.current_event_id = event_b.event_id;
+        event_b.event_kind = ProductSearchFilterMatchSourceEventKind::Enrichment;
+        event_a.current_event_id = event_b.event_id;
+
+        let state = Arc::new(Mutex::new(State::default()));
+        let handler = matching_handler(
+            Arc::clone(&state),
+            vec![event_a.clone(), event_b.clone()],
+            filter(user_id, search_filter_id),
+        );
+        let stale_first = handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: event_a.event_id,
+                product_id: event_a.product_id,
+            })
+            .await?;
+        let current_second = handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: event_b.event_id,
+                product_id: event_b.product_id,
+            })
+            .await?;
+        let redelivered_stale = handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: event_a.event_id,
+                product_id: event_a.product_id,
+            })
+            .await?;
+        let redelivered_current = handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: event_b.event_id,
+                product_id: event_b.product_id,
+            })
+            .await?;
+
+        assert_eq!(
+            MatchProductEventOutcome::StaleSourceSkipped,
+            stale_first.outcome
+        );
+        assert_eq!(MatchProductEventOutcome::Processed, current_second.outcome);
+        assert_eq!(
+            MatchProductEventOutcome::StaleSourceSkipped,
+            redelivered_stale.outcome
+        );
+        assert_eq!(
+            MatchProductEventOutcome::DuplicateAlreadyPersisted,
+            redelivered_current.outcome
+        );
+        assert_eq!(
+            vec![event_b.event_id],
+            state
+                .lock()
+                .map_err(|_| std::io::Error::other("test mutex poisoned"))?
+                .persisted
+                .iter()
+                .map(|persisted| persisted.origin_event_id)
+                .collect::<Vec<_>>()
+        );
+
+        let reverse_state = Arc::new(Mutex::new(State::default()));
+        let reverse_handler = matching_handler(
+            Arc::clone(&reverse_state),
+            vec![event_a.clone(), event_b.clone()],
+            filter(user_id, search_filter_id),
+        );
+        let current_first = reverse_handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: event_b.event_id,
+                product_id: event_b.product_id,
+            })
+            .await?;
+        let stale_second = reverse_handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: event_a.event_id,
+                product_id: event_a.product_id,
+            })
+            .await?;
+
+        assert_eq!(MatchProductEventOutcome::Processed, current_first.outcome);
+        assert_eq!(
+            MatchProductEventOutcome::StaleSourceSkipped,
+            stale_second.outcome
+        );
+        assert_eq!(
+            vec![event_b.event_id],
+            reverse_state
+                .lock()
+                .map_err(|_| std::io::Error::other("test mutex poisoned"))?
+                .persisted
+                .iter()
+                .map(|persisted| persisted.origin_event_id)
+                .collect::<Vec<_>>()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_distinguish_ignored_and_missing_product_sources()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ignored_state = Arc::new(Mutex::new(State::default()));
+        let mut ignored_product = product()?;
+        ignored_product.event_kind = ProductSearchFilterMatchSourceEventKind::Ignored;
+        let ignored = matching_handler(
+            Arc::clone(&ignored_state),
+            vec![ignored_product.clone()],
+            filter(UserId::new(), UserSearchFilterId::new()),
+        )
+        .execute(MatchProductEventCommand {
+            origin_event_id: ignored_product.event_id,
+            product_id: ignored_product.product_id,
+        })
+        .await?;
+        let missing = matching_handler(
+            Arc::new(Mutex::new(State::default())),
+            Vec::new(),
+            filter(UserId::new(), UserSearchFilterId::new()),
+        )
+        .execute(MatchProductEventCommand {
+            origin_event_id: EventId::new(),
+            product_id: ignored_product.product_id,
+        })
+        .await?;
+
+        assert_eq!(MatchProductEventOutcome::IgnoredEventType, ignored.outcome);
+        assert_eq!(MatchProductEventOutcome::SourceNotFound, missing.outcome);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_ignore_stale_product_events_after_committing_source_read()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = Arc::new(Mutex::new(State::default()));
@@ -719,7 +904,7 @@ mod tests {
         product.current_event_id = EventId::new();
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
-            Sources(Some(product.clone())),
+            Sources(vec![product.clone()]),
             Index {
                 filters: Vec::new(),
             },
@@ -735,7 +920,7 @@ mod tests {
             })
             .await?;
 
-        assert_eq!(MatchProductEventOutcome::IgnoredStaleEvent, result.outcome);
+        assert_eq!(MatchProductEventOutcome::StaleSourceSkipped, result.outcome);
         assert_eq!(
             1,
             state

@@ -198,6 +198,7 @@ fn product_source(title: &str) -> ProductSearchFilterMatchSource {
     let event_id = EventId::new();
     ProductSearchFilterMatchSource {
         event_id,
+        event_kind: product_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
         current_event_id: event_id,
         product_id: common::product_id::ProductId::new(),
         product_slug_id: common::product_slug_id::ProductSlugId::from("product"),

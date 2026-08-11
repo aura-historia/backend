@@ -360,6 +360,7 @@ mod tests {
         product_image::ProductImage,
     };
     use product_service::ports::ProductSearchFilterMatchShopType;
+    use product_service::ports::ProductSearchFilterMatchSourceEventKind;
     use std::{
         error::Error,
         sync::{Arc, Mutex},
@@ -567,6 +568,7 @@ mod tests {
         let url = Url::parse("https://example.test/product")?;
         let product = ProductSearchFilterMatchSource {
             event_id: origin_event_id,
+            event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
             current_event_id: origin_event_id,
             product_id,
             product_slug_id: ProductSlugId::from("product"),

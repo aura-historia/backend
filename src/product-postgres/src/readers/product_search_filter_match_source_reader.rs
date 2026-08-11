@@ -29,8 +29,8 @@ use product_core::{
 };
 use product_service::ports::{
     ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
-    ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
-    ProductSearchFilterMatchSourceReaderFactory,
+    ProductSearchFilterMatchSourceEventKind, ProductSearchFilterMatchSourceReadError,
+    ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
 };
 use sqlx::PgConnection;
 use std::collections::HashMap;
@@ -47,6 +47,7 @@ struct SqlxProductSearchFilterMatchSourceReader<'tx> {
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct SourceRow {
     event_id: uuid::Uuid,
+    event_group: String,
     current_event_id: uuid::Uuid,
     product_id: uuid::Uuid,
     product_slug_id: String,
@@ -145,6 +146,7 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
             r#"
             SELECT
                 event.event_id,
+                event.event_group,
                 product.event_id AS current_event_id,
                 product.product_id,
                 product.product_slug_id,
@@ -193,7 +195,6 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
             LEFT JOIN product_translations translation ON translation.product_id = product.product_id
             WHERE event.event_id = $1
                 AND event.product_id = $2
-                AND event.event_group IN ('DOMAIN', 'ENRICHMENT')
             ORDER BY translation.language ASC
             "#,
         )
@@ -242,6 +243,7 @@ fn source_from_rows(rows: Vec<SourceRow>) -> Result<Option<ProductSearchFilterMa
 
     Ok(Some(ProductSearchFilterMatchSource {
         event_id: EventId::from(row.event_id),
+        event_kind: event_kind(&row.event_group),
         current_event_id: EventId::from(row.current_event_id),
         product_id: ProductId::from(row.product_id),
         product_slug_id: ProductSlugId::raw(&row.product_slug_id).map_err(|_| ())?,
@@ -502,6 +504,14 @@ fn lifecycle(value: &str) -> Result<ProductLifecycle, ()> {
     }
 }
 
+fn event_kind(value: &str) -> ProductSearchFilterMatchSourceEventKind {
+    match value {
+        "DOMAIN" => ProductSearchFilterMatchSourceEventKind::Domain,
+        "ENRICHMENT" => ProductSearchFilterMatchSourceEventKind::Enrichment,
+        _ => ProductSearchFilterMatchSourceEventKind::Ignored,
+    }
+}
+
 fn shop_type(value: &str) -> Result<ProductSearchFilterMatchShopType, ()> {
     match value {
         "AUCTION_HOUSE" => Ok(ProductSearchFilterMatchShopType::AuctionHouse),
@@ -526,6 +536,22 @@ mod tests {
         };
         assert!(source.downcast_ref::<SourceQuerySqlxError>().is_some());
         assert!(source.source().is_some());
+    }
+
+    #[test]
+    fn should_classify_percolation_event_groups() {
+        assert_eq!(
+            ProductSearchFilterMatchSourceEventKind::Domain,
+            event_kind("DOMAIN")
+        );
+        assert_eq!(
+            ProductSearchFilterMatchSourceEventKind::Enrichment,
+            event_kind("ENRICHMENT")
+        );
+        assert_eq!(
+            ProductSearchFilterMatchSourceEventKind::Ignored,
+            event_kind("POLICY")
+        );
     }
 
     #[test]

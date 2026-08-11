@@ -1836,6 +1836,8 @@ An older or equal version MUST NOT overwrite a newer projection state.
 
 Idempotency SHOULD be enforced in the target write through conditional updates, unique constraints, or version checks rather than through in-memory checks.
 
+Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. For Product events, `products.event_id` is the current revision and must equal `product_events.event_id`. Processed, duplicate, stale, missing-source, and ignored-event outcomes are operationally distinct.
+
 ### 12.6 Building projections
 
 A CDC payload may not contain enough information to build a complete projection.
