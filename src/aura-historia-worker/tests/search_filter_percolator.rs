@@ -91,6 +91,16 @@ async fn should_match_only_active_filter_when_other_filters_are_inactive_or_do_n
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
+async fn should_percolate_and_persist_all_active_filters_across_pages() {
+    let result = complete_percolation_flow().await;
+
+    assert!(
+        result.is_ok(),
+        "search-filter complete percolation flow acceptance test failed: {result:?}"
+    );
+}
+
 #[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
 async fn should_suppress_notification_after_free_tier_monthly_quota() {
     let result = quota_flow().await;
@@ -267,6 +277,49 @@ async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::E
             product_id,
             event_id,
         )?;
+        Ok(())
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
+async fn complete_percolation_flow() -> Result<(), Box<dyn std::error::Error>> {
+    let worker = PercolatorWorker::start().await?;
+    let result = async {
+        let user_id = seed_user(&worker.pool, "Ultimate").await?;
+        let product_query = format!("Worker complete percolation product {user_id}");
+        let active_filters: Vec<_> = (0..25)
+            .map(|number| {
+                search_filter(
+                    user_id,
+                    UserSearchFilterName::from(format!("Active percolation filter {number}")),
+                    ResourceState::Active,
+                    &product_query,
+                )
+            })
+            .collect::<Result<_, _>>()?;
+        let inactive_filter = search_filter(
+            user_id,
+            UserSearchFilterName::from("Inactive percolation filter"),
+            ResourceState::InactiveByUser,
+            &product_query,
+        )?;
+
+        for filter in &active_filters {
+            worker.project_filter(filter).await?;
+        }
+        worker.project_filter(&inactive_filter).await?;
+        refresh_index("user_search_filters").await;
+
+        let (_, event_id) = create_product_with_domain_event(&worker.pool, &product_query).await?;
+        wait_for_match(&worker.pool, event_id, active_filters.len() as i64).await?;
+
+        let mut expected_ids: Vec<_> = active_filters.iter().map(SearchFilter::id).collect();
+        expected_ids.sort_by_key(ToString::to_string);
+        let persisted_ids = matches_for_event(&worker.pool, event_id).await?;
+        assert_eq!(expected_ids, persisted_ids);
+        assert!(!persisted_ids.contains(&inactive_filter.id()));
         Ok(())
     }
     .await;
@@ -569,6 +622,85 @@ impl FullFlowWorker {
         server_shutdown_result?;
         percolator_shutdown_result?;
         notification_shutdown_result?;
+        Ok(())
+    }
+}
+
+struct PercolatorWorker {
+    pool: sqlx::PgPool,
+    index: OpenSearchSearchFilterIndex,
+    server: ScopedWorkerServer,
+    _unused_receivers: aura_historia_worker::cdc::WorkerQueueReceivers,
+    consumer: JoinHandle<()>,
+}
+
+impl PercolatorWorker {
+    async fn start() -> Result<Self, Box<dyn std::error::Error>> {
+        let pool = get_postgres_client().await;
+        let index = OpenSearchSearchFilterIndex::new(get_opensearch_client().await.clone());
+        let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+            index.clone(),
+            NonMatchingProductMatchEvaluator,
+            SqlxActiveSearchFilterMatchCandidateReaderFactory,
+            SqlxSearchFilterMatchWriterFactory,
+        ));
+        let (runtime, mut receivers) = WorkerRuntime::with_all_queues(QueueConfig::new(64))?;
+        let receiver = receivers
+            .take(WorkerQueue::SearchFilterPercolator)
+            .ok_or_else(|| std::io::Error::other("search-filter percolator queue is missing"))?;
+        let consumer = tokio::spawn(consume_search_filter_percolator_queue(receiver, handler));
+        let server = ScopedWorkerServer::start(runtime).await?;
+
+        Ok(Self {
+            pool,
+            index,
+            server,
+            _unused_receivers: receivers,
+            consumer,
+        })
+    }
+
+    async fn project_filter(
+        &self,
+        filter: &SearchFilter,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let version = insert_filter(&self.pool, filter).await?;
+        ProjectSearchFilterChangeHandler::new(
+            SqlxSearchFilterIndexReader::new(self.pool.clone()),
+            self.index.clone(),
+        )
+        .execute(ProjectSearchFilterChangeCommand {
+            search_filter_id: filter.id(),
+            source_version: version,
+            operation: SearchFilterProjectionOperation::Upsert,
+        })
+        .await?;
+        Ok(())
+    }
+
+    async fn finish(
+        self,
+        test_result: Result<(), Box<dyn std::error::Error>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let shutdown_result = self.shutdown().await;
+        test_result?;
+        shutdown_result
+    }
+
+    async fn shutdown(self) -> Result<(), Box<dyn std::error::Error>> {
+        let Self {
+            server,
+            _unused_receivers,
+            consumer,
+            ..
+        } = self;
+        let server_shutdown_result = server.shutdown().await;
+        drop(_unused_receivers);
+        let consumer_shutdown_result = consumer.await;
+        server_shutdown_result?;
+        consumer_shutdown_result?;
         Ok(())
     }
 }

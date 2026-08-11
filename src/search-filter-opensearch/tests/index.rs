@@ -133,6 +133,36 @@ async fn should_percolate_any_of_multiple_product_queries() {
 }
 
 #[aura_integration_test(services = [OpenSearch()])]
+async fn should_use_application_default_size_for_first_query_page() {
+    let client = get_opensearch_client().await.clone();
+    let index = OpenSearchSearchFilterIndex::new(client);
+    let views: Vec<_> = (0..25)
+        .map(|number| sample_view(&format!("application page size filter {number}")))
+        .collect();
+
+    for view in &views {
+        index
+            .upsert(&projection(view, 1))
+            .await
+            .unwrap_or_else(|error| panic!("index failed: {error:?}"));
+    }
+    refresh_index("user_search_filters").await;
+
+    let result = index
+        .query(&SearchFilterIndexQuery {
+            state: Some(ResourceState::Active),
+            has_enhanced_search_description: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap_or_else(|error| panic!("query failed: {error:?}"));
+
+    assert_eq!(21, result.cursor.size);
+    assert_eq!(21, result.items.len());
+    assert!(result.cursor.search_after.is_some());
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
 async fn should_filter_query_by_enhanced_description_presence() {
     let client = get_opensearch_client().await.clone();
     let index = OpenSearchSearchFilterIndex::new(client);

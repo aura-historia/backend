@@ -17,6 +17,13 @@ pub struct SearchFilterIndexQuery {
     pub cursor: Option<Cursor<serde_json::Value>>,
 }
 
+impl SearchFilterIndexQuery {
+    /// Uses the shared application cursor default (currently 21) when callers omit a cursor.
+    pub fn effective_cursor(&self) -> Cursor<serde_json::Value> {
+        self.cursor.clone().unwrap_or_default()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterIndexError {
     #[error("search filter index write failed")]
