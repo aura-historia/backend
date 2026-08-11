@@ -7,6 +7,12 @@ This changelog is for internal communication between frontend and backend teams.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## 2026-08-11 - Enforce Cognito Access-Token Authentication
+
+### Changed
+
+- Canonical API runtime now verifies Cognito access JWTs with issuer, app-client, signature, and expiry checks. Cognito ID tokens are rejected; temporary JWKS retrieval failures return the documented `503 AUTH_TEMPORARILY_UNAVAILABLE` response. Aura Historia access tokens remain supported.
+
 ## 2026-08-06 - Align Search Filter and Watchlist API Contracts
 
 ### Changed

@@ -11,8 +11,8 @@ pub mod users;
 pub mod watchlist;
 
 use crate::auth::{
-    ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
-    TransportPrincipal,
+    ApiAuthService, AuraAccessTokenAuthenticator, AuthError, CognitoJwtAuthenticator,
+    CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
 };
 use crate::state::{
     AppState, OAuthState, PartnerApplicationsState, PartnerProductsState, ProductsState,
@@ -81,6 +81,7 @@ use shop_service::use_cases::queries::search_shops::SearchShopsHandler;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tracing::info;
 use user_dynamodb::DynamoDbAccessTokenStore;
@@ -111,7 +112,12 @@ pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
 pub const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
 pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
+pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
+pub const COGNITO_JWKS_URL_ENV: &str = "AURA_HISTORIA_COGNITO_JWKS_URL";
+pub const COGNITO_APP_CLIENT_IDS_ENV: &str = "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS";
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
+const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "project-2c6e1dcc-3fb9-4910-adc";
 const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
@@ -119,6 +125,7 @@ const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiConfig {
     bind_addr: SocketAddr,
+    cognito_jwt: CognitoJwtConfig,
     vertex_ai_embedding: VertexAiEmbeddingConfig,
 }
 
@@ -141,6 +148,17 @@ impl ApiConfig {
                     source,
                 })?;
 
+        let issuer = required_config(&mut get, COGNITO_ISSUER_ENV)?;
+        let jwks_url = required_config(&mut get, COGNITO_JWKS_URL_ENV)?;
+        let app_client_ids = required_config(&mut get, COGNITO_APP_CLIENT_IDS_ENV)?
+            .split(',')
+            .map(str::trim)
+            .filter(|client_id| !client_id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if app_client_ids.is_empty() {
+            return Err(ApiConfigError::EmptyCognitoAppClientIds);
+        }
         let vertex_ai_embedding = VertexAiEmbeddingConfig::new(
             get(VERTEX_AI_PROJECT_ID_ENV)
                 .unwrap_or_else(|| DEFAULT_VERTEX_AI_PROJECT_ID.to_owned()),
@@ -149,6 +167,7 @@ impl ApiConfig {
 
         Ok(Self {
             bind_addr,
+            cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
             vertex_ai_embedding,
         })
     }
@@ -157,9 +176,22 @@ impl ApiConfig {
         self.bind_addr
     }
 
+    pub fn cognito_jwt(&self) -> &CognitoJwtConfig {
+        &self.cognito_jwt
+    }
+
     pub fn vertex_ai_embedding(&self) -> &VertexAiEmbeddingConfig {
         &self.vertex_ai_embedding
     }
+}
+
+fn required_config<F>(get: &mut F, name: &'static str) -> Result<String, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    get(name)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or(ApiConfigError::MissingCognitoConfig { name })
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -169,6 +201,10 @@ pub enum ApiConfigError {
         value: String,
         source: AddrParseError,
     },
+    #[error("missing required Cognito configuration {name}")]
+    MissingCognitoConfig { name: &'static str },
+    #[error("{COGNITO_APP_CLIENT_IDS_ENV} must contain at least one client id")]
+    EmptyCognitoAppClientIds,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -549,10 +585,17 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let oauth_store = OAuthDynamoDbStore::new(dynamodb_client, table_name_ref);
     let oauth_access_tokens = StoreOAuthAccessTokenGateway::new(access_token_store.clone());
     let access_token_use_case = AuthenticateAccessTokenHandler::new(access_token_store.clone());
-    let authenticator = Arc::new(ApiAuthService::new(
-        JwtUnavailableAuthenticator,
+    let jwks_client = reqwest::Client::builder()
+        .connect_timeout(JWKS_CONNECT_TIMEOUT)
+        .timeout(JWKS_REQUEST_TIMEOUT)
+        .build()
+        .map_err(ApiStateError::JwksClient)?;
+    let authenticator = compose_authenticator(
+        config,
+        ReqwestJwksProvider::new(jwks_client),
         AuraAccessTokenAuthenticator::new(access_token_use_case),
-    ));
+    )
+    .map_err(ApiStateError::CognitoJwt)?;
     let partner_products_state = PartnerProductsState::new(
         Arc::new(create_product),
         Arc::new(update_product),
@@ -726,6 +769,22 @@ fn google_application_default_credentials()
         })
 }
 
+fn compose_authenticator<P, A>(
+    config: &ApiConfig,
+    jwks_provider: P,
+    access_token_authenticator: A,
+) -> Result<Arc<dyn TokenAuthenticator>, AuthError>
+where
+    P: JwksProvider + 'static,
+    A: TokenAuthenticator + 'static,
+{
+    let cognito_jwt = CognitoJwtAuthenticator::new(config.cognito_jwt().clone(), jwks_provider)?;
+    Ok(Arc::new(ApiAuthService::new(
+        cognito_jwt,
+        access_token_authenticator,
+    )))
+}
+
 #[derive(Clone, Copy)]
 struct UnavailableShopGeocoder;
 
@@ -736,19 +795,6 @@ impl ShopGeocoder for UnavailableShopGeocoder {
         _address: &shop_core::address::StructuredAddress,
     ) -> Result<shop_core::address::GeoAddress, ShopGeocoderError> {
         Err(ShopGeocoderError::TemporarilyUnavailable)
-    }
-}
-
-struct JwtUnavailableAuthenticator;
-
-#[async_trait::async_trait]
-impl TokenAuthenticator for JwtUnavailableAuthenticator {
-    async fn authenticate(
-        &self,
-        _bearer_token: &str,
-        _metadata: &RequestMetadata,
-    ) -> Result<TransportPrincipal, AuthError> {
-        Err(AuthError::TemporarilyUnavailable)
     }
 }
 
@@ -764,6 +810,10 @@ pub enum ApiStateError {
     OpenSearch { detail: String },
     #[error("failed to initialize Vertex AI credentials: {detail}")]
     VertexAiCredentials { detail: String },
+    #[error("failed to configure Cognito JWT authentication: {0}")]
+    CognitoJwt(AuthError),
+    #[error("failed to build JWKS HTTP client: {0}")]
+    JwksClient(reqwest::Error),
 }
 
 pub async fn run_until_shutdown<S>(config: ApiConfig, shutdown: S) -> Result<(), ApiRunError>
@@ -808,19 +858,36 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::auth::{AuthMethod, TransportPrincipal};
+    use crate::auth::{
+        AuthMethod, JsonWebKey, JsonWebKeySet, JwksProvider, RequestMetadata, TransportPrincipal,
+    };
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use common::operation_context::CredentialCapability;
     use common::user_id::UserId;
     use http::StatusCode;
+    use jsonwebtokens::{Algorithm, AlgorithmID};
+    use openssl::rsa::Rsa;
+    use serde_json::json;
 
     use std::collections::BTreeSet;
+    use time::OffsetDateTime;
     use tokio::sync::oneshot;
 
     fn env(values: &[(&'static str, &str)]) -> HashMap<&'static str, String> {
-        values
-            .iter()
-            .map(|(key, value)| (*key, (*value).to_owned()))
-            .collect()
+        let mut environment = HashMap::from([
+            (COGNITO_ISSUER_ENV, "https://issuer.example/pool".to_owned()),
+            (
+                COGNITO_JWKS_URL_ENV,
+                "https://issuer.example/pool/.well-known/jwks.json".to_owned(),
+            ),
+            (COGNITO_APP_CLIENT_IDS_ENV, "audience-1".to_owned()),
+        ]);
+        environment.extend(
+            values
+                .iter()
+                .map(|(key, value)| (*key, (*value).to_owned())),
+        );
+        environment
     }
 
     #[test]
@@ -862,6 +929,51 @@ mod tests {
     }
 
     #[test]
+    fn should_read_cognito_config_from_environment() -> Result<(), Box<dyn std::error::Error>> {
+        let values = env(&[
+            (
+                COGNITO_ISSUER_ENV,
+                "https://cognito-idp.eu-west-1.amazonaws.com/pool",
+            ),
+            (
+                COGNITO_JWKS_URL_ENV,
+                "https://cognito-idp.eu-west-1.amazonaws.com/pool/.well-known/jwks.json",
+            ),
+            (COGNITO_APP_CLIENT_IDS_ENV, "client-1, client-2"),
+        ]);
+
+        let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
+
+        assert_eq!(
+            "https://cognito-idp.eu-west-1.amazonaws.com/pool",
+            config.cognito_jwt().issuer
+        );
+        assert_eq!(
+            "https://cognito-idp.eu-west-1.amazonaws.com/pool/.well-known/jwks.json",
+            config.cognito_jwt().jwks_url
+        );
+        assert_eq!(
+            std::collections::HashSet::from(["client-1".to_owned(), "client-2".to_owned()]),
+            config.cognito_jwt().app_client_ids
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_fail_when_cognito_config_missing() {
+        let values = HashMap::<&'static str, String>::new();
+
+        let config = ApiConfig::from_getter(|name| values.get(name).cloned());
+
+        assert!(matches!(
+            config,
+            Err(ApiConfigError::MissingCognitoConfig {
+                name: COGNITO_ISSUER_ENV
+            })
+        ));
+    }
+
+    #[test]
     fn should_fail_when_bind_addr_is_invalid() {
         let values = env(&[(API_BIND_ADDR_ENV, "not-an-addr")]);
 
@@ -871,6 +983,83 @@ mod tests {
             config,
             Err(ApiConfigError::InvalidBindAddr { .. })
         ));
+    }
+
+    #[derive(Clone)]
+    struct StaticJwksProvider {
+        jwks: JsonWebKeySet,
+    }
+
+    #[async_trait::async_trait]
+    impl JwksProvider for StaticJwksProvider {
+        async fn fetch_jwks(&self, _jwks_url: &str) -> Result<JsonWebKeySet, AuthError> {
+            Ok(self.jwks.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn should_authenticate_cognito_and_aura_tokens_from_composed_authenticator()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let rsa = Rsa::generate(2048)?;
+        let private_pem = rsa.private_key_to_pem()?;
+        let algorithm = Algorithm::new_rsa_pem_signer(AlgorithmID::RS256, &private_pem)?;
+        let user_id = UserId::new();
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let token = jsonwebtokens::encode(
+            &json!({ "alg": algorithm.name(), "kid": "kid-1" }),
+            &json!({
+                "iss": "https://issuer.example/pool",
+                "sub": user_id.to_string(),
+                "token_use": "access",
+                "client_id": "audience-1",
+                "iat": now,
+                "exp": now + 3_600,
+            }),
+            &algorithm,
+        )?;
+        let config_values = env(&[]);
+        let config = ApiConfig::from_getter(|name| config_values.get(name).cloned())?;
+        let authenticator = compose_authenticator(
+            &config,
+            StaticJwksProvider {
+                jwks: JsonWebKeySet {
+                    keys: vec![JsonWebKey {
+                        kid: "kid-1".to_owned(),
+                        alg: Some("RS256".to_owned()),
+                        n: URL_SAFE_NO_PAD.encode(rsa.n().to_vec()),
+                        e: URL_SAFE_NO_PAD.encode(rsa.e().to_vec()),
+                    }],
+                },
+            },
+            StaticAuthenticator,
+        )?;
+
+        let cognito_principal = authenticator
+            .authenticate(&token, &RequestMetadata::new("req-1", "corr-1"))
+            .await?;
+        let aura_principal = authenticator
+            .authenticate(
+                "aurahistoria_accesstoken_short_long",
+                &RequestMetadata::new("req-2", "corr-2"),
+            )
+            .await?;
+
+        assert!(matches!(
+            cognito_principal,
+            TransportPrincipal::User {
+                user_id: actual,
+                auth_method: AuthMethod::CognitoJwt,
+                ..
+            } if actual == user_id
+        ));
+        assert!(matches!(
+            aura_principal,
+            TransportPrincipal::User {
+                auth_method: AuthMethod::AuraAccessToken,
+                ..
+            }
+        ));
+        Ok(())
     }
 
     #[tokio::test]

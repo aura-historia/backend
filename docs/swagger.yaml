@@ -28,8 +28,8 @@ info:
 
     The API uses more than one authentication scheme depending on the route:
 
-    - **`BearerAuth`** — Cognito JWT bearer tokens for authenticated user, admin, and partner-user
-      workflows
+    - **`BearerAuth`** — Cognito **access** JWT bearer tokens for authenticated user, admin, and
+      partner-user workflows. Cognito ID tokens are not accepted as API credentials.
     - **`AccessTokenAuth`** — Aura Historia opaque bearer access tokens created via
       `/api/v1/me/access-tokens` or OAuth 2.0, primarily intended for partner automations and server-to-server
       ingestion scenarios.

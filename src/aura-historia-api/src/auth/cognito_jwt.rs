@@ -7,24 +7,26 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CognitoJwtConfig {
     pub issuer: String,
     pub jwks_url: String,
-    pub audiences: HashSet<String>,
+    pub app_client_ids: HashSet<String>,
 }
 
 impl CognitoJwtConfig {
     pub fn new(
         issuer: impl Into<String>,
         jwks_url: impl Into<String>,
-        audiences: impl IntoIterator<Item = impl Into<String>>,
+        app_client_ids: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
         Self {
             issuer: issuer.into(),
             jwks_url: jwks_url.into(),
-            audiences: audiences.into_iter().map(Into::into).collect(),
+            app_client_ids: app_client_ids.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -74,15 +76,32 @@ impl JwksProvider for ReqwestJwksProvider {
     }
 }
 
+const DEFAULT_JWKS_CACHE_TTL: Duration = Duration::from_secs(300);
+
+struct JwksCache {
+    algorithms: HashMap<String, Arc<Algorithm>>,
+    refreshed_at: Option<Instant>,
+}
+
 pub struct CognitoJwtAuthenticator<P> {
     config: CognitoJwtConfig,
     provider: P,
     verifier: Verifier,
-    jwks_cache: Arc<RwLock<HashMap<String, Arc<Algorithm>>>>,
+    cache_ttl: Duration,
+    jwks_cache: Arc<RwLock<JwksCache>>,
+    refresh_lock: Mutex<()>,
 }
 
 impl<P> CognitoJwtAuthenticator<P> {
     pub fn new(config: CognitoJwtConfig, provider: P) -> Result<Self, AuthError> {
+        Self::with_cache_ttl(config, provider, DEFAULT_JWKS_CACHE_TTL)
+    }
+
+    fn with_cache_ttl(
+        config: CognitoJwtConfig,
+        provider: P,
+        cache_ttl: Duration,
+    ) -> Result<Self, AuthError> {
         let verifier = Verifier::create()
             .issuer(config.issuer.clone())
             .build()
@@ -91,7 +110,12 @@ impl<P> CognitoJwtAuthenticator<P> {
             config,
             provider,
             verifier,
-            jwks_cache: Arc::new(RwLock::new(HashMap::new())),
+            cache_ttl,
+            jwks_cache: Arc::new(RwLock::new(JwksCache {
+                algorithms: HashMap::new(),
+                refreshed_at: None,
+            })),
+            refresh_lock: Mutex::new(()),
         })
     }
 }
@@ -103,41 +127,69 @@ where
     async fn algorithm_for_token(&self, token: &str) -> Result<Arc<Algorithm>, AuthError> {
         let header = raw::decode_header_only(token).map_err(|_| AuthError::MalformedCredentials)?;
         let kid = claim_string(&header, "kid")?;
+        let (cached_algorithm, observed_refresh) = self.cached_algorithm(kid)?;
 
-        if let Some(algorithm) = self.cached_algorithm(kid)? {
-            return Ok(algorithm);
+        if cached_algorithm.is_some() && self.is_cache_fresh(observed_refresh) {
+            return cached_algorithm.ok_or(AuthError::JwksKeyNotFound);
         }
 
-        self.refresh_jwks().await?;
-        self.cached_algorithm(kid)?
-            .ok_or(AuthError::JwksKeyNotFound)
+        let _refresh_guard = self.refresh_lock.lock().await;
+        let (refreshed_algorithm, refreshed_at) = self.cached_algorithm(kid)?;
+        if refreshed_at > observed_refresh {
+            return refreshed_algorithm.ok_or(AuthError::JwksKeyNotFound);
+        }
+
+        match self.refresh_jwks().await {
+            Ok(()) => self
+                .cached_algorithm(kid)?
+                .0
+                .ok_or(AuthError::JwksKeyNotFound),
+            Err(_) if cached_algorithm.is_some() => {
+                cached_algorithm.ok_or(AuthError::JwksKeyNotFound)
+            }
+            Err(error) => Err(error),
+        }
     }
 
-    fn cached_algorithm(&self, kid: &str) -> Result<Option<Arc<Algorithm>>, AuthError> {
+    fn cached_algorithm(
+        &self,
+        kid: &str,
+    ) -> Result<(Option<Arc<Algorithm>>, Option<Instant>), AuthError> {
         let cache = self
             .jwks_cache
             .read()
             .map_err(|error| AuthError::Internal(error.to_string()))?;
-        Ok(cache.get(kid).cloned())
+        Ok((cache.algorithms.get(kid).cloned(), cache.refreshed_at))
+    }
+
+    fn is_cache_fresh(&self, refreshed_at: Option<Instant>) -> bool {
+        refreshed_at.is_some_and(|refreshed_at| refreshed_at.elapsed() < self.cache_ttl)
     }
 
     async fn refresh_jwks(&self) -> Result<(), AuthError> {
-        let jwks = self.provider.fetch_jwks(&self.config.jwks_url).await?;
+        let jwks = self
+            .provider
+            .fetch_jwks(&self.config.jwks_url)
+            .await
+            .map_err(|_| AuthError::TemporarilyUnavailable)?;
+        let algorithms = jwks
+            .keys
+            .into_iter()
+            .filter(|key| matches!(key.alg.as_deref(), None | Some("RS256")))
+            .map(|key| {
+                let mut algorithm =
+                    Algorithm::new_rsa_n_e_b64_verifier(AlgorithmID::RS256, &key.n, &key.e)
+                        .map_err(|error| AuthError::Internal(error.to_string()))?;
+                algorithm.set_kid(&key.kid);
+                Ok((key.kid, Arc::new(algorithm)))
+            })
+            .collect::<Result<HashMap<_, _>, AuthError>>()?;
         let mut cache = self
             .jwks_cache
             .write()
             .map_err(|error| AuthError::Internal(error.to_string()))?;
-
-        for key in jwks.keys {
-            if !matches!(key.alg.as_deref(), None | Some("RS256")) {
-                continue;
-            }
-            let mut algorithm =
-                Algorithm::new_rsa_n_e_b64_verifier(AlgorithmID::RS256, &key.n, &key.e)
-                    .map_err(|error| AuthError::Internal(error.to_string()))?;
-            algorithm.set_kid(&key.kid);
-            cache.insert(key.kid, Arc::new(algorithm));
-        }
+        cache.algorithms = algorithms;
+        cache.refreshed_at = Some(Instant::now());
         Ok(())
     }
 }
@@ -158,7 +210,7 @@ where
             .verify(bearer_token, &algorithm)
             .map_err(|_| AuthError::InvalidCredentials)?;
 
-        verify_audience(&claims, &self.config.audiences)?;
+        verify_access_token(&claims, &self.config.app_client_ids)?;
         let user_id = UserId::try_from(claim_string(&claims, "sub")?)
             .map_err(|_| AuthError::InvalidCredentials)?;
 
@@ -170,40 +222,14 @@ where
     }
 }
 
-fn verify_audience(claims: &Value, audiences: &HashSet<String>) -> Result<(), AuthError> {
-    let matched = claims
-        .get("aud")
-        .map(|aud| audience_claim_matches(aud, audiences, "aud"))
-        .transpose()?
-        .unwrap_or(false)
-        || claims
-            .get("client_id")
-            .map(|client_id| audience_claim_matches(client_id, audiences, "client_id"))
-            .transpose()?
-            .unwrap_or(false);
-
-    if matched {
+fn verify_access_token(claims: &Value, app_client_ids: &HashSet<String>) -> Result<(), AuthError> {
+    if claim_string(claims, "token_use")? != "access" {
+        return Err(AuthError::InvalidCredentials);
+    }
+    if app_client_ids.contains(claim_string(claims, "client_id")?) {
         Ok(())
     } else {
         Err(AuthError::InvalidCredentials)
-    }
-}
-
-fn audience_claim_matches(
-    value: &Value,
-    audiences: &HashSet<String>,
-    claim: &'static str,
-) -> Result<bool, AuthError> {
-    match value {
-        Value::String(audience) => Ok(audiences.contains(audience)),
-        Value::Array(values) => values
-            .iter()
-            .map(|value| match value {
-                Value::String(audience) => Ok(audiences.contains(audience)),
-                _ => Err(AuthError::InvalidClaimType(claim)),
-            })
-            .try_fold(false, |matched, value| value.map(|value| matched || value)),
-        _ => Err(AuthError::InvalidClaimType(claim)),
     }
 }
 
@@ -224,6 +250,7 @@ mod tests {
     use serde_json::json;
     use std::sync::{Mutex, MutexGuard};
     use time::OffsetDateTime;
+    use tokio::sync::Notify;
 
     #[derive(Clone)]
     struct FakeJwksProvider {
@@ -243,6 +270,44 @@ mod tests {
             self.result
                 .clone()
                 .map_err(|_| AuthError::JwksFetch("boom".to_owned()))
+        }
+    }
+
+    #[derive(Clone)]
+    struct SequencedJwksProvider {
+        results: Arc<Mutex<Vec<Result<JsonWebKeySet, FakeJwksError>>>>,
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl JwksProvider for SequencedJwksProvider {
+        async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, AuthError> {
+            lock(&self.calls).push(jwks_url.to_owned());
+            let mut results = lock(&self.results);
+            if results.is_empty() {
+                return Err(AuthError::JwksFetch("no configured response".to_owned()));
+            }
+            results
+                .remove(0)
+                .map_err(|_| AuthError::JwksFetch("boom".to_owned()))
+        }
+    }
+
+    #[derive(Clone)]
+    struct BlockingJwksProvider {
+        jwks: JsonWebKeySet,
+        calls: Arc<Mutex<Vec<String>>>,
+        entered: Arc<Notify>,
+        release: Arc<Notify>,
+    }
+
+    #[async_trait::async_trait]
+    impl JwksProvider for BlockingJwksProvider {
+        async fn fetch_jwks(&self, jwks_url: &str) -> Result<JsonWebKeySet, AuthError> {
+            lock(&self.calls).push(jwks_url.to_owned());
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(self.jwks.clone())
         }
     }
 
@@ -312,12 +377,13 @@ mod tests {
         Ok(jwt::encode(&header, &claims, &algorithm)?)
     }
 
-    fn jwt_claims(user_id: UserId, exp_delta_seconds: i64, audience: Value) -> Value {
+    fn jwt_claims(user_id: UserId, exp_delta_seconds: i64, client_id: Value) -> Value {
         let now = OffsetDateTime::now_utc().unix_timestamp();
         json!({
             "iss": "https://issuer.example/pool",
             "sub": user_id.to_string(),
-            "aud": audience,
+            "token_use": "access",
+            "client_id": client_id,
             "iat": now,
             "exp": now + exp_delta_seconds,
         })
@@ -331,7 +397,7 @@ mod tests {
         assert_eq!("jwks", config.jwks_url);
         assert_eq!(
             HashSet::from(["aud-1".to_owned(), "aud-2".to_owned()]),
-            config.audiences
+            config.app_client_ids
         );
     }
 
@@ -352,7 +418,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_authenticate_cognito_jwt_when_signature_claims_and_audience_valid()
+    async fn should_authenticate_cognito_jwt_when_signature_claims_and_client_id_valid()
     -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
         let calls = Arc::new(Mutex::new(Vec::new()));
@@ -378,42 +444,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_accept_cognito_jwt_when_client_id_matches_audience()
-    -> Result<(), Box<dyn std::error::Error>> {
+    async fn should_reject_cognito_id_token() -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
         let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
-        let user_id = UserId::new();
-        let mut claims = jwt_claims(user_id, 3_600, json!("ignored-audience"));
+        let mut claims = jwt_claims(UserId::new(), 3_600, json!("audience-1"));
+        claims["token_use"] = json!("id");
+        claims["aud"] = json!("audience-1");
         if let Some(claims) = claims.as_object_mut() {
-            claims.remove("aud");
-            claims.insert("client_id".to_owned(), json!("audience-1"));
+            claims.remove("client_id");
         }
         let token = signed_jwt(&key, claims)?;
 
-        let principal = authenticator.authenticate(&token, &metadata()).await?;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
-        assert!(
-            matches!(principal, TransportPrincipal::User { user_id: actual, .. } if actual == user_id)
-        );
+        assert!(matches!(result, Err(AuthError::InvalidCredentials)));
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_accept_cognito_jwt_when_audience_array_contains_configured_audience()
+    async fn should_reject_cognito_jwt_when_token_use_missing()
     -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
         let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
-        let user_id = UserId::new();
-        let token = signed_jwt(
-            &key,
-            jwt_claims(user_id, 3_600, json!(["audience-0", "audience-1"])),
-        )?;
+        let mut claims = jwt_claims(UserId::new(), 3_600, json!("audience-1"));
+        if let Some(claims) = claims.as_object_mut() {
+            claims.remove("token_use");
+        }
+        let token = signed_jwt(&key, claims)?;
 
-        let principal = authenticator.authenticate(&token, &metadata()).await?;
+        let result = authenticator.authenticate(&token, &metadata()).await;
 
-        assert!(
-            matches!(principal, TransportPrincipal::User { user_id: actual, .. } if actual == user_id)
-        );
+        assert!(matches!(result, Err(AuthError::MissingClaim("token_use"))));
         Ok(())
     }
 
@@ -428,6 +489,91 @@ mod tests {
         let _ = authenticator.authenticate(&token, &metadata()).await?;
         let _ = authenticator.authenticate(&token, &metadata()).await?;
 
+        assert_eq!(1, lock(&calls).len());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_keep_cached_key_when_refresh_temporarily_fails()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let key = test_key("kid-1")?;
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let authenticator = CognitoJwtAuthenticator::with_cache_ttl(
+            CognitoJwtConfig::new(
+                "https://issuer.example/pool",
+                "https://issuer.example/pool/.well-known/jwks.json",
+                ["audience-1"],
+            ),
+            SequencedJwksProvider {
+                results: Arc::new(Mutex::new(vec![
+                    Ok(JsonWebKeySet {
+                        keys: vec![jwk(&key)],
+                    }),
+                    Err(FakeJwksError::Fetch),
+                ])),
+                calls: calls.clone(),
+            },
+            Duration::ZERO,
+        )?;
+        let token = signed_jwt(&key, jwt_claims(UserId::new(), 3_600, json!("audience-1")))?;
+
+        let _ = authenticator.authenticate(&token, &metadata()).await?;
+        let principal = authenticator.authenticate(&token, &metadata()).await?;
+
+        assert!(matches!(principal, TransportPrincipal::User { .. }));
+        assert_eq!(2, lock(&calls).len());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_refresh_jwks_once_for_concurrent_unknown_kid()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let key = test_key("kid-1")?;
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let authenticator = Arc::new(CognitoJwtAuthenticator::new(
+            CognitoJwtConfig::new(
+                "https://issuer.example/pool",
+                "https://issuer.example/pool/.well-known/jwks.json",
+                ["audience-1"],
+            ),
+            BlockingJwksProvider {
+                jwks: JsonWebKeySet {
+                    keys: vec![jwk(&key)],
+                },
+                calls: calls.clone(),
+                entered: entered.clone(),
+                release: release.clone(),
+            },
+        )?);
+        let token = signed_jwt(&key, jwt_claims(UserId::new(), 3_600, json!("audience-1")))?;
+        let first_authenticator = authenticator.clone();
+        let first_token = token.clone();
+        let first = tokio::spawn(async move {
+            first_authenticator
+                .authenticate(&first_token, &metadata())
+                .await
+        });
+        entered.notified().await;
+
+        let mut pending = Vec::new();
+        for _ in 0..4 {
+            let authenticator = authenticator.clone();
+            let token = token.clone();
+            pending.push(tokio::spawn(async move {
+                authenticator.authenticate(&token, &metadata()).await
+            }));
+        }
+        release.notify_waiters();
+
+        assert!(matches!(first.await??, TransportPrincipal::User { .. }));
+        for pending_authentication in pending {
+            assert!(matches!(
+                pending_authentication.await??,
+                TransportPrincipal::User { .. }
+            ));
+        }
         assert_eq!(1, lock(&calls).len());
         Ok(())
     }
@@ -460,7 +606,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_cognito_jwt_when_audience_wrong()
+    async fn should_reject_cognito_jwt_when_client_id_wrong()
     -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
         let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
@@ -476,7 +622,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_cognito_jwt_when_audience_type_invalid()
+    async fn should_reject_cognito_jwt_when_client_id_type_invalid()
     -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
         let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
@@ -484,12 +630,15 @@ mod tests {
 
         let result = authenticator.authenticate(&token, &metadata()).await;
 
-        assert!(matches!(result, Err(AuthError::InvalidCredentials)));
+        assert!(matches!(
+            result,
+            Err(AuthError::InvalidClaimType("client_id"))
+        ));
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_reject_cognito_jwt_when_audience_array_value_invalid()
+    async fn should_reject_cognito_jwt_when_client_id_array_value_invalid()
     -> Result<(), Box<dyn std::error::Error>> {
         let key = test_key("kid-1")?;
         let authenticator = authenticator(vec![jwk(&key)], Arc::new(Mutex::new(Vec::new())))?;
@@ -497,22 +646,24 @@ mod tests {
 
         let result = authenticator.authenticate(&token, &metadata()).await;
 
-        assert!(matches!(result, Err(AuthError::InvalidCredentials)));
+        assert!(matches!(
+            result,
+            Err(AuthError::InvalidClaimType("client_id"))
+        ));
         Ok(())
     }
 
     #[test]
-    fn should_reject_audience_claim_when_type_invalid() {
-        let result = audience_claim_matches(&json!(123), &HashSet::new(), "aud");
+    fn should_reject_client_id_claim_when_type_invalid() {
+        let result = verify_access_token(
+            &json!({ "token_use": "access", "client_id": 123 }),
+            &HashSet::new(),
+        );
 
-        assert!(matches!(result, Err(AuthError::InvalidClaimType("aud"))));
-    }
-
-    #[test]
-    fn should_reject_audience_claim_when_array_value_invalid() {
-        let result = audience_claim_matches(&json!([123]), &HashSet::new(), "aud");
-
-        assert!(matches!(result, Err(AuthError::InvalidClaimType("aud"))));
+        assert!(matches!(
+            result,
+            Err(AuthError::InvalidClaimType("client_id"))
+        ));
     }
 
     #[tokio::test]
@@ -665,7 +816,7 @@ mod tests {
 
         let result = authenticator.authenticate(&token, &metadata()).await;
 
-        assert!(matches!(result, Err(AuthError::JwksFetch(_))));
+        assert!(matches!(result, Err(AuthError::TemporarilyUnavailable)));
         Ok(())
     }
 }
