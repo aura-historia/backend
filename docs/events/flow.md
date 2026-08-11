@@ -130,11 +130,11 @@ Crash rule:
 
 | Source table | Operation | Route |
 |---|---|---|
-| `product_events` | INSERT | Product projector; percolator for domain/enrichment; watchlist notifications for price/state; enrichment pipeline for create/embed; delete cleanup for lifecycle delete. |
+| `product_events` | INSERT | Product projector; percolator for domain/enrichment; watchlist notifications for canonical `PRODUCT_PRICE_CHANGED` / `PRODUCT_STATE_CHANGED`; enrichment pipeline for create/embed; delete cleanup for lifecycle delete. |
 | `products` | INSERT/MODIFY/DELETE | No default downstream route. Product events are the projection trigger to avoid double-firing. Use products CDC only for future explicit non-event projections. |
 | `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. Idempotency: `(shop_id, version, op)`. |
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
-| `search_filter_matches` | INSERT/MODIFY/DELETE | No default downstream route. `origin_event_id` links to `product_events.event_id`. |
+| `search_filter_matches` | INSERT | Search-filter match notification worker. It rereads the exact persisted match and Product source, then conditionally inserts one DynamoDB SearchFilter notification. Idempotency: `(user_id, user_search_filter_id, product_id, origin_event_id)` at the job and `(user_id, origin_event_id)` at DynamoDB. |
 | `users` | MODIFY | User tier enforcement for tier changes; no user OpenSearch projection. Idempotency: `(user_id, version)`. |
 | `product_watchlist` | INSERT/MODIFY/DELETE | No default downstream route; product events drive notifications. |
 | `partner_shop_applications` | INSERT/MODIFY | No generic worker route unless notification behavior requires it. |
@@ -161,7 +161,8 @@ Examples:
 | Product OpenSearch projector | `product-lambda-materialize-opensearch` | Product event job | OpenSearch product document create/update/delete. |
 | Product delete cleanup | `product-lambda-delete-product` | Lifecycle deleted job | OpenSearch delete, Postgres watchlist/match cleanup. |
 | Watchlist notification generator | `product-lambda-update-notify-user` | Price/state product event job | DynamoDB notification inserts. |
-| Search-filter percolator | `search-filter-lambda-percolate-product` | Domain/enrichment product event job | Postgres matches, DynamoDB notifications. |
+| Search-filter percolator | `search-filter-lambda-percolate-product` | Domain/enrichment product event job | Postgres matches only. |
+| Search-filter match notification generator | Search-filter match notification path | Search-filter match inserted job | DynamoDB SearchFilter notification insert. |
 | Product embed | `product-pipeline-embed-text` | Domain created job | Postgres enrichment event + product update. Embedding stored in Postgres only. |
 | Product translate | `product-pipeline-translate` | Enrichment embedded job | Postgres enrichment event + product update. |
 | Shop OpenSearch projector | `shop-lambda-opensearch-index` | Shop changed job | OpenSearch shop document write. |
@@ -169,7 +170,29 @@ Examples:
 | User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
 | Periodic matcher | ECS periodic matcher | Scheduled job | OpenSearch product search, Postgres matches, DynamoDB notifications. |
 
-The canonical search-filter OpenSearch sync is implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+The canonical search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, and watchlist notification generator are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+
+## Canonical search-filter percolator
+
+The percolator scope accepts only `product_events` inserts. It enqueues only `DOMAIN` and `ENRICHMENT` Product events, rereads the committed typed Product match source, and invokes `MatchProductEventUseCase`. The use case compares the source event ID with `products.event_id` before percolating; a superseded trigger is skipped, never evaluated against newer Product state with its old origin ID. Current events percolate the canonical OpenSearch filter projection, batch enhanced candidates through the Vertex-backed `ProductMatchEvaluator`, authoritatively reread active candidates, and store every active idempotent plain or successful-enhanced match. An enhanced candidate failure never prevents those writes: retryable timeout, transport, 429, 5xx, and malformed-response failures return after commit for normal worker retry; permanent provider 4xx failures are explicit in the use-case result and never create a match. Vertex requests use a 10-second connect and 30-second total timeout, bounded concurrency, one product-image fetch per job, structured JSON, and reasons in the filter search language.
+
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; its Sequin subscription must contain only `product_events` inserts. `POLICY` and `LIFECYCLE` events are acknowledged without a percolator job. Product-event redelivery is safe through the match uniqueness key; processed, duplicate, stale, missing-source, and ignored-event outcomes are recorded separately.
+
+## Search-filter match notification generator
+
+The match-notification scope accepts only `search_filter_matches` inserts. Its job and source read use `(user_id, user_search_filter_id, product_id, origin_event_id)`, so a stale or superseded CDC row cannot notify a different match. It accepts only the deterministic lowest filter ID for each `(user_id, origin_event_id)`, then reads the committed Product source and invokes `GenerateSearchFilterMatchNotificationUseCase`. Missing or mismatched match sources are benign stale inputs. The use case locks the user tier and calculates the event's stable monthly notification rank; this gates notification selection only, never match persistence. DynamoDB conditionally creates `(user_id, origin_event_id)`, so exact match CDC redelivery or concurrent matched filters cannot overwrite or duplicate the notification. The Product source is read after the Postgres match read; DynamoDB remains outside Postgres transactions.
+
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-match-notification`; its Sequin subscription must contain only `search_filter_matches` inserts. Match updates and deletes have no notification route.
+
+Enhanced search filters use the canonical Vertex AI Gemini `ProductMatchEvaluator`. Timeout, transport, 429, 5xx, and malformed-response failures are retryable worker failures after plain/successful matches commit. Other provider 4xx failures are permanent candidate failures. The worker never treats an enhanced filter as matched or silently bypasses evaluation. No legacy evaluator dependency is used.
+
+## Canonical watchlist notification generator
+
+The watchlist worker scope accepts only `product_events` inserts and enqueues canonical price/state events. Its product-service use case rereads the immutable event plus current Product source and all active recipients in one short Postgres transaction, commits, then conditionally inserts DynamoDB notification records. Recipients with watchlist email notifications disabled still receive the in-app record with `external = false`.
+
+The DynamoDB target conditionally creates the `(user_id, origin_event_id)` record. Duplicate webhook delivery and retry after partial success therefore preserve the original notification rather than overwriting it or emitting another DynamoDB stream insert. No currency conversion is invented: price-change payloads carry only each stored source price; conversion remains deferred to #1466.
+
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=watchlist-notification`; its Sequin subscription must contain only `product_events` inserts. The default `search-filter-projection` scope remains separately subscribed to `search_filters`.
 
 ## Canonical search-filter OpenSearch projection
 
@@ -210,8 +233,9 @@ Minimum unique keys:
 | Shop worker job | `(shop_id, version, op)` |
 | Search-filter worker job | `(user_search_filter_id, version, op)` |
 | User tier worker job | `(user_id, version)` |
+| Search-filter match job | `(user_id, user_search_filter_id, product_id, origin_event_id)` |
 | Search-filter match | `(user_search_filter_id, product_id)` plus `origin_event_id` FK to `product_events.event_id` |
-| Notification | user + origin event where domain allows |
+| Search-filter notification | `(user_id, origin_event_id)` conditional DynamoDB insert |
 
 Sequin ID/LSN can be logged for debugging, but do not make it the normal idempotency key when a domain key exists.
 

@@ -6,11 +6,16 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true, features = ["opensearch"] }
+embedding = { workspace = true }
+futures = { workspace = true }
 geo = { workspace = true, features = ["data"] }
+google-cloud-auth = { workspace = true }
 isocountry = { workspace = true }
 opensearch = { workspace = true }
 product-core = { workspace = true }
 product-opensearch = { workspace = true }
+product-service = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -18,8 +23,11 @@ serde_json = { workspace = true }
 shop-core = { workspace = true }
 time = { workspace = true, features = ["formatting", "serde"] }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
+indexmap = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["opensearch"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
+url = { workspace = true }

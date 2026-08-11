@@ -7,7 +7,7 @@ use product::dynamodb::product_state_record::ProductStateRecord;
 use test_api::*;
 use time::OffsetDateTime;
 
-const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
+const POSTGRES: Postgres = Postgres::new_per_test("src/crawler/migrations");
 
 fn make_record(
     raw: &str,

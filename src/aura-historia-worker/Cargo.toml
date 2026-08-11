@@ -4,23 +4,37 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-dynamodb = { workspace = true }
 common = { workspace = true, features = ["postgres"] }
+google-cloud-auth = { workspace = true }
+notification-dynamodb = { workspace = true }
+notification-service = { workspace = true }
 opensearch = { workspace = true }
+product-postgres = { workspace = true }
+product-service = { workspace = true }
 search-filter-opensearch = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
+watchlist-postgres = { workspace = true }
+user-postgres = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
-async-trait = { workspace = true }
 rstest = { workspace = true }
 search-filter-core = { workspace = true }
+notification-core = { workspace = true }
+product-core = { workspace = true }
+indexmap = { workspace = true }
+time = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
 serial_test = { workspace = true }
-sqlx = { workspace = true }
-test-api = { workspace = true, features = ["opensearch", "postgres", "sequin"] }
+test-api = { workspace = true, features = ["dynamodb", "opensearch", "postgres", "sequin"] }
 uuid = { workspace = true }

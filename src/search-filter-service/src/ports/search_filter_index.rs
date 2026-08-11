@@ -2,6 +2,7 @@ use crate::ports::{SearchFilterProjection, SearchFilterView};
 use common::error::boxed::BoxError;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::user_search_filter_id::UserSearchFilterId;
+use product_service::ports::ProductSearchFilterMatchSource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchFilterProjectionWriteOutcome {
@@ -14,6 +15,13 @@ pub struct SearchFilterIndexQuery {
     pub state: Option<common::resource_state::domain::ResourceState>,
     pub has_enhanced_search_description: Option<bool>,
     pub cursor: Option<Cursor<serde_json::Value>>,
+}
+
+impl SearchFilterIndexQuery {
+    /// Uses the shared application cursor default (currently 21) when callers omit a cursor.
+    pub fn effective_cursor(&self) -> Cursor<serde_json::Value> {
+        self.cursor.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -58,7 +66,7 @@ pub trait SearchFilterIndex: Send + Sync {
     ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError>;
     async fn percolate(
         &self,
-        product_document: serde_json::Value,
+        product: &ProductSearchFilterMatchSource,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError>;
     async fn query(
         &self,

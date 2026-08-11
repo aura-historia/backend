@@ -1,11 +1,14 @@
 pub mod cdc;
 pub mod retry;
+pub mod search_filter_match_notifications;
+pub mod search_filter_percolator;
 pub mod search_filter_projection;
+pub mod watchlist_notifications;
 
+use common::postgres::{PostgresConfigError, PostgresPoolConfig};
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
 use std::sync::Arc;
-
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, mpsc};
@@ -16,13 +19,72 @@ use crate::cdc::{
 };
 
 pub const WORKER_HEALTH_BIND_ADDR_ENV: &str = "AURA_HISTORIA_WORKER_HEALTH_BIND_ADDR";
+pub const WORKER_SCOPE_ENV: &str = "AURA_HISTORIA_WORKER_SCOPE";
+pub const WORKER_STAGE_ENV: &str = "STAGE";
+pub const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
+pub const OPENSEARCH_ENDPOINT_URL_ENV: &str = "OPENSEARCH_ENDPOINT_URL";
+pub const OPENSEARCH_USERNAME_ENV: &str = "OPENSEARCH_USERNAME";
+pub const OPENSEARCH_PASSWORD_ENV: &str = "OPENSEARCH_PASSWORD";
+pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
+pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
+
 const DEFAULT_WORKER_HEALTH_BIND_ADDR: &str = "0.0.0.0:8081";
+const DEFAULT_LOCAL_WORKER_SCOPE: &str = "search-filter-projection";
 const REQUEST_BUFFER_BYTES: usize = 65_536;
 pub const SEQUIN_CDC_PATH: &str = "/cdc/sequin";
 
 pub trait WorkerJob: Send + 'static {}
 
 impl<T> WorkerJob for T where T: Send + 'static {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkerScope {
+    SearchFilterProjection,
+    SearchFilterPercolator,
+    SearchFilterMatchNotification,
+    WatchlistNotification,
+}
+
+impl WorkerScope {
+    pub(crate) fn from_getter<F>(mut get: F) -> Result<Self, WorkerStartupConfigError>
+    where
+        F: FnMut(&'static str) -> Option<String>,
+    {
+        let stage = get(WORKER_STAGE_ENV);
+        let value = match get(WORKER_SCOPE_ENV) {
+            Some(value) => value,
+            None if is_local_development_stage(stage.as_deref()) => {
+                DEFAULT_LOCAL_WORKER_SCOPE.to_owned()
+            }
+            None => {
+                return Err(WorkerStartupConfigError::MissingEnv {
+                    name: WORKER_SCOPE_ENV,
+                });
+            }
+        };
+
+        match value.as_str() {
+            "search-filter-projection" => Ok(Self::SearchFilterProjection),
+            "search-filter-percolator" => Ok(Self::SearchFilterPercolator),
+            "search-filter-match-notification" => Ok(Self::SearchFilterMatchNotification),
+            "watchlist-notification" => Ok(Self::WatchlistNotification),
+            _ => Err(WorkerStartupConfigError::InvalidScope { value }),
+        }
+    }
+
+    pub(crate) const fn consumer_queue(self) -> WorkerQueue {
+        match self {
+            Self::SearchFilterProjection => WorkerQueue::SearchFilterOpenSearch,
+            Self::SearchFilterPercolator => WorkerQueue::SearchFilterPercolator,
+            Self::SearchFilterMatchNotification => WorkerQueue::SearchFilterMatchNotification,
+            Self::WatchlistNotification => WorkerQueue::WatchlistNotification,
+        }
+    }
+}
+
+fn is_local_development_stage(stage: Option<&str>) -> bool {
+    matches!(stage, Some("ephemeral" | "local" | "test"))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerConfig {
@@ -61,6 +123,186 @@ pub enum WorkerConfigError {
     InvalidHealthBindAddr {
         value: String,
         source: AddrParseError,
+    },
+}
+
+pub struct WorkerOpenSearchConfig {
+    endpoint: url::Url,
+    basic_auth: Option<(String, String)>,
+}
+
+impl WorkerOpenSearchConfig {
+    pub fn endpoint(&self) -> &url::Url {
+        &self.endpoint
+    }
+
+    pub fn basic_auth(&self) -> Option<(&str, &str)> {
+        self.basic_auth
+            .as_ref()
+            .map(|(username, password)| (username.as_str(), password.as_str()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerDynamoDbConfig {
+    table_name: String,
+}
+
+impl WorkerDynamoDbConfig {
+    pub fn table_name(&self) -> &str {
+        &self.table_name
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerVertexAiConfig {
+    project_id: String,
+    location: String,
+}
+
+impl WorkerVertexAiConfig {
+    pub fn project_id(&self) -> &str {
+        &self.project_id
+    }
+
+    pub fn location(&self) -> &str {
+        &self.location
+    }
+}
+
+pub struct WorkerStartupConfig {
+    worker: WorkerConfig,
+    scope: WorkerScope,
+    postgres: PostgresPoolConfig,
+    opensearch: Option<WorkerOpenSearchConfig>,
+    dynamodb: Option<WorkerDynamoDbConfig>,
+    vertex_ai: Option<WorkerVertexAiConfig>,
+}
+
+impl WorkerStartupConfig {
+    pub fn from_env() -> Result<Self, WorkerStartupConfigError> {
+        Self::from_getter(|name| std::env::var(name).ok())
+    }
+
+    pub(crate) fn from_getter<F>(mut get: F) -> Result<Self, WorkerStartupConfigError>
+    where
+        F: FnMut(&'static str) -> Option<String>,
+    {
+        let stage = get(WORKER_STAGE_ENV);
+        let scope = WorkerScope::from_getter(&mut get)?;
+        let worker = WorkerConfig::from_getter(&mut get)?;
+        let postgres = PostgresPoolConfig::from_getter(&mut get)?;
+        let (opensearch, dynamodb, vertex_ai) = match scope {
+            WorkerScope::SearchFilterProjection => (
+                Some(opensearch_config(&mut get, stage.as_deref())?),
+                None,
+                None,
+            ),
+            WorkerScope::SearchFilterPercolator => (
+                Some(opensearch_config(&mut get, stage.as_deref())?),
+                None,
+                Some(WorkerVertexAiConfig {
+                    project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
+                    location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
+                }),
+            ),
+            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => (
+                None,
+                Some(WorkerDynamoDbConfig {
+                    table_name: required_env(&mut get, DYNAMODB_TABLE_NAME_ENV)?,
+                }),
+                None,
+            ),
+        };
+
+        Ok(Self {
+            worker,
+            scope,
+            postgres,
+            opensearch,
+            dynamodb,
+            vertex_ai,
+        })
+    }
+
+    pub const fn worker(&self) -> &WorkerConfig {
+        &self.worker
+    }
+
+    pub const fn scope(&self) -> WorkerScope {
+        self.scope
+    }
+
+    pub const fn postgres(&self) -> &PostgresPoolConfig {
+        &self.postgres
+    }
+
+    pub fn opensearch(&self) -> Option<&WorkerOpenSearchConfig> {
+        self.opensearch.as_ref()
+    }
+
+    pub fn dynamodb(&self) -> Option<&WorkerDynamoDbConfig> {
+        self.dynamodb.as_ref()
+    }
+
+    pub fn vertex_ai(&self) -> Option<&WorkerVertexAiConfig> {
+        self.vertex_ai.as_ref()
+    }
+}
+
+fn opensearch_config<F>(
+    get: &mut F,
+    stage: Option<&str>,
+) -> Result<WorkerOpenSearchConfig, WorkerStartupConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let endpoint = required_env(get, OPENSEARCH_ENDPOINT_URL_ENV)?;
+    let endpoint = url::Url::parse(&endpoint).map_err(|source| {
+        WorkerStartupConfigError::InvalidOpenSearchEndpoint {
+            value: endpoint,
+            source,
+        }
+    })?;
+    let basic_auth = if is_local_development_stage(stage) {
+        None
+    } else {
+        Some((
+            required_env(get, OPENSEARCH_USERNAME_ENV)?,
+            required_env(get, OPENSEARCH_PASSWORD_ENV)?,
+        ))
+    };
+
+    Ok(WorkerOpenSearchConfig {
+        endpoint,
+        basic_auth,
+    })
+}
+
+fn required_env<F>(get: &mut F, name: &'static str) -> Result<String, WorkerStartupConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    match get(name) {
+        Some(value) if !value.is_empty() => Ok(value),
+        Some(_) | None => Err(WorkerStartupConfigError::MissingEnv { name }),
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum WorkerStartupConfigError {
+    #[error(transparent)]
+    Worker(#[from] WorkerConfigError),
+    #[error(transparent)]
+    Postgres(#[from] PostgresConfigError),
+    #[error("missing required environment variable {name}")]
+    MissingEnv { name: &'static str },
+    #[error("invalid worker scope {value}")]
+    InvalidScope { value: String },
+    #[error("invalid {env_name}: {value}", env_name = OPENSEARCH_ENDPOINT_URL_ENV)]
+    InvalidOpenSearchEndpoint {
+        value: String,
+        source: url::ParseError,
     },
 }
 
@@ -110,6 +352,8 @@ where
 pub enum QueueConfigError {
     #[error("queue capacity must be greater than zero")]
     InvalidCapacity,
+    #[error("scoped worker consumer queue is not registered: {queue:?}")]
+    MissingScopedConsumer { queue: WorkerQueue },
 }
 
 impl<T> InMemoryQueueSender<T>
@@ -155,6 +399,48 @@ impl WorkerRuntime {
         Ok((Self::new(CdcFanout::new(registry)), receivers))
     }
 
+    pub fn with_watchlist_notification_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::WatchlistNotification, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::WatchlistNotification, receiver);
+        Ok((
+            Self::new(CdcFanout::watchlist_notification(registry)),
+            receivers,
+        ))
+    }
+
+    pub fn with_search_filter_percolator_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::SearchFilterPercolator, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::SearchFilterPercolator, receiver);
+        Ok((
+            Self::new(CdcFanout::search_filter_percolator(registry)),
+            receivers,
+        ))
+    }
+
+    pub fn with_search_filter_match_notification_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry = WorkerQueueRegistry::new()
+            .with_queue(WorkerQueue::SearchFilterMatchNotification, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::SearchFilterMatchNotification, receiver);
+        Ok((
+            Self::new(CdcFanout::search_filter_match_notification(registry)),
+            receivers,
+        ))
+    }
+
     pub fn with_search_filter_projection_queue(
         config: QueueConfig,
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
@@ -175,6 +461,43 @@ impl WorkerRuntime {
 
     pub async fn ingest_cdc_json(&self, body: &str) -> Result<usize, CdcIngestError> {
         self.cdc_fanout.ingest_json(body).await
+    }
+}
+
+pub struct WorkerRuntimeComposition {
+    runtime: WorkerRuntime,
+    receiver: InMemoryQueueReceiver<crate::cdc::DomainJob>,
+}
+
+impl WorkerRuntimeComposition {
+    pub fn build(scope: WorkerScope, config: QueueConfig) -> Result<Self, QueueConfigError> {
+        let (runtime, mut receivers) = match scope {
+            WorkerScope::SearchFilterProjection => {
+                WorkerRuntime::with_search_filter_projection_queue(config)?
+            }
+            WorkerScope::SearchFilterPercolator => {
+                WorkerRuntime::with_search_filter_percolator_queue(config)?
+            }
+            WorkerScope::SearchFilterMatchNotification => {
+                WorkerRuntime::with_search_filter_match_notification_queue(config)?
+            }
+            WorkerScope::WatchlistNotification => {
+                WorkerRuntime::with_watchlist_notification_queue(config)?
+            }
+        };
+        let consumer_queue = scope.consumer_queue();
+        let receiver =
+            receivers
+                .take(consumer_queue)
+                .ok_or(QueueConfigError::MissingScopedConsumer {
+                    queue: consumer_queue,
+                })?;
+
+        Ok(Self { runtime, receiver })
+    }
+
+    pub fn into_parts(self) -> (WorkerRuntime, InMemoryQueueReceiver<crate::cdc::DomainJob>) {
+        (self.runtime, self.receiver)
     }
 }
 
@@ -387,6 +710,37 @@ mod tests {
             .collect()
     }
 
+    fn production_worker_env(scope: &str) -> HashMap<&'static str, String> {
+        env(&[
+            (WORKER_STAGE_ENV, "prod"),
+            (WORKER_SCOPE_ENV, scope),
+            (common::postgres::POSTGRES_HOST_ENV, "postgres"),
+            (common::postgres::POSTGRES_DATABASE_ENV, "aura_historia"),
+            (common::postgres::POSTGRES_USERNAME_ENV, "worker"),
+            (common::postgres::POSTGRES_PASSWORD_ENV, "not-a-real-secret"),
+        ])
+    }
+
+    fn add_scope_dependencies(values: &mut HashMap<&'static str, String>, scope: WorkerScope) {
+        match scope {
+            WorkerScope::SearchFilterProjection | WorkerScope::SearchFilterPercolator => {
+                values.insert(
+                    OPENSEARCH_ENDPOINT_URL_ENV,
+                    "http://opensearch:9200".to_owned(),
+                );
+                values.insert(OPENSEARCH_USERNAME_ENV, "worker".to_owned());
+                values.insert(OPENSEARCH_PASSWORD_ENV, "not-a-real-secret".to_owned());
+            }
+            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
+                values.insert(DYNAMODB_TABLE_NAME_ENV, "notifications".to_owned());
+            }
+        }
+        if scope == WorkerScope::SearchFilterPercolator {
+            values.insert(VERTEX_AI_PROJECT_ID_ENV, "aura-historia-dev".to_owned());
+            values.insert(VERTEX_AI_LOCATION_ENV, "europe-west3".to_owned());
+        }
+    }
+
     #[test]
     fn should_use_default_health_bind_addr_when_env_missing()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -424,6 +778,153 @@ mod tests {
             config,
             Err(WorkerConfigError::InvalidHealthBindAddr { .. })
         ));
+    }
+
+    #[test]
+    fn should_require_worker_scope_in_production() {
+        let values = env(&[(WORKER_STAGE_ENV, "prod")]);
+
+        let config = WorkerStartupConfig::from_getter(|name| values.get(name).cloned());
+
+        assert!(matches!(
+            config,
+            Err(WorkerStartupConfigError::MissingEnv {
+                name: WORKER_SCOPE_ENV
+            })
+        ));
+    }
+
+    #[test]
+    fn should_include_invalid_worker_scope_in_error() {
+        let values = production_worker_env("wrong-worker");
+
+        let config = WorkerStartupConfig::from_getter(|name| values.get(name).cloned());
+
+        assert!(matches!(
+            config,
+            Err(WorkerStartupConfigError::InvalidScope { value }) if value == "wrong-worker"
+        ));
+    }
+
+    #[rstest]
+    #[case("ephemeral")]
+    #[case("local")]
+    #[case("test")]
+    fn should_default_scope_only_in_local_development(#[case] stage: &str) {
+        let values = env(&[(WORKER_STAGE_ENV, stage)]);
+
+        let scope = WorkerScope::from_getter(|name| values.get(name).cloned());
+
+        assert!(matches!(scope, Ok(WorkerScope::SearchFilterProjection)));
+    }
+
+    #[rstest]
+    #[case(
+        WorkerScope::SearchFilterProjection,
+        "search-filter-projection",
+        WorkerQueue::SearchFilterOpenSearch
+    )]
+    #[case(
+        WorkerScope::SearchFilterPercolator,
+        "search-filter-percolator",
+        WorkerQueue::SearchFilterPercolator
+    )]
+    #[case(
+        WorkerScope::SearchFilterMatchNotification,
+        "search-filter-match-notification",
+        WorkerQueue::SearchFilterMatchNotification
+    )]
+    #[case(
+        WorkerScope::WatchlistNotification,
+        "watchlist-notification",
+        WorkerQueue::WatchlistNotification
+    )]
+    fn should_validate_only_dependencies_for_selected_scope(
+        #[case] scope: WorkerScope,
+        #[case] scope_name: &str,
+        #[case] consumer_queue: WorkerQueue,
+    ) -> Result<(), WorkerStartupConfigError> {
+        let mut values = production_worker_env(scope_name);
+        add_scope_dependencies(&mut values, scope);
+
+        let config = WorkerStartupConfig::from_getter(|name| values.get(name).cloned())?;
+
+        assert_eq!(scope, config.scope());
+        assert_eq!(consumer_queue, scope.consumer_queue());
+        assert_eq!(
+            matches!(
+                scope,
+                WorkerScope::SearchFilterProjection | WorkerScope::SearchFilterPercolator
+            ),
+            config.opensearch().is_some()
+        );
+        assert_eq!(
+            matches!(
+                scope,
+                WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification
+            ),
+            config.dynamodb().is_some()
+        );
+        assert_eq!(
+            scope == WorkerScope::SearchFilterPercolator,
+            config.vertex_ai().is_some()
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(VERTEX_AI_PROJECT_ID_ENV)]
+    #[case(VERTEX_AI_LOCATION_ENV)]
+    fn should_require_vertex_configuration_for_production_percolator(
+        #[case] missing_env: &'static str,
+    ) {
+        let mut values = production_worker_env("search-filter-percolator");
+        add_scope_dependencies(&mut values, WorkerScope::SearchFilterPercolator);
+        values.remove(missing_env);
+
+        let config = WorkerStartupConfig::from_getter(|name| values.get(name).cloned());
+
+        assert!(matches!(
+            config,
+            Err(WorkerStartupConfigError::MissingEnv { name }) if name == missing_env
+        ));
+    }
+
+    #[rstest]
+    #[case(
+        WorkerScope::SearchFilterProjection,
+        WorkerQueue::SearchFilterOpenSearch,
+        r#"{"changes":[{"table":"search_filters","operation":"insert","record":{"user_id":"10000000-0000-0000-0000-000000000001","user_search_filter_id":"20000000-0000-0000-0000-000000000001","version":1}}]}"#
+    )]
+    #[case(
+        WorkerScope::SearchFilterPercolator,
+        WorkerQueue::SearchFilterPercolator,
+        r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
+    )]
+    #[case(
+        WorkerScope::SearchFilterMatchNotification,
+        WorkerQueue::SearchFilterMatchNotification,
+        r#"{"changes":[{"table":"search_filter_matches","operation":"insert","record":{"user_id":"10000000-0000-0000-0000-000000000001","user_search_filter_id":"20000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","origin_event_id":"30000000-0000-0000-0000-000000000001"}}]}"#
+    )]
+    #[case(
+        WorkerScope::WatchlistNotification,
+        WorkerQueue::WatchlistNotification,
+        r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_PRICE_CHANGED","event_group":"DOMAIN"}}]}"#
+    )]
+    #[tokio::test]
+    async fn should_build_one_intended_cdc_route_and_consumer_for_scope(
+        #[case] scope: WorkerScope,
+        #[case] consumer_queue: WorkerQueue,
+        #[case] cdc_json: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let composition = WorkerRuntimeComposition::build(scope, QueueConfig::new(1))?;
+
+        let (runtime, mut receiver) = composition.into_parts();
+        assert_eq!(1, runtime.ingest_cdc_json(cdc_json).await?);
+        let job = receiver.recv().await.ok_or("scoped consumer stopped")?;
+        assert_eq!(consumer_queue, job.target_queue);
+
+        Ok(())
     }
 
     #[rstest]

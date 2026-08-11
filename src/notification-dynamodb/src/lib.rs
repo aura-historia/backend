@@ -1,5 +1,6 @@
 pub mod all_notifications_reader;
 pub mod batch_writer;
+pub mod conditional_writer;
 pub mod deleter;
 pub mod list_notifications_reader;
 pub mod notification_reason_record;

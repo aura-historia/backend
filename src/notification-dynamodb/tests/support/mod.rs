@@ -12,7 +12,9 @@ use notification_core::notification::{
 };
 use notification_dynamodb::{
     all_notifications_reader::DynamoDbAllNotificationsReader,
-    batch_writer::DynamoDbNotificationBatchInserter, deleter::DynamoDbNotificationDeleter,
+    batch_writer::DynamoDbNotificationBatchInserter,
+    conditional_writer::ConditionalDynamoDbNotificationWriter,
+    deleter::DynamoDbNotificationDeleter,
     list_notifications_reader::DynamoDbListNotificationsReader,
     product_notifications_reader::DynamoDbProductNotificationsReader,
     repository::NotificationDynamoDbRepository,
@@ -38,6 +40,10 @@ pub async fn product_reader() -> DynamoDbProductNotificationsReader<'static> {
 
 pub async fn batch_inserter() -> DynamoDbNotificationBatchInserter<'static> {
     DynamoDbNotificationBatchInserter::new(get_dynamodb_client().await, "table_1")
+}
+
+pub async fn conditional_writer() -> ConditionalDynamoDbNotificationWriter {
+    ConditionalDynamoDbNotificationWriter::new(get_dynamodb_client().await.clone(), "table_1")
 }
 
 pub async fn deleter() -> DynamoDbNotificationDeleter<'static> {

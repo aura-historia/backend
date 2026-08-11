@@ -1,0 +1,49 @@
+use common::enhanced_match_reason::EnhancedMatchReason;
+use common::error::boxed::BoxError;
+use common::user_id::UserId;
+use common::user_search_filter_id::UserSearchFilterId;
+use common::user_search_filter_name::UserSearchFilterName;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchFilterMatchCandidate {
+    pub user_id: UserId,
+    pub search_filter_id: UserSearchFilterId,
+    pub enhanced_match_reason: Option<EnhancedMatchReason>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActiveSearchFilterMatchCandidate {
+    pub user_id: UserId,
+    pub search_filter_id: UserSearchFilterId,
+    pub search_filter_name: UserSearchFilterName,
+    pub enhanced_match_reason: Option<EnhancedMatchReason>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ActiveSearchFilterMatchCandidateReadError {
+    #[error("active search filter match candidate read failed")]
+    ReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("active search filter match candidate state is invalid")]
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
+}
+
+#[async_trait::async_trait]
+pub trait ActiveSearchFilterMatchCandidateReader: Send {
+    async fn find_active(
+        &mut self,
+        candidates: &[SearchFilterMatchCandidate],
+    ) -> Result<Vec<ActiveSearchFilterMatchCandidate>, ActiveSearchFilterMatchCandidateReadError>;
+}
+
+pub trait ActiveSearchFilterMatchCandidateReaderFactory<Tx>: Send + Sync {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut Tx,
+    ) -> impl ActiveSearchFilterMatchCandidateReader + 'tx;
+}

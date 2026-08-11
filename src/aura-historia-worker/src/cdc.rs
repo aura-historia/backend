@@ -55,11 +55,12 @@ pub enum CdcOperation {
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::ProductOpenSearch,
         Self::ProductDeleteCleanup,
         Self::WatchlistNotification,
         Self::SearchFilterPercolator,
+        Self::SearchFilterMatchNotification,
         Self::ProductEmbed,
         Self::ProductTranslate,
         Self::ShopOpenSearch,
@@ -121,6 +122,7 @@ pub enum WorkerQueue {
     ProductDeleteCleanup,
     WatchlistNotification,
     SearchFilterPercolator,
+    SearchFilterMatchNotification,
     ProductEmbed,
     ProductTranslate,
     ShopOpenSearch,
@@ -160,6 +162,7 @@ pub enum DomainJobPayload {
     ProductDelete(ProductDeleteJob),
     ShopChanged(ShopChangedJob),
     SearchFilterChanged(SearchFilterChangedJob),
+    SearchFilterMatchCreated(SearchFilterMatchCreatedJob),
     UserTierChanged(UserTierChangedJob),
 }
 
@@ -190,6 +193,14 @@ pub struct SearchFilterChangedJob {
     pub user_search_filter_id: String,
     pub version: i64,
     pub operation: CdcOperation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchFilterMatchCreatedJob {
+    pub user_id: String,
+    pub user_search_filter_id: String,
+    pub product_id: String,
+    pub origin_event_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -287,7 +298,10 @@ pub struct CdcFanout {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CdcFanoutScope {
     All,
+    SearchFilterPercolator,
+    SearchFilterMatchNotification,
     SearchFilterProjection,
+    WatchlistNotification,
 }
 
 impl CdcFanout {
@@ -295,6 +309,27 @@ impl CdcFanout {
         Self {
             registry,
             scope: CdcFanoutScope::All,
+        }
+    }
+
+    pub fn watchlist_notification(registry: WorkerQueueRegistry) -> Self {
+        Self {
+            registry,
+            scope: CdcFanoutScope::WatchlistNotification,
+        }
+    }
+
+    pub fn search_filter_percolator(registry: WorkerQueueRegistry) -> Self {
+        Self {
+            registry,
+            scope: CdcFanoutScope::SearchFilterPercolator,
+        }
+    }
+
+    pub fn search_filter_match_notification(registry: WorkerQueueRegistry) -> Self {
+        Self {
+            registry,
+            scope: CdcFanoutScope::SearchFilterMatchNotification,
         }
     }
 
@@ -330,6 +365,53 @@ impl CdcFanout {
     fn route_change(&self, change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
         match self.scope {
             CdcFanoutScope::All => route_change(change),
+            CdcFanoutScope::WatchlistNotification => {
+                if matches!(
+                    CdcTable::from(change.table.as_str()),
+                    CdcTable::ProductEvents
+                ) && change.operation == CdcOperation::Insert
+                {
+                    let jobs = product_event_jobs(change)?;
+                    Ok(jobs
+                        .into_iter()
+                        .filter(|job| job.target_queue == WorkerQueue::WatchlistNotification)
+                        .collect())
+                } else {
+                    Err(CdcRouteError::UnsupportedTableForWorker(
+                        change.table.clone(),
+                    ))
+                }
+            }
+            CdcFanoutScope::SearchFilterPercolator => {
+                if matches!(
+                    CdcTable::from(change.table.as_str()),
+                    CdcTable::ProductEvents
+                ) && change.operation == CdcOperation::Insert
+                {
+                    let jobs = product_event_jobs(change)?;
+                    Ok(jobs
+                        .into_iter()
+                        .filter(|job| job.target_queue == WorkerQueue::SearchFilterPercolator)
+                        .collect())
+                } else {
+                    Err(CdcRouteError::UnsupportedTableForWorker(
+                        change.table.clone(),
+                    ))
+                }
+            }
+            CdcFanoutScope::SearchFilterMatchNotification => {
+                if matches!(
+                    CdcTable::from(change.table.as_str()),
+                    CdcTable::SearchFilterMatches
+                ) && change.operation == CdcOperation::Insert
+                {
+                    search_filter_match_created_job(change)
+                } else {
+                    Err(CdcRouteError::UnsupportedTableForWorker(
+                        change.table.clone(),
+                    ))
+                }
+            }
             CdcFanoutScope::SearchFilterProjection => {
                 if matches!(
                     CdcTable::from(change.table.as_str()),
@@ -446,6 +528,10 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
         (CdcTable::ProductEvents, _) => Ok(Vec::new()),
         (CdcTable::Shops, operation) => shop_changed_job(change, operation),
         (CdcTable::SearchFilters, operation) => search_filter_changed_job(change, operation),
+        (CdcTable::SearchFilterMatches, CdcOperation::Insert) => {
+            search_filter_match_created_job(change)
+        }
+        (CdcTable::SearchFilterMatches, _) => Ok(Vec::new()),
         (CdcTable::Users, CdcOperation::Update) => user_tier_changed_job(change),
         (CdcTable::Users, _) => Ok(Vec::new()),
         (CdcTable::Unknown(table), _) => {
@@ -455,7 +541,6 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
         (
             CdcTable::Products
             | CdcTable::ProductWatchlist
-            | CdcTable::SearchFilterMatches
             | CdcTable::UserPartnerShops
             | CdcTable::PartnerShopApplications,
             _,
@@ -527,7 +612,7 @@ fn product_event_jobs(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteErro
 
     if matches!(
         event_type.as_str(),
-        "DOMAIN_PRICE_CHANGED" | "DOMAIN_STATE_CHANGED"
+        "PRODUCT_PRICE_CHANGED" | "PRODUCT_STATE_CHANGED"
     ) {
         jobs.push(domain_job(
             WorkerQueue::WatchlistNotification,
@@ -610,6 +695,28 @@ fn search_filter_changed_job(
             user_search_filter_id,
             version,
             operation,
+        }),
+    )])
+}
+
+fn search_filter_match_created_job(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
+    let row = required_row(change)?;
+    let user_id = required_string(row, "user_id")?;
+    let user_search_filter_id = required_string(row, "user_search_filter_id")?;
+    let product_id = required_string(row, "product_id")?;
+    let origin_event_id = required_string(row, "origin_event_id")?;
+
+    Ok(vec![domain_job(
+        WorkerQueue::SearchFilterMatchNotification,
+        IdempotencyKey::new(format!(
+            "search-filter-match:{user_id}:{user_search_filter_id}:{product_id}:{origin_event_id}"
+        )),
+        OrderingKey::new(format!("user:{user_id}")),
+        DomainJobPayload::SearchFilterMatchCreated(SearchFilterMatchCreatedJob {
+            user_id,
+            user_search_filter_id,
+            product_id,
+            origin_event_id,
         }),
     )])
 }
@@ -781,7 +888,7 @@ mod tests {
     #[test]
     fn should_route_product_price_event_to_watchlist_notifications()
     -> Result<(), Box<dyn std::error::Error>> {
-        let jobs = route_change(&product_event_change("DOMAIN_PRICE_CHANGED", "DOMAIN"))?;
+        let jobs = route_change(&product_event_change("PRODUCT_PRICE_CHANGED", "DOMAIN"))?;
 
         assert!(
             jobs.iter()
@@ -923,6 +1030,80 @@ mod tests {
     }
 
     #[test]
+    fn should_route_search_filter_match_insert_to_notification_queue()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&CdcChange {
+            schema: Some("public".to_owned()),
+            table: "search_filter_matches".to_owned(),
+            operation: CdcOperation::Insert,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "user_id": "10000000-0000-0000-0000-000000000001",
+                "user_search_filter_id": "50000000-0000-0000-0000-000000000001",
+                "product_id": "30000000-0000-0000-0000-000000000001",
+                "origin_event_id": "40000000-0000-0000-0000-000000000001"
+            })),
+            old_record: None,
+            changed_columns: Vec::new(),
+            commit_lsn: None,
+            commit_timestamp: None,
+        })?;
+
+        assert_eq!(1, jobs.len());
+        assert_eq!(
+            WorkerQueue::SearchFilterMatchNotification,
+            jobs[0].target_queue
+        );
+        assert_eq!(
+            "search-filter-match:10000000-0000-0000-0000-000000000001:50000000-0000-0000-0000-000000000001:30000000-0000-0000-0000-000000000001:40000000-0000-0000-0000-000000000001",
+            jobs[0].idempotency_key.as_str()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_enqueue_only_match_inserts_for_search_filter_match_notification_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (sender, mut receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let fanout = CdcFanout::search_filter_match_notification(
+            WorkerQueueRegistry::new()
+                .with_queue(WorkerQueue::SearchFilterMatchNotification, sender),
+        );
+        let change = CdcChange {
+            schema: Some("public".to_owned()),
+            table: "search_filter_matches".to_owned(),
+            operation: CdcOperation::Insert,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "user_id": "10000000-0000-0000-0000-000000000001",
+                "user_search_filter_id": "50000000-0000-0000-0000-000000000001",
+                "product_id": "30000000-0000-0000-0000-000000000001",
+                "origin_event_id": "40000000-0000-0000-0000-000000000001"
+            })),
+            old_record: None,
+            changed_columns: Vec::new(),
+            commit_lsn: None,
+            commit_timestamp: None,
+        };
+
+        assert_eq!(
+            1,
+            fanout
+                .ingest_batch(&CdcBatch {
+                    delivery_id: Some("delivery-match".to_owned()),
+                    source: Some("postgres".to_owned()),
+                    changes: vec![change],
+                })
+                .await?
+        );
+        assert_eq!(
+            Some(WorkerQueue::SearchFilterMatchNotification),
+            receiver.recv().await.map(|job| job.target_queue)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn should_route_user_tier_change() -> Result<(), Box<dyn std::error::Error>> {
         let jobs = route_change(&CdcChange {
             schema: Some("public".to_owned()),
@@ -993,6 +1174,57 @@ mod tests {
         assert!(product_receiver.recv().await.is_some());
         assert!(percolator_receiver.recv().await.is_some());
         assert!(embed_receiver.recv().await.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_enqueue_only_domain_or_enrichment_product_events_for_percolator_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (sender, mut receiver) = in_memory_queue(QueueConfig::new(2))?;
+        let fanout = CdcFanout::search_filter_percolator(
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::SearchFilterPercolator, sender),
+        );
+
+        assert_eq!(
+            1,
+            fanout
+                .ingest_batch(&CdcBatch {
+                    delivery_id: Some("delivery-domain".to_owned()),
+                    source: Some("postgres".to_owned()),
+                    changes: vec![product_event_change("PRODUCT_STATE_CHANGED", "DOMAIN")],
+                })
+                .await?
+        );
+        assert_eq!(
+            0,
+            fanout
+                .ingest_batch(&CdcBatch {
+                    delivery_id: Some("delivery-policy".to_owned()),
+                    source: Some("postgres".to_owned()),
+                    changes: vec![product_event_change("POLICY_ACCEPTED", "POLICY")],
+                })
+                .await?
+        );
+        assert_eq!(
+            0,
+            fanout
+                .ingest_batch(&CdcBatch {
+                    delivery_id: Some("delivery-lifecycle".to_owned()),
+                    source: Some("postgres".to_owned()),
+                    changes: vec![product_event_change("LIFECYCLE_DELETED", "LIFECYCLE")],
+                })
+                .await?
+        );
+
+        assert_eq!(
+            Some(WorkerQueue::SearchFilterPercolator),
+            receiver.recv().await.map(|job| job.target_queue)
+        );
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), receiver.recv())
+                .await
+                .is_err()
+        );
         Ok(())
     }
 

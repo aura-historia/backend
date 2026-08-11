@@ -8,6 +8,11 @@ pub use commands::create_product::{
 pub use commands::delete_product::{
     DeleteProductError, DeleteProductHandler, DeleteProductResult, DeleteProductUseCase,
 };
+pub use commands::generate_watchlist_notifications::{
+    GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsError,
+    GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsResult,
+    GenerateWatchlistNotificationsUseCase,
+};
 pub use commands::update_product::{
     UpdateProductCommand, UpdateProductError, UpdateProductHandler, UpdateProductResult,
     UpdateProductUseCase,

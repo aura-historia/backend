@@ -176,7 +176,7 @@ where
 pub struct VertexAiEmbeddingGenerator {
     embed_content_url: String,
     client: reqwest::Client,
-    image_fetcher: ImageFetcher,
+    image_fetcher: SafeImageFetcher,
     credentials: AccessTokenCredentials,
     query_cache: Mutex<LruCache<EmbeddingText, EmbeddingVector>>,
 }
@@ -186,7 +186,7 @@ impl VertexAiEmbeddingGenerator {
         Self {
             embed_content_url: build_embed_content_url(&config),
             client: reqwest::Client::new(),
-            image_fetcher: ImageFetcher::new(),
+            image_fetcher: SafeImageFetcher::new(),
             credentials,
             query_cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(QUERY_CACHE_CAPACITY).unwrap_or(NonZeroUsize::MIN),
@@ -256,25 +256,39 @@ impl VertexAiEmbeddingGenerator {
     }
 
     async fn fetch_image(&self, image_url: &EmbeddingImageUrl) -> Option<FetchedImage> {
-        tokio::time::timeout(
-            IMAGE_FETCH_TOTAL_TIMEOUT,
-            self.image_fetcher.fetch(image_url.as_url()),
-        )
-        .await
-        .ok()
-        .flatten()
+        self.image_fetcher.fetch(image_url.as_url()).await
     }
 }
 
-struct ImageFetcher {
+/// Fetches external images after validating every network hop.
+///
+/// Only HTTP(S) hosts resolving exclusively to public IP addresses are requested. Redirects,
+/// response bytes, and request duration are bounded. Fetch failures intentionally yield no image.
+pub struct SafeImageFetcher {
     request_timeout: Duration,
     max_response_bytes: usize,
     #[cfg(test)]
     unsafe_host_allowlist: Vec<String>,
 }
 
-impl ImageFetcher {
-    fn new() -> Self {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchedImage {
+    mime_type: &'static str,
+    base64_data: String,
+}
+
+impl FetchedImage {
+    pub fn mime_type(&self) -> &'static str {
+        self.mime_type
+    }
+
+    pub fn base64_data(&self) -> &str {
+        &self.base64_data
+    }
+}
+
+impl SafeImageFetcher {
+    pub fn new() -> Self {
         Self {
             request_timeout: IMAGE_FETCH_REQUEST_TIMEOUT,
             max_response_bytes: IMAGE_FETCH_MAX_BYTES,
@@ -283,7 +297,14 @@ impl ImageFetcher {
         }
     }
 
-    async fn fetch(&self, url: &Url) -> Option<FetchedImage> {
+    pub async fn fetch(&self, url: &Url) -> Option<FetchedImage> {
+        tokio::time::timeout(IMAGE_FETCH_TOTAL_TIMEOUT, self.fetch_with_retries(url))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn fetch_with_retries(&self, url: &Url) -> Option<FetchedImage> {
         for attempt in 1..=IMAGE_FETCH_MAX_ATTEMPTS {
             match self.fetch_once(url).await {
                 Ok(image) => return Some(image),
@@ -382,6 +403,12 @@ impl ImageFetcher {
             max_response_bytes,
             unsafe_host_allowlist: vec![unsafe_host.into()],
         }
+    }
+}
+
+impl Default for SafeImageFetcher {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -560,6 +587,9 @@ fn supported_image_mime_type_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Some("image/png");
     }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
     if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
         return Some("image/webp");
     }
@@ -594,6 +624,9 @@ fn supported_image_mime_type_from_content_type(content_type: &str) -> Option<&'s
     }
     if content_type.eq_ignore_ascii_case("image/webp") {
         return Some("image/webp");
+    }
+    if content_type.eq_ignore_ascii_case("image/gif") {
+        return Some("image/gif");
     }
     if content_type.eq_ignore_ascii_case("image/heic") {
         return Some("image/heic");
@@ -658,11 +691,6 @@ impl ImageFetchError {
             Self::Request(_) | Self::Resolution(_) | Self::Timeout | Self::Response
         )
     }
-}
-
-struct FetchedImage {
-    mime_type: &'static str,
-    base64_data: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -811,6 +839,14 @@ mod tests {
             supported_image_mime_type_from_bytes(b"\x89PNG\r\n\x1a\n")
         );
         assert_eq!(
+            Some("image/gif"),
+            supported_image_mime_type_from_bytes(b"GIF87a")
+        );
+        assert_eq!(
+            Some("image/gif"),
+            supported_image_mime_type_from_bytes(b"GIF89a")
+        );
+        assert_eq!(
             Some("image/webp"),
             supported_image_mime_type_from_bytes(b"RIFFxxxxWEBP")
         );
@@ -932,7 +968,7 @@ mod tests {
         let png = b"\x89PNG\r\n\x1a\n";
         let server =
             spawn_mock_image_server(vec![redirect_response("/image"), image_response(png)]).await?;
-        let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 64, "127.0.0.1");
+        let fetcher = SafeImageFetcher::for_test(Duration::from_secs(1), 64, "127.0.0.1");
 
         let image = fetcher.fetch_once(&server.url).await?;
 
@@ -950,7 +986,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let server =
             spawn_mock_image_server(vec![redirect_response("http://localhost/secret")]).await?;
-        let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 64, "127.0.0.1");
+        let fetcher = SafeImageFetcher::for_test(Duration::from_secs(1), 64, "127.0.0.1");
 
         assert!(matches!(
             fetcher.fetch_once(&server.url).await,
@@ -966,7 +1002,7 @@ mod tests {
         let oversized_png = b"\x89PNG\r\n\x1a\n!";
         let server =
             spawn_mock_image_server(vec![response_without_content_length(oversized_png)]).await?;
-        let fetcher = ImageFetcher::for_test(Duration::from_secs(1), 8, "127.0.0.1");
+        let fetcher = SafeImageFetcher::for_test(Duration::from_secs(1), 8, "127.0.0.1");
 
         assert!(matches!(
             fetcher.fetch_once(&server.url).await,
@@ -984,7 +1020,7 @@ mod tests {
             Duration::from_millis(250),
         );
         let server = spawn_mock_image_server(vec![response]).await?;
-        let fetcher = ImageFetcher::for_test(Duration::from_millis(25), 64, "127.0.0.1");
+        let fetcher = SafeImageFetcher::for_test(Duration::from_millis(25), 64, "127.0.0.1");
 
         assert!(matches!(
             fetcher.fetch_once(&server.url).await,

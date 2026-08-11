@@ -5,4 +5,8 @@ pub mod notification_batch_inserter;
 pub mod notification_deleter;
 pub mod notification_recipient_reader;
 pub mod notification_repository;
+pub mod notification_writer;
 pub mod product_notifications_reader;
+pub use notification_writer::{
+    NotificationWriteError, NotificationWriteOutcome, NotificationWriter,
+};

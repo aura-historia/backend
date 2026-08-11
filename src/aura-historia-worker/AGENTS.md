@@ -10,8 +10,10 @@
 - `lib.rs` owns runtime config, `/health`, `/ready`, `/cdc/sequin`, server loop, default all-queue runtime, and bounded queue primitives.
 - `cdc.rs` normalizes Sequin webhook JSON to domain jobs and fans out after route validation.
 - `search_filter_projection.rs` consumes `SearchFilterOpenSearch` jobs, rereads committed Postgres state, and writes the canonical OpenSearch projection with target-side version protection.
+- `search_filter_percolator.rs` maps domain/enrichment `ProductEvent` jobs to the inbound matching command and invokes the service. The service rereads committed Product state, skips stale triggers whose event ID no longer matches current state, evaluates enhanced filters, and persists canonical Postgres matches. No legacy evaluator is linked.
+- `search_filter_match_notifications.rs` maps persisted-match insert jobs to the inbound notification command and invokes the service. Match jobs and source reads use `(user_id, user_search_filter_id, product_id, origin_event_id)`; stale or superseded rows suppress without notification. The service reads typed Postgres match/Product sources in one snapshot, then conditionally creates one DynamoDB SearchFilter notification after commit. Worker logs distinguish inserted notifications from conditional-write deduplication.
+- `watchlist_notifications.rs consumes price/state Product event jobs, rereads committed Postgres source plus active watchlist recipients, then creates idempotent DynamoDB notification records. Its worker log reports inserted and deduplicated counts separately.
 - `retry.rs` owns in-process retry, idempotency memory, and in-memory DLQ helpers.
-- `tests/search_filter_projection.rs` independently proves committed Postgres filter insert, update, and delete → Sequin webhook → worker HTTP/queue → OpenSearch percolation; rolled-back inserts stay absent.
 - No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs.
 
 ## Ownership
@@ -23,8 +25,8 @@
 
 - Read repo root, `src/AGENTS.md`, then here before edit.
 - Update this doc when env vars, queue behavior, dependencies, or runtime behavior changes.
-- Runtime accepts only `search_filters` CDC; other tables fail delivery rather than filling unconsumed queues. Configure Sequin accordingly.
-- Runtime requires `POSTGRES_*`, `OPENSEARCH_ENDPOINT_URL`, and outside `STAGE=ephemeral`, OpenSearch credentials.
+- Runtime scope comes from required `AURA_HISTORIA_WORKER_SCOPE`: `search-filter-projection` accepts only `search_filters`; `search-filter-percolator` accepts only domain/enrichment `product_events` inserts; `search-filter-match-notification` accepts only `search_filter_matches` inserts; `watchlist-notification` accepts only canonical price/state `product_events` inserts. Only `STAGE=ephemeral`, `local`, or `test` may default to projection. Other tables fail delivery rather than filling unconsumed queues. Configure each Sequin subscription accordingly.
+- Startup validates scoped configuration before Postgres connects or readiness binds. Every scope requires `POSTGRES_*`. Search-filter projection/percolator scopes require `OPENSEARCH_ENDPOINT_URL` and, outside local development, OpenSearch credentials. Percolator also requires explicit `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION`, and Google ADC with Cloud Platform scope. Match-notification and watchlist scopes require `DYNAMODB_TABLE_NAME` and DynamoDB write credentials. Only the selected scope initializes its OpenSearch, Vertex, DynamoDB, and source-reader adapters.
 - Event-flow changes must update `docs/events/flow.md`.
 
 ## Work Guidance
@@ -36,6 +38,7 @@
 - Ack Sequin only after all relevant bounded queue enqueues succeed.
 - Use domain idempotency keys; Sequin IDs/LSNs are logs only.
 - Keep queue abstraction replaceable by SQS/Lambda/ECS later.
+- Every production worker route needs rigorous black-box acceptance tests in `tests/` using real Postgres, Sequin, the running worker server, and every written target store. Cover happy path, rollback, ignored changes, redelivery/idempotency, filtering, and persisted output shape. Declare `Sequin::worker_webhook()` after fixtures in `#[aura_integration_test]`; it owns one process-lived subscription. Worker helpers bind `get_sequin_worker_webhook_bind_addr()` and own only runtime shutdown. Start the worker before writing watched source rows; fixture helpers must not emit those rows.
 
 ## Verification
 

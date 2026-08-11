@@ -15,6 +15,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 shop-core = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 

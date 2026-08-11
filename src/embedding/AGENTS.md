@@ -3,16 +3,16 @@
 ## Purpose
 
 - Own product-neutral embedding capability and Vertex AI adapter.
-- Expose typed text/image requests, typed 768-value embeddings, and mockable port.
+- Expose typed text/image requests, typed 768-value embeddings, mockable port, and guarded external image fetch capability.
 
 ## Core Design
 
 - `EmbeddingGenerator` is product/search-filter free. Callers compose their own text.
 - `VertexAiEmbeddingGenerator` owns Vertex HTTP, optional-image fetch/sniff/retry, and query LRU cache.
-- Image fetches allow only HTTP(S) targets resolving solely to public IPs, recheck every redirect, and bound response time and bytes.
+- `SafeImageFetcher` is reusable for adapter-owned multimodal inputs. Image fetches allow only HTTP(S) targets resolving solely to public IPs, recheck every redirect, bound response time and bytes, and sniff JPEG, PNG, GIF, WebP, HEIC, or HEIF bytes.
 - Provider DTOs stay private. This crate logs no input, response, token, URL, or error payload.
 - Composition roots pass `VertexAiEmbeddingConfig` plus Google access-token credentials; they resolve ADC at that boundary. This crate reads no environment variables directly.
-- `EmbeddingGenerator` is the only public port. Services inject it directly; no bounded-context adapter bridge.
+- `EmbeddingGenerator` is the embedding port. `SafeImageFetcher` is a product-neutral adapter safety capability; services do not depend on it.
 
 ## Ownership
 

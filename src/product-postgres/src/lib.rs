@@ -7,7 +7,8 @@ pub use event_store::{SqlxProductEventStore, SqlxProductEventStoreFactory};
 pub use partner_product_authorizer::SqlxPartnerProductAuthorizerFactory;
 pub use readers::{
     SqlxProductDetailsBatchReader, SqlxProductDetailsReaderFactory,
-    SqlxProductEmbeddingReaderFactory, SqlxProductEventReaderFactory, SqlxProductUserStateReader,
-    SqlxProductWatchlistDetailsReaderFactory,
+    SqlxProductEmbeddingReaderFactory, SqlxProductEventReaderFactory,
+    SqlxProductSearchFilterMatchSourceReaderFactory, SqlxProductUserStateReader,
+    SqlxProductWatchlistDetailsReaderFactory, SqlxProductWatchlistNotificationSourceReaderFactory,
 };
 pub use repository::{SqlxProductRepository, SqlxProductRepositoryFactory};

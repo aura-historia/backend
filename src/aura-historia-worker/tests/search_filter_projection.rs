@@ -4,13 +4,28 @@ use std::time::{Duration, Instant};
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use common::currency::domain::Currency;
+use common::event_id::EventId;
 use common::language::domain::Language;
 use common::postgres::SqlxUnitOfWork;
+use common::product_id::ProductId;
+use common::product_lifecycle::domain::ProductLifecycle;
+use common::product_slug_id::ProductSlugId;
+use common::product_state::domain::ProductState;
 use common::resource_state::domain::ResourceState;
+use common::seller_slug_id::SellerSlugId;
+use common::shop_id::ShopId;
+use common::shop_name::ShopName;
+use common::shop_slug_id::ShopSlugId;
+use common::shops_product_id::ShopsProductId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use product_core::{
+    product::{ProductAddress, ProductAuction, ProductPricing},
+    title::Title,
+};
+use product_service::ports::{ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource};
 use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{SqlxSearchFilterIndexReader, SqlxSearchFilterRepositoryFactory};
@@ -20,21 +35,20 @@ use search_filter_service::ports::{
 use search_filter_service::use_cases::{
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
 };
-use serde_json::json;
 use test_api::{
     IntegrationTestService, OpenSearch, Postgres, Sequin, aura_integration_test,
-    get_opensearch_client, get_or_start_worker_webhook_sequin, get_postgres_client,
-    get_sequin_worker_webhook_bind_addr, refresh_index,
+    get_opensearch_client, get_postgres_client, get_sequin_worker_webhook_bind_addr, refresh_index,
 };
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const POLL_ATTEMPTS: usize = 120;
 const ROLLBACK_OBSERVATION_DURATION: Duration = Duration::from_secs(2);
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), Sequin::worker_webhook()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_project_search_filter_insert_from_sequin() {
     let result = project_search_filter_insert_from_sequin().await;
 
@@ -44,7 +58,7 @@ async fn should_project_search_filter_insert_from_sequin() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), Sequin::worker_webhook()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_replace_search_filter_projection_after_sequin_update() {
     let result = project_search_filter_update_from_sequin().await;
 
@@ -54,7 +68,7 @@ async fn should_replace_search_filter_projection_after_sequin_update() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), Sequin::worker_webhook()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_not_project_rolled_back_search_filter_insert_from_sequin() {
     let result = reject_rolled_back_search_filter_insert_from_sequin().await;
 
@@ -64,7 +78,7 @@ async fn should_not_project_rolled_back_search_filter_insert_from_sequin() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), Sequin::worker_webhook()])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_remove_search_filter_projection_after_sequin_delete() {
     let result = project_search_filter_delete_from_sequin().await;
 
@@ -193,8 +207,6 @@ impl ProjectionWorker {
         let server = tokio::spawn(serve_with_runtime(listener, runtime, async move {
             let _ = shutdown_rx.await;
         }));
-        let _sequin = get_or_start_worker_webhook_sequin().await;
-
         Ok(Self {
             pool,
             index,
@@ -305,13 +317,8 @@ async fn assert_not_percolated_for(
 
     loop {
         refresh_index("user_search_filters").await;
-        let matches = index
-            .percolate(json!({
-                "titleEn": title,
-                "title": {"text": title, "language": "en"},
-                "lifecycle": "ACTIVE"
-            }))
-            .await?;
+        let product = product_source(title)?;
+        let matches = index.percolate(&product).await?;
         if matches
             .iter()
             .any(|search_filter| search_filter.search_filter_id == filter_id)
@@ -336,13 +343,8 @@ async fn wait_for_percolation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
         refresh_index("user_search_filters").await;
-        let matches = index
-            .percolate(json!({
-                "titleEn": title,
-                "title": {"text": title, "language": "en"},
-                "lifecycle": "ACTIVE"
-            }))
-            .await?;
+        let product = product_source(title)?;
+        let matches = index.percolate(&product).await?;
         let found = matches
             .iter()
             .any(|search_filter| search_filter.search_filter_id == filter_id);
@@ -356,6 +358,48 @@ async fn wait_for_percolation(
         "search filter {filter_id} did not reach expected percolation state {should_match} for {title:?}"
     ))
     .into())
+}
+
+fn product_source(
+    title: &str,
+) -> Result<ProductSearchFilterMatchSource, Box<dyn std::error::Error>> {
+    let title = Title::from(title);
+    let url = url::Url::parse("https://shop.example.test/products/test-product")?;
+    let event_id = EventId::new();
+
+    Ok(ProductSearchFilterMatchSource {
+        event_id,
+        event_kind: product_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
+        current_event_id: event_id,
+        product_id: ProductId::new(),
+        product_slug_id: ProductSlugId::from("test-product"),
+        shop_id: ShopId::new(),
+        shop_slug_id: ShopSlugId::from("test-shop"),
+        shop_name: ShopName::from("Test shop"),
+        shop_type: ProductSearchFilterMatchShopType::Marketplace,
+        seller_id: ShopId::new(),
+        seller_slug_id: SellerSlugId::from(ShopSlugId::from("test-seller")),
+        seller_name: ShopName::from("Test seller"),
+        shops_product_id: ShopsProductId::from("test-product-1"),
+        address: ProductAddress::default(),
+        product_title: Some(common::localized::Localized::new(
+            Language::En,
+            title.clone(),
+        )),
+        product_description: None,
+        titles: std::collections::HashMap::from([(Language::En, title)]),
+        descriptions: std::collections::HashMap::new(),
+        pricing: ProductPricing::default(),
+        state: ProductState::Listed,
+        lifecycle: ProductLifecycle::Active,
+        url: url.clone(),
+        view_url: url,
+        image: None,
+        images: indexmap::IndexSet::new(),
+        auction: ProductAuction::default(),
+        created: time::OffsetDateTime::UNIX_EPOCH,
+        updated: time::OffsetDateTime::UNIX_EPOCH,
+    })
 }
 
 fn search_filter(user_id: UserId, query: &str) -> Result<SearchFilter, Box<dyn std::error::Error>> {

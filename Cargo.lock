@@ -359,8 +359,19 @@ name = "aura-historia-worker"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-config",
+ "aws-sdk-dynamodb",
  "common",
+ "google-cloud-auth",
+ "indexmap 2.14.0",
+ "notification-core",
+ "notification-dynamodb",
+ "notification-service",
  "opensearch",
+ "product-core",
+ "product-postgres",
+ "product-service",
+ "reqwest 0.12.28",
  "rstest",
  "search-filter-core",
  "search-filter-opensearch",
@@ -372,10 +383,13 @@ dependencies = [
  "sqlx",
  "test-api",
  "thiserror 2.0.19",
+ "time",
  "tokio",
  "tracing",
  "url",
+ "user-postgres",
  "uuid",
+ "watchlist-postgres",
 ]
 
 [[package]]
@@ -7169,11 +7183,17 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "embedding",
+ "futures",
  "geo",
+ "google-cloud-auth",
+ "indexmap 2.14.0",
  "isocountry",
  "opensearch",
  "product-core",
  "product-opensearch",
+ "product-service",
+ "reqwest 0.12.28",
  "search-filter-core",
  "search-filter-service",
  "serde",
@@ -7184,6 +7204,7 @@ dependencies = [
  "thiserror 2.0.19",
  "time",
  "tokio",
+ "url",
 ]
 
 [[package]]
@@ -7229,6 +7250,7 @@ dependencies = [
  "shop-core",
  "sqlx",
  "test-api",
+ "thiserror 2.0.19",
  "time",
  "tokio",
  "uuid",
@@ -7244,6 +7266,7 @@ dependencies = [
  "geo",
  "indexmap 2.14.0",
  "isocountry",
+ "notification-core",
  "notification-service",
  "product-core",
  "product-service",
@@ -9802,6 +9825,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "product-service",
  "serial_test",
  "sqlx",
  "test-api",

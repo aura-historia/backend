@@ -14,7 +14,7 @@
   - `ports` — one file per outbound port; port-local errors/read models live in that port file.
 - No compatibility re-export modules.
 - No noop adapter in this crate.
-- Repository writes return persisted notification state; handlers must not read after write for responses.
+- Repository writes return persisted notification state; handlers must not read after write for responses. Conditional notification writers return explicit inserted or already-exists outcomes and a dedicated write error; a deduplicated create result never contains a fabricated notification.
 - Keep runtime and HTTP glue outside.
 
 ## Ownership

@@ -1,73 +1,216 @@
 use std::sync::Arc;
 
-use aura_historia_worker::cdc::WorkerQueue;
+use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
+use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
+use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{
-    QueueConfig, WorkerConfig, WorkerConfigError, WorkerRunError, WorkerRuntime,
-    run_until_shutdown_with_runtime,
+    QueueConfig, WorkerDynamoDbConfig, WorkerOpenSearchConfig, WorkerRunError,
+    WorkerRuntimeComposition, WorkerScope, WorkerStartupConfig, WorkerStartupConfigError,
+    WorkerVertexAiConfig, run_until_shutdown_with_runtime,
 };
-use common::postgres::{PostgresConnectError, connect_from_env};
+use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
+use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
+use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
+use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use opensearch::{
     OpenSearch,
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
-use search_filter_opensearch::OpenSearchSearchFilterIndex;
-use search_filter_postgres::SqlxSearchFilterIndexReader;
-use search_filter_service::use_cases::{
-    ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
+use product_postgres::{
+    SqlxProductSearchFilterMatchSourceReaderFactory,
+    SqlxProductWatchlistNotificationSourceReaderFactory,
 };
+use product_service::use_cases::{
+    GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
+};
+use search_filter_opensearch::{
+    OpenSearchSearchFilterIndex, VertexAiProductMatchEvaluator, VertexAiProductMatchEvaluatorConfig,
+};
+use search_filter_postgres::{
+    SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
+    SqlxSearchFilterMatchNotificationSourceReaderFactory, SqlxSearchFilterMatchWriterFactory,
+    SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
+};
+use search_filter_service::use_cases::{
+    GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationUseCase,
+    MatchProductEventHandler, MatchProductEventUseCase, ProjectSearchFilterChangeHandler,
+    ProjectSearchFilterChangeUseCase,
+};
+use user_postgres::SqlxUserTierEntitlementsFactory;
+use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
+
+const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
     common::logging::init_logging();
-    let config = WorkerConfig::from_env()?;
-    let pool = connect_from_env().await?;
-    let client = opensearch_client_from_env()?;
+    let startup = WorkerStartupConfig::from_env()?;
+    let scope = startup.scope();
+    let worker_config = startup.worker().clone();
+    let pool = startup
+        .postgres()
+        .connect()
+        .await
+        .map_err(PostgresConnectError::Connect)?;
+    let composition = WorkerRuntimeComposition::build(scope, QueueConfig::new(1024))?;
 
-    let projection_handler: Arc<dyn ProjectSearchFilterChangeUseCase> =
+    match scope {
+        WorkerScope::SearchFilterProjection => {
+            let opensearch = startup
+                .opensearch()
+                .ok_or(MainError::MissingScopeConfig { scope })?;
+            run_search_filter_projection(worker_config, pool, composition, opensearch).await
+        }
+        WorkerScope::SearchFilterPercolator => {
+            let opensearch = startup
+                .opensearch()
+                .ok_or(MainError::MissingScopeConfig { scope })?;
+            let vertex_ai = startup
+                .vertex_ai()
+                .ok_or(MainError::MissingScopeConfig { scope })?;
+            run_search_filter_percolator(worker_config, pool, composition, opensearch, vertex_ai)
+                .await
+        }
+        WorkerScope::SearchFilterMatchNotification => {
+            let dynamodb = startup
+                .dynamodb()
+                .ok_or(MainError::MissingScopeConfig { scope })?;
+            run_search_filter_match_notifications(worker_config, pool, composition, dynamodb).await
+        }
+        WorkerScope::WatchlistNotification => {
+            let dynamodb = startup
+                .dynamodb()
+                .ok_or(MainError::MissingScopeConfig { scope })?;
+            run_watchlist_notifications(worker_config, pool, composition, dynamodb).await
+        }
+    }
+}
+
+async fn run_search_filter_projection(
+    config: aura_historia_worker::WorkerConfig,
+    pool: sqlx::PgPool,
+    composition: WorkerRuntimeComposition,
+    opensearch: &WorkerOpenSearchConfig,
+) -> Result<(), MainError> {
+    let handler: Arc<dyn ProjectSearchFilterChangeUseCase> =
         Arc::new(ProjectSearchFilterChangeHandler::new(
             SqlxSearchFilterIndexReader::new(pool),
-            OpenSearchSearchFilterIndex::new(client),
+            OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
         ));
-    let (runtime, mut receivers) =
-        WorkerRuntime::with_search_filter_projection_queue(QueueConfig::new(1024))?;
-    let receiver = receivers
-        .take(WorkerQueue::SearchFilterOpenSearch)
-        .ok_or(MainError::MissingSearchFilterQueue)?;
-    let projection_task = tokio::spawn(consume_search_filter_projection_queue(
-        receiver,
-        projection_handler,
-    ));
+    let (runtime, receiver) = composition.into_parts();
+    let task = tokio::spawn(consume_search_filter_projection_queue(receiver, handler));
+    finish_runtime(config, runtime, task).await
+}
 
+async fn run_search_filter_percolator(
+    config: aura_historia_worker::WorkerConfig,
+    pool: sqlx::PgPool,
+    composition: WorkerRuntimeComposition,
+    opensearch: &WorkerOpenSearchConfig,
+    vertex_ai: &WorkerVertexAiConfig,
+) -> Result<(), MainError> {
+    let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+        OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
+        vertex_ai_product_match_evaluator(vertex_ai)?,
+        SqlxActiveSearchFilterMatchCandidateReaderFactory,
+        SqlxSearchFilterMatchWriterFactory,
+    ));
+    let (runtime, receiver) = composition.into_parts();
+    let task = tokio::spawn(consume_search_filter_percolator_queue(receiver, handler));
+    finish_runtime(config, runtime, task).await
+}
+
+async fn run_search_filter_match_notifications(
+    config: aura_historia_worker::WorkerConfig,
+    pool: sqlx::PgPool,
+    composition: WorkerRuntimeComposition,
+    dynamodb: &WorkerDynamoDbConfig,
+) -> Result<(), MainError> {
+    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let handler: Arc<dyn GenerateSearchFilterMatchNotificationUseCase> =
+        Arc::new(GenerateSearchFilterMatchNotificationHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxSearchFilterMatchNotificationSourceReaderFactory,
+            SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+            SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
+            SqlxUserTierEntitlementsFactory::new(),
+            CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
+                aws_sdk_dynamodb::Client::new(&aws_config),
+                dynamodb.table_name(),
+            )),
+        ));
+    let (runtime, receiver) = composition.into_parts();
+    let task = tokio::spawn(consume_search_filter_match_notification_queue(
+        receiver, handler,
+    ));
+    finish_runtime(config, runtime, task).await
+}
+
+async fn run_watchlist_notifications(
+    config: aura_historia_worker::WorkerConfig,
+    pool: sqlx::PgPool,
+    composition: WorkerRuntimeComposition,
+    dynamodb: &WorkerDynamoDbConfig,
+) -> Result<(), MainError> {
+    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let notification_writer = ConditionalDynamoDbNotificationWriter::new(
+        aws_sdk_dynamodb::Client::new(&aws_config),
+        dynamodb.table_name(),
+    );
+    let handler: Arc<dyn GenerateWatchlistNotificationsUseCase> =
+        Arc::new(GenerateWatchlistNotificationsHandler::new(
+            SqlxUnitOfWork::new(pool),
+            SqlxProductWatchlistNotificationSourceReaderFactory::new(),
+            SqlxWatchlistNotificationRecipientReaderFactory,
+            CreateNotificationHandler::new(notification_writer),
+        ));
+    let (runtime, receiver) = composition.into_parts();
+    let task = tokio::spawn(consume_watchlist_notification_queue(receiver, handler));
+    finish_runtime(config, runtime, task).await
+}
+
+async fn finish_runtime(
+    config: aura_historia_worker::WorkerConfig,
+    runtime: aura_historia_worker::WorkerRuntime,
+    task: tokio::task::JoinHandle<()>,
+) -> Result<(), MainError> {
     let result = run_until_shutdown_with_runtime(config, runtime, shutdown_signal()).await;
-    projection_task.abort();
-    let _ = projection_task.await;
+    task.abort();
+    let _ = task.await;
     result?;
     Ok(())
 }
 
-fn opensearch_client_from_env() -> Result<OpenSearch, MainError> {
-    let endpoint = std::env::var("OPENSEARCH_ENDPOINT_URL").map_err(|_| MainError::MissingEnv {
-        name: "OPENSEARCH_ENDPOINT_URL",
-    })?;
-    let endpoint = url::Url::parse(&endpoint).map_err(|error| MainError::OpenSearch {
-        detail: error.to_string(),
-    })?;
-    let stage = std::env::var("STAGE").unwrap_or_else(|_| "prod".to_owned());
-    let transport = if stage == "ephemeral" {
-        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint)).build()
-    } else {
-        let username = std::env::var("OPENSEARCH_USERNAME").map_err(|_| MainError::MissingEnv {
-            name: "OPENSEARCH_USERNAME",
+fn vertex_ai_product_match_evaluator(
+    config: &WorkerVertexAiConfig,
+) -> Result<VertexAiProductMatchEvaluator, MainError> {
+    let config = VertexAiProductMatchEvaluatorConfig::new(
+        config.project_id().to_owned(),
+        config.location().to_owned(),
+    );
+    let credentials = GoogleCredentialsBuilder::default()
+        .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
+        .build_access_token_credentials()
+        .map_err(|error| MainError::VertexAiCredentials {
+            detail: error.to_string(),
         })?;
-        let password = std::env::var("OPENSEARCH_PASSWORD").map_err(|_| MainError::MissingEnv {
-            name: "OPENSEARCH_PASSWORD",
-        })?;
-        TransportBuilder::new(SingleNodeConnectionPool::new(endpoint))
-            .auth(Credentials::Basic(username, password))
-            .build()
+    Ok(VertexAiProductMatchEvaluator::new(config, credentials))
+}
+
+fn opensearch_client(config: &WorkerOpenSearchConfig) -> Result<OpenSearch, MainError> {
+    let pool = SingleNodeConnectionPool::new(config.endpoint().clone());
+    let builder = TransportBuilder::new(pool);
+    let transport = match config.basic_auth() {
+        Some((username, password)) => {
+            builder.auth(Credentials::Basic(username.to_owned(), password.to_owned()))
+        }
+        None => builder,
     }
+    .build()
     .map_err(|error| MainError::OpenSearch {
         detail: error.to_string(),
     })?;
@@ -83,17 +226,17 @@ async fn shutdown_signal() {
 #[derive(thiserror::Error, Debug)]
 enum MainError {
     #[error(transparent)]
-    Config(#[from] WorkerConfigError),
+    StartupConfig(#[from] WorkerStartupConfigError),
     #[error(transparent)]
     Postgres(#[from] PostgresConnectError),
     #[error(transparent)]
     QueueConfig(#[from] aura_historia_worker::QueueConfigError),
-    #[error("search filter OpenSearch queue is not registered")]
-    MissingSearchFilterQueue,
-    #[error("missing required environment variable {name}")]
-    MissingEnv { name: &'static str },
+    #[error("missing validated configuration for {scope:?} worker scope")]
+    MissingScopeConfig { scope: WorkerScope },
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
+    #[error("failed to initialize Vertex AI credentials: {detail}")]
+    VertexAiCredentials { detail: String },
     #[error(transparent)]
     Run(#[from] WorkerRunError),
 }

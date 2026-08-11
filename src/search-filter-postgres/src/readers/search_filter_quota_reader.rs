@@ -1,5 +1,4 @@
-use common::postgres::SqlxTransaction;
-use common::user_id::UserId;
+use common::{error::boxed::box_error, postgres::SqlxTransaction, user_id::UserId};
 use search_filter_service::ports::{
     SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
 };
@@ -9,6 +8,30 @@ pub struct SqlxSearchFilterQuotaReaderFactory;
 
 struct SqlxSearchFilterQuotaReader<'tx> {
     tx: &'tx mut SqlxTransaction,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("search filter quota SQL query failed")]
+struct SearchFilterQuotaQueryError(#[source] sqlx::Error);
+
+#[derive(Debug, thiserror::Error)]
+#[error("search filter quota count could not convert to usize")]
+struct SearchFilterQuotaCountConversionError(#[source] std::num::TryFromIntError);
+
+impl From<SearchFilterQuotaQueryError> for SearchFilterQuotaReadError {
+    fn from(source: SearchFilterQuotaQueryError) -> Self {
+        Self::ReadFailed {
+            source: box_error(source),
+        }
+    }
+}
+
+impl From<SearchFilterQuotaCountConversionError> for SearchFilterQuotaReadError {
+    fn from(source: SearchFilterQuotaCountConversionError) -> Self {
+        Self::ReadFailed {
+            source: box_error(source),
+        }
+    }
 }
 
 impl SearchFilterQuotaReaderFactory<SqlxTransaction> for SqlxSearchFilterQuotaReaderFactory {
@@ -32,7 +55,26 @@ impl SearchFilterQuotaReader for SqlxSearchFilterQuotaReader<'_> {
         .bind(uuid::Uuid::from(user_id))
         .fetch_one(self.tx.connection())
         .await
-        .map_err(|_| SearchFilterQuotaReadError::ReadFailed)?;
-        usize::try_from(count).map_err(|_| SearchFilterQuotaReadError::ReadFailed)
+        .map_err(SearchFilterQuotaQueryError)?;
+        usize::try_from(count)
+            .map_err(SearchFilterQuotaCountConversionError)
+            .map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_preserve_sqlx_query_source() {
+        let error: SearchFilterQuotaReadError =
+            SearchFilterQuotaQueryError(sqlx::Error::RowNotFound).into();
+
+        let SearchFilterQuotaReadError::ReadFailed { source } = error;
+        let query_error = source
+            .downcast_ref::<SearchFilterQuotaQueryError>()
+            .unwrap_or_else(|| panic!("expected quota query error"));
+        assert!(std::error::Error::source(query_error).is_some());
     }
 }

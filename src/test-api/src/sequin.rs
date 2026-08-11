@@ -9,7 +9,6 @@ use reqwest::StatusCode;
 use sqlx::Executor;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use testcontainers::core::{Host, IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
@@ -19,42 +18,26 @@ use tracing::debug;
 
 const REDIS_CONTAINER_PORT: u16 = 6379;
 const SEQUIN_CONTAINER_PORT: u16 = 7376;
-const SEQUIN_STATE_DB: &str = "sequin";
-const SECRET_KEY_BASE: &str = "wDPLYus0pvD6qJhKJICO4dauYPXfO/Yl782Zjtpew5qRBDp7CZvbWtQmY0eB13If";
+const SEQUIN_HEALTH_MAX_ATTEMPTS: u8 = 90;
+const SEQUIN_STATE_DB_PREFIX: &str = "sequin";
+const SECRET_KEY_BASE: &str = "wDPLYus0pvD6qJhKJICO4vYl782Zjtpew5qRBDp7CZvbWtQmY0eB13If01234567";
 const VAULT_KEY: &str = "2Sig69bIpuSm2kv0VQfDekET2qy8qUZGI8v3/h3ASiY=";
-static SEQUIN_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-static DEFAULT_SEQUIN: OnceCell<RunningSequin> = OnceCell::const_new();
+const WORKER_WEBHOOK_TABLES: &[&str] = &[
+    "public.product_events",
+    "public.search_filters",
+    "public.search_filter_matches",
+];
+
 static WORKER_WEBHOOK_SEQUIN: OnceCell<RunningSequin> = OnceCell::const_new();
 static WORKER_WEBHOOK_PORT: OnceLock<u16> = OnceLock::new();
 
+/// Process-lived Sequin fixture that delivers the worker's CDC tables to its local webhook.
 #[derive(Debug, Clone, Copy)]
-pub struct Sequin {
-    mode: SequinMode,
-}
+pub struct Sequin;
 
 impl Sequin {
-    pub const fn new() -> Self {
-        Self {
-            mode: SequinMode::NoSink,
-        }
-    }
-
     pub const fn worker_webhook() -> Self {
-        Self {
-            mode: SequinMode::WorkerWebhook,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum SequinMode {
-    NoSink,
-    WorkerWebhook,
-}
-
-impl Default for Sequin {
-    fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -65,68 +48,38 @@ impl IntegrationTestService for Sequin {
     }
 
     async fn set_up(&self) {
-        match self.mode {
-            SequinMode::NoSink => {
-                get_or_start_sequin().await;
-            }
-            SequinMode::WorkerWebhook => {
-                get_or_start_worker_webhook_sequin().await;
-            }
-        }
+        get_or_start_worker_webhook_sequin().await;
     }
 }
 
 #[derive(Debug)]
-pub struct RunningSequin {
-    endpoint_url: String,
+struct RunningSequin {
     _redis: ContainerAsync<GenericImage>,
     _sequin: ContainerAsync<GenericImage>,
 }
 
-impl RunningSequin {
-    pub fn endpoint_url(&self) -> &str {
-        &self.endpoint_url
-    }
-
-    pub async fn stdout_string(&self) -> String {
-        String::from_utf8_lossy(&self._sequin.stdout_to_vec().await.unwrap_or_default())
-            .into_owned()
-    }
-
-    pub async fn stderr_string(&self) -> String {
-        String::from_utf8_lossy(&self._sequin.stderr_to_vec().await.unwrap_or_default())
-            .into_owned()
-    }
-}
-
-pub async fn get_or_start_sequin() -> &'static RunningSequin {
-    DEFAULT_SEQUIN
-        .get_or_init(|| async { start_sequin_container(None).await })
-        .await
-}
-
-pub async fn get_or_start_worker_webhook_sequin() -> &'static RunningSequin {
-    WORKER_WEBHOOK_SEQUIN
-        .get_or_init(|| async {
-            let port = worker_webhook_port();
-            let webhook_url = format!("http://host.docker.internal:{port}/cdc/sequin");
-            start_sequin_container(Some(&webhook_url)).await
-        })
-        .await
-}
-
+/// Returns the fixed process-local address that the worker must bind before source writes.
 pub fn get_sequin_worker_webhook_bind_addr() -> SocketAddr {
     SocketAddr::from(([0, 0, 0, 0], worker_webhook_port()))
 }
 
-pub async fn start_sequin(webhook_url: &str) -> RunningSequin {
-    start_sequin_container(Some(webhook_url)).await
+async fn get_or_start_worker_webhook_sequin() -> &'static RunningSequin {
+    WORKER_WEBHOOK_SEQUIN
+        .get_or_init(|| async {
+            let webhook_url = format!(
+                "http://host.docker.internal:{}/cdc/sequin",
+                worker_webhook_port()
+            );
+            start_worker_webhook_sequin(&webhook_url).await
+        })
+        .await
 }
 
-async fn start_sequin_container(webhook_url: Option<&str>) -> RunningSequin {
-    ensure_sequin_state_database().await;
+async fn start_worker_webhook_sequin(webhook_url: &str) -> RunningSequin {
+    let suffix = std::process::id().to_string();
+    let state_database = format!("{SEQUIN_STATE_DB_PREFIX}_{suffix}");
+    ensure_sequin_state_database(&state_database).await;
 
-    let suffix = sequin_resource_suffix();
     let redis_port = find_free_port();
     let redis = GenericImage::new("redis", "7-alpine")
         .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
@@ -138,7 +91,7 @@ async fn start_sequin_container(webhook_url: Option<&str>) -> RunningSequin {
     let config_yaml = sequin_config_yaml(webhook_url, &suffix);
     let config_yaml_base64 = STANDARD.encode(config_yaml);
     let redis_url = format!("redis://host.docker.internal:{redis_port}");
-    let sequin_state_pg_url = get_postgres_host_gateway_connection_string(SEQUIN_STATE_DB);
+    let sequin_state_pg_url = get_postgres_host_gateway_connection_string(&state_database);
 
     let sequin_port = find_free_port();
     let sequin = GenericImage::new("sequin/sequin", "latest")
@@ -160,26 +113,25 @@ async fn start_sequin_container(webhook_url: Option<&str>) -> RunningSequin {
     let endpoint_url = format!("http://localhost:{sequin_port}");
 
     wait_for_sequin_health(&endpoint_url, &sequin).await;
-    debug!(%endpoint_url, "Successfully started Sequin test container.");
+    debug!(%endpoint_url, "Successfully started process-lived Sequin test container.");
 
     RunningSequin {
-        endpoint_url,
         _redis: redis,
         _sequin: sequin,
     }
 }
 
-async fn ensure_sequin_state_database() {
+async fn ensure_sequin_state_database(database: &str) {
     let pool = get_postgres_client().await;
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
-            .bind(SEQUIN_STATE_DB)
+            .bind(database)
             .fetch_one(&pool)
             .await
             .expect("shouldn't fail checking Sequin state database");
 
     if !exists {
-        pool.execute(sqlx::raw_sql(&format!("CREATE DATABASE {SEQUIN_STATE_DB}")))
+        pool.execute(sqlx::raw_sql(&format!("CREATE DATABASE {database}")))
             .await
             .expect("shouldn't fail creating Sequin state database");
     }
@@ -197,22 +149,23 @@ fn worker_webhook_port() -> u16 {
     *WORKER_WEBHOOK_PORT.get_or_init(find_free_port)
 }
 
-fn sequin_resource_suffix() -> String {
-    let sequence = SEQUIN_SEQUENCE.fetch_add(1, Ordering::SeqCst);
-    format!("{}_{}", std::process::id(), sequence)
-}
-
-fn sequin_config_yaml(webhook_url: Option<&str>, suffix: &str) -> String {
+fn sequin_config_yaml(webhook_url: &str, suffix: &str) -> String {
+    let publication_tables = WORKER_WEBHOOK_TABLES.join(", ");
+    let include_tables = WORKER_WEBHOOK_TABLES
+        .iter()
+        .map(|table| format!("\"{table}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     let mut config = include_str!("sequin/base.yaml")
         .replace("__SUFFIX__", suffix)
-        .replace("__POSTGRES_PORT__", &get_postgres_host_port().to_string());
+        .replace("__POSTGRES_PORT__", &get_postgres_host_port().to_string())
+        .replace("__PUBLICATION_TABLES__", &publication_tables);
 
-    if let Some(url) = webhook_url {
-        let sink_yaml = include_str!("sequin/webhook-sink.yaml")
-            .replace("__SUFFIX__", suffix)
-            .replace("__WEBHOOK_URL__", url);
-        config.push_str(&sink_yaml);
-    }
+    let sink_yaml = include_str!("sequin/webhook-sink.yaml")
+        .replace("__SUFFIX__", suffix)
+        .replace("__WEBHOOK_URL__", webhook_url)
+        .replace("__INCLUDE_TABLES__", &include_tables);
+    config.push_str(&sink_yaml);
 
     config
 }
@@ -221,7 +174,7 @@ async fn wait_for_sequin_health(endpoint_url: &str, container: &ContainerAsync<G
     let client = reqwest::Client::new();
     let health_url = format!("{endpoint_url}/health");
 
-    for _ in 0..30 {
+    for _ in 0..SEQUIN_HEALTH_MAX_ATTEMPTS {
         if let Ok(response) = client.get(&health_url).send().await
             && response.status() == StatusCode::OK
         {

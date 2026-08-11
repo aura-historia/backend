@@ -9,6 +9,13 @@ pub(crate) fn active_filter_quota(tier: UserTier) -> usize {
     }
 }
 
+pub(crate) fn monthly_match_quota(tier: UserTier) -> usize {
+    match tier {
+        UserTier::Free => 10,
+        UserTier::Pro | UserTier::Ultimate => usize::MAX,
+    }
+}
+
 pub(crate) fn validate_search_features(
     tier: UserTier,
     search: &ProductSearch,
@@ -136,7 +143,10 @@ impl RestrictedFeature {
 
 #[cfg(test)]
 mod tests {
-    use super::{active_filter_quota, validate_search_feature_changes, validate_search_features};
+    use super::{
+        active_filter_quota, monthly_match_quota, validate_search_feature_changes,
+        validate_search_features,
+    };
     use common::{
         currency::domain::Currency, language::domain::Language, product_id::ProductId,
         product_lifecycle::domain::ProductLifecycle,
@@ -151,6 +161,8 @@ mod tests {
         assert_eq!(1, active_filter_quota(UserTier::Free));
         assert_eq!(5, active_filter_quota(UserTier::Pro));
         assert_eq!(usize::MAX, active_filter_quota(UserTier::Ultimate));
+        assert_eq!(10, monthly_match_quota(UserTier::Free));
+        assert_eq!(usize::MAX, monthly_match_quota(UserTier::Pro));
     }
 
     #[test]

@@ -8,8 +8,8 @@
 ## Core Design
 
 - Depends on `product-core`, `product-service`, `shop-core`, `geo`, and `common` OpenSearch response types.
-- Exports public OpenSearch reader factory/type and JSON-only canonical percolator builder.
-- Keeps OpenSearch documents and mappings private; the percolator builder exposes no document type.
+- Exports public OpenSearch reader factory/type, JSON-only canonical percolator builder, and typed-source-to-percolation JSON mapper.
+- Keeps OpenSearch documents and mappings private; public percolation helpers expose no document type and reuse private `ProductDocument` validation.
 - OpenSearch reads are ordinary readers. No transaction or unit of work.
 
 ## Ownership

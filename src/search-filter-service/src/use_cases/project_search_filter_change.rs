@@ -230,7 +230,7 @@ mod tests {
 
         async fn percolate(
             &self,
-            _product_document: serde_json::Value,
+            _product: &product_service::ports::ProductSearchFilterMatchSource,
         ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
             Ok(Vec::new())
         }

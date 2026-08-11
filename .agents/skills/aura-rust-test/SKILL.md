@@ -26,7 +26,8 @@ Use for test placement and validation.
 - PostgreSQL adapter: `FromRow`, aggregate rehydration, insert/update semantics, optimistic concurrency, rollback, cross-entity transactions, joined readers, migration compatibility.
 - Other adapters: request serialization, response deserialization, application mapping, timeout/error mapping, stale-version handling.
 - Controllers: DTO deserialization, request/use-case mapping, status mapping, response serialization, auth/context mapping, missing-token behavior on public routes, invalid-token rejection, protected-route auth.
-- Acceptance: externally visible behavior through public REST API only. One file per endpoint group. At least one point per endpoint behavior.
+- Acceptance: externally visible behavior through the public runtime boundary. REST flows use the public HTTP API; worker flows use real source commit → Sequin webhook → running worker HTTP server → real target store. One file per endpoint or worker route group.
+- Every production worker needs complete real-infrastructure acceptance coverage in its runtime crate `tests/`: committed happy paths, source rollback, ignored input, duplicate/redelivery idempotency, filtering, and target payload/result shape. Use real Postgres, Sequin, and each written target store; mocks do not satisfy this rule.
 
 ## API test rules
 

@@ -24,7 +24,7 @@ databases:
       name: "aura_historia_test_pub___SUFFIX__"
       create_if_not_exists: true
       init_sql: |-
-        create publication aura_historia_test_pub___SUFFIX__ for table public.product_events, public.search_filters with (publish_via_partition_root = true)
+        create publication aura_historia_test_pub___SUFFIX__ for table __PUBLICATION_TABLES__ with (publish_via_partition_root = true)
     await_database:
       timeout_ms: 30000
       interval_ms: 1000

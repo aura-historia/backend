@@ -1,4 +1,5 @@
 use common::currency::domain::Currency;
+use common::event_id::EventId;
 use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
 use common::query::text_query::TextQuery;
@@ -6,17 +7,25 @@ use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
-use product_core::product_search::ProductSearch;
+use indexmap::IndexSet;
+use product_core::{
+    product::{ProductAddress, ProductAuction, ProductPricing},
+    product_image::ProductImage,
+    product_search::ProductSearch,
+    title::Title,
+};
+use product_service::ports::{ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_service::ports::{
     SearchFilterIndex, SearchFilterIndexQuery, SearchFilterProjection,
     SearchFilterProjectionWriteOutcome, SearchFilterView,
 };
-use serde_json::json;
+use std::collections::HashMap;
 use test_api::{
     IntegrationTestService, OpenSearch, aura_integration_test, get_opensearch_client, refresh_index,
 };
-use time::macros::datetime;
+use time::{OffsetDateTime, macros::datetime};
+use url::Url;
 
 #[aura_integration_test(services = [OpenSearch()])]
 async fn should_index_query_percolate_and_delete_search_filter_document() {
@@ -51,11 +60,9 @@ async fn should_index_query_percolate_and_delete_search_filter_document() {
     };
     assert_eq!(view.search, indexed.search);
 
+    let matching_product = product_source("canonical opensearch renaissance cabinet");
     let percolate_result = index
-        .percolate(json!({
-            "titleEn":"canonical opensearch renaissance cabinet",
-            "lifecycle":"ACTIVE"
-        }))
+        .percolate(&matching_product)
         .await
         .unwrap_or_else(|error| panic!("percolate failed: {error:?}"));
     assert!(
@@ -75,10 +82,7 @@ async fn should_index_query_percolate_and_delete_search_filter_document() {
     refresh_index("user_search_filters").await;
 
     let after_delete = index
-        .percolate(json!({
-            "titleEn":"canonical opensearch renaissance cabinet",
-            "lifecycle":"ACTIVE"
-        }))
+        .percolate(&matching_product)
         .await
         .unwrap_or_else(|error| panic!("percolate after delete failed: {error:?}"));
     assert!(
@@ -105,12 +109,9 @@ async fn should_percolate_any_of_multiple_product_queries() {
         .unwrap_or_else(|error| panic!("index failed: {error:?}"));
     refresh_index("user_search_filters").await;
 
+    let matching_product = product_source("bronze floor lamp");
     let matches = index
-        .percolate(json!({
-            "titleEn": "bronze floor lamp",
-            "title": {"text": "bronze floor lamp", "language": "en"},
-            "lifecycle": "ACTIVE"
-        }))
+        .percolate(&matching_product)
         .await
         .unwrap_or_else(|error| panic!("percolate failed: {error:?}"));
     assert!(
@@ -119,12 +120,9 @@ async fn should_percolate_any_of_multiple_product_queries() {
             .any(|item| item.search_filter_id == view.search_filter_id)
     );
 
+    let non_matching_product = product_source("garden sculpture");
     let non_matches = index
-        .percolate(json!({
-            "titleEn": "garden sculpture",
-            "title": {"text": "garden sculpture", "language": "en"},
-            "lifecycle": "ACTIVE"
-        }))
+        .percolate(&non_matching_product)
         .await
         .unwrap_or_else(|error| panic!("percolate failed: {error:?}"));
     assert!(
@@ -132,6 +130,36 @@ async fn should_percolate_any_of_multiple_product_queries() {
             .iter()
             .any(|item| item.search_filter_id == view.search_filter_id)
     );
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
+async fn should_use_application_default_size_for_first_query_page() {
+    let client = get_opensearch_client().await.clone();
+    let index = OpenSearchSearchFilterIndex::new(client);
+    let views: Vec<_> = (0..25)
+        .map(|number| sample_view(&format!("application page size filter {number}")))
+        .collect();
+
+    for view in &views {
+        index
+            .upsert(&projection(view, 1))
+            .await
+            .unwrap_or_else(|error| panic!("index failed: {error:?}"));
+    }
+    refresh_index("user_search_filters").await;
+
+    let result = index
+        .query(&SearchFilterIndexQuery {
+            state: Some(ResourceState::Active),
+            has_enhanced_search_description: Some(false),
+            ..Default::default()
+        })
+        .await
+        .unwrap_or_else(|error| panic!("query failed: {error:?}"));
+
+    assert_eq!(21, result.cursor.size);
+    assert_eq!(21, result.items.len());
+    assert!(result.cursor.search_after.is_some());
 }
 
 #[aura_integration_test(services = [OpenSearch()])]
@@ -164,6 +192,42 @@ async fn should_filter_query_by_enhanced_description_presence() {
             .iter()
             .any(|item| item.search_filter_id == view.search_filter_id)
     );
+}
+
+fn product_source(title: &str) -> ProductSearchFilterMatchSource {
+    let event_id = EventId::new();
+    ProductSearchFilterMatchSource {
+        event_id,
+        event_kind: product_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
+        current_event_id: event_id,
+        product_id: common::product_id::ProductId::new(),
+        product_slug_id: common::product_slug_id::ProductSlugId::from("product"),
+        shop_id: common::shop_id::ShopId::new(),
+        shop_slug_id: common::shop_slug_id::ShopSlugId::from("shop"),
+        shop_name: common::shop_name::ShopName::from("Shop"),
+        shop_type: ProductSearchFilterMatchShopType::Marketplace,
+        seller_id: common::shop_id::ShopId::new(),
+        seller_slug_id: common::seller_slug_id::SellerSlugId::from("seller"),
+        seller_name: common::shop_name::ShopName::from("Seller"),
+        shops_product_id: common::shops_product_id::ShopsProductId::from("sku-1"),
+        address: ProductAddress::default(),
+        product_title: None,
+        product_description: None,
+        titles: HashMap::from([(Language::En, Title::from(title))]),
+        descriptions: HashMap::new(),
+        pricing: ProductPricing::default(),
+        state: common::product_state::domain::ProductState::Available,
+        lifecycle: common::product_lifecycle::domain::ProductLifecycle::Active,
+        url: Url::parse("https://shop.example.test/products/sku-1")
+            .unwrap_or_else(|error| panic!("test URL must be valid: {error}")),
+        view_url: Url::parse("https://aura.example.test/products/product")
+            .unwrap_or_else(|error| panic!("test URL must be valid: {error}")),
+        image: None,
+        images: IndexSet::<ProductImage>::new(),
+        auction: ProductAuction::default(),
+        created: OffsetDateTime::UNIX_EPOCH,
+        updated: OffsetDateTime::UNIX_EPOCH,
+    }
 }
 
 fn projection(view: &SearchFilterView, source_version: i64) -> SearchFilterProjection {
