@@ -1,6 +1,6 @@
 use common::{
     currency::domain::Currency,
-    error::boxed::box_error,
+    error::boxed::{BoxError, box_error, static_error},
     event_id::EventId,
     language::domain::Language,
     localized::Localized,
@@ -97,7 +97,18 @@ struct SourceQuerySqlxError(#[source] sqlx::Error);
 
 #[derive(Debug, thiserror::Error)]
 #[error("product search-filter match source row is invalid")]
-struct SourceRowMappingError;
+struct SourceRowMappingError {
+    #[source]
+    source: BoxError,
+}
+
+impl SourceRowMappingError {
+    fn invalid(message: &'static str) -> Self {
+        Self {
+            source: static_error(message),
+        }
+    }
+}
 
 impl From<SourceQuerySqlxError> for ProductSearchFilterMatchSourceReadError {
     fn from(source: SourceQuerySqlxError) -> Self {
@@ -205,7 +216,11 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
         .map_err(SourceQuerySqlxError)?;
 
         source_from_rows(rows)
-            .map_err(|_| SourceRowMappingError)
+            .map_err(|_| {
+                SourceRowMappingError::invalid(
+                    "persisted product search-filter match source row is invalid",
+                )
+            })
             .map_err(Into::into)
     }
 }
@@ -536,6 +551,21 @@ mod tests {
         };
         assert!(source.downcast_ref::<SourceQuerySqlxError>().is_some());
         assert!(source.source().is_some());
+    }
+
+    #[test]
+    fn should_preserve_row_mapping_source() {
+        let error: ProductSearchFilterMatchSourceReadError =
+            SourceRowMappingError::invalid("invalid persisted state").into();
+
+        let ProductSearchFilterMatchSourceReadError::InvalidPersistedState { source } = error
+        else {
+            panic!("expected invalid persisted state");
+        };
+        let mapping_error = source
+            .downcast_ref::<SourceRowMappingError>()
+            .unwrap_or_else(|| panic!("expected source row mapping error"));
+        assert!(std::error::Error::source(mapping_error).is_some());
     }
 
     #[test]

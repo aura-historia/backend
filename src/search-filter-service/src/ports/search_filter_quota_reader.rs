@@ -1,9 +1,12 @@
-use common::user_id::UserId;
+use common::{error::boxed::BoxError, user_id::UserId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterQuotaReadError {
     #[error("search filter quota read failed")]
-    ReadFailed,
+    ReadFailed {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

@@ -235,6 +235,8 @@ mod tests {
 
     use super::*;
 
+    use common::error::boxed::static_error;
+
     use crate::ports::{
         WatchlistProductView, WatchlistQuotaReadError, WatchlistQuotaReader,
         WatchlistQuotaReaderFactory, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
@@ -404,7 +406,9 @@ mod tests {
             self.state
                 .entries
                 .lock()
-                .map_err(|_| WatchlistQuotaReadError::ReadFailed)
+                .map_err(|_poisoned| WatchlistQuotaReadError::ReadFailed {
+                    source: static_error("watchlist quota test state mutex is poisoned"),
+                })
                 .map(|entries| {
                     entries
                         .iter()

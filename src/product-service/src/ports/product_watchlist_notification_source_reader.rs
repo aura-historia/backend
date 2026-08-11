@@ -1,7 +1,8 @@
 use common::{
-    event_id::EventId, language::domain::Language, price::domain::Price, product_id::ProductId,
-    product_slug_id::ProductSlugId, product_state::domain::ProductState, shop_id::ShopId,
-    shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
+    error::boxed::BoxError, event_id::EventId, language::domain::Language, price::domain::Price,
+    product_id::ProductId, product_slug_id::ProductSlugId, product_state::domain::ProductState,
+    shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
+    shops_product_id::ShopsProductId,
 };
 use product_core::{product_image::ProductImage, title::Title};
 use std::collections::HashMap;
@@ -38,9 +39,15 @@ pub enum ProductWatchlistNotificationChange {
 #[derive(Debug, thiserror::Error)]
 pub enum ProductWatchlistNotificationSourceReadError {
     #[error("watchlist notification source query failed")]
-    QueryFailed,
+    QueryFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("watchlist notification source persisted state is invalid")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

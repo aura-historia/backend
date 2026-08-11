@@ -1,4 +1,4 @@
-use common::{product_id::ProductId, user_id::UserId};
+use common::{error::boxed::BoxError, product_id::ProductId, user_id::UserId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchlistNotificationRecipient {
@@ -9,7 +9,10 @@ pub struct WatchlistNotificationRecipient {
 #[derive(Debug, thiserror::Error)]
 pub enum WatchlistNotificationRecipientReadError {
     #[error("watchlist notification recipient query failed")]
-    QueryFailed,
+    QueryFailed {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

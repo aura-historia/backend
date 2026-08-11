@@ -1,4 +1,4 @@
-use common::{postgres::SqlxTransaction, product_id::ProductId};
+use common::{error::boxed::box_error, postgres::SqlxTransaction, product_id::ProductId};
 use product_service::ports::{
     WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
@@ -9,6 +9,18 @@ pub struct SqlxWatchlistNotificationRecipientReaderFactory;
 
 struct SqlxWatchlistNotificationRecipientReader<'tx> {
     tx: &'tx mut SqlxTransaction,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("watchlist notification recipient SQL query failed")]
+struct WatchlistNotificationRecipientQueryError(#[source] sqlx::Error);
+
+impl From<WatchlistNotificationRecipientQueryError> for WatchlistNotificationRecipientReadError {
+    fn from(source: WatchlistNotificationRecipientQueryError) -> Self {
+        Self::QueryFailed {
+            source: box_error(source),
+        }
+    }
 }
 
 impl WatchlistNotificationRecipientReaderFactory<SqlxTransaction>
@@ -28,15 +40,37 @@ impl WatchlistNotificationRecipientReader for SqlxWatchlistNotificationRecipient
         &mut self,
         product_id: ProductId,
     ) -> Result<Vec<WatchlistNotificationRecipient>, WatchlistNotificationRecipientReadError> {
-        sqlx::query_as::<_, (uuid::Uuid, bool)>(
+        let rows = sqlx::query_as::<_, (uuid::Uuid, bool)>(
             "SELECT user_id, notifications FROM product_watchlist WHERE product_id = $1 AND state = 'Active' ORDER BY user_id ASC",
         )
         .bind(uuid::Uuid::from(product_id))
         .fetch_all(self.tx.connection())
         .await
-        .map_err(|_| WatchlistNotificationRecipientReadError::QueryFailed)
-        .map(|rows| rows.into_iter().map(|(user_id, external)| WatchlistNotificationRecipient {
-            user_id: user_id.into(), external,
-        }).collect())
+        .map_err(WatchlistNotificationRecipientQueryError)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(user_id, external)| WatchlistNotificationRecipient {
+                user_id: user_id.into(),
+                external,
+            })
+            .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_preserve_sqlx_query_source() {
+        let error: WatchlistNotificationRecipientReadError =
+            WatchlistNotificationRecipientQueryError(sqlx::Error::RowNotFound).into();
+
+        let WatchlistNotificationRecipientReadError::QueryFailed { source } = error;
+        let query_error = source
+            .downcast_ref::<WatchlistNotificationRecipientQueryError>()
+            .unwrap_or_else(|| panic!("expected recipient query error"));
+        assert!(std::error::Error::source(query_error).is_some());
     }
 }

@@ -1,9 +1,17 @@
 use std::collections::HashMap;
 
 use common::{
-    event_id::EventId, language::domain::Language, postgres::SqlxTransaction,
-    product_id::ProductId, product_slug_id::ProductSlugId, shop_id::ShopId, shop_name::ShopName,
-    shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId, utm::append_utm_params,
+    error::boxed::{BoxError, box_error, static_error},
+    event_id::EventId,
+    language::domain::Language,
+    postgres::SqlxTransaction,
+    product_id::ProductId,
+    product_slug_id::ProductSlugId,
+    shop_id::ShopId,
+    shop_name::ShopName,
+    shop_slug_id::ShopSlugId,
+    shops_product_id::ShopsProductId,
+    utm::append_utm_params,
 };
 use product_core::title::Title;
 use product_service::ports::{
@@ -45,6 +53,47 @@ struct SourceRow {
 struct TitleRow {
     language: String,
     title: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("watchlist notification source SQL query failed")]
+struct WatchlistNotificationSourceQueryError(#[source] sqlx::Error);
+
+#[derive(Debug, thiserror::Error)]
+#[error("watchlist notification source persisted state could not be mapped")]
+struct WatchlistNotificationSourceMappingError {
+    #[source]
+    source: BoxError,
+}
+
+impl WatchlistNotificationSourceMappingError {
+    fn invalid(message: &'static str) -> Self {
+        Self {
+            source: static_error(message),
+        }
+    }
+
+    fn with_source(source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self {
+            source: box_error(source),
+        }
+    }
+}
+
+impl From<WatchlistNotificationSourceQueryError> for ProductWatchlistNotificationSourceReadError {
+    fn from(source: WatchlistNotificationSourceQueryError) -> Self {
+        Self::QueryFailed {
+            source: box_error(source),
+        }
+    }
+}
+
+impl From<WatchlistNotificationSourceMappingError> for ProductWatchlistNotificationSourceReadError {
+    fn from(source: WatchlistNotificationSourceMappingError) -> Self {
+        Self::InvalidPersistedState {
+            source: box_error(source),
+        }
+    }
 }
 
 impl SqlxProductWatchlistNotificationSourceReaderFactory {
@@ -93,12 +142,12 @@ impl ProductWatchlistNotificationSourceReader for SqlxProductWatchlistNotificati
         .bind(uuid::Uuid::from(product_id))
         .fetch_optional(&mut *self.connection)
         .await
-        .map_err(|_| ProductWatchlistNotificationSourceReadError::QueryFailed)?;
+        .map_err(WatchlistNotificationSourceQueryError)?;
         let Some(row) = row else {
             return Ok(None);
         };
         let (_, payload) = parse_payload(&row.event_type, &row.payload)
-            .map_err(|_| ProductWatchlistNotificationSourceReadError::InvalidPersistedState)?;
+            .map_err(WatchlistNotificationSourceMappingError::with_source)?;
         let change = match payload {
             ProductEventPayload::PriceChanged(change) => {
                 ProductWatchlistNotificationChange::PriceChanged {
@@ -120,7 +169,7 @@ impl ProductWatchlistNotificationSourceReader for SqlxProductWatchlistNotificati
         .bind(row.product_id)
         .fetch_all(&mut *self.connection)
         .await
-        .map_err(|_| ProductWatchlistNotificationSourceReadError::QueryFailed)?;
+        .map_err(WatchlistNotificationSourceQueryError)?;
         let mut title = HashMap::new();
         if let (Some(language), Some(text)) = (row.title_language.as_deref(), row.title_text) {
             title.insert(parse_language(language)?, Title::from(text));
@@ -132,20 +181,24 @@ impl ProductWatchlistNotificationSourceReader for SqlxProductWatchlistNotificati
             );
         }
         let image = images(row.product_images)
-            .map_err(|_| ProductWatchlistNotificationSourceReadError::InvalidPersistedState)?
+            .map_err(|_| {
+                WatchlistNotificationSourceMappingError::invalid(
+                    "persisted watchlist notification source images are invalid",
+                )
+            })?
             .into_iter()
             .next();
         let url = url::Url::parse(&row.url)
-            .map_err(|_| ProductWatchlistNotificationSourceReadError::InvalidPersistedState)?;
+            .map_err(WatchlistNotificationSourceMappingError::with_source)?;
         Ok(Some(ProductWatchlistNotificationSource {
             event_id: EventId::from(row.event_id),
             product_id: ProductId::from(row.product_id),
             product_slug_id: ProductSlugId::raw(&row.product_slug_id)
-                .map_err(|_| ProductWatchlistNotificationSourceReadError::InvalidPersistedState)?,
+                .map_err(WatchlistNotificationSourceMappingError::with_source)?,
             shop_id: ShopId::from(row.shop_id),
             shops_product_id: ShopsProductId::from(row.shops_product_id),
             shop_slug_id: ShopSlugId::raw(&row.shop_slug_id)
-                .map_err(|_| ProductWatchlistNotificationSourceReadError::InvalidPersistedState)?,
+                .map_err(WatchlistNotificationSourceMappingError::with_source)?,
             shop_name: ShopName::from(row.shop_name),
             title: (!title.is_empty()).then_some(title),
             image,
@@ -172,6 +225,43 @@ fn parse_language(value: &str) -> Result<Language, ProductWatchlistNotificationS
         "ja" => Ok(Language::Ja),
         "ru" => Ok(Language::Ru),
         "ar" => Ok(Language::Ar),
-        _ => Err(ProductWatchlistNotificationSourceReadError::InvalidPersistedState),
+        _ => Err(WatchlistNotificationSourceMappingError::invalid(
+            "persisted watchlist notification source language is invalid",
+        )
+        .into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_preserve_sqlx_query_source() {
+        let error: ProductWatchlistNotificationSourceReadError =
+            WatchlistNotificationSourceQueryError(sqlx::Error::RowNotFound).into();
+
+        let ProductWatchlistNotificationSourceReadError::QueryFailed { source } = error else {
+            panic!("expected source query failure");
+        };
+        let query_error = source
+            .downcast_ref::<WatchlistNotificationSourceQueryError>()
+            .unwrap_or_else(|| panic!("expected watchlist notification query error"));
+        assert!(std::error::Error::source(query_error).is_some());
+    }
+
+    #[test]
+    fn should_preserve_persisted_state_mapping_source() {
+        let error: ProductWatchlistNotificationSourceReadError =
+            WatchlistNotificationSourceMappingError::invalid("invalid persisted state").into();
+
+        let ProductWatchlistNotificationSourceReadError::InvalidPersistedState { source } = error
+        else {
+            panic!("expected invalid persisted state");
+        };
+        let mapping_error = source
+            .downcast_ref::<WatchlistNotificationSourceMappingError>()
+            .unwrap_or_else(|| panic!("expected watchlist notification mapping error"));
+        assert!(std::error::Error::source(mapping_error).is_some());
     }
 }
