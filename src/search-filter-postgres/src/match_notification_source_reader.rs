@@ -1,6 +1,6 @@
 use common::{
-    error::boxed::box_error, postgres::SqlxTransaction, product_id::ProductId, user_id::UserId,
-    user_search_filter_id::UserSearchFilterId,
+    error::boxed::box_error, event_id::EventId, postgres::SqlxTransaction, product_id::ProductId,
+    user_id::UserId, user_search_filter_id::UserSearchFilterId,
 };
 use search_filter_service::ports::{
     SearchFilterMatchNotificationSource, SearchFilterMatchNotificationSourceReadError,
@@ -38,6 +38,7 @@ struct SearchFilterMatchNotificationSourceRow {
     created: OffsetDateTime,
     user_search_filter_name: String,
     external: bool,
+    is_selected_filter: bool,
 }
 
 #[async_trait::async_trait]
@@ -49,6 +50,7 @@ impl SearchFilterMatchNotificationSourceReader
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
         product_id: ProductId,
+        origin_event_id: EventId,
     ) -> Result<
         Option<SearchFilterMatchNotificationSource>,
         SearchFilterMatchNotificationSourceReadError,
@@ -67,25 +69,27 @@ impl SearchFilterMatchNotificationSourceReader
                 matched.origin_event_id,
                 matched.created,
                 COALESCE(matched.user_search_filter_name, filter.name) AS user_search_filter_name,
-                filter.notifications AS external
+                filter.notifications AS external,
+                NOT EXISTS (
+                    SELECT 1
+                    FROM search_filter_matches selected
+                    WHERE selected.user_id = matched.user_id
+                        AND selected.origin_event_id = matched.origin_event_id
+                        AND selected.user_search_filter_id < matched.user_search_filter_id
+                ) AS is_selected_filter
             FROM search_filter_matches matched
             JOIN search_filters filter
                 ON filter.user_search_filter_id = matched.user_search_filter_id
             WHERE matched.user_id = $1
                 AND matched.user_search_filter_id = $2
                 AND matched.product_id = $3
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM search_filter_matches selected
-                    WHERE selected.user_id = matched.user_id
-                        AND selected.origin_event_id = matched.origin_event_id
-                        AND selected.user_search_filter_id < matched.user_search_filter_id
-                )
+                AND matched.origin_event_id = $4
             "#,
         )
         .bind(uuid::Uuid::from(user_id))
         .bind(search_filter_id)
         .bind(uuid::Uuid::from(product_id))
+        .bind(uuid::Uuid::from(origin_event_id))
         .fetch_optional(self.tx.connection())
         .await
         .map_err(
@@ -107,6 +111,7 @@ impl SearchFilterMatchNotificationSourceReader
                 origin_event_id: row.origin_event_id.into(),
                 matched_at: row.created,
                 external: row.external,
+                is_selected_filter: row.is_selected_filter,
             })
         })
         .transpose()

@@ -6,14 +6,7 @@ use crate::{
 use common::{
     error::boxed::{BoxError, box_error},
     event_id::EventId,
-    postgres::SqlxUnitOfWork,
     product_id::ProductId,
-    transaction::{Transaction, UnitOfWork},
-};
-use product_postgres::SqlxProductSearchFilterMatchSourceReaderFactory;
-use product_service::ports::{
-    ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
-    ProductSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_service::use_cases::{MatchProductEventCommand, MatchProductEventUseCase};
 use std::sync::Arc;
@@ -21,23 +14,17 @@ use tracing::{error, info};
 
 pub async fn consume_search_filter_percolator_queue(
     mut receiver: InMemoryQueueReceiver<DomainJob>,
-    handler: Arc<dyn MatchProductEventUseCase>,
-    source_unit_of_work: SqlxUnitOfWork,
-    source_reader_factory: SqlxProductSearchFilterMatchSourceReaderFactory,
+    use_case: Arc<dyn MatchProductEventUseCase>,
 ) {
     let dead_letters = InMemoryDeadLetterQueue::new();
 
     while let Some(job) = receiver.recv().await {
         let idempotency_key = job.idempotency_key.as_str().to_owned();
         let ordering_key = job.ordering_key.as_str().to_owned();
-        let handler_for_retry = Arc::clone(&handler);
-        let source_unit_of_work_for_retry = source_unit_of_work.clone();
+        let use_case_for_retry = Arc::clone(&use_case);
         let result = run_with_retry(job, RetryConfig::default(), &dead_letters, move |job| {
-            let handler = Arc::clone(&handler_for_retry);
-            let source_unit_of_work = source_unit_of_work_for_retry.clone();
-            async move {
-                match_product_event(handler, source_unit_of_work, source_reader_factory, job).await
-            }
+            let use_case = Arc::clone(&use_case_for_retry);
+            async move { execute_job(use_case, job).await }
         })
         .await;
 
@@ -61,16 +48,25 @@ pub async fn consume_search_filter_percolator_queue(
     }
 }
 
-async fn match_product_event(
-    handler: Arc<dyn MatchProductEventUseCase>,
-    source_unit_of_work: SqlxUnitOfWork,
-    source_reader_factory: SqlxProductSearchFilterMatchSourceReaderFactory,
+async fn execute_job(
+    use_case: Arc<dyn MatchProductEventUseCase>,
     job: DomainJob,
-) -> Result<(), SearchFilterPercolatorWorkerError> {
+) -> Result<(), BoxError> {
+    let command = command_from_job(job).map_err(box_error)?;
+    use_case
+        .execute(command)
+        .await
+        .map(|_| ())
+        .map_err(box_error)
+}
+
+fn command_from_job(
+    job: DomainJob,
+) -> Result<MatchProductEventCommand, SearchFilterPercolatorWorkerError> {
     let DomainJobPayload::ProductEvent(event) = job.payload else {
         return Err(SearchFilterPercolatorWorkerError::UnexpectedJobPayload);
     };
-    let event_id = EventId::try_from(event.event_id.as_str()).map_err(|source| {
+    let origin_event_id = EventId::try_from(event.event_id.as_str()).map_err(|source| {
         SearchFilterPercolatorWorkerError::InvalidEventId {
             source: box_error(source),
         }
@@ -81,67 +77,10 @@ async fn match_product_event(
         }
     })?;
 
-    let mut source_tx = source_unit_of_work.begin().await.map_err(|source| {
-        SearchFilterPercolatorWorkerError::BeginSourceReadTransaction {
-            source: box_error(source),
-        }
-    })?;
-    let product = source_reader_factory
-        .in_transaction(&mut source_tx)
-        .find_source(event_id, product_id)
-        .await
-        .map_err(source_read_error)?
-        .ok_or(SearchFilterPercolatorWorkerError::SourceNotFound {
-            event_id,
-            product_id,
-        })?;
-    source_tx.commit().await.map_err(|source| {
-        SearchFilterPercolatorWorkerError::CommitSourceReadTransaction {
-            source: box_error(source),
-        }
-    })?;
-
-    handler
-        .execute(MatchProductEventCommand {
-            origin_event_id: event_id,
-            product,
-        })
-        .await
-        .map(|result| {
-            info!(
-                job_type = "search_filter_percolator",
-                %event_id,
-                %product_id,
-                percolated_count = result.percolated_count,
-                persisted_match_count = result.persisted_match_count,
-                outcome = "applied",
-                "search filter product matching completed"
-            );
-        })
-        .map_err(|source| {
-            error!(
-                %event_id,
-                %product_id,
-                error = %source,
-                "search filter product matching failed"
-            );
-            SearchFilterPercolatorWorkerError::Match {
-                source: box_error(source),
-            }
-        })
-}
-
-fn source_read_error(
-    error: ProductSearchFilterMatchSourceReadError,
-) -> SearchFilterPercolatorWorkerError {
-    match error {
-        ProductSearchFilterMatchSourceReadError::InvalidPersistedState { source } => {
-            SearchFilterPercolatorWorkerError::SourceStateInvalid { source }
-        }
-        error => SearchFilterPercolatorWorkerError::ReadSource {
-            source: box_error(error),
-        },
-    }
+    Ok(MatchProductEventCommand {
+        origin_event_id,
+        product_id,
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -155,36 +94,6 @@ enum SearchFilterPercolatorWorkerError {
     },
     #[error("search filter percolator job has an invalid product id")]
     InvalidProductId {
-        #[source]
-        source: BoxError,
-    },
-    #[error("failed to begin product source read transaction")]
-    BeginSourceReadTransaction {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product source read failed")]
-    ReadSource {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product source persisted state is invalid")]
-    SourceStateInvalid {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product source was not found for event {event_id} and product {product_id}")]
-    SourceNotFound {
-        event_id: EventId,
-        product_id: ProductId,
-    },
-    #[error("failed to commit product source read transaction")]
-    CommitSourceReadTransaction {
-        #[source]
-        source: BoxError,
-    },
-    #[error("search filter product matching failed")]
-    Match {
         #[source]
         source: BoxError,
     },

@@ -7,25 +7,59 @@ use crate::ports::{
 };
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
+use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
-use product_service::ports::ProductSearchFilterMatchSource;
+use product_service::ports::{
+    ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
+    ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
+};
 use search_filter_core::SearchFilterProductMatch;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchProductEventCommand {
     pub origin_event_id: EventId,
-    pub product: ProductSearchFilterMatchSource,
+    pub product_id: ProductId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchProductEventOutcome {
+    Matched,
+    IgnoredMissingSource,
+    IgnoredStaleEvent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MatchProductEventResult {
+    pub outcome: MatchProductEventOutcome,
     pub percolated_count: usize,
     pub persisted_match_count: usize,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum MatchProductEventError {
+    #[error("failed to begin product source read transaction")]
+    BeginSourceReadTransactionFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("product source read failed")]
+    ProductSourceReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("product source persisted state is invalid")]
+    ProductSourceStateInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("product source does not match requested event or product")]
+    ProductSourceMismatch,
+    #[error("failed to commit product source read transaction")]
+    CommitSourceReadTransactionFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter percolation failed")]
     PercolationFailed {
         #[source]
@@ -78,18 +112,27 @@ pub trait MatchProductEventUseCase: Send + Sync {
     ) -> Result<MatchProductEventResult, MatchProductEventError>;
 }
 
-pub struct MatchProductEventHandler<U, I, E, R, W> {
+pub struct MatchProductEventHandler<U, S, I, E, R, W> {
     unit_of_work: U,
+    sources: S,
     index: I,
     evaluator: E,
     candidates: R,
     matches: W,
 }
 
-impl<U, I, E, R, W> MatchProductEventHandler<U, I, E, R, W> {
-    pub fn new(unit_of_work: U, index: I, evaluator: E, candidates: R, matches: W) -> Self {
+impl<U, S, I, E, R, W> MatchProductEventHandler<U, S, I, E, R, W> {
+    pub fn new(
+        unit_of_work: U,
+        sources: S,
+        index: I,
+        evaluator: E,
+        candidates: R,
+        matches: W,
+    ) -> Self {
         Self {
             unit_of_work,
+            sources,
             index,
             evaluator,
             candidates,
@@ -99,9 +142,10 @@ impl<U, I, E, R, W> MatchProductEventHandler<U, I, E, R, W> {
 }
 
 #[async_trait::async_trait]
-impl<U, I, E, R, W> MatchProductEventUseCase for MatchProductEventHandler<U, I, E, R, W>
+impl<U, S, I, E, R, W> MatchProductEventUseCase for MatchProductEventHandler<U, S, I, E, R, W>
 where
     U: UnitOfWork,
+    S: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
     I: SearchFilterIndex,
     E: ProductMatchEvaluator,
     R: ActiveSearchFilterMatchCandidateReaderFactory<U::Tx>,
@@ -112,20 +156,39 @@ where
         skip_all,
         fields(
             origin_event_id = %command.origin_event_id,
-            product_id = %command.product.product_id,
+            product_id = %command.product_id,
         )
     )]
     async fn execute(
         &self,
         command: MatchProductEventCommand,
     ) -> Result<MatchProductEventResult, MatchProductEventError> {
+        let product = load_product_source(&self.unit_of_work, &self.sources, &command).await?;
+        let product = match product {
+            ProductSourceReadOutcome::Missing => {
+                return Ok(MatchProductEventResult {
+                    outcome: MatchProductEventOutcome::IgnoredMissingSource,
+                    percolated_count: 0,
+                    persisted_match_count: 0,
+                });
+            }
+            ProductSourceReadOutcome::Stale => {
+                return Ok(MatchProductEventResult {
+                    outcome: MatchProductEventOutcome::IgnoredStaleEvent,
+                    percolated_count: 0,
+                    persisted_match_count: 0,
+                });
+            }
+            ProductSourceReadOutcome::Current(product) => *product,
+        };
+
         let percolated = self
             .index
-            .percolate(&command.product)
+            .percolate(&product)
             .await
             .map_err(percolation_error)?;
         let percolated_count = percolated.len();
-        let candidates = evaluate_candidates(&self.evaluator, &command.product, percolated).await?;
+        let candidates = evaluate_candidates(&self.evaluator, &product, percolated).await?;
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             MatchProductEventError::BeginTransactionFailed {
                 source: box_error(source),
@@ -148,7 +211,7 @@ where
                 user_id: candidate.user_id,
                 user_search_filter_id: candidate.search_filter_id,
                 user_search_filter_name: Some(candidate.search_filter_name),
-                product_id: command.product.product_id,
+                product_id: command.product_id,
                 origin_event_id: command.origin_event_id,
                 enhanced_match_reason: candidate.enhanced_match_reason,
                 feedback: None,
@@ -171,10 +234,57 @@ where
             })?;
 
         Ok(MatchProductEventResult {
+            outcome: MatchProductEventOutcome::Matched,
             percolated_count,
             persisted_match_count,
         })
     }
+}
+
+enum ProductSourceReadOutcome {
+    Missing,
+    Stale,
+    Current(Box<ProductSearchFilterMatchSource>),
+}
+
+async fn load_product_source<U, S>(
+    unit_of_work: &U,
+    sources: &S,
+    command: &MatchProductEventCommand,
+) -> Result<ProductSourceReadOutcome, MatchProductEventError>
+where
+    U: UnitOfWork,
+    S: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
+{
+    let mut tx = unit_of_work.begin().await.map_err(|source| {
+        MatchProductEventError::BeginSourceReadTransactionFailed {
+            source: box_error(source),
+        }
+    })?;
+    let source = sources
+        .in_transaction(&mut tx)
+        .find_source(command.origin_event_id, command.product_id)
+        .await
+        .map_err(product_source_read_error)?;
+    let outcome = match source {
+        None => ProductSourceReadOutcome::Missing,
+        Some(product)
+            if product.event_id != command.origin_event_id
+                || product.product_id != command.product_id =>
+        {
+            return Err(MatchProductEventError::ProductSourceMismatch);
+        }
+        Some(product) if product.current_event_id != command.origin_event_id => {
+            ProductSourceReadOutcome::Stale
+        }
+        Some(product) => ProductSourceReadOutcome::Current(Box::new(product)),
+    };
+    tx.commit().await.map_err(|source| {
+        MatchProductEventError::CommitSourceReadTransactionFailed {
+            source: box_error(source),
+        }
+    })?;
+    Ok(outcome)
 }
 
 async fn evaluate_candidates<E>(
@@ -221,6 +331,19 @@ fn sort_candidates(candidates: &mut Vec<ActiveSearchFilterMatchCandidate>) {
     candidates.dedup_by(|left, right| {
         left.user_id == right.user_id && left.search_filter_id == right.search_filter_id
     });
+}
+
+fn product_source_read_error(
+    error: ProductSearchFilterMatchSourceReadError,
+) -> MatchProductEventError {
+    match error {
+        ProductSearchFilterMatchSourceReadError::InvalidPersistedState { source } => {
+            MatchProductEventError::ProductSourceStateInvalid { source }
+        }
+        error => MatchProductEventError::ProductSourceReadFailed {
+            source: box_error(error),
+        },
+    }
 }
 
 fn percolation_error(error: SearchFilterIndexError) -> MatchProductEventError {
@@ -313,6 +436,31 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             Ok(FakeTransaction(Arc::clone(&self.0)))
+        }
+    }
+
+    struct Sources(Option<ProductSearchFilterMatchSource>);
+
+    struct ReadingSource(Option<ProductSearchFilterMatchSource>);
+
+    #[async_trait::async_trait]
+    impl ProductSearchFilterMatchSourceReader for ReadingSource {
+        async fn find_source(
+            &mut self,
+            _event_id: EventId,
+            _product_id: ProductId,
+        ) -> Result<Option<ProductSearchFilterMatchSource>, ProductSearchFilterMatchSourceReadError>
+        {
+            Ok(self.0.clone())
+        }
+    }
+
+    impl ProductSearchFilterMatchSourceReaderFactory<FakeTransaction> for Sources {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl ProductSearchFilterMatchSourceReader + 'tx {
+            ReadingSource(self.0.clone())
         }
     }
 
@@ -494,8 +642,10 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let state = Arc::new(Mutex::new(State::default()));
         let user_id = UserId::new();
+        let product = product()?;
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
+            Sources(Some(product.clone())),
             Index {
                 filters: vec![
                     filter(user_id, UserSearchFilterId::new()),
@@ -506,12 +656,11 @@ mod tests {
             Candidates(Arc::clone(&state)),
             Matches(Arc::clone(&state)),
         );
-        let product = product()?;
 
         let result = handler
             .execute(MatchProductEventCommand {
                 origin_event_id: product.event_id,
-                product,
+                product_id: product.product_id,
             })
             .await?;
 
@@ -520,7 +669,7 @@ mod tests {
             .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
         assert_eq!(2, result.percolated_count);
         assert_eq!(2, result.persisted_match_count);
-        assert_eq!(1, state.committed);
+        assert_eq!(2, state.committed);
         assert_eq!(1, state.active_reads);
         assert_eq!(2, state.persisted.len());
         Ok(())
@@ -533,8 +682,10 @@ mod tests {
         let user_id = UserId::new();
         let mut enhanced = filter(user_id, UserSearchFilterId::new());
         enhanced.search.enhanced_search_description = Some("only paintings".into());
+        let product = product()?;
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
+            Sources(Some(product.clone())),
             Index {
                 filters: vec![enhanced],
             },
@@ -542,12 +693,11 @@ mod tests {
             Candidates(Arc::clone(&state)),
             Matches(Arc::clone(&state)),
         );
-        let product = product()?;
 
         let result = handler
             .execute(MatchProductEventCommand {
                 origin_event_id: product.event_id,
-                product,
+                product_id: product.product_id,
             })
             .await?;
 
@@ -556,8 +706,43 @@ mod tests {
             .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
         assert_eq!(1, result.percolated_count);
         assert_eq!(0, result.persisted_match_count);
-        assert_eq!(1, state.committed);
+        assert_eq!(2, state.committed);
         assert_eq!(0, state.active_reads);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_ignore_stale_product_events_after_committing_source_read()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let mut product = product()?;
+        product.current_event_id = EventId::new();
+        let handler = MatchProductEventHandler::new(
+            FakeUnitOfWork(Arc::clone(&state)),
+            Sources(Some(product.clone())),
+            Index {
+                filters: Vec::new(),
+            },
+            Evaluator,
+            Candidates(Arc::clone(&state)),
+            Matches(Arc::clone(&state)),
+        );
+
+        let result = handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: product.event_id,
+                product_id: product.product_id,
+            })
+            .await?;
+
+        assert_eq!(MatchProductEventOutcome::IgnoredStaleEvent, result.outcome);
+        assert_eq!(
+            1,
+            state
+                .lock()
+                .map_err(|_| std::io::Error::other("test mutex poisoned"))?
+                .committed
+        );
         Ok(())
     }
 }

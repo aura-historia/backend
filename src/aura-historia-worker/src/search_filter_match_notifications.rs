@@ -5,65 +5,30 @@ use crate::{
 };
 use common::{
     error::boxed::{BoxError, box_error},
-    postgres::SqlxUnitOfWork,
+    event_id::EventId,
     product_id::ProductId,
-    transaction::{Transaction, UnitOfWork},
     user_id::UserId,
     user_search_filter_id::UserSearchFilterId,
 };
-use product_postgres::SqlxProductSearchFilterMatchSourceReaderFactory;
-use product_service::ports::{
-    ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
-    ProductSearchFilterMatchSourceReaderFactory,
-};
-use search_filter_postgres::SqlxSearchFilterMatchNotificationSourceReaderFactory;
-use search_filter_service::{
-    ports::{
-        SearchFilterMatchNotificationSourceReadError, SearchFilterMatchNotificationSourceReader,
-        SearchFilterMatchNotificationSourceReaderFactory,
-    },
-    use_cases::{
-        GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationUseCase,
-    },
+use search_filter_service::use_cases::{
+    GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationUseCase,
 };
 use std::sync::Arc;
 use tracing::{error, info};
 
 pub async fn consume_search_filter_match_notification_queue(
     mut receiver: InMemoryQueueReceiver<DomainJob>,
-    handler: Arc<dyn GenerateSearchFilterMatchNotificationUseCase>,
-    match_unit_of_work: SqlxUnitOfWork,
-    match_source_reader_factory: SqlxSearchFilterMatchNotificationSourceReaderFactory,
-    product_unit_of_work: SqlxUnitOfWork,
-    product_source_reader_factory: SqlxProductSearchFilterMatchSourceReaderFactory,
+    use_case: Arc<dyn GenerateSearchFilterMatchNotificationUseCase>,
 ) {
     let dead_letters = InMemoryDeadLetterQueue::new();
 
     while let Some(job) = receiver.recv().await {
         let idempotency_key = job.idempotency_key.as_str().to_owned();
         let ordering_key = job.ordering_key.as_str().to_owned();
-        let handler_for_retry = Arc::clone(&handler);
-        let match_unit_of_work_for_retry = match_unit_of_work.clone();
-        let match_source_reader_factory_for_retry = match_source_reader_factory.clone();
-        let product_unit_of_work_for_retry = product_unit_of_work.clone();
-        let product_source_reader_factory_for_retry = product_source_reader_factory;
+        let use_case_for_retry = Arc::clone(&use_case);
         let result = run_with_retry(job, RetryConfig::default(), &dead_letters, move |job| {
-            let handler = Arc::clone(&handler_for_retry);
-            let match_unit_of_work = match_unit_of_work_for_retry.clone();
-            let match_source_reader_factory = match_source_reader_factory_for_retry.clone();
-            let product_unit_of_work = product_unit_of_work_for_retry.clone();
-            let product_source_reader_factory = product_source_reader_factory_for_retry;
-            async move {
-                generate_search_filter_match_notification(
-                    handler,
-                    match_unit_of_work,
-                    match_source_reader_factory,
-                    product_unit_of_work,
-                    product_source_reader_factory,
-                    job,
-                )
-                .await
-            }
+            let use_case = Arc::clone(&use_case_for_retry);
+            async move { execute_job(use_case, job).await }
         })
         .await;
 
@@ -87,14 +52,22 @@ pub async fn consume_search_filter_match_notification_queue(
     }
 }
 
-async fn generate_search_filter_match_notification(
-    handler: Arc<dyn GenerateSearchFilterMatchNotificationUseCase>,
-    match_unit_of_work: SqlxUnitOfWork,
-    match_source_reader_factory: SqlxSearchFilterMatchNotificationSourceReaderFactory,
-    product_unit_of_work: SqlxUnitOfWork,
-    product_source_reader_factory: SqlxProductSearchFilterMatchSourceReaderFactory,
+async fn execute_job(
+    use_case: Arc<dyn GenerateSearchFilterMatchNotificationUseCase>,
     job: DomainJob,
-) -> Result<(), SearchFilterMatchNotificationWorkerError> {
+) -> Result<(), BoxError> {
+    let command = command_from_job(job).map_err(box_error)?;
+    use_case
+        .execute(command)
+        .await
+        .map(|_| ())
+        .map_err(box_error)
+}
+
+fn command_from_job(
+    job: DomainJob,
+) -> Result<GenerateSearchFilterMatchNotificationCommand, SearchFilterMatchNotificationWorkerError>
+{
     let DomainJobPayload::SearchFilterMatchCreated(change) = job.payload else {
         return Err(SearchFilterMatchNotificationWorkerError::UnexpectedJobPayload);
     };
@@ -114,86 +87,18 @@ async fn generate_search_filter_match_notification(
             source: box_error(source),
         }
     })?;
-
-    let mut match_tx = match_unit_of_work.begin().await.map_err(|source| {
-        SearchFilterMatchNotificationWorkerError::BeginMatchReadTransaction {
-            source: box_error(source),
-        }
-    })?;
-    let match_source = match_source_reader_factory
-        .in_transaction(&mut match_tx)
-        .find_source(user_id, search_filter_id, product_id)
-        .await
-        .map_err(match_source_read_error)?;
-    match_tx.commit().await.map_err(|source| {
-        SearchFilterMatchNotificationWorkerError::CommitMatchReadTransaction {
-            source: box_error(source),
-        }
-    })?;
-    let Some(match_source) = match_source else {
-        return Ok(());
-    };
-
-    let mut product_tx = product_unit_of_work.begin().await.map_err(|source| {
-        SearchFilterMatchNotificationWorkerError::BeginProductReadTransaction {
-            source: box_error(source),
-        }
-    })?;
-    let product = product_source_reader_factory
-        .in_transaction(&mut product_tx)
-        .find_source(match_source.origin_event_id, match_source.product_id)
-        .await
-        .map_err(product_source_read_error)?
-        .ok_or(
-            SearchFilterMatchNotificationWorkerError::ProductSourceNotFound {
-                origin_event_id: match_source.origin_event_id,
-                product_id: match_source.product_id,
-            },
-        )?;
-    product_tx.commit().await.map_err(|source| {
-        SearchFilterMatchNotificationWorkerError::CommitProductReadTransaction {
+    let origin_event_id = EventId::try_from(change.origin_event_id.as_str()).map_err(|source| {
+        SearchFilterMatchNotificationWorkerError::InvalidOriginEventId {
             source: box_error(source),
         }
     })?;
 
-    handler
-        .execute(GenerateSearchFilterMatchNotificationCommand {
-            match_source,
-            product,
-        })
-        .await
-        .map(|_| ())
-        .map_err(
-            |source| SearchFilterMatchNotificationWorkerError::Generate {
-                source: box_error(source),
-            },
-        )
-}
-
-fn match_source_read_error(
-    error: SearchFilterMatchNotificationSourceReadError,
-) -> SearchFilterMatchNotificationWorkerError {
-    match error {
-        SearchFilterMatchNotificationSourceReadError::InvalidPersistedState { source } => {
-            SearchFilterMatchNotificationWorkerError::MatchSourceStateInvalid { source }
-        }
-        error => SearchFilterMatchNotificationWorkerError::ReadMatchSource {
-            source: box_error(error),
-        },
-    }
-}
-
-fn product_source_read_error(
-    error: ProductSearchFilterMatchSourceReadError,
-) -> SearchFilterMatchNotificationWorkerError {
-    match error {
-        ProductSearchFilterMatchSourceReadError::InvalidPersistedState { source } => {
-            SearchFilterMatchNotificationWorkerError::ProductSourceStateInvalid { source }
-        }
-        error => SearchFilterMatchNotificationWorkerError::ReadProductSource {
-            source: box_error(error),
-        },
-    }
+    Ok(GenerateSearchFilterMatchNotificationCommand {
+        user_id,
+        search_filter_id,
+        product_id,
+        origin_event_id,
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -215,54 +120,8 @@ enum SearchFilterMatchNotificationWorkerError {
         #[source]
         source: BoxError,
     },
-    #[error("failed to begin search filter match source read transaction")]
-    BeginMatchReadTransaction {
-        #[source]
-        source: BoxError,
-    },
-    #[error("search filter match notification source read failed")]
-    ReadMatchSource {
-        #[source]
-        source: BoxError,
-    },
-    #[error("search filter match notification source persisted state is invalid")]
-    MatchSourceStateInvalid {
-        #[source]
-        source: BoxError,
-    },
-
-    #[error("failed to commit search filter match source read transaction")]
-    CommitMatchReadTransaction {
-        #[source]
-        source: BoxError,
-    },
-    #[error("failed to begin product source read transaction")]
-    BeginProductReadTransaction {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product source read failed")]
-    ReadProductSource {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product source persisted state is invalid")]
-    ProductSourceStateInvalid {
-        #[source]
-        source: BoxError,
-    },
-    #[error("product source was not found")]
-    ProductSourceNotFound {
-        origin_event_id: common::event_id::EventId,
-        product_id: ProductId,
-    },
-    #[error("failed to commit product source read transaction")]
-    CommitProductReadTransaction {
-        #[source]
-        source: BoxError,
-    },
-    #[error("search filter match notification generation failed")]
-    Generate {
+    #[error("search filter match notification job has an invalid origin event id")]
+    InvalidOriginEventId {
         #[source]
         source: BoxError,
     },

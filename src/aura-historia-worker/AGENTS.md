@@ -10,8 +10,8 @@
 - `lib.rs` owns runtime config, `/health`, `/ready`, `/cdc/sequin`, server loop, default all-queue runtime, and bounded queue primitives.
 - `cdc.rs` normalizes Sequin webhook JSON to domain jobs and fans out after route validation.
 - `search_filter_projection.rs` consumes `SearchFilterOpenSearch` jobs, rereads committed Postgres state, and writes the canonical OpenSearch projection with target-side version protection.
-- `search_filter_percolator.rs` consumes domain/enrichment `ProductEvent` jobs, rereads the committed Product source, evaluates enhanced filters through the canonical `ProductMatchEvaluator`, and persists every active canonical Postgres match. No legacy evaluator is linked.
-- `search_filter_match_notifications.rs` consumes persisted-match insert jobs, rereads typed Postgres match and Product sources, and conditionally creates one DynamoDB SearchFilter notification.
+- `search_filter_percolator.rs` maps domain/enrichment `ProductEvent` jobs to the inbound matching command and invokes the service. The service rereads committed Product state, evaluates enhanced filters, and persists canonical Postgres matches. No legacy evaluator is linked.
+- `search_filter_match_notifications.rs` maps persisted-match insert jobs to the inbound notification command and invokes the service. The service reads typed Postgres match/Product sources in one snapshot, then conditionally creates one DynamoDB SearchFilter notification after commit.
 - `watchlist_notifications.rs consumes price/state Product event jobs, rereads committed Postgres source plus active watchlist recipients, then creates idempotent DynamoDB notification records.
 - `retry.rs` owns in-process retry, idempotency memory, and in-memory DLQ helpers.
 - No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs.

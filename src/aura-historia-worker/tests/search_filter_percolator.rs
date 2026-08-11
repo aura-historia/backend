@@ -470,6 +470,7 @@ impl FullFlowWorker {
         let percolator_handler: Arc<dyn MatchProductEventUseCase> =
             Arc::new(MatchProductEventHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
+                SqlxProductSearchFilterMatchSourceReaderFactory::new(),
                 index.clone(),
                 NonMatchingProductMatchEvaluator,
                 SqlxActiveSearchFilterMatchCandidateReaderFactory,
@@ -478,6 +479,8 @@ impl FullFlowWorker {
         let notification_handler: Arc<dyn GenerateSearchFilterMatchNotificationUseCase> =
             Arc::new(GenerateSearchFilterMatchNotificationHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
+                SqlxSearchFilterMatchNotificationSourceReaderFactory,
+                SqlxProductSearchFilterMatchSourceReaderFactory::new(),
                 SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
                 SqlxUserTierEntitlementsFactory::new(),
                 CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
@@ -497,16 +500,10 @@ impl FullFlowWorker {
         let percolator_consumer = tokio::spawn(consume_search_filter_percolator_queue(
             percolator_receiver,
             percolator_handler,
-            SqlxUnitOfWork::new(pool.clone()),
-            SqlxProductSearchFilterMatchSourceReaderFactory::new(),
         ));
         let notification_consumer = tokio::spawn(consume_search_filter_match_notification_queue(
             notification_receiver,
             notification_handler,
-            SqlxUnitOfWork::new(pool.clone()),
-            SqlxSearchFilterMatchNotificationSourceReaderFactory,
-            SqlxUnitOfWork::new(pool.clone()),
-            SqlxProductSearchFilterMatchSourceReaderFactory::new(),
         ));
         let server = ScopedWorkerServer::start(runtime).await?;
 

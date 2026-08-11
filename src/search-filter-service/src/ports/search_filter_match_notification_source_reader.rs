@@ -16,6 +16,8 @@ pub struct SearchFilterMatchNotificationSource {
     /// Database-assigned match time used for stable monthly notification ranking.
     pub matched_at: OffsetDateTime,
     pub external: bool,
+    /// True when this is the lowest filter ID for the user and origin event.
+    pub is_selected_filter: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -39,6 +41,7 @@ pub trait SearchFilterMatchNotificationSourceReader: Send {
         user_id: UserId,
         search_filter_id: UserSearchFilterId,
         product_id: ProductId,
+        origin_event_id: EventId,
     ) -> Result<
         Option<SearchFilterMatchNotificationSource>,
         SearchFilterMatchNotificationSourceReadError,

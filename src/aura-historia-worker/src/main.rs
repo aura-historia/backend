@@ -95,6 +95,7 @@ async fn run_search_filter_percolator(
     let evaluator = vertex_ai_product_match_evaluator()?;
     let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
+        SqlxProductSearchFilterMatchSourceReaderFactory::new(),
         OpenSearchSearchFilterIndex::new(client),
         evaluator,
         SqlxActiveSearchFilterMatchCandidateReaderFactory,
@@ -108,12 +109,7 @@ async fn run_search_filter_percolator(
             .ok_or(MainError::MissingQueue {
                 queue: "search filter percolator",
             })?;
-    let task = tokio::spawn(consume_search_filter_percolator_queue(
-        receiver,
-        handler,
-        SqlxUnitOfWork::new(pool),
-        SqlxProductSearchFilterMatchSourceReaderFactory::new(),
-    ));
+    let task = tokio::spawn(consume_search_filter_percolator_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
 }
 
@@ -128,6 +124,8 @@ async fn run_search_filter_match_notifications(
     let handler: Arc<dyn GenerateSearchFilterMatchNotificationUseCase> =
         Arc::new(GenerateSearchFilterMatchNotificationHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
+            SqlxSearchFilterMatchNotificationSourceReaderFactory,
+            SqlxProductSearchFilterMatchSourceReaderFactory::new(),
             SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
             CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
@@ -143,12 +141,7 @@ async fn run_search_filter_match_notifications(
             queue: "search filter match notification",
         })?;
     let task = tokio::spawn(consume_search_filter_match_notification_queue(
-        receiver,
-        handler,
-        SqlxUnitOfWork::new(pool.clone()),
-        SqlxSearchFilterMatchNotificationSourceReaderFactory,
-        SqlxUnitOfWork::new(pool),
-        SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+        receiver, handler,
     ));
     finish_runtime(config, runtime, task).await
 }
