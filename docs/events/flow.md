@@ -134,7 +134,7 @@ Crash rule:
 | `products` | INSERT/MODIFY/DELETE | No default downstream route. Product events are the projection trigger to avoid double-firing. Use products CDC only for future explicit non-event projections. |
 | `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. Idempotency: `(shop_id, version, op)`. |
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
-| `search_filter_matches` | INSERT | Search-filter match notification worker. It rereads the persisted match and Product source, then conditionally inserts one DynamoDB SearchFilter notification. Idempotency: `(user_search_filter_id, product_id)` at the job and `(user_id, origin_event_id)` at DynamoDB. |
+| `search_filter_matches` | INSERT | Search-filter match notification worker. It rereads the exact persisted match and Product source, then conditionally inserts one DynamoDB SearchFilter notification. Idempotency: `(user_id, user_search_filter_id, product_id, origin_event_id)` at the job and `(user_id, origin_event_id)` at DynamoDB. |
 | `users` | MODIFY | User tier enforcement for tier changes; no user OpenSearch projection. Idempotency: `(user_id, version)`. |
 | `product_watchlist` | INSERT/MODIFY/DELETE | No default downstream route; product events drive notifications. |
 | `partner_shop_applications` | INSERT/MODIFY | No generic worker route unless notification behavior requires it. |
@@ -180,7 +180,7 @@ Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; it
 
 ## Search-filter match notification generator
 
-The match-notification scope accepts only `search_filter_matches` inserts. It rereads the typed persisted match and accepts only the deterministic lowest filter ID for each `(user_id, origin_event_id)`, then reads the committed Product source and invokes `GenerateSearchFilterMatchNotificationUseCase`. The use case locks the user tier and calculates the event's stable monthly notification rank; this gates notification selection only, never match persistence. DynamoDB conditionally creates `(user_id, origin_event_id)`, so match CDC redelivery or concurrent matched filters cannot overwrite or duplicate the notification. The Product source is read after the Postgres match read; DynamoDB remains outside Postgres transactions.
+The match-notification scope accepts only `search_filter_matches` inserts. Its job and source read use `(user_id, user_search_filter_id, product_id, origin_event_id)`, so a stale or superseded CDC row cannot notify a different match. It accepts only the deterministic lowest filter ID for each `(user_id, origin_event_id)`, then reads the committed Product source and invokes `GenerateSearchFilterMatchNotificationUseCase`. Missing or mismatched match sources are benign stale inputs. The use case locks the user tier and calculates the event's stable monthly notification rank; this gates notification selection only, never match persistence. DynamoDB conditionally creates `(user_id, origin_event_id)`, so exact match CDC redelivery or concurrent matched filters cannot overwrite or duplicate the notification. The Product source is read after the Postgres match read; DynamoDB remains outside Postgres transactions.
 
 Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-match-notification`; its Sequin subscription must contain only `search_filter_matches` inserts. Match updates and deletes have no notification route.
 
@@ -233,7 +233,7 @@ Minimum unique keys:
 | Shop worker job | `(shop_id, version, op)` |
 | Search-filter worker job | `(user_search_filter_id, version, op)` |
 | User tier worker job | `(user_id, version)` |
-| Search-filter match job | `(user_search_filter_id, product_id)` |
+| Search-filter match job | `(user_id, user_search_filter_id, product_id, origin_event_id)` |
 | Search-filter match | `(user_search_filter_id, product_id)` plus `origin_event_id` FK to `product_events.event_id` |
 | Search-filter notification | `(user_id, origin_event_id)` conditional DynamoDB insert |
 

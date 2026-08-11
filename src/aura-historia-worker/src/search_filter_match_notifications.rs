@@ -15,7 +15,7 @@ use search_filter_service::use_cases::{
     GenerateSearchFilterMatchNotificationUseCase,
 };
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{Span, error, info};
 
 pub async fn consume_search_filter_match_notification_queue(
     mut receiver: InMemoryQueueReceiver<DomainJob>,
@@ -26,6 +26,7 @@ pub async fn consume_search_filter_match_notification_queue(
     while let Some(job) = receiver.recv().await {
         let idempotency_key = job.idempotency_key.as_str().to_owned();
         let ordering_key = job.ordering_key.as_str().to_owned();
+        let identity = match_job_identity(&job);
         let use_case_for_retry = Arc::clone(&use_case);
         let result = run_with_retry(job, RetryConfig::default(), &dead_letters, move |job| {
             let use_case = Arc::clone(&use_case_for_retry);
@@ -38,6 +39,10 @@ pub async fn consume_search_filter_match_notification_queue(
                 job_type = "search_filter_match_notification",
                 %idempotency_key,
                 %ordering_key,
+                user_id = %identity.user_id,
+                search_filter_id = %identity.search_filter_id,
+                product_id = %identity.product_id,
+                origin_event_id = %identity.origin_event_id,
                 outcome = "applied",
                 "search filter match notification job completed"
             ),
@@ -45,6 +50,10 @@ pub async fn consume_search_filter_match_notification_queue(
                 job_type = "search_filter_match_notification",
                 %idempotency_key,
                 %ordering_key,
+                user_id = %identity.user_id,
+                search_filter_id = %identity.search_filter_id,
+                product_id = %identity.product_id,
+                origin_event_id = %identity.origin_event_id,
                 error = %error,
                 outcome = "dead_lettered_in_memory",
                 "search filter match notification job failed"
@@ -53,11 +62,32 @@ pub async fn consume_search_filter_match_notification_queue(
     }
 }
 
+#[tracing::instrument(
+    name = "process_search_filter_match_notification_job",
+    skip(use_case, job),
+    fields(
+        user_id = tracing::field::Empty,
+        search_filter_id = tracing::field::Empty,
+        product_id = tracing::field::Empty,
+        origin_event_id = tracing::field::Empty,
+    )
+)]
 async fn execute_job(
     use_case: Arc<dyn GenerateSearchFilterMatchNotificationUseCase>,
     job: DomainJob,
 ) -> Result<(), BoxError> {
     let command = command_from_job(job).map_err(box_error)?;
+    let span = Span::current();
+    span.record("user_id", tracing::field::display(command.user_id));
+    span.record(
+        "search_filter_id",
+        tracing::field::display(command.search_filter_id),
+    );
+    span.record("product_id", tracing::field::display(command.product_id));
+    span.record(
+        "origin_event_id",
+        tracing::field::display(command.origin_event_id),
+    );
     let result = use_case.execute(command).await.map_err(box_error)?;
     let notification_outcome = match result {
         GenerateSearchFilterMatchNotificationResult::Created => "inserted",
@@ -68,6 +98,9 @@ async fn execute_job(
         }
         GenerateSearchFilterMatchNotificationResult::SuppressedForMissingMatch => {
             "suppressed_for_missing_match"
+        }
+        GenerateSearchFilterMatchNotificationResult::SuppressedForStaleMatch => {
+            "suppressed_for_stale_match"
         }
         GenerateSearchFilterMatchNotificationResult::SuppressedForNonSelectedFilter => {
             "suppressed_for_non_selected_filter"
@@ -84,6 +117,27 @@ async fn execute_job(
         notification_outcome, "search filter match notification write completed"
     );
     Ok(())
+}
+
+#[derive(Debug, Default)]
+struct SearchFilterMatchNotificationJobIdentity {
+    user_id: String,
+    search_filter_id: String,
+    product_id: String,
+    origin_event_id: String,
+}
+
+fn match_job_identity(job: &DomainJob) -> SearchFilterMatchNotificationJobIdentity {
+    let DomainJobPayload::SearchFilterMatchCreated(change) = &job.payload else {
+        return SearchFilterMatchNotificationJobIdentity::default();
+    };
+
+    SearchFilterMatchNotificationJobIdentity {
+        user_id: change.user_id.clone(),
+        search_filter_id: change.user_search_filter_id.clone(),
+        product_id: change.product_id.clone(),
+        origin_event_id: change.origin_event_id.clone(),
+    }
 }
 
 fn command_from_job(

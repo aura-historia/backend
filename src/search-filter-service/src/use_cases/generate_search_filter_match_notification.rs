@@ -40,6 +40,7 @@ pub enum GenerateSearchFilterMatchNotificationResult {
     SuppressedByQuota,
     SuppressedForMissingUser,
     SuppressedForMissingMatch,
+    SuppressedForStaleMatch,
     SuppressedForNonSelectedFilter,
     SuppressedForMissingProduct,
     SuppressedForStaleProductEvent,
@@ -62,8 +63,7 @@ pub enum GenerateSearchFilterMatchNotificationError {
         #[source]
         source: BoxError,
     },
-    #[error("search filter match notification source does not match the requested identifiers")]
-    MatchSourceMismatch,
+
     #[error("product notification source read failed")]
     ProductSourceReadFailed {
         #[source]
@@ -188,7 +188,8 @@ where
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForMissingMatch);
         };
         if !match_source_matches_command(&match_source, &command) {
-            return Err(GenerateSearchFilterMatchNotificationError::MatchSourceMismatch);
+            tx.commit().await.map_err(commit_error)?;
+            return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForStaleMatch);
         }
         if !match_source.is_selected_filter {
             tx.commit().await.map_err(commit_error)?;
@@ -543,6 +544,21 @@ mod tests {
         }
     }
 
+    struct DuplicateNotifications;
+
+    #[async_trait::async_trait]
+    impl CreateNotificationUseCase for DuplicateNotifications {
+        async fn execute(
+            &self,
+            _command: CreateNotificationCommand,
+        ) -> Result<
+            notification_service::use_cases::commands::create_notification::CreateNotificationResult,
+            notification_service::use_cases::commands::create_notification::CreateNotificationError,
+        >{
+            Ok(CreateNotificationResult::AlreadyExists)
+        }
+    }
+
     fn sources() -> Result<
         (
             GenerateSearchFilterMatchNotificationCommand,
@@ -627,6 +643,57 @@ mod tests {
             .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
         assert_eq!(1, state.commits);
         assert_eq!(vec![1], state.notification_commit_counts);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_report_exact_match_redelivery_as_deduplicated() -> Result<(), Box<dyn Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (command, match_source, product) = sources()?;
+        let handler = GenerateSearchFilterMatchNotificationHandler::new(
+            TestUnitOfWork(Arc::clone(&state)),
+            MatchSources::Found(Some(match_source)),
+            ProductSources(Some(product)),
+            Quotas,
+            Tiers,
+            DuplicateNotifications,
+        );
+
+        assert_eq!(
+            GenerateSearchFilterMatchNotificationResult::AlreadyExists,
+            handler.execute(command).await?
+        );
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(1, state.commits);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_suppress_stale_match_source_without_creating_notification()
+    -> Result<(), Box<dyn Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (command, mut match_source, product) = sources()?;
+        match_source.origin_event_id = EventId::new();
+        let handler = GenerateSearchFilterMatchNotificationHandler::new(
+            TestUnitOfWork(Arc::clone(&state)),
+            MatchSources::Found(Some(match_source)),
+            ProductSources(Some(product)),
+            Quotas,
+            Tiers,
+            Notifications(Arc::clone(&state)),
+        );
+
+        assert_eq!(
+            GenerateSearchFilterMatchNotificationResult::SuppressedForStaleMatch,
+            handler.execute(command).await?
+        );
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(1, state.commits);
+        assert!(state.notification_commit_counts.is_empty());
         Ok(())
     }
 

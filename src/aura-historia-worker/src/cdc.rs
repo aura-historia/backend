@@ -709,7 +709,7 @@ fn search_filter_match_created_job(change: &CdcChange) -> Result<Vec<DomainJob>,
     Ok(vec![domain_job(
         WorkerQueue::SearchFilterMatchNotification,
         IdempotencyKey::new(format!(
-            "search-filter-match:{user_search_filter_id}:{product_id}"
+            "search-filter-match:{user_id}:{user_search_filter_id}:{product_id}:{origin_event_id}"
         )),
         OrderingKey::new(format!("user:{user_id}")),
         DomainJobPayload::SearchFilterMatchCreated(SearchFilterMatchCreatedJob {
@@ -1055,7 +1055,7 @@ mod tests {
             jobs[0].target_queue
         );
         assert_eq!(
-            "search-filter-match:50000000-0000-0000-0000-000000000001:30000000-0000-0000-0000-000000000001",
+            "search-filter-match:10000000-0000-0000-0000-000000000001:50000000-0000-0000-0000-000000000001:30000000-0000-0000-0000-000000000001:40000000-0000-0000-0000-000000000001",
             jobs[0].idempotency_key.as_str()
         );
         Ok(())
