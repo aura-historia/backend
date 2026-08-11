@@ -66,6 +66,57 @@ async fn should_search_shops_in_postgres() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_exclude_non_published_shops_from_public_search() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let shops = SqlxShopRepositoryFactory::new();
+    let search = SqlxShopSearchReaderFactory::new();
+    let published = sample_shop("postgres-public-visibility-published");
+    let drafted = Shop::create(new_shop("postgres-public-visibility-drafted"));
+    let rejected = Shop::create(new_shop("postgres-public-visibility-rejected"));
+    let archived = Shop::create(new_shop("postgres-public-visibility-archived"));
+    let deleted = Shop::create(new_shop("postgres-public-visibility-deleted"));
+
+    let mut tx = begin(&unit_of_work).await;
+    for shop in [&published, &drafted, &rejected, &archived, &deleted] {
+        if let Err(error) = shops.in_transaction(&mut tx).insert(shop).await {
+            panic!("failed to insert public visibility shop: {error:?}");
+        }
+    }
+    commit(tx).await;
+    set_shop_lifecycle(&pool, rejected.id(), "REJECTED").await;
+    set_shop_lifecycle(&pool, archived.id(), "ARCHIVED").await;
+    set_shop_lifecycle(&pool, deleted.id(), "DELETED").await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let result = match search
+        .in_transaction(&mut tx)
+        .search(&SearchShopsRequest {
+            search: ShopSearch {
+                shop_name_query: Some(text_query("postgres-public-visibility")),
+                ..Default::default()
+            },
+            sort: None,
+            cursor: None,
+        })
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => panic!("failed to search public shops: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(
+        vec![published.id()],
+        result
+            .items
+            .into_iter()
+            .map(|item| item.shop_id)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_page_shop_search_with_shop_id_cursor() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -297,7 +348,9 @@ async fn should_sort_search_by_created_desc() {
 const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
 
 fn sample_shop(slug: &str) -> Shop {
-    Shop::create(new_shop(slug))
+    let mut shop = Shop::create(new_shop(slug));
+    shop.publish();
+    shop
 }
 
 fn search_shop(
@@ -324,7 +377,9 @@ fn search_shop(
             lon: 13.4,
         }),
     });
-    Shop::create(input)
+    let mut shop = Shop::create(input);
+    shop.publish();
+    shop
 }
 
 fn text_query(value: &str) -> TextQuery<0> {
@@ -344,6 +399,17 @@ async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransacti
 async fn commit(tx: common::postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
+    }
+}
+
+async fn set_shop_lifecycle(pool: &sqlx::PgPool, shop_id: ShopId, lifecycle: &str) {
+    if let Err(error) = sqlx::query("UPDATE shops SET lifecycle = $1 WHERE shop_id = $2")
+        .bind(lifecycle)
+        .bind(uuid::Uuid::from(shop_id))
+        .execute(pool)
+        .await
+    {
+        panic!("failed to set shop lifecycle: {error}");
     }
 }
 

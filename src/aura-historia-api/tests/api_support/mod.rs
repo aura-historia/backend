@@ -243,7 +243,7 @@ pub async fn seed_shop() -> Shop {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let repositories = SqlxShopRepositoryFactory::new();
     let id = ShopId::new();
-    let shop = Shop::create(NewShop {
+    let mut shop = Shop::create(NewShop {
         id,
         name: common::shop_name::ShopName::from(format!("API Acceptance Shop {id}").as_str()),
         shop_type: ShopType::CommercialDealer,
@@ -259,6 +259,7 @@ pub async fn seed_shop() -> Shop {
         partner_status: ShopPartnerStatus::Partnered,
         affiliate_configuration: None,
     });
+    shop.publish();
 
     let mut tx = unit_of_work
         .begin()
@@ -608,6 +609,7 @@ async fn test_state() -> AppState {
         Arc::new(AdminDecidePartnerShopApplicationHandler::new(
             unit_of_work,
             SqlxPartnerShopApplicationRepositoryFactory::new(),
+            shop_postgres::SqlxShopRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,

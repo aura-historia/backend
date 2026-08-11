@@ -3,11 +3,13 @@ use crate::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,
     PartnerShopApplicationRepositoryFactory,
 };
-use common::error::boxed::BoxError;
+use common::change_outcome::ChangeOutcome;
+use common::error::boxed::{BoxError, static_error};
 use common::operation_context::{OperationAuthorizationError, OperationContext};
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::transaction::{Transaction, UnitOfWork};
 use shop_partner_core::partner_shop_application::PartnerShopApplication;
+use shop_service::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use user_service::ports::UserAdminReaderFactory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +35,7 @@ pub enum AdminDecidePartnerShopApplicationError {
     Forbidden,
     #[error("partner shop application not found")]
     NotFound,
+
     #[error("concurrent partner shop application update")]
     ConcurrencyConflict,
     #[error("temporary partner shop application persistence failure")]
@@ -65,27 +68,30 @@ pub trait AdminDecidePartnerShopApplicationUseCase: Send + Sync {
     ) -> Result<AdminDecidePartnerShopApplicationResult, AdminDecidePartnerShopApplicationError>;
 }
 
-pub struct AdminDecidePartnerShopApplicationHandler<U, A, R> {
+pub struct AdminDecidePartnerShopApplicationHandler<U, A, S, R> {
     unit_of_work: U,
     applications: A,
+    shops: S,
     admin_reader: R,
 }
-impl<U, A, R> AdminDecidePartnerShopApplicationHandler<U, A, R> {
-    pub fn new(unit_of_work: U, applications: A, admin_reader: R) -> Self {
+impl<U, A, S, R> AdminDecidePartnerShopApplicationHandler<U, A, S, R> {
+    pub fn new(unit_of_work: U, applications: A, shops: S, admin_reader: R) -> Self {
         Self {
             unit_of_work,
             applications,
+            shops,
             admin_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, A, R> AdminDecidePartnerShopApplicationUseCase
-    for AdminDecidePartnerShopApplicationHandler<U, A, R>
+impl<U, A, S, R> AdminDecidePartnerShopApplicationUseCase
+    for AdminDecidePartnerShopApplicationHandler<U, A, S, R>
 where
     U: UnitOfWork,
     A: PartnerShopApplicationRepositoryFactory<U::Tx>,
+    S: ShopRepositoryFactory<U::Tx>,
     R: UserAdminReaderFactory<U::Tx>,
 {
     #[tracing::instrument(name = "admin_decide_partner_shop_application", skip_all, fields(partner_shop_application_id = %command.application_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
@@ -108,7 +114,27 @@ where
             .await?
             .ok_or(AdminDecidePartnerShopApplicationError::NotFound)?;
         match command.decision {
-            PartnerShopApplicationDecision::Approve => versioned.value.approve(),
+            PartnerShopApplicationDecision::Approve => {
+                let mut shop = self
+                    .shops
+                    .in_transaction(&mut tx)
+                    .find_by_id(versioned.value.shop_id())
+                    .await?
+                    .ok_or(
+                        AdminDecidePartnerShopApplicationError::InvalidPersistedState {
+                            source: static_error(
+                                "partner shop application references a missing shop",
+                            ),
+                        },
+                    )?;
+                if shop.shop.publish() == ChangeOutcome::Changed {
+                    self.shops
+                        .in_transaction(&mut tx)
+                        .update(&shop.shop, shop.version)
+                        .await?;
+                }
+                versioned.value.approve();
+            }
             PartnerShopApplicationDecision::Reject => versioned.value.reject(),
         }
         let application = self
@@ -153,6 +179,22 @@ impl From<OperationAuthorizationError> for AdminDecidePartnerShopApplicationErro
         }
     }
 }
+impl From<ShopRepositoryError> for AdminDecidePartnerShopApplicationError {
+    fn from(error: ShopRepositoryError) -> Self {
+        match error {
+            ShopRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
+            ShopRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            ShopRepositoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            ShopRepositoryError::SlugConflict { source }
+            | ShopRepositoryError::Internal { source } => Self::Internal { source },
+        }
+    }
+}
+
 impl From<PartnerShopApplicationRepositoryError> for AdminDecidePartnerShopApplicationError {
     fn from(error: PartnerShopApplicationRepositoryError) -> Self {
         match error {
@@ -177,11 +219,22 @@ mod tests {
     use common::{
         partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
     };
+    use shop_core::{
+        partner_status::ShopPartnerStatus,
+        shop::{NewShop, Shop, ShopContact, ShopPresentation},
+        shop_type::ShopType,
+    };
     use shop_partner_core::partner_shop_application::{
         NewPartnerShopApplication, PartnerShopApplicationPayload,
     };
     use shop_partner_core::partner_shop_application_state::PartnerShopApplicationState;
-    use std::sync::{Arc, Mutex};
+    use shop_service::ports::{
+        ShopRepository, ShopRepositoryFactory, ShopStorageVersion, StoredShop,
+    };
+    use std::{
+        collections::HashSet,
+        sync::{Arc, Mutex},
+    };
     use user_service::ports::{
         UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,
     };
@@ -201,8 +254,16 @@ mod tests {
         applications: Arc<Mutex<Vec<VersionedPartnerShopApplication>>>,
         committed: Arc<Mutex<bool>>,
         updated: Arc<Mutex<usize>>,
+        shop: Arc<Mutex<Option<StoredShop>>>,
     }
     struct TestApplicationPort {
+        state: SharedState,
+    }
+    #[derive(Clone, Default)]
+    struct TestShopFactory {
+        state: SharedState,
+    }
+    struct TestShopPort {
         state: SharedState,
     }
     #[derive(Clone, Default)]
@@ -221,6 +282,22 @@ mod tests {
                     PartnerShopApplicationStorageVersion::INITIAL,
                 ));
             }
+        }
+        fn with_shop(&self, shop: Shop) {
+            if let Ok(mut stored) = self.shop.lock() {
+                *stored = Some(StoredShop {
+                    shop,
+                    version: ShopStorageVersion::INITIAL,
+                    created: time::OffsetDateTime::UNIX_EPOCH,
+                    updated: time::OffsetDateTime::UNIX_EPOCH,
+                });
+            }
+        }
+        fn shop_lifecycle(&self) -> Option<shop_core::lifecycle::ShopLifecycle> {
+            self.shop
+                .lock()
+                .ok()
+                .and_then(|stored| stored.as_ref().map(|shop| shop.shop.lifecycle()))
         }
         fn committed(&self) -> bool {
             self.committed.lock().map(|value| *value).unwrap_or(false)
@@ -256,6 +333,64 @@ mod tests {
             TestApplicationPort {
                 state: self.state.clone(),
             }
+        }
+    }
+    impl<Tx> ShopRepositoryFactory<Tx> for TestShopFactory {
+        fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl ShopRepository + 'tx {
+            TestShopPort {
+                state: self.state.clone(),
+            }
+        }
+    }
+    #[async_trait::async_trait]
+    impl ShopRepository for TestShopPort {
+        async fn find_by_id(
+            &mut self,
+            id: ShopId,
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
+            self.state
+                .shop
+                .lock()
+                .map_err(|_| ShopRepositoryError::Internal {
+                    source: "lock failed".into(),
+                })
+                .map(|stored| stored.as_ref().filter(|shop| shop.shop.id() == id).cloned())
+        }
+        async fn find_by_slug(
+            &mut self,
+            _slug_id: &common::shop_slug_id::ShopSlugId,
+        ) -> Result<Option<StoredShop>, ShopRepositoryError> {
+            Ok(None)
+        }
+        async fn insert(&mut self, shop: &Shop) -> Result<StoredShop, ShopRepositoryError> {
+            Ok(StoredShop {
+                shop: shop.clone(),
+                version: ShopStorageVersion::INITIAL,
+                created: time::OffsetDateTime::UNIX_EPOCH,
+                updated: time::OffsetDateTime::UNIX_EPOCH,
+            })
+        }
+        async fn update(
+            &mut self,
+            shop: &Shop,
+            expected_version: ShopStorageVersion,
+        ) -> Result<StoredShop, ShopRepositoryError> {
+            let mut stored = self
+                .state
+                .shop
+                .lock()
+                .map_err(|_| ShopRepositoryError::Internal {
+                    source: "lock failed".into(),
+                })?;
+            let Some(existing) = stored
+                .as_mut()
+                .filter(|existing| existing.shop.id() == shop.id())
+            else {
+                return Err(ShopRepositoryError::ConcurrencyConflict);
+            };
+            existing.shop = shop.clone();
+            existing.version = expected_version.next();
+            Ok(existing.clone())
         }
     }
     impl<Tx> UserAdminReaderFactory<Tx> for TestAdminFactory {
@@ -349,15 +484,20 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn should_approve_application_for_system() -> Result<(), String> {
-        let application = application(UserId::new());
+    async fn should_approve_application_and_publish_linked_shop_for_system() -> Result<(), String> {
+        let shop = shop();
+        let application = application_for(UserId::new(), shop.id());
         let application_id = application.id();
         let state = SharedState::with_application(application);
+        state.with_shop(shop);
         let result = AdminDecidePartnerShopApplicationHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
             },
             TestApplicationFactory {
+                state: state.clone(),
+            },
+            TestShopFactory {
                 state: state.clone(),
             },
             TestAdminFactory,
@@ -376,19 +516,31 @@ mod tests {
             result.application.business_state()
         );
         assert_eq!(1, state.updated());
+        assert_eq!(
+            Some(shop_core::lifecycle::ShopLifecycle::Published),
+            state.shop_lifecycle()
+        );
         assert!(state.committed());
         Ok(())
     }
     #[tokio::test]
-    async fn should_reject_application_for_system() -> Result<(), String> {
-        let application = application(UserId::new());
+    async fn should_reject_application_without_publishing_linked_shop_for_system()
+    -> Result<(), String> {
+        let shop = shop();
+        let application = application_for(UserId::new(), shop.id());
         let application_id = application.id();
         let state = SharedState::with_application(application);
+        state.with_shop(shop);
         let result = AdminDecidePartnerShopApplicationHandler::new(
             TestUnitOfWork {
                 state: state.clone(),
             },
-            TestApplicationFactory { state },
+            TestApplicationFactory {
+                state: state.clone(),
+            },
+            TestShopFactory {
+                state: state.clone(),
+            },
             TestAdminFactory,
         )
         .execute(
@@ -404,6 +556,10 @@ mod tests {
             PartnerShopApplicationState::Rejected,
             result.application.business_state()
         );
+        assert_eq!(
+            Some(shop_core::lifecycle::ShopLifecycle::Drafted),
+            state.shop_lifecycle()
+        );
         Ok(())
     }
     #[tokio::test]
@@ -413,7 +569,10 @@ mod tests {
             TestUnitOfWork {
                 state: state.clone(),
             },
-            TestApplicationFactory { state },
+            TestApplicationFactory {
+                state: state.clone(),
+            },
+            TestShopFactory { state },
             TestAdminFactory,
         )
         .execute(
@@ -429,13 +588,26 @@ mod tests {
             Err(AdminDecidePartnerShopApplicationError::Forbidden)
         ));
     }
-    fn application(user_id: UserId) -> PartnerShopApplication {
+    fn application_for(user_id: UserId, shop_id: ShopId) -> PartnerShopApplication {
         PartnerShopApplication::create(NewPartnerShopApplication {
             id: PartnerShopApplicationId::new(),
             applicant_user_id: user_id,
-            payload: PartnerShopApplicationPayload::Existing {
-                shop_id: ShopId::new(),
-            },
+            payload: PartnerShopApplicationPayload::New { shop_id },
+        })
+    }
+    fn shop() -> Shop {
+        Shop::create(NewShop {
+            id: ShopId::new(),
+            name: "Partner application shop".into(),
+            shop_type: ShopType::CommercialDealer,
+            domains: HashSet::new(),
+            shopify: None,
+            woocommerce: None,
+            presentation: ShopPresentation::default(),
+            address: None,
+            contact: ShopContact::default(),
+            partner_status: ShopPartnerStatus::Partnered,
+            affiliate_configuration: None,
         })
     }
     fn context(principal: Principal) -> OperationContext {

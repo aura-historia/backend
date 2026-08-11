@@ -54,6 +54,81 @@ async fn should_read_shop_details_by_slug_and_shopify_domain() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_hide_non_published_shop_details_for_all_public_lookups() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let shops = SqlxShopRepositoryFactory::new();
+    let details = SqlxShopDetailsReaderFactory::new();
+    let hidden = [
+        (
+            Shop::create(new_shop(
+                "postgres-details-drafted",
+                Some(domain("drafted-details.example")),
+            )),
+            "DRAFTED",
+        ),
+        (
+            Shop::create(new_shop(
+                "postgres-details-rejected",
+                Some(domain("rejected-details.example")),
+            )),
+            "REJECTED",
+        ),
+        (
+            Shop::create(new_shop(
+                "postgres-details-archived",
+                Some(domain("archived-details.example")),
+            )),
+            "ARCHIVED",
+        ),
+        (
+            Shop::create(new_shop(
+                "postgres-details-deleted",
+                Some(domain("deleted-details.example")),
+            )),
+            "DELETED",
+        ),
+    ];
+
+    let mut tx = begin(&unit_of_work).await;
+    for (shop, _) in &hidden {
+        if let Err(error) = shops.in_transaction(&mut tx).insert(shop).await {
+            panic!("failed to insert hidden shop: {error:?}");
+        }
+    }
+    commit(tx).await;
+    for (shop, lifecycle) in &hidden {
+        set_shop_lifecycle(&pool, shop.id(), lifecycle).await;
+    }
+
+    let mut tx = begin(&unit_of_work).await;
+    for (shop, _) in &hidden {
+        let by_id = details
+            .in_transaction(&mut tx)
+            .find_details(&GetShopRequest::ById(shop.id()))
+            .await;
+        assert!(matches!(by_id, Ok(None)));
+
+        let by_slug = details
+            .in_transaction(&mut tx)
+            .find_details(&GetShopRequest::BySlug(shop.slug_id().clone()))
+            .await;
+        assert!(matches!(by_slug, Ok(None)));
+
+        let shopify_domain = shop
+            .shopify()
+            .map(|integration| integration.domain.clone())
+            .unwrap_or_else(|| panic!("test shop must have a Shopify domain"));
+        let by_domain = details
+            .in_transaction(&mut tx)
+            .find_details(&GetShopRequest::ByShopifyDomain(shopify_domain))
+            .await;
+        assert!(matches!(by_domain, Ok(None)));
+    }
+    commit(tx).await;
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_return_none_when_shop_details_rows_are_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
@@ -97,13 +172,26 @@ async fn should_return_none_when_shop_details_rows_are_missing() {
 const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
 
 fn sample_shop_with_shopify(slug: &str, shopify_domain: Domain) -> Shop {
-    Shop::create(new_shop(slug, Some(shopify_domain)))
+    let mut shop = Shop::create(new_shop(slug, Some(shopify_domain)));
+    shop.publish();
+    shop
 }
 
 fn domain(value: &str) -> Domain {
     match Domain::try_from(value) {
         Ok(domain) => domain,
         Err(error) => panic!("invalid test domain: {error}"),
+    }
+}
+
+async fn set_shop_lifecycle(pool: &sqlx::PgPool, shop_id: ShopId, lifecycle: &str) {
+    if let Err(error) = sqlx::query("UPDATE shops SET lifecycle = $1 WHERE shop_id = $2")
+        .bind(lifecycle)
+        .bind(uuid::Uuid::from(shop_id))
+        .execute(pool)
+        .await
+    {
+        panic!("failed to set shop lifecycle: {error}");
     }
 }
 

@@ -14,7 +14,7 @@
 - Readers and repositories bind to caller-owned transactions through service factory ports.
 - Real Postgres integration tests live under `tests/` one file per dedicated adapter impl, with helpers inline per file.
 - Does not read or write `shops.view_url`; derive view URL from `url` and affiliate config.
-- Reads and writes `shops.lifecycle`; database default is `DRAFTED`.
+- Reads and writes `shops.lifecycle`; database default is `DRAFTED`. Public search and details readers return only `PUBLISHED` shops; admin workflows use repositories or dedicated admin readers.
 
 ## Ownership
 

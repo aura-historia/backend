@@ -521,6 +521,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let admin_decide_partner_application = AdminDecidePartnerShopApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
+        SqlxShopRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
 

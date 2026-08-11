@@ -7,6 +7,12 @@ This changelog is for internal communication between frontend and backend teams.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## 2026-08-11 - Hide Non-Published Shops from Public Reads
+
+### Changed
+
+- Public `GET /api/v1/shops`, `GET /api/v1/shops/{shopId}`, and `GET /api/v1/by-slug/shops/{shopSlugId}` now return only published shops. Drafted, rejected, archived, and deleted records are hidden as absent. Approving a partner-shop application publishes its linked shop atomically with the approval.
+
 ## 2026-08-11 - Enforce Cognito Access-Token Authentication
 
 ### Changed

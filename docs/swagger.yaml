@@ -6017,8 +6017,9 @@ paths:
 
         Requires a valid Cognito JWT and the `ADMIN` role.
 
-        The request body uses `PostShopData`. The backend derives `shopSlugId` from `name`
-        and initializes newly created shops with `partnerStatus` set to `SCRAPED`.
+        The request body uses `PostShopData`. The backend derives `shopSlugId` from `name`,
+        initializes newly created shops with `partnerStatus` set to `SCRAPED`, and keeps them
+        drafted until an approved publication transition.
       operationId: postShop
       tags:
         - Shops
@@ -6176,7 +6177,8 @@ paths:
     get:
       summary: Simple shop search via query parameters
       description: |
-        Performs shop search using query parameters and returns read-optimized shop summary payloads.
+        Performs shop search using query parameters and returns read-optimized published-shop summary payloads.
+        Drafted, rejected, archived, and deleted shops are not publicly visible.
 
         Authentication is optional on this endpoint:
         - unauthenticated requests return cacheable shared responses
@@ -6358,6 +6360,7 @@ paths:
       description: |
         Retrieves detailed information about a specific shop by its shop ID (UUID).
         Returns complete shop metadata including name, domains, image, address/contact metadata, and timestamps.
+        Only published shops are publicly visible; non-public shops return `404`.
 
         Authentication is optional on this endpoint:
         - unauthenticated requests return cacheable shared responses
@@ -6697,6 +6700,7 @@ paths:
       description: |
         Retrieves detailed information about a specific shop by its human-readable slug identifier.
         Returns complete shop metadata including name, domains, image, address/contact metadata, and timestamps.
+        Only published shops are publicly visible; non-public shops return `404`.
 
         Authentication is optional on this endpoint:
         - unauthenticated requests return cacheable shared responses

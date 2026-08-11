@@ -15,7 +15,7 @@
 - Auth extractors only authenticate. Required capability and business policy checks belong in service/use-case code, not controllers.
 - Request IDs are server-created by future axum middleware; clients may only provide correlation IDs if middleware accepts them.
 - No API Gateway adapter.
-- `shops/` owns shop REST controllers.
+- `shops/` owns shop REST controllers. Public shop list and detail routes return only `PUBLISHED` shops; partner-application approval publishes its linked shop.
 - `users/` owns account, admin user, and access-token REST controllers.
 - `watchlist/` owns watchlist REST controllers. Product watchlist paths now use `{productId}` only. `GET /api/v1/me/watchlist` uses Postgres-backed common `Cursor`/`CursoredResult` pagination and common JSON cursor collection data; its tie-safe `searchAfter` is `[created RFC3339 timestamp, product UUID]`. It returns `PersonalizedData<ProductDetailsData, ProductUserStateData>` entries with `no-store`. Watch creation and inactive-to-active PATCH enforce active-entry quotas: Free 20, Pro 100, Ultimate unlimited.
 - `search_filters/` owns Postgres-backed saved-search filter CRUD and match-feedback REST controllers.
