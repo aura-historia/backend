@@ -98,6 +98,33 @@ async fn should_update_existing_partner_product_batch() -> TestResult {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_reject_unrelated_partner_from_existing_product_update() -> TestResult {
+    let result: TestResult = async {
+        let owner = partner_auth(products_write_scope()).await?;
+        let product_id = "patch-unrelated-partner";
+        create_product(&owner, product_id).await?;
+
+        let unrelated_user_id = seed_user("USER").await;
+        let unrelated_token =
+            String::from(seed_access_token_for(unrelated_user_id, products_write_scope()).await);
+        let response = send_json(
+            reqwest::Method::PATCH,
+            products_path(&owner.shop_id),
+            Some(&unrelated_token),
+            &json!([patch_product(product_id, "SOLD")]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::FORBIDDEN, status);
+        assert_eq!(json!("FORBIDDEN"), body["error"]);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
 async fn should_return_missing_product_as_partial_update_failure() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(products_write_scope()).await?;
@@ -185,6 +212,33 @@ async fn should_create_then_update_partner_product_with_upsert() -> TestResult {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_reject_unrelated_partner_from_existing_product_upsert() -> TestResult {
+    let result: TestResult = async {
+        let owner = partner_auth(products_write_scope()).await?;
+        let product_id = "put-unrelated-partner";
+        create_product(&owner, product_id).await?;
+
+        let unrelated_user_id = seed_user("USER").await;
+        let unrelated_token =
+            String::from(seed_access_token_for(unrelated_user_id, products_write_scope()).await);
+        let response = send_json(
+            reqwest::Method::PUT,
+            products_path(&owner.shop_id),
+            Some(&unrelated_token),
+            &json!([patch_product(product_id, "SOLD")]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::FORBIDDEN, status);
+        assert_eq!(json!("FORBIDDEN"), body["error"]);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
 async fn should_delete_existing_partner_product_batch() -> TestResult {
     let result: TestResult = async {
         let auth = partner_auth(products_write_scope()).await?;
@@ -203,6 +257,33 @@ async fn should_delete_existing_partner_product_batch() -> TestResult {
 
         assert_eq!(reqwest::StatusCode::OK, status);
         assert_eq!(json!([]), body);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+    assert_test_result(result);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_reject_unrelated_partner_from_existing_product_delete() -> TestResult {
+    let result: TestResult = async {
+        let owner = partner_auth(products_write_scope()).await?;
+        let product_id = "delete-unrelated-partner";
+        create_product(&owner, product_id).await?;
+
+        let unrelated_user_id = seed_user("USER").await;
+        let unrelated_token =
+            String::from(seed_access_token_for(unrelated_user_id, products_write_scope()).await);
+        let response = send_json(
+            reqwest::Method::DELETE,
+            products_path(&owner.shop_id),
+            Some(&unrelated_token),
+            &json!([delete_product(product_id)]),
+        )
+        .await?;
+        let (status, body) = response_json(response).await?;
+
+        assert_eq!(reqwest::StatusCode::FORBIDDEN, status);
+        assert_eq!(json!("FORBIDDEN"), body["error"]);
         Ok::<(), Box<dyn std::error::Error>>(())
     }
     .await;
