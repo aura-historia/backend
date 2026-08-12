@@ -85,7 +85,7 @@ async fn create_state_notification_from_committed_product_event()
         let event_id = EventId::new();
         let mut transaction = worker.pool.begin().await?;
         let product_id = seed_product(&mut transaction, event_id).await?;
-        seed_watchlist(&mut transaction, user_id, product_id, true, "Active").await?;
+        seed_watchlist(&mut transaction, user_id, product_id, true, "ACTIVE").await?;
         insert_product_event(
             &mut transaction,
             event_id,
@@ -121,7 +121,7 @@ async fn create_price_notifications_only_for_active_watchers()
             email_recipient,
             product_id,
             true,
-            "Active",
+            "ACTIVE",
         )
         .await?;
         seed_watchlist(
@@ -129,7 +129,7 @@ async fn create_price_notifications_only_for_active_watchers()
             in_app_recipient,
             product_id,
             false,
-            "Active",
+            "ACTIVE",
         )
         .await?;
         seed_watchlist(
@@ -137,7 +137,7 @@ async fn create_price_notifications_only_for_active_watchers()
             inactive_recipient,
             product_id,
             true,
-            "InactiveByUser",
+            "INACTIVE_BY_USER",
         )
         .await?;
         insert_product_event(
@@ -181,7 +181,7 @@ async fn preserve_one_notification_when_product_event_delivery_is_retried()
         let event_id = EventId::new();
         let mut transaction = worker.pool.begin().await?;
         let product_id = seed_product(&mut transaction, event_id).await?;
-        seed_watchlist(&mut transaction, user_id, product_id, true, "Active").await?;
+        seed_watchlist(&mut transaction, user_id, product_id, true, "ACTIVE").await?;
         insert_product_event(
             &mut transaction,
             event_id,
@@ -238,7 +238,7 @@ async fn not_notify_for_rolled_back_or_unrouted_product_events()
             user_id,
             rolled_back_product_id,
             true,
-            "Active",
+            "ACTIVE",
         )
         .await?;
         insert_product_event(
@@ -260,7 +260,7 @@ async fn not_notify_for_rolled_back_or_unrouted_product_events()
             user_id,
             unrouted_product_id,
             true,
-            "Active",
+            "ACTIVE",
         )
         .await?;
         insert_product_event(
@@ -369,7 +369,7 @@ async fn seed_product(
         .bind("Worker watchlist shop")
         .execute(&mut **transaction)
         .await?;
-    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Worker watchlist product', 'en', 'Listed', 'Active', 'https://example.test/product', '[]')")
+    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, 'Worker watchlist product', 'en', 'LISTED', 'ACTIVE', 'https://example.test/product', '[]')")
         .bind(product_uuid)
         .bind(format!("worker-watchlist-product-{product_slug_suffix}"))
         .bind(uuid::Uuid::from(event_id))

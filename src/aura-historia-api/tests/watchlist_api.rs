@@ -315,7 +315,7 @@ async fn should_serialize_concurrent_watchlist_creates_at_free_quota() {
     );
     let pool = get_postgres_client().await;
     let active_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = 'Active'",
+        "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = 'ACTIVE'",
     )
     .bind(uuid::Uuid::from(user_id))
     .fetch_one(&pool)
@@ -428,7 +428,7 @@ async fn should_serialize_concurrent_watchlist_reactivations_at_free_quota() {
     );
     let pool = get_postgres_client().await;
     let active_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = 'Active'",
+        "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = 'ACTIVE'",
     )
     .bind(uuid::Uuid::from(user_id))
     .fetch_one(&pool)

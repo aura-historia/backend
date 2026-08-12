@@ -14,12 +14,12 @@ WITH ranked AS (
         product_id,
         CASE
             WHEN row_number() OVER (ORDER BY created DESC, product_id ASC) <= $2
-                THEN 'Active'
-            ELSE 'InactiveByRestrictedPlan'
+                THEN 'ACTIVE'
+            ELSE 'INACTIVE_BY_RESTRICTED_PLAN'
         END AS target_state
     FROM product_watchlist
     WHERE user_id = $1
-      AND state IN ('Active', 'InactiveByRestrictedPlan')
+      AND state IN ('ACTIVE', 'INACTIVE_BY_RESTRICTED_PLAN')
 )
 UPDATE product_watchlist AS entry
 SET state = ranked.target_state,
@@ -60,7 +60,7 @@ WITH candidates AS (
         END AS feature_allowed
     FROM search_filters
     WHERE user_id = $1
-      AND state IN ('Active', 'InactiveByRestrictedPlan')
+      AND state IN ('ACTIVE', 'INACTIVE_BY_RESTRICTED_PLAN')
 ), ranked AS (
     SELECT
         user_search_filter_id,
@@ -72,8 +72,8 @@ WITH candidates AS (
     SELECT
         user_search_filter_id,
         CASE
-            WHEN feature_allowed AND eligible_rank <= $2 THEN 'Active'
-            ELSE 'InactiveByRestrictedPlan'
+            WHEN feature_allowed AND eligible_rank <= $2 THEN 'ACTIVE'
+            ELSE 'INACTIVE_BY_RESTRICTED_PLAN'
         END AS target_state
     FROM ranked
 )

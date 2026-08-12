@@ -41,7 +41,7 @@ impl WatchlistNotificationRecipientReader for SqlxWatchlistNotificationRecipient
         product_id: ProductId,
     ) -> Result<Vec<WatchlistNotificationRecipient>, WatchlistNotificationRecipientReadError> {
         let rows = sqlx::query_as::<_, (uuid::Uuid, bool)>(
-            "SELECT user_id, notifications FROM product_watchlist WHERE product_id = $1 AND state = 'Active' ORDER BY user_id ASC",
+            "SELECT user_id, notifications FROM product_watchlist WHERE product_id = $1 AND state = 'ACTIVE' ORDER BY user_id ASC",
         )
         .bind(uuid::Uuid::from(product_id))
         .fetch_all(self.tx.connection())

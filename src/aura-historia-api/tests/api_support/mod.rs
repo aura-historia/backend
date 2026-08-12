@@ -181,13 +181,13 @@ pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
 pub async fn seed_active_watchlist_entries(user_id: UserId, count: usize) {
     for _ in 0..count {
         let product_id = seed_product().await;
-        seed_watchlist_entry(user_id, product_id, "Active").await;
+        seed_watchlist_entry(user_id, product_id, "ACTIVE").await;
     }
 }
 
 pub async fn seed_inactive_watchlist_entry(user_id: UserId) -> ProductId {
     let product_id = seed_product().await;
-    seed_watchlist_entry(user_id, product_id, "InactiveByUser").await;
+    seed_watchlist_entry(user_id, product_id, "INACTIVE_BY_USER").await;
     product_id
 }
 

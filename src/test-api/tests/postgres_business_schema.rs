@@ -71,8 +71,8 @@ async fn should_support_core_business_relations() {
         VALUES (
             '60000000-0000-0000-0000-000000000001',
             '10000000-0000-0000-0000-000000000001',
-            'ACCEPTED',
-            'SUCCEEDED',
+            'APPROVED',
+            'COMPLETED',
             'EXISTING',
             '20000000-0000-0000-0000-000000000001'
         );
@@ -176,4 +176,20 @@ async fn should_support_core_business_relations() {
         .unwrap();
 
     assert_eq!(1, match_count);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_noncanonical_persisted_enum_values() {
+    let pool = get_postgres_client().await;
+
+    let result =
+        sqlx::query("INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, $3, $4)")
+            .bind(uuid::Uuid::new_v4())
+            .bind("invalid-state@example.com")
+            .bind("FREE")
+            .bind("User")
+            .execute(&pool)
+            .await;
+
+    assert!(result.is_err(), "noncanonical user role must be rejected");
 }

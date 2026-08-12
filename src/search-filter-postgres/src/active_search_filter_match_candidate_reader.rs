@@ -82,7 +82,7 @@ impl ActiveSearchFilterMatchCandidateReader for SqlxActiveSearchFilterMatchCandi
             JOIN search_filters filter
                 ON filter.user_id = candidate.user_id
                 AND filter.user_search_filter_id = candidate.user_search_filter_id
-            WHERE filter.state = 'Active'
+            WHERE filter.state = 'ACTIVE'
             "#,
         )
         .bind(user_ids)

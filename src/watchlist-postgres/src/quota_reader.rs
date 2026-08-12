@@ -50,7 +50,7 @@ impl WatchlistQuotaReader for SqlxWatchlistQuotaReader<'_> {
         user_id: UserId,
     ) -> Result<usize, WatchlistQuotaReadError> {
         let count = sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = 'Active'",
+            "SELECT count(*) FROM product_watchlist WHERE user_id = $1 AND state = 'ACTIVE'",
         )
         .bind(uuid::Uuid::from(user_id))
         .fetch_one(self.tx.connection())

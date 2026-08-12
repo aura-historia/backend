@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
     user_id uuid PRIMARY KEY,
     email text NOT NULL UNIQUE,
     first_name text,
@@ -21,36 +21,20 @@ CREATE TABLE IF NOT EXISTS users (
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT users_language_check CHECK (language IS NULL OR language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
+    CONSTRAINT users_currency_check CHECK (currency IS NULL OR currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT users_measurement_unit_check CHECK (measurement_unit IS NULL OR measurement_unit IN ('METRIC', 'IMPERIAL')),
+    CONSTRAINT users_tier_check CHECK (tier IN ('FREE', 'PRO', 'ULTIMATE')),
+    CONSTRAINT users_role_check CHECK (role IN ('USER', 'ADMIN')),
+    CONSTRAINT users_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
     CONSTRAINT users_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
-    CONSTRAINT users_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180)
+    CONSTRAINT users_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
+    CONSTRAINT users_version_positive CHECK (version >= 1)
 );
 
-CREATE TABLE IF NOT EXISTS user_partner_shops (
-    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    shop_id uuid NOT NULL,
-    created timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, shop_id)
-);
+CREATE INDEX users_created_idx ON users (created DESC);
 
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'shops'
-    ) AND NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'user_partner_shops_shop_id_fkey'
-    ) THEN
-        ALTER TABLE user_partner_shops
-            ADD CONSTRAINT user_partner_shops_shop_id_fkey
-            FOREIGN KEY (shop_id) REFERENCES shops(shop_id) ON DELETE CASCADE;
-    END IF;
-END $$;
-
-CREATE INDEX IF NOT EXISTS users_created_idx ON users (created DESC);
-CREATE INDEX IF NOT EXISTS user_partner_shops_shop_id_idx ON user_partner_shops (shop_id);
-
-
-CREATE TABLE IF NOT EXISTS shops (
+CREATE TABLE shops (
     shop_id uuid PRIMARY KEY,
     shop_slug_id text NOT NULL UNIQUE,
     name text NOT NULL,
@@ -81,32 +65,33 @@ CREATE TABLE IF NOT EXISTS shops (
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT shops_type_check CHECK (shop_type IN ('AUCTION_HOUSE', 'AUCTION_PLATFORM', 'COMMERCIAL_DEALER', 'MARKETPLACE')),
+    CONSTRAINT shops_partner_status_check CHECK (partner_status IN ('SCRAPED', 'PARTNERED')),
+    CONSTRAINT shops_lifecycle_check CHECK (lifecycle IN ('DRAFTED', 'PUBLISHED')),
+    CONSTRAINT shops_shopify_currency_check CHECK (shopify_currency IS NULL OR shopify_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT shops_woocommerce_currency_check CHECK (woocommerce_currency IS NULL OR woocommerce_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT shops_shopify_language_check CHECK (shopify_language IS NULL OR shopify_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
+    CONSTRAINT shops_woocommerce_language_check CHECK (woocommerce_language IS NULL OR woocommerce_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
+    CONSTRAINT shops_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
     CONSTRAINT shops_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
     CONSTRAINT shops_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
-    CONSTRAINT shops_affiliate_configuration_object CHECK (
-        affiliate_configuration IS NULL OR jsonb_typeof(affiliate_configuration) = 'object'
-    )
+    CONSTRAINT shops_affiliate_configuration_object CHECK (affiliate_configuration IS NULL OR jsonb_typeof(affiliate_configuration) = 'object'),
+    CONSTRAINT shops_version_positive CHECK (version >= 1)
 );
 
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'user_partner_shops'
-    ) AND NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'user_partner_shops_shop_id_fkey'
-    ) THEN
-        ALTER TABLE user_partner_shops
-            ADD CONSTRAINT user_partner_shops_shop_id_fkey
-            FOREIGN KEY (shop_id) REFERENCES shops(shop_id) ON DELETE CASCADE;
-    END IF;
-END $$;
+CREATE INDEX shops_shop_domains_gin_idx ON shops USING gin (shop_domains);
+CREATE INDEX shops_partner_status_updated_idx ON shops (partner_status, updated DESC);
 
-CREATE INDEX IF NOT EXISTS shops_shop_domains_gin_idx ON shops USING gin (shop_domains);
-CREATE INDEX IF NOT EXISTS shops_partner_status_updated_idx ON shops (partner_status, updated DESC);
+CREATE TABLE user_partner_shops (
+    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    shop_id uuid NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
+    created timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, shop_id)
+);
 
+CREATE INDEX user_partner_shops_shop_id_idx ON user_partner_shops (shop_id);
 
-CREATE TABLE IF NOT EXISTS partner_shop_applications (
+CREATE TABLE partner_shop_applications (
     partner_shop_application_id uuid PRIMARY KEY,
     applicant_user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     business_state text NOT NULL,
@@ -117,35 +102,37 @@ CREATE TABLE IF NOT EXISTS partner_shop_applications (
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT partner_shop_applications_payload_type_check CHECK (payload_type IN ('EXISTING', 'NEW'))
+    CONSTRAINT partner_shop_applications_business_state_check CHECK (business_state IN ('SUBMITTED', 'IN_REVIEW', 'REJECTED', 'APPROVED', 'WITHDRAWN')),
+    CONSTRAINT partner_shop_applications_execution_state_check CHECK (execution_state IN ('PROCESSING', 'WAITING', 'COMPLETED')),
+    CONSTRAINT partner_shop_applications_payload_type_check CHECK (payload_type IN ('EXISTING', 'NEW')),
+    CONSTRAINT partner_shop_applications_version_positive CHECK (version >= 1)
 );
 
-CREATE INDEX IF NOT EXISTS partner_shop_applications_applicant_created_idx
-    ON partner_shop_applications (applicant_user_id, created DESC);
-CREATE INDEX IF NOT EXISTS partner_shop_applications_business_state_created_idx
-    ON partner_shop_applications (business_state, created DESC);
-CREATE INDEX IF NOT EXISTS partner_shop_applications_shop_id_idx
-    ON partner_shop_applications (shop_id);
+CREATE INDEX partner_shop_applications_applicant_created_idx ON partner_shop_applications (applicant_user_id, created DESC);
+CREATE INDEX partner_shop_applications_business_state_created_idx ON partner_shop_applications (business_state, created DESC);
+CREATE INDEX partner_shop_applications_shop_id_idx ON partner_shop_applications (shop_id);
 
-
-CREATE TABLE IF NOT EXISTS fx_rates (
+CREATE TABLE fx_rates (
     fx_rate_id uuid PRIMARY KEY,
     captured_at timestamptz NOT NULL,
     source text NOT NULL,
     created timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS fx_rate_conversions (
+CREATE INDEX fx_rates_captured_at_idx ON fx_rates (captured_at DESC);
+
+CREATE TABLE fx_rate_conversions (
     fx_rate_id uuid NOT NULL REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
     from_currency text NOT NULL,
     to_currency text NOT NULL,
     rate bigint NOT NULL,
-    PRIMARY KEY (fx_rate_id, from_currency, to_currency)
+    PRIMARY KEY (fx_rate_id, from_currency, to_currency),
+    CONSTRAINT fx_rate_conversions_from_currency_check CHECK (from_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT fx_rate_conversions_to_currency_check CHECK (to_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT fx_rate_conversions_rate_nonnegative CHECK (rate >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS fx_rates_captured_at_idx ON fx_rates (captured_at DESC);
-
-CREATE TABLE IF NOT EXISTS products (
+CREATE TABLE products (
     product_id uuid PRIMARY KEY,
     product_slug_id text NOT NULL,
     event_id uuid NOT NULL,
@@ -182,12 +169,34 @@ CREATE TABLE IF NOT EXISTS products (
     updated timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT products_shop_product_unique UNIQUE (shop_id, shops_product_id),
     CONSTRAINT products_slug_unique UNIQUE (product_slug_id),
+    CONSTRAINT products_state_check CHECK (state IN ('LISTED', 'AVAILABLE', 'RESERVED', 'SOLD', 'REMOVED', 'UNKNOWN')),
+    CONSTRAINT products_lifecycle_check CHECK (lifecycle IN ('ACTIVE', 'DELETED')),
+    CONSTRAINT products_title_pair_check CHECK ((title_text IS NULL) = (title_language IS NULL)),
+    CONSTRAINT products_description_pair_check CHECK ((description_text IS NULL) = (description_language IS NULL)),
+    CONSTRAINT products_title_language_check CHECK (title_language IS NULL OR title_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
+    CONSTRAINT products_description_language_check CHECK (description_language IS NULL OR description_language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
+    CONSTRAINT products_price_pair_check CHECK ((price_amount IS NULL) = (price_currency IS NULL)),
+    CONSTRAINT products_price_estimate_min_pair_check CHECK ((price_estimate_min_amount IS NULL) = (price_estimate_min_currency IS NULL)),
+    CONSTRAINT products_price_estimate_max_pair_check CHECK ((price_estimate_max_amount IS NULL) = (price_estimate_max_currency IS NULL)),
+    CONSTRAINT products_price_amount_nonnegative CHECK (price_amount IS NULL OR price_amount >= 0),
+    CONSTRAINT products_price_estimate_min_amount_nonnegative CHECK (price_estimate_min_amount IS NULL OR price_estimate_min_amount >= 0),
+    CONSTRAINT products_price_estimate_max_amount_nonnegative CHECK (price_estimate_max_amount IS NULL OR price_estimate_max_amount >= 0),
+    CONSTRAINT products_price_currency_check CHECK (price_currency IS NULL OR price_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT products_price_estimate_min_currency_check CHECK (price_estimate_min_currency IS NULL OR price_estimate_min_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT products_price_estimate_max_currency_check CHECK (price_estimate_max_currency IS NULL OR price_estimate_max_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT products_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
     CONSTRAINT products_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
     CONSTRAINT products_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
-    CONSTRAINT products_images_array CHECK (jsonb_typeof(product_images) = 'array')
+    CONSTRAINT products_images_array CHECK (jsonb_typeof(product_images) = 'array'),
+    CONSTRAINT products_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
+    CONSTRAINT products_auction_order_check CHECK (auction_start IS NULL OR auction_end IS NULL OR auction_start <= auction_end)
 );
 
-CREATE TABLE IF NOT EXISTS product_translations (
+CREATE INDEX products_seller_id_idx ON products (seller_id);
+CREATE INDEX products_lifecycle_updated_idx ON products (lifecycle, updated DESC);
+CREATE INDEX products_fx_rate_id_idx ON products (fx_rate_id);
+
+CREATE TABLE product_translations (
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
     language text NOT NULL,
     title text,
@@ -195,61 +204,52 @@ CREATE TABLE IF NOT EXISTS product_translations (
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (product_id, language),
+    CONSTRAINT product_translations_language_check CHECK (language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
     CONSTRAINT product_translations_has_content CHECK (title IS NOT NULL OR description IS NOT NULL)
 );
 
-CREATE TABLE IF NOT EXISTS product_events (
+CREATE INDEX product_translations_language_idx ON product_translations (language);
+
+CREATE TABLE product_events (
     event_id uuid PRIMARY KEY,
-    product_id uuid NOT NULL REFERENCES products(product_id) DEFERRABLE INITIALLY DEFERRED,
+    product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
     event_type text NOT NULL,
     event_group text NOT NULL,
     event_type_schema_version int NOT NULL DEFAULT 1,
     payload jsonb NOT NULL,
     event_time timestamptz NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT product_events_group_check CHECK (
-        event_group IN ('DOMAIN', 'ENRICHMENT', 'POLICY', 'LIFECYCLE')
-    ),
+    CONSTRAINT product_events_product_event_unique UNIQUE (product_id, event_id),
+    CONSTRAINT product_events_group_check CHECK (event_group IN ('DOMAIN', 'ENRICHMENT', 'POLICY', 'LIFECYCLE')),
+    CONSTRAINT product_events_schema_version_positive CHECK (event_type_schema_version >= 1),
     CONSTRAINT product_events_payload_object CHECK (jsonb_typeof(payload) = 'object')
 );
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'products_event_id_fkey'
-    ) THEN
-        ALTER TABLE products
-            ADD CONSTRAINT products_event_id_fkey
-            FOREIGN KEY (event_id) REFERENCES product_events(event_id)
-            DEFERRABLE INITIALLY DEFERRED;
-    END IF;
-END $$;
+ALTER TABLE products
+    ADD CONSTRAINT products_current_event_same_product_fkey
+    FOREIGN KEY (product_id, event_id)
+    REFERENCES product_events(product_id, event_id)
+    DEFERRABLE INITIALLY DEFERRED;
 
-CREATE INDEX IF NOT EXISTS products_seller_id_idx ON products (seller_id);
-CREATE INDEX IF NOT EXISTS products_lifecycle_updated_idx ON products (lifecycle, updated DESC);
-CREATE INDEX IF NOT EXISTS products_fx_rate_id_idx ON products (fx_rate_id);
-CREATE INDEX IF NOT EXISTS product_translations_language_idx ON product_translations (language);
-CREATE INDEX IF NOT EXISTS product_events_product_time_idx ON product_events (product_id, event_time ASC);
-CREATE INDEX IF NOT EXISTS product_events_type_time_idx ON product_events (event_type, event_time ASC);
+CREATE INDEX product_events_product_time_idx ON product_events (product_id, event_time ASC);
+CREATE INDEX product_events_type_time_idx ON product_events (event_type, event_time ASC);
 
-
-CREATE TABLE IF NOT EXISTS product_watchlist (
+CREATE TABLE product_watchlist (
     user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
     notifications boolean NOT NULL DEFAULT true,
     state text NOT NULL,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, product_id)
+    PRIMARY KEY (user_id, product_id),
+    CONSTRAINT product_watchlist_state_check CHECK (state IN ('ACTIVE', 'INACTIVE_BY_USER', 'INACTIVE_BY_RESTRICTED_PLAN'))
 );
 
-CREATE INDEX IF NOT EXISTS product_watchlist_user_created_idx ON product_watchlist (user_id, created DESC);
-CREATE INDEX IF NOT EXISTS product_watchlist_user_created_product_idx
-    ON product_watchlist (user_id, created DESC, product_id ASC);
-CREATE INDEX IF NOT EXISTS product_watchlist_product_id_idx ON product_watchlist (product_id);
+CREATE INDEX product_watchlist_user_created_idx ON product_watchlist (user_id, created DESC);
+CREATE INDEX product_watchlist_user_created_product_idx ON product_watchlist (user_id, created DESC, product_id ASC);
+CREATE INDEX product_watchlist_product_id_idx ON product_watchlist (product_id);
 
-
-CREATE TABLE IF NOT EXISTS search_filters (
+CREATE TABLE search_filters (
     user_search_filter_id uuid PRIMARY KEY,
     user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     name text NOT NULL,
@@ -264,36 +264,44 @@ CREATE TABLE IF NOT EXISTS search_filters (
     version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT search_filters_search_object CHECK (jsonb_typeof(search) = 'object')
+    CONSTRAINT search_filters_user_id_unique UNIQUE (user_search_filter_id, user_id),
+    CONSTRAINT search_filters_state_check CHECK (state IN ('ACTIVE', 'INACTIVE_BY_USER', 'INACTIVE_BY_RESTRICTED_PLAN')),
+    CONSTRAINT search_filters_search_object CHECK (jsonb_typeof(search) = 'object'),
+    CONSTRAINT search_filters_language_check CHECK (language IN ('de', 'en', 'fr', 'es', 'it', 'zh', 'pt', 'pl', 'tr', 'nl', 'cs', 'ja', 'ru', 'ar')),
+    CONSTRAINT search_filters_currency_check CHECK (currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT search_filters_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
+    CONSTRAINT search_filters_version_positive CHECK (version >= 1)
 );
 
-CREATE INDEX IF NOT EXISTS search_filters_user_created_idx ON search_filters (user_id, created DESC);
-CREATE INDEX IF NOT EXISTS search_filters_state_updated_idx ON search_filters (state, updated DESC);
+CREATE INDEX search_filters_user_created_idx ON search_filters (user_id, created DESC);
+CREATE INDEX search_filters_state_updated_idx ON search_filters (state, updated DESC);
 
 ALTER TABLE search_filters REPLICA IDENTITY FULL;
 
-CREATE TABLE IF NOT EXISTS search_filter_matches (
-    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    user_search_filter_id uuid NOT NULL REFERENCES search_filters(user_search_filter_id) ON DELETE CASCADE,
+CREATE TABLE search_filter_matches (
+    user_id uuid NOT NULL,
+    user_search_filter_id uuid NOT NULL,
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
-    origin_event_id uuid NOT NULL REFERENCES product_events(event_id),
+    origin_event_id uuid NOT NULL,
     user_search_filter_name text,
     enhanced_match_reason text,
     feedback boolean,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_search_filter_id, product_id)
+    PRIMARY KEY (user_search_filter_id, product_id),
+    CONSTRAINT search_filter_matches_filter_owner_fkey
+        FOREIGN KEY (user_search_filter_id, user_id)
+        REFERENCES search_filters(user_search_filter_id, user_id)
+        ON DELETE CASCADE,
+    CONSTRAINT search_filter_matches_origin_event_product_fkey
+        FOREIGN KEY (product_id, origin_event_id)
+        REFERENCES product_events(product_id, event_id)
 );
 
-CREATE INDEX IF NOT EXISTS search_filter_matches_user_created_idx
-    ON search_filter_matches (user_id, created DESC);
-CREATE INDEX IF NOT EXISTS search_filter_matches_user_filter_created_idx
-    ON search_filter_matches (user_id, user_search_filter_id, created DESC);
-CREATE INDEX IF NOT EXISTS search_filter_matches_filter_created_product_idx
-    ON search_filter_matches (user_search_filter_id, created ASC, product_id ASC);
-CREATE INDEX IF NOT EXISTS search_filter_matches_user_product_created_idx
-    ON search_filter_matches (user_id, product_id, created ASC, user_search_filter_id ASC);
-CREATE INDEX IF NOT EXISTS search_filter_matches_user_created_rank_idx
-    ON search_filter_matches (user_id, created ASC, user_search_filter_id ASC, product_id ASC);
-CREATE INDEX IF NOT EXISTS search_filter_matches_product_id_idx ON search_filter_matches (product_id);
-CREATE INDEX IF NOT EXISTS search_filter_matches_origin_event_id_idx ON search_filter_matches (origin_event_id);
+CREATE INDEX search_filter_matches_user_created_idx ON search_filter_matches (user_id, created DESC);
+CREATE INDEX search_filter_matches_user_filter_created_idx ON search_filter_matches (user_id, user_search_filter_id, created DESC);
+CREATE INDEX search_filter_matches_filter_created_product_idx ON search_filter_matches (user_search_filter_id, created ASC, product_id ASC);
+CREATE INDEX search_filter_matches_user_product_created_idx ON search_filter_matches (user_id, product_id, created ASC, user_search_filter_id ASC);
+CREATE INDEX search_filter_matches_user_created_rank_idx ON search_filter_matches (user_id, created ASC, user_search_filter_id ASC, product_id ASC);
+CREATE INDEX search_filter_matches_product_id_idx ON search_filter_matches (product_id);
+CREATE INDEX search_filter_matches_origin_event_id_idx ON search_filter_matches (origin_event_id);

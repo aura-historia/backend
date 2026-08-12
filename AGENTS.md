@@ -29,6 +29,7 @@
 - Update nearest doc when purpose, shape, workflow, contract, input, output, limit, side effect, or user pref change.
 - Refresh child index. Kill stale words.
 - Put durable user prefs here or nearest child doc.
+- Persist enum values in `SCREAMING_SNAKE_CASE`; keep standardized identifier formats such as ISO language codes canonical.
 
 ## Work Guidance
 
