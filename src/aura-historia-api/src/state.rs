@@ -1,4 +1,5 @@
 use crate::auth::TokenAuthenticator;
+use async_trait::async_trait;
 use oauth_service::use_cases::{
     AuthorizeUseCase, CreateOAuthClientUseCase, DeleteOAuthClientUseCase, GetOAuthClientUseCase,
     IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
@@ -41,8 +42,24 @@ use watchlist_service::use_cases::{
     ListWatchlistUseCase, UnwatchProductUseCase, UpdateWatchlistProductUseCase, WatchProductUseCase,
 };
 
+#[async_trait]
+pub(crate) trait ReadinessCheck: Send + Sync {
+    async fn check(&self) -> Result<(), ()>;
+}
+
+#[derive(Clone, Copy)]
+struct AlwaysReady;
+
+#[async_trait]
+impl ReadinessCheck for AlwaysReady {
+    async fn check(&self) -> Result<(), ()> {
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
+    pub(crate) readiness: Arc<dyn ReadinessCheck>,
     pub(crate) shops: ShopsState,
     pub(crate) products: Option<ProductsState>,
     pub(crate) partner_products: Option<PartnerProductsState>,
@@ -61,6 +78,7 @@ impl AppState {
         partner_applications: PartnerApplicationsState,
     ) -> Self {
         Self {
+            readiness: Arc::new(AlwaysReady),
             shops,
             products: None,
             partner_products: None,
@@ -74,6 +92,7 @@ impl AppState {
 
     pub fn with_shops_only(shops: ShopsState) -> Self {
         Self {
+            readiness: Arc::new(AlwaysReady),
             shops,
             products: None,
             partner_products: None,
@@ -83,6 +102,11 @@ impl AppState {
             oauth: None,
             search_filters: None,
         }
+    }
+
+    pub(crate) fn with_readiness(mut self, readiness: Arc<dyn ReadinessCheck>) -> Self {
+        self.readiness = readiness;
+        self
     }
 
     pub fn with_products(mut self, products: ProductsState) -> Self {

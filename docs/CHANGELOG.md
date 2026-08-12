@@ -7,6 +7,14 @@ This changelog is for internal communication between frontend and backend teams.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## 2026-08-12 - Harden Canonical API Transport
+
+### Changed
+
+- Canonical API responses now include server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may supply `X-Correlation-Id` only when it is a non-empty, maximum-128-character ASCII identifier using letters, digits, `.`, `_`, or `-`; invalid values are replaced by the request ID.
+- The API now applies CORS, a 1 MiB request-body limit, a 30-second request timeout, and request tracing with credential headers redacted. `X-Request-Id` and `X-Correlation-Id` are exposed to browser clients.
+- `GET /ready` now returns `204 No Content` only when PostgreSQL, DynamoDB, and OpenSearch required by the configured API feature set are reachable; otherwise it returns `503 Service Unavailable`. `GET /health` remains the liveness endpoint.
+
 ## 2026-08-12 - Restore Hybrid Product Search
 
 ### Changed

@@ -7,6 +7,7 @@ pub mod products;
 pub mod search_filters;
 pub mod shops;
 pub mod state;
+pub mod transport;
 pub mod users;
 pub mod watchlist;
 
@@ -16,8 +17,9 @@ use crate::auth::{
 };
 use crate::state::{
     AppState, OAuthState, PartnerApplicationsState, PartnerProductsState, ProductsState,
-    SearchFiltersState, ShopsState, UsersState, WatchlistState,
+    ReadinessCheck, SearchFiltersState, ShopsState, UsersState, WatchlistState,
 };
+use crate::transport::with_transport_middleware;
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
@@ -78,6 +80,7 @@ use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
 use shop_service::use_cases::queries::get_shop::GetShopHandler;
 use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsHandler;
 use shop_service::use_cases::queries::search_shops::SearchShopsHandler;
+use sqlx::PgPool;
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
 use std::sync::Arc;
@@ -210,7 +213,8 @@ pub enum ApiConfigError {
 pub fn app(state: AppState) -> Router {
     let health_routes = Router::new()
         .route("/health", get(health))
-        .route("/ready", get(ready));
+        .route("/ready", get(ready))
+        .with_state(Arc::clone(&state.readiness));
     let shop_routes = Router::new()
         .route(
             "/api/v1/me/partner-shops",
@@ -389,15 +393,42 @@ pub fn app(state: AppState) -> Router {
         );
     }
 
-    routes
+    with_transport_middleware(routes)
 }
 
 async fn health() -> &'static str {
     "ok\n"
 }
 
-async fn ready() -> &'static str {
-    "ready\n"
+async fn ready(
+    axum::extract::State(readiness): axum::extract::State<Arc<dyn ReadinessCheck>>,
+) -> axum::http::StatusCode {
+    match readiness.check().await {
+        Ok(()) => axum::http::StatusCode::NO_CONTENT,
+        Err(()) => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
+struct RuntimeReadiness {
+    postgres: PgPool,
+    dynamodb: aws_sdk_dynamodb::Client,
+    dynamodb_table_name: String,
+    opensearch: OpenSearch,
+}
+
+#[async_trait::async_trait]
+impl ReadinessCheck for RuntimeReadiness {
+    async fn check(&self) -> Result<(), ()> {
+        self.postgres.acquire().await.map_err(|_| ())?;
+        self.dynamodb
+            .describe_table()
+            .table_name(&self.dynamodb_table_name)
+            .send()
+            .await
+            .map_err(|_| ())?;
+        self.opensearch.ping().send().await.map_err(|_| ())?;
+        Ok(())
+    }
 }
 
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
@@ -532,6 +563,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         std::env::var(DYNAMODB_TABLE_NAME_ENV).map_err(|_| ApiStateError::MissingEnv {
             name: DYNAMODB_TABLE_NAME_ENV,
         })?;
+    let readiness_table_name = table_name.clone();
     let table_name = Box::leak(table_name.into_boxed_str());
     let table_name_ref: &str = table_name;
     let product_user_states = SqlxProductUserStateReader::new(pool.clone());
@@ -543,7 +575,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
     );
     let search_products = SearchProductsHandler::new(
-        OpenSearchProductSearchReader::new(opensearch_client),
+        OpenSearchProductSearchReader::new(opensearch_client.clone()),
         Arc::clone(&embeddings),
         product_user_states,
         DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
@@ -703,6 +735,13 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
 
+    let readiness = Arc::new(RuntimeReadiness {
+        postgres: pool,
+        dynamodb: dynamodb_client.clone(),
+        dynamodb_table_name: readiness_table_name,
+        opensearch: opensearch_client.clone(),
+    });
+
     Ok(AppState::new(
         ShopsState::new(
             Arc::new(get_shop),
@@ -727,7 +766,8 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     )
     .with_partner_products(partner_products_state)
     .with_oauth(oauth_state)
-    .with_search_filters(search_filters_state))
+    .with_search_filters(search_filters_state)
+    .with_readiness(readiness))
 }
 
 fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
@@ -862,6 +902,7 @@ mod tests {
     use crate::auth::{
         AuthMethod, JsonWebKey, JsonWebKeySet, JwksProvider, RequestMetadata, TransportPrincipal,
     };
+    use crate::state::ReadinessCheck;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use common::operation_context::CredentialCapability;
     use common::user_id::UserId;
@@ -1063,11 +1104,32 @@ mod tests {
         Ok(())
     }
 
+    #[derive(Clone, Copy)]
+    struct Unready;
+
+    #[async_trait::async_trait]
+    impl ReadinessCheck for Unready {
+        async fn check(&self) -> Result<(), ()> {
+            Err(())
+        }
+    }
+
+    #[tokio::test]
+    async fn should_return_service_unavailable_when_dependency_readiness_fails()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = app(test_state().with_readiness(Arc::new(Unready)))
+            .oneshot(http::Request::get("/ready").body(axum::body::Body::empty())?)
+            .await?;
+
+        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
+        Ok(())
+    }
+
     #[tokio::test]
     async fn should_route_health_endpoints() -> Result<(), Box<dyn std::error::Error>> {
         for (path, status_code, body) in [
             ("/health", StatusCode::OK, "ok\n"),
-            ("/ready", StatusCode::OK, "ready\n"),
+            ("/ready", StatusCode::NO_CONTENT, ""),
         ] {
             let response = app(test_state())
                 .oneshot(http::Request::get(path).body(axum::body::Body::empty())?)

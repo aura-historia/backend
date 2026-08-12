@@ -264,6 +264,7 @@ dependencies = [
  "time",
  "tokio",
  "tower",
+ "tower-http",
  "tracing",
  "url",
  "user-core",
@@ -9187,6 +9188,7 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
  "url",
 ]
 
