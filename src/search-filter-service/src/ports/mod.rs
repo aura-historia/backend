@@ -1,5 +1,4 @@
 mod active_search_filter_match_candidate_reader;
-mod product_match_evaluator;
 mod search_filter_index;
 mod search_filter_index_reader;
 mod search_filter_match_notification_source_reader;
@@ -11,7 +10,6 @@ mod search_filter_reader;
 mod search_filter_repository;
 
 pub use active_search_filter_match_candidate_reader::*;
-pub use product_match_evaluator::*;
 pub use search_filter_index::*;
 pub use search_filter_index_reader::*;
 pub use search_filter_match_notification_source_reader::*;

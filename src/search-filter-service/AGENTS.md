@@ -9,7 +9,7 @@
 
 - Depends on `search-filter-core`, common, public ProductSearch field types from `geo`, `isocountry`, and `shop-core`, plus canonical `user-service` tier-entitlements contracts.
 - Write use cases own transactions.
-- Postgres and OpenSearch hidden behind ports. Create/update build typed embedding text and call `embedding::TextEmbeddingGenerator` directly.
+- Postgres and OpenSearch hidden behind ports. Create/update build typed embedding text and call `embedding::TextEmbeddingGenerator` directly. Product-event matching owns its product-match prompt, response schema, typed response mapping, retry policy, and first-five-image policy; it calls the neutral generic `large-language-model::LargeLanguageModel` capability. Provider/model selection stays in runtime/provider configuration.
 - Repository writes return persisted search-filter state.
 - User list reads live in dedicated reader port, not repository.
 - Create and update lock the authoritative user tier through transaction-scoped `UserTierEntitlements` before tier checks, active-filter counts, and writes; reactivation rechecks the stored full search and active-filter quota.

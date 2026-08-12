@@ -10,7 +10,6 @@ shop-core = { workspace = true }
 shop-partner-core = { workspace = true }
 shop-partner-service = { workspace = true }
 shop-service = { workspace = true }
-shop-postgres = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }

@@ -143,6 +143,11 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
             APPLICATION_COLUMNS
         );
 
+        let expected_version = version_to_i64(expected_version).map_err(|source| {
+            PartnerShopApplicationRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            }
+        })?;
         let row = sqlx::query_as::<_, PartnerShopApplicationRow>(&sql)
             .bind(bind_business_state(application.business_state()))
             .bind(bind_execution_state(application.execution_state()))
@@ -150,7 +155,7 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
             .bind(uuid::Uuid::from(application.shop_id()))
             .bind(application.task_token())
             .bind(application.id().to_string())
-            .bind(version_to_i64(expected_version))
+            .bind(expected_version)
             .fetch_optional(&mut *self.connection)
             .await
             .map_err(PartnerShopApplicationWriteSqlxError)?
@@ -167,9 +172,14 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
         id: PartnerShopApplicationId,
         expected_version: PartnerShopApplicationStorageVersion,
     ) -> Result<(), PartnerShopApplicationRepositoryError> {
+        let expected_version = version_to_i64(expected_version).map_err(|source| {
+            PartnerShopApplicationRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            }
+        })?;
         let result = sqlx::query("DELETE FROM partner_shop_applications WHERE partner_shop_application_id = $1::uuid AND version = $2")
             .bind(id.to_string())
-            .bind(version_to_i64(expected_version))
+            .bind(expected_version)
             .execute(&mut *self.connection)
             .await
             .map_err(PartnerShopApplicationWriteSqlxError)?;

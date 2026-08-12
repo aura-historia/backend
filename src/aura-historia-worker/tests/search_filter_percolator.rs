@@ -11,6 +11,9 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use large_language_model::{
+    LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
+};
 use notification_core::notification::NotificationPayload;
 use notification_dynamodb::{
     all_notifications_reader::DynamoDbAllNotificationsReader,
@@ -28,10 +31,7 @@ use search_filter_postgres::{
     SqlxSearchFilterMatchNotificationSourceReaderFactory, SqlxSearchFilterMatchWriterFactory,
     SqlxSearchFilterMonthlyMatchQuotaReaderFactory, SqlxSearchFilterRepositoryFactory,
 };
-use search_filter_service::ports::{
-    ProductMatchEvaluation, ProductMatchEvaluator, ProductMatchEvaluatorError,
-    SearchFilterRepository, SearchFilterRepositoryFactory, SearchFilterView,
-};
+use search_filter_service::ports::{SearchFilterRepository, SearchFilterRepositoryFactory};
 use search_filter_service::use_cases::{
     GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationUseCase,
     MatchProductEventHandler, MatchProductEventUseCase, ProjectSearchFilterChangeCommand,
@@ -58,16 +58,22 @@ const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_SIDE_EFFECT_OBSERVATION: Duration = Duration::from_secs(2);
 
-struct NonMatchingProductMatchEvaluator;
+struct NonMatchingLargeLanguageModel;
 
 #[async_trait::async_trait]
-impl ProductMatchEvaluator for NonMatchingProductMatchEvaluator {
-    async fn evaluate(
+impl LargeLanguageModel for NonMatchingLargeLanguageModel {
+    async fn generate<Output>(
         &self,
-        _product: &product_service::ports::ProductSearchFilterMatchSource,
-        _filter: &SearchFilterView,
-    ) -> Result<ProductMatchEvaluation, ProductMatchEvaluatorError> {
-        Ok(ProductMatchEvaluation::NotMatched)
+        _request: StructuredGenerationRequest,
+    ) -> Result<Output, LargeLanguageModelError>
+    where
+        Output: serde::de::DeserializeOwned + Send,
+    {
+        serde_json::from_str(r#"{"matches":false}"#).map_err(|source| {
+            LargeLanguageModelError::InvalidResponse {
+                source: common::error::boxed::box_error(source),
+            }
+        })
     }
 }
 
@@ -612,7 +618,7 @@ impl FullFlowWorker {
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductSearchFilterMatchSourceReaderFactory::new(),
                 index.clone(),
-                NonMatchingProductMatchEvaluator,
+                NonMatchingLargeLanguageModel,
                 SqlxActiveSearchFilterMatchCandidateReaderFactory,
                 SqlxSearchFilterMatchWriterFactory,
             ));
@@ -729,7 +735,7 @@ impl PercolatorWorker {
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductSearchFilterMatchSourceReaderFactory::new(),
             index.clone(),
-            NonMatchingProductMatchEvaluator,
+            NonMatchingLargeLanguageModel,
             SqlxActiveSearchFilterMatchCandidateReaderFactory,
             SqlxSearchFilterMatchWriterFactory,
         ));

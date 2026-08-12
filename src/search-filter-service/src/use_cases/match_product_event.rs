@@ -1,20 +1,33 @@
 use crate::ports::{
     ActiveSearchFilterMatchCandidate, ActiveSearchFilterMatchCandidateReadError,
     ActiveSearchFilterMatchCandidateReader, ActiveSearchFilterMatchCandidateReaderFactory,
-    ProductMatchEvaluation, ProductMatchEvaluator, ProductMatchEvaluatorError, SearchFilterIndex,
-    SearchFilterIndexError, SearchFilterMatchCandidate, SearchFilterMatchPersistOutcome,
-    SearchFilterMatchWriteError, SearchFilterMatchWriter, SearchFilterMatchWriterFactory,
+    SearchFilterIndex, SearchFilterIndexError, SearchFilterMatchCandidate,
+    SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError, SearchFilterMatchWriter,
+    SearchFilterMatchWriterFactory,
 };
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
+use large_language_model::{
+    BatchGenerationOptions, GenerationOptions, LargeLanguageModel, LargeLanguageModelError,
+    StructuredGenerationRequest,
+};
 use product_service::ports::{
     ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_core::SearchFilterProductMatch;
+use serde::Deserialize;
+use std::num::NonZeroUsize;
+
+const MAX_CONCURRENT_LLM_REQUESTS: NonZeroUsize = match NonZeroUsize::new(4) {
+    Some(value) => value,
+    None => NonZeroUsize::MIN,
+};
+const MAX_PRODUCT_MATCH_IMAGES: usize = 5;
+const PRODUCT_MATCH_SYSTEM_INSTRUCTION: &str = "You are a product matching assistant for an antiques marketplace. Decide whether the product actually matches the requested search description using the product title, description, and optional product images. Return only JSON with a boolean `matches` and, when `matches` is true, a compact user-facing `reason` in the search language. Do not include markdown or extra fields.";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchProductEventCommand {
@@ -152,7 +165,7 @@ where
     U: UnitOfWork,
     S: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
     I: SearchFilterIndex,
-    E: ProductMatchEvaluator,
+    E: LargeLanguageModel,
     R: ActiveSearchFilterMatchCandidateReaderFactory<U::Tx>,
     W: SearchFilterMatchWriterFactory<U::Tx>,
 {
@@ -321,16 +334,23 @@ where
 struct EvaluatedCandidates {
     candidates: Vec<SearchFilterMatchCandidate>,
     enhanced_evaluation_failure_count: usize,
-    retryable_error: Option<ProductMatchEvaluatorError>,
+    retryable_error: Option<LargeLanguageModelError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProductMatchDecision {
+    matches: bool,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 async fn evaluate_candidates<E>(
-    evaluator: &E,
+    llm: &E,
     product: &ProductSearchFilterMatchSource,
     mut filters: Vec<crate::ports::SearchFilterView>,
 ) -> EvaluatedCandidates
 where
-    E: ProductMatchEvaluator,
+    E: LargeLanguageModel,
 {
     filters.retain(|filter| filter.state == ResourceState::Active);
     filters.sort_by_key(|filter| filter.search_filter_id.to_string());
@@ -341,12 +361,28 @@ where
         .filter(|filter| filter.search.enhanced_search_description.is_some())
         .cloned()
         .collect::<Vec<_>>();
-    let mut enhanced_evaluations = evaluator
-        .evaluate_batch(product, &enhanced_filters)
-        .await
-        .into_iter()
-        .map(|evaluation| (evaluation.search_filter_id, evaluation.result))
-        .collect::<std::collections::HashMap<_, _>>();
+    let mut requests = Vec::with_capacity(enhanced_filters.len());
+    let mut enhanced_evaluations = std::collections::HashMap::new();
+    for filter in enhanced_filters {
+        match enhanced_filter_request(product, &filter) {
+            Ok(request) => requests.push((filter.search_filter_id, request)),
+            Err(error) => {
+                enhanced_evaluations.insert(filter.search_filter_id, Err(error));
+            }
+        }
+    }
+    let results = llm
+        .generate_batch::<ProductMatchDecision>(
+            requests
+                .iter()
+                .map(|(_, request)| request.clone())
+                .collect(),
+            BatchGenerationOptions::new(MAX_CONCURRENT_LLM_REQUESTS),
+        )
+        .await;
+    for ((search_filter_id, _), result) in requests.into_iter().zip(results) {
+        enhanced_evaluations.insert(search_filter_id, result.and_then(product_match_reason));
+    }
 
     let mut candidates = Vec::with_capacity(filters.len());
     let mut enhanced_evaluation_failure_count = 0;
@@ -354,11 +390,11 @@ where
     for filter in filters {
         let enhanced_match_reason = if filter.search.enhanced_search_description.is_some() {
             match enhanced_evaluations.remove(&filter.search_filter_id) {
-                Some(Ok(ProductMatchEvaluation::Matched { reason })) => reason,
-                Some(Ok(ProductMatchEvaluation::NotMatched)) => continue,
+                Some(Ok(Some(reason))) => Some(reason),
+                Some(Ok(None)) => continue,
                 Some(Err(error)) => {
                     enhanced_evaluation_failure_count += 1;
-                    let retryable = error.is_retryable();
+                    let retryable = is_retryable_llm_error(&error);
                     tracing::warn!(
                         user_search_filter_id = %filter.search_filter_id,
                         error_category = %error,
@@ -425,10 +461,110 @@ fn percolation_error(error: SearchFilterIndexError) -> MatchProductEventError {
     }
 }
 
-fn product_match_evaluation_error(error: ProductMatchEvaluatorError) -> MatchProductEventError {
+fn product_match_evaluation_error(error: LargeLanguageModelError) -> MatchProductEventError {
     MatchProductEventError::ProductMatchEvaluationFailed {
         source: box_error(error),
     }
+}
+
+fn enhanced_filter_request(
+    product: &ProductSearchFilterMatchSource,
+    filter: &crate::ports::SearchFilterView,
+) -> Result<StructuredGenerationRequest, LargeLanguageModelError> {
+    let description = filter
+        .search
+        .enhanced_search_description
+        .as_ref()
+        .ok_or_else(|| LargeLanguageModelError::InvalidResponse {
+            source: box_error(std::io::Error::other("filter has no enhanced description")),
+        })?;
+    let language = filter.search.language;
+    let (title, product_description) = product_text(product, language);
+    let prompt = format!(
+        "User's search description: {description}\nProduct title: {title}\nProduct description: {product_description}\nSearch language: {}\nReturn the reason in the search language.",
+        language.format_human_readable(),
+    );
+    Ok(StructuredGenerationRequest {
+        operation: common::logging::LlmOperation::ProductEnhancedSearchDescriptionMatching,
+        system_instruction: PRODUCT_MATCH_SYSTEM_INSTRUCTION.to_owned(),
+        prompt,
+        image_urls: product
+            .images
+            .iter()
+            .take(MAX_PRODUCT_MATCH_IMAGES)
+            .map(|image| image.url.clone())
+            .collect(),
+        response_schema: product_match_response_schema(),
+        options: GenerationOptions {
+            temperature: 0.0,
+            max_output_tokens: 256,
+        },
+    })
+}
+
+fn product_match_reason(
+    decision: ProductMatchDecision,
+) -> Result<Option<common::enhanced_match_reason::EnhancedMatchReason>, LargeLanguageModelError> {
+    if !decision.matches {
+        return Ok(None);
+    }
+    decision
+        .reason
+        .filter(|reason| !reason.trim().is_empty())
+        .map(common::enhanced_match_reason::EnhancedMatchReason::from)
+        .map(Some)
+        .ok_or_else(|| LargeLanguageModelError::InvalidResponse {
+            source: box_error(std::io::Error::other("matched response has no reason")),
+        })
+}
+
+fn product_match_response_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "OBJECT",
+        "properties": {
+            "matches": {"type": "BOOLEAN"},
+            "reason": {"type": "STRING"}
+        },
+        "required": ["matches"]
+    })
+}
+
+fn product_text(
+    product: &ProductSearchFilterMatchSource,
+    search_language: common::language::domain::Language,
+) -> (&str, &str) {
+    let title = product
+        .titles
+        .get(&search_language)
+        .or_else(|| product.titles.get(&common::language::domain::Language::En))
+        .map(AsRef::as_ref)
+        .or_else(|| {
+            product
+                .product_title
+                .as_ref()
+                .map(|title| title.payload.as_ref())
+        })
+        .unwrap_or("");
+    let description = product
+        .descriptions
+        .get(&search_language)
+        .or_else(|| {
+            product
+                .descriptions
+                .get(&common::language::domain::Language::En)
+        })
+        .map(AsRef::as_ref)
+        .unwrap_or("");
+    (title, description)
+}
+
+fn is_retryable_llm_error(error: &LargeLanguageModelError) -> bool {
+    matches!(
+        error,
+        LargeLanguageModelError::Timeout { .. }
+            | LargeLanguageModelError::Retryable { .. }
+            | LargeLanguageModelError::InvalidResponse { .. }
+    )
 }
 
 fn candidate_read_error(
@@ -459,8 +595,8 @@ fn match_write_error(error: SearchFilterMatchWriteError) -> MatchProductEventErr
 mod tests {
     use super::*;
     use crate::ports::{
-        ProductMatchEvaluatorError, SearchFilterIndexQuery, SearchFilterProjection,
-        SearchFilterProjectionWriteOutcome, SearchFilterView,
+        SearchFilterIndexQuery, SearchFilterProjection, SearchFilterProjectionWriteOutcome,
+        SearchFilterView,
     };
     use common::{
         currency::domain::Currency, language::domain::Language,
@@ -585,24 +721,32 @@ mod tests {
     struct PermanentlyFailingEvaluator;
 
     #[async_trait::async_trait]
-    impl ProductMatchEvaluator for Evaluator {
-        async fn evaluate(
+    impl LargeLanguageModel for Evaluator {
+        async fn generate<Output>(
             &self,
-            _product: &ProductSearchFilterMatchSource,
-            _filter: &SearchFilterView,
-        ) -> Result<ProductMatchEvaluation, ProductMatchEvaluatorError> {
-            Ok(ProductMatchEvaluation::NotMatched)
+            _request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            serde_json::from_str(r#"{"matches":false}"#).map_err(|source| {
+                LargeLanguageModelError::InvalidResponse {
+                    source: box_error(source),
+                }
+            })
         }
     }
 
     #[async_trait::async_trait]
-    impl ProductMatchEvaluator for PermanentlyFailingEvaluator {
-        async fn evaluate(
+    impl LargeLanguageModel for PermanentlyFailingEvaluator {
+        async fn generate<Output>(
             &self,
-            _product: &ProductSearchFilterMatchSource,
-            _filter: &SearchFilterView,
-        ) -> Result<ProductMatchEvaluation, ProductMatchEvaluatorError> {
-            Err(ProductMatchEvaluatorError::Permanent {
+            _request: StructuredGenerationRequest,
+        ) -> Result<Output, LargeLanguageModelError>
+        where
+            Output: serde::de::DeserializeOwned + Send,
+        {
+            Err(LargeLanguageModelError::Permanent {
                 source: box_error(std::io::Error::other("invalid Vertex request")),
             })
         }
@@ -789,6 +933,31 @@ mod tests {
         assert_eq!(2, state.committed);
         assert_eq!(1, state.active_reads);
         assert_eq!(2, state.persisted.len());
+        Ok(())
+    }
+
+    #[test]
+    fn should_include_only_the_first_five_product_images_in_an_enhanced_request()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut product = product()?;
+        let image_urls = (0..7)
+            .map(|index| Url::parse(&format!("https://example.test/image-{index}.jpg")))
+            .collect::<Result<Vec<_>, _>>()?;
+        for url in &image_urls {
+            product.images.insert(ProductImage {
+                url: url.clone(),
+                prohibited_content: product_core::prohibited_content::ProhibitedContent::None,
+            });
+        }
+        let mut enhanced = filter(UserId::new(), UserSearchFilterId::new());
+        enhanced.search.enhanced_search_description = Some("only paintings".into());
+
+        let request = enhanced_filter_request(&product, &enhanced)?;
+
+        assert_eq!(
+            &image_urls[..MAX_PRODUCT_MATCH_IMAGES],
+            request.image_urls.as_slice()
+        );
         Ok(())
     }
 

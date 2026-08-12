@@ -118,8 +118,11 @@ pub(crate) fn bind_payload_type(value: PartnerShopApplicationPayload) -> &'stati
     }
 }
 
-pub(crate) fn version_to_i64(version: PartnerShopApplicationStorageVersion) -> i64 {
-    i64::try_from(version.into_inner()).map_or(i64::MAX, |value| value)
+pub(crate) fn version_to_i64(
+    version: PartnerShopApplicationStorageVersion,
+) -> Result<i64, PartnerShopApplicationRowMappingError> {
+    i64::try_from(version.into_inner())
+        .map_err(|_| PartnerShopApplicationRowMappingError::InvalidVersion)
 }
 
 fn parse_business_state(
@@ -143,5 +146,21 @@ fn parse_execution_state(
         "WAITING" => Ok(ExecutionState::Waiting),
         "COMPLETED" => Ok(ExecutionState::Completed),
         _ => Err(PartnerShopApplicationRowMappingError::InvalidExecutionState),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_reject_storage_version_that_cannot_fit_postgres_integer() {
+        let version = PartnerShopApplicationStorageVersion::try_from(u64::MAX)
+            .map_err(|_| PartnerShopApplicationRowMappingError::InvalidVersion);
+
+        assert!(matches!(
+            version.and_then(version_to_i64),
+            Err(PartnerShopApplicationRowMappingError::InvalidVersion)
+        ));
     }
 }

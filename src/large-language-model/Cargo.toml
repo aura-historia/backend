@@ -1,16 +1,19 @@
 [package]
-name = "embedding"
+name = "large-language-model"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+common = { workspace = true }
+futures = { workspace = true }
 google-cloud-auth = { workspace = true }
 image-fetcher = { workspace = true }
-lru = "0.16"
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
 url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time"] }

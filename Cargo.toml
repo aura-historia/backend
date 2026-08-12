@@ -13,12 +13,14 @@ cognito-post-confirmation = { workspace = true }
 cloudwatch-log-retention-lambda = { workspace = true }
 common = { workspace = true }
 embedding = { workspace = true }
+image-fetcher = { workspace = true }
 geo = { workspace = true }
 search-filter = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-opensearch = { workspace = true }
+large-language-model = { workspace = true }
 search-filter-api = { workspace = true }
 search-filter-lambda = { workspace = true }
 search-filter-periodic-match = { workspace = true }
@@ -88,12 +90,14 @@ members = [
     "src/cognito-post-confirmation",
     "src/common",
     "src/embedding",
+    "src/image-fetcher",
     "src/geo",
     "src/search-filter",
     "src/search-filter-core",
     "src/search-filter-service",
     "src/search-filter-postgres",
     "src/search-filter-opensearch",
+    "src/large-language-model",
     "src/search-filter-api",
     "src/search-filter-lambda",
     "src/search-filter-periodic-match",
@@ -179,6 +183,7 @@ aws_lambda_events = { version = "1.2.0", default-features = false }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
 common = { path = "src/common" }
 embedding = { path = "src/embedding" }
+image-fetcher = { path = "src/image-fetcher" }
 geo = { path = "src/geo" }
 google-cloud-auth = "1.12.0"
 derive_builder = "0.20.2"
@@ -190,6 +195,7 @@ search-filter-core = { path = "src/search-filter-core" }
 search-filter-service = { path = "src/search-filter-service" }
 search-filter-postgres = { path = "src/search-filter-postgres" }
 search-filter-opensearch = { path = "src/search-filter-opensearch" }
+large-language-model = { path = "src/large-language-model" }
 search-filter-api = { path = "src/search-filter-api" }
 search-filter-lambda = { path = "src/search-filter-lambda" }
 search-filter-lambda-opensearch-sync = { path = "src/search-filter-lambda/src/search-filter-lambda-opensearch-sync" }

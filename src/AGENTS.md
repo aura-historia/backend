@@ -93,6 +93,8 @@
 - `src/cognito-post-confirmation/AGENTS.md` — `cognito-post-confirmation` crate.
 - `src/common/AGENTS.md` — `common` crate.
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
+- `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.
+- `src/large-language-model/AGENTS.md` — reusable typed Vertex AI Gemini invocation adapter crate.
 - `src/crawler/AGENTS.md` — `crawler` crate.
 - `src/fxrate/AGENTS.md` — `fxrate` crate.
 - `src/fxrate-lambda/AGENTS.md` — `fxrate-lambda` crate.

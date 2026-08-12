@@ -1,0 +1,11 @@
+[package]
+name = "image-fetcher"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "sync", "time"] }
+url = { workspace = true }
