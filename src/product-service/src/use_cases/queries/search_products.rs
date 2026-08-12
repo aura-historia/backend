@@ -19,6 +19,7 @@ use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
+use embedding::{EmbeddingGenerator, EmbeddingInput, EmbeddingText};
 
 use indexmap::IndexSet;
 use notification_service::ports::all_notifications_reader::AllNotificationsReader;
@@ -101,16 +102,18 @@ pub trait SearchProductsUseCase: Send + Sync {
     ) -> Result<SearchProductsResult, SearchProductsError>;
 }
 
-pub struct SearchProductsHandler<R, U, N> {
+pub struct SearchProductsHandler<R, E, U, N> {
     reader: R,
+    embeddings: E,
     user_states: U,
     notifications: N,
 }
 
-impl<R, U, N> SearchProductsHandler<R, U, N> {
-    pub fn new(reader: R, user_states: U, notifications: N) -> Self {
+impl<R, E, U, N> SearchProductsHandler<R, E, U, N> {
+    pub fn new(reader: R, embeddings: E, user_states: U, notifications: N) -> Self {
         Self {
             reader,
+            embeddings,
             user_states,
             notifications,
         }
@@ -118,9 +121,10 @@ impl<R, U, N> SearchProductsHandler<R, U, N> {
 }
 
 #[async_trait::async_trait]
-impl<R, U, N> SearchProductsUseCase for SearchProductsHandler<R, U, N>
+impl<R, E, U, N> SearchProductsUseCase for SearchProductsHandler<R, E, U, N>
 where
     R: ProductSearchReader,
+    E: EmbeddingGenerator,
     U: ProductUserStateReader,
     N: AllNotificationsReader,
 {
@@ -138,7 +142,17 @@ where
         context: &OperationContext,
         request: SearchProductsRequest,
     ) -> Result<SearchProductsResult, SearchProductsError> {
-        let result = self.reader.search(&request).await?;
+        let result = match hybrid_embedding_input(&request) {
+            Some(input) => match self.embeddings.generate(&input).await {
+                Ok(embedding) => {
+                    self.reader
+                        .search_hybrid(&request, embedding.values())
+                        .await?
+                }
+                Err(_) => self.reader.search(&request).await?,
+            },
+            None => self.reader.search(&request).await?,
+        };
         let mut result = result.map_item(|item| Personalized {
             item,
             user_state: None,
@@ -153,6 +167,29 @@ where
             .await?;
         }
         Ok(result)
+    }
+}
+
+fn hybrid_embedding_input(request: &SearchProductsRequest) -> Option<EmbeddingInput> {
+    if !matches!(
+        request.sort.as_ref().map(|sort| sort.sort),
+        None | Some(SortProductField::Score)
+    ) {
+        return None;
+    }
+
+    let text = request
+        .search
+        .product_query
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|query: &&str| !query.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    match EmbeddingText::new(text) {
+        Ok(text) => Some(EmbeddingInput::Query(text)),
+        Err(_) => None,
     }
 }
 
@@ -207,6 +244,8 @@ mod tests {
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::MonetaryAmount;
     use common::user_id::UserId;
+    use embedding::{EmbeddingError, EmbeddingInput, EmbeddingVector};
+
     use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
     use notification_core::notification_id::NotificationId;
     use notification_service::ports::all_notifications_reader::{
@@ -218,6 +257,10 @@ mod tests {
     #[derive(Debug, Default)]
     struct FakeState {
         search_result: Option<Result<ProductSearchReadResult, ProductSearchReadError>>,
+        hybrid_search_result: Option<Result<ProductSearchReadResult, ProductSearchReadError>>,
+        embedding_result: Option<Result<EmbeddingVector, EmbeddingError>>,
+        embedding_inputs: Vec<EmbeddingInput>,
+        used_hybrid_search: bool,
         user_states_result:
             Option<Result<HashMap<ProductId, ProductUserState>, ProductUserStateReadError>>,
         notifications_result:
@@ -272,6 +315,39 @@ mod tests {
                 None => Ok(CursoredResult::default()),
             }
         }
+
+        async fn search_hybrid(
+            &self,
+            _request: &SearchProductsRequest,
+            _embedding: &[f32],
+        ) -> Result<ProductSearchReadResult, ProductSearchReadError> {
+            let mut state = lock_state(&self.state);
+            state.used_hybrid_search = true;
+            match state.hybrid_search_result.take() {
+                Some(result) => result,
+                None => Ok(CursoredResult::default()),
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakeEmbeddingGenerator {
+        state: SharedState,
+    }
+
+    #[async_trait::async_trait]
+    impl EmbeddingGenerator for FakeEmbeddingGenerator {
+        async fn generate(
+            &self,
+            input: &EmbeddingInput,
+        ) -> Result<EmbeddingVector, EmbeddingError> {
+            let mut state = lock_state(&self.state);
+            state.embedding_inputs.push(input.clone());
+            match state.embedding_result.take() {
+                Some(result) => result,
+                None => EmbeddingVector::try_new(vec![1.0; embedding::EMBEDDING_DIMENSIONS]),
+            }
+        }
     }
 
     #[async_trait::async_trait]
@@ -306,10 +382,17 @@ mod tests {
 
     fn handler(
         state: &SharedState,
-    ) -> SearchProductsHandler<FakeSearchReader, FakeUserStatesReader, FakeNotificationsReader>
-    {
+    ) -> SearchProductsHandler<
+        FakeSearchReader,
+        FakeEmbeddingGenerator,
+        FakeUserStatesReader,
+        FakeNotificationsReader,
+    > {
         SearchProductsHandler::new(
             search_reader(state),
+            FakeEmbeddingGenerator {
+                state: Arc::clone(state),
+            },
             FakeUserStatesReader {
                 state: Arc::clone(state),
             },
@@ -409,6 +492,15 @@ mod tests {
         }
     }
 
+    fn request_with_text_query() -> Result<SearchProductsRequest, Box<dyn std::error::Error>> {
+        Ok(SearchProductsRequest {
+            search: ProductSearch::new(Language::En, Currency::Eur)
+                .with_product_query("vintage brass lamp".try_into()?),
+            sort: None,
+            cursor: None,
+        })
+    }
+
     #[tokio::test]
     async fn should_search_products_when_reader_succeeds() -> Result<(), url::ParseError> {
         let state = state();
@@ -422,6 +514,86 @@ mod tests {
             user_state: None,
         });
         assert!(matches!(result, Ok(actual) if actual == expected));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_use_hybrid_search_when_query_embedding_succeeds()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let expected = search_result()?;
+        lock_state(&state).hybrid_search_result = Some(Ok(expected.clone()));
+
+        let result = handler(&state)
+            .execute(&context(), request_with_text_query()?)
+            .await?;
+
+        assert_eq!(
+            expected.map_item(|item| Personalized {
+                item,
+                user_state: None
+            }),
+            result
+        );
+        let state = lock_state(&state);
+        assert!(state.used_hybrid_search);
+        assert!(matches!(
+            state.embedding_inputs.as_slice(),
+            [EmbeddingInput::Query(text)] if text.as_str() == "vintage brass lamp"
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_fall_back_to_bm25_when_query_embedding_fails()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let expected = search_result()?;
+        lock_state(&state).embedding_result = Some(Err(EmbeddingError::InvalidInput {
+            reason: "embedding unavailable",
+        }));
+        lock_state(&state).search_result = Some(Ok(expected.clone()));
+
+        let result = handler(&state)
+            .execute(&context(), request_with_text_query()?)
+            .await?;
+
+        assert_eq!(
+            expected.map_item(|item| Personalized {
+                item,
+                user_state: None
+            }),
+            result
+        );
+        let state = lock_state(&state);
+        assert!(!state.used_hybrid_search);
+        assert_eq!(1, state.embedding_inputs.len());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_skip_embedding_for_non_score_sort() -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let expected = search_result()?;
+        lock_state(&state).search_result = Some(Ok(expected.clone()));
+        let mut request = request_with_text_query()?;
+        request.sort = Some(Sort {
+            sort: SortProductField::Price,
+            order: common::sort::SortOrder::Asc,
+        });
+
+        let result = handler(&state).execute(&context(), request).await?;
+
+        assert_eq!(
+            expected.map_item(|item| Personalized {
+                item,
+                user_state: None
+            }),
+            result
+        );
+        let state = lock_state(&state);
+        assert!(state.embedding_inputs.is_empty());
+        assert!(!state.used_hybrid_search);
         Ok(())
     }
 

@@ -7,6 +7,12 @@ This changelog is for internal communication between frontend and backend teams.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## 2026-08-12 - Restore Hybrid Product Search
+
+### Changed
+
+- `GET /api/v1/products` now uses native OpenSearch hybrid BM25 plus KNN retrieval for text queries with relevance ordering. Query-embedding failures transparently fall back to BM25; explicit price, creation, and update sorts remain BM25-only.
+
 ## 2026-08-11 - Hide Non-Published Shops from Public Reads
 
 ### Changed

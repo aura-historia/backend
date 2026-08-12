@@ -1435,8 +1435,11 @@ paths:
     get:
       summary: Simple product search via query parameters
       description: |
-        Performs canonical product search with query parameters. It supports sorting and cursor pagination.
-        Every result contains `item`; a valid user or delegated-user bearer token adds `userState`.
+        Performs canonical product search with query parameters. Text queries using relevance ordering
+        combine BM25 and embedding KNN retrieval through hybrid search. If query embedding generation is
+        unavailable, the request transparently falls back to BM25. Explicit non-score sorts use BM25.
+        It supports sorting and cursor pagination. Every result contains `item`; a valid user or delegated-user
+        bearer token adds `userState`.
         Authenticated responses use `Cache-Control: no-store`.
 
         `language` defaults to `en` and `currency` defaults to `EUR`.
@@ -10408,7 +10411,7 @@ components:
           type: integer
           minimum: 0
           nullable: true
-          description: Total matching products when the search backend provides it.
+          description: Total matching products for BM25 search when the backend provides it. Hybrid BM25 plus KNN search omits this value because its fused candidate pool is not a reliable total.
           example: 127
         searchAfter:
           type: array

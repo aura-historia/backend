@@ -412,11 +412,10 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
     let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
     let opensearch_client = opensearch_client_from_env()?;
-    let search_filter_embeddings: Arc<dyn EmbeddingGenerator> =
-        Arc::new(VertexAiEmbeddingGenerator::new(
-            config.vertex_ai_embedding().clone(),
-            google_application_default_credentials()?,
-        ));
+    let embeddings: Arc<dyn EmbeddingGenerator> = Arc::new(VertexAiEmbeddingGenerator::new(
+        config.vertex_ai_embedding().clone(),
+        google_application_default_credentials()?,
+    ));
 
     let get_shop = GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new());
     let search_shops =
@@ -545,6 +544,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     );
     let search_products = SearchProductsHandler::new(
         OpenSearchProductSearchReader::new(opensearch_client),
+        Arc::clone(&embeddings),
         product_user_states,
         DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
     );
@@ -626,7 +626,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         Arc::new(CreateSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
-            search_filter_embeddings.clone(),
+            Arc::clone(&embeddings),
             SqlxSearchFilterQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
         )),
@@ -636,7 +636,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         Arc::new(UpdateOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
-            search_filter_embeddings,
+            Arc::clone(&embeddings),
             search_filter_reader.clone(),
             SqlxSearchFilterQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),

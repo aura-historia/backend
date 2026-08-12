@@ -6139,6 +6139,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "embedding",
  "fake",
  "geo",
  "indexmap 2.14.0",

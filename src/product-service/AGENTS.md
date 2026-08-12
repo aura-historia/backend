@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `product-core`, `notification-service`, and shared `common` app contracts.
+- Depends on `product-core`, `notification-service`, shared `common` app contracts, and product-neutral `embedding`. Product text search passes typed `EmbeddingInput::Query` directly to `EmbeddingGenerator`; embedding failure falls back to BM25.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - Write handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/event-store factories.
 - Partner Product create, update, upsert, and delete use cases authorize admins or linked partner users inside their Product transaction. Partner-key writes use `(shopId, shopsProductId)` aggregate lookup.

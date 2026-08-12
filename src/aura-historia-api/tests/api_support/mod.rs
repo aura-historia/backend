@@ -32,6 +32,7 @@ use product_postgres::{
     SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
     SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
 };
+
 use product_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
     GetSimilarProductsHandler, SearchProductsHandler, UpdateProductHandler, UpsertProductHandler,
@@ -96,12 +97,20 @@ use watchlist_service::use_cases::{
 };
 
 #[derive(Clone, Copy)]
-struct TestEmbeddingGenerator;
+enum TestEmbeddingGenerator {
+    Success,
+    Failure,
+}
 
 #[async_trait::async_trait]
 impl EmbeddingGenerator for TestEmbeddingGenerator {
     async fn generate(&self, _input: &EmbeddingInput) -> Result<EmbeddingVector, EmbeddingError> {
-        EmbeddingVector::try_new(vec![1.0; embedding::EMBEDDING_DIMENSIONS])
+        match self {
+            Self::Success => EmbeddingVector::try_new(vec![1.0; embedding::EMBEDDING_DIMENSIONS]),
+            Self::Failure => Err(EmbeddingError::InvalidInput {
+                reason: "test embedding failure",
+            }),
+        }
     }
 }
 
@@ -119,7 +128,12 @@ impl ShopGeocoder for RejectGeocoder {
 }
 
 pub fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
-    Box::pin(async { app(test_state().await) })
+    Box::pin(async { app(test_state(TestEmbeddingGenerator::Success).await) })
+}
+
+pub fn aura_api_app_with_failed_search_embedding()
+-> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
+    Box::pin(async { app(test_state(TestEmbeddingGenerator::Failure).await) })
 }
 
 pub async fn json_response(
@@ -360,7 +374,7 @@ fn url(value: &str) -> Url {
     }
 }
 
-async fn test_state() -> AppState {
+async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let client = get_dynamodb_client().await;
@@ -390,6 +404,7 @@ async fn test_state() -> AppState {
         )),
         Arc::new(SearchProductsHandler::new(
             OpenSearchProductSearchReader::new(opensearch_client.clone()),
+            search_embeddings,
             SqlxProductUserStateReader::new(get_postgres_client().await),
             DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
@@ -515,7 +530,7 @@ async fn test_state() -> AppState {
         Arc::new(CreateSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
-            TestEmbeddingGenerator,
+            TestEmbeddingGenerator::Success,
             SqlxSearchFilterQuotaReaderFactory,
             user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
@@ -525,7 +540,7 @@ async fn test_state() -> AppState {
         Arc::new(UpdateOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
-            TestEmbeddingGenerator,
+            TestEmbeddingGenerator::Success,
             search_filter_reader.clone(),
             SqlxSearchFilterQuotaReaderFactory,
             user_postgres::SqlxUserTierEntitlementsFactory::new(),

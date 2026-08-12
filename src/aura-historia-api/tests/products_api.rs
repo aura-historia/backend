@@ -1,6 +1,9 @@
 mod api_support;
 
-use api_support::{assert_problem, json_response, product_route_slugs, seed_product};
+use api_support::{
+    assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
+    seed_product,
+};
 use opensearch::IndexParts;
 use serde_json::{Value, json};
 use test_api::{
@@ -13,6 +16,8 @@ const DYNAMODB: DynamoDB = DynamoDB();
 const OPENSEARCH: OpenSearch = OpenSearch();
 const PRODUCTS_INDEX: &str = "products";
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
+static AURA_API_WITH_FAILED_EMBEDDING: AuraHistoriaApi =
+    AuraHistoriaApi::new(aura_api_app_with_failed_search_embedding);
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
 async fn should_get_product_details_by_id() {
@@ -244,7 +249,7 @@ async fn should_return_matching_product_search_summary() {
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(json!(1), body["total"]);
+    assert!(body["total"].is_null());
     assert_eq!(vec![target.0], product_ids(&body));
     assert_eq!(
         json!("Renaissance walnut cabinet"),
@@ -255,6 +260,72 @@ async fn should_return_matching_product_search_summary() {
     assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["state"]);
     assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
     assert!(body["items"][0].get("userState").is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_hybrid_search_products_when_mock_embedding_succeeds() {
+    let target = search_document(
+        "Ornate candle holder",
+        125,
+        "AVAILABLE",
+        "ACTIVE",
+        "Semantic Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    let unrelated = search_document(
+        "Bronze garden sculpture",
+        130,
+        "AVAILABLE",
+        "ACTIVE",
+        "Semantic Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    let unrelated_embedding = std::iter::once(1.0)
+        .chain(std::iter::repeat_n(
+            0.0,
+            embedding::EMBEDDING_DIMENSIONS - 1,
+        ))
+        .collect();
+    index_search_documents([
+        with_embedding(target.1.clone(), vec![1.0; embedding::EMBEDDING_DIMENSIONS]),
+        with_embedding(unrelated.1, unrelated_embedding),
+    ])
+    .await;
+
+    let (response, _) = get_json(
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=vintage%20brass%20lamp"
+            .to_owned(),
+    )
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some(&target.0), product_ids(&body).first());
+    assert!(body["total"].is_null());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API_WITH_FAILED_EMBEDDING])]
+async fn should_fall_back_to_bm25_when_mock_embedding_fails() {
+    let target = search_document(
+        "Vintage brass lamp",
+        125,
+        "AVAILABLE",
+        "ACTIVE",
+        "Fallback Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    index_search_documents([target.1.clone()]).await;
+
+    let (response, _) = get_json_from(
+        AURA_API_WITH_FAILED_EMBEDDING.base_url(),
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Vintage%20brass%20lamp",
+    )
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(json!(1), body["total"]);
+    assert_eq!(vec![target.0], product_ids(&body));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
@@ -304,7 +375,7 @@ async fn should_intersect_product_search_filters() {
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(json!(1), body["total"]);
+    assert!(body["total"].is_null());
     assert_eq!(vec![target.0], product_ids(&body));
     assert_eq!(
         json!("Imperial Antiques"),
@@ -471,7 +542,11 @@ async fn should_reject_invalid_product_search_sort() {
 }
 
 async fn get_json(path: String) -> (reqwest::Response, String) {
-    let url = format!("{}{path}", AURA_API.base_url());
+    get_json_from(AURA_API.base_url(), &path).await
+}
+
+async fn get_json_from(base_url: &str, path: &str) -> (reqwest::Response, String) {
+    let url = format!("{base_url}{path}");
     let response = reqwest::Client::new()
         .get(&url)
         .send()
@@ -580,6 +655,11 @@ fn search_document_with_shop(
             "updated": created
         }),
     )
+}
+
+fn with_embedding(mut document: Value, embedding: Vec<f32>) -> Value {
+    document["embedding"] = json!(embedding);
+    document
 }
 
 fn product_ids(body: &Value) -> Vec<String> {
