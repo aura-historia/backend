@@ -22,6 +22,7 @@ use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
+use geo::{GoogleGeocoder, GoogleGeocoderConfig};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
@@ -71,7 +72,6 @@ use shop_postgres::{
     SqlxPartnerShopReaderFactory, SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory,
     SqlxShopSearchReaderFactory,
 };
-use shop_service::ports::{ShopGeocoder, ShopGeocoderError};
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
 
@@ -111,15 +111,17 @@ pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
 pub const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
 pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
+pub const GOOGLE_GEOCODING_API_KEY_ENV: &str = "GOOGLE_GEOCODING_API_KEY";
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "project-2c6e1dcc-3fb9-4910-adc";
 const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ApiConfig {
     bind_addr: SocketAddr,
     vertex_ai_embedding: VertexAiEmbeddingConfig,
+    google_geocoder: GoogleGeocoderConfig,
 }
 
 impl ApiConfig {
@@ -146,10 +148,16 @@ impl ApiConfig {
                 .unwrap_or_else(|| DEFAULT_VERTEX_AI_PROJECT_ID.to_owned()),
             get(VERTEX_AI_LOCATION_ENV).unwrap_or_else(|| DEFAULT_VERTEX_AI_LOCATION.to_owned()),
         );
+        let google_geocoder = GoogleGeocoderConfig::new(
+            get(GOOGLE_GEOCODING_API_KEY_ENV)
+                .filter(|api_key| !api_key.trim().is_empty())
+                .ok_or(ApiConfigError::MissingGoogleGeocodingApiKey)?,
+        );
 
         Ok(Self {
             bind_addr,
             vertex_ai_embedding,
+            google_geocoder,
         })
     }
 
@@ -160,6 +168,10 @@ impl ApiConfig {
     pub fn vertex_ai_embedding(&self) -> &VertexAiEmbeddingConfig {
         &self.vertex_ai_embedding
     }
+
+    fn google_geocoder(&self) -> &GoogleGeocoderConfig {
+        &self.google_geocoder
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -169,6 +181,11 @@ pub enum ApiConfigError {
         value: String,
         source: AddrParseError,
     },
+    #[error(
+        "missing required environment variable {env_name}",
+        env_name = GOOGLE_GEOCODING_API_KEY_ENV
+    )]
+    MissingGoogleGeocodingApiKey,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -387,16 +404,17 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SearchShopsHandler::new(unit_of_work.clone(), SqlxShopSearchReaderFactory::new());
     let check_user_admin =
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new());
+    let geocoder = Arc::new(GoogleGeocoder::new(config.google_geocoder().clone()));
     let create_shop = CreateShopHandler::new(
         unit_of_work.clone(),
         SqlxShopRepositoryFactory::new(),
-        UnavailableShopGeocoder,
+        Arc::clone(&geocoder),
         check_user_admin,
     );
     let update_shop = UpdateShopHandler::new(
         unit_of_work.clone(),
         SqlxShopRepositoryFactory::new(),
-        UnavailableShopGeocoder,
+        Arc::clone(&geocoder),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
         SqlxPartnerShopReaderFactory::new(),
     );
@@ -453,7 +471,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
         SqlxShopRepositoryFactory::new(),
-        UnavailableShopGeocoder,
+        geocoder,
     );
     let list_partner_applications = ListPartnerShopApplicationsHandler::new(
         unit_of_work.clone(),
@@ -726,19 +744,6 @@ fn google_application_default_credentials()
         })
 }
 
-#[derive(Clone, Copy)]
-struct UnavailableShopGeocoder;
-
-#[async_trait::async_trait]
-impl ShopGeocoder for UnavailableShopGeocoder {
-    async fn geocode(
-        &self,
-        _address: &shop_core::address::StructuredAddress,
-    ) -> Result<shop_core::address::GeoAddress, ShopGeocoderError> {
-        Err(ShopGeocoderError::TemporarilyUnavailable)
-    }
-}
-
 struct JwtUnavailableAuthenticator;
 
 #[async_trait::async_trait]
@@ -825,7 +830,7 @@ mod tests {
 
     #[test]
     fn should_use_default_bind_addr_when_env_missing() -> Result<(), Box<dyn std::error::Error>> {
-        let values = env(&[]);
+        let values = env(&[(GOOGLE_GEOCODING_API_KEY_ENV, "api-key")]);
 
         let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
 
@@ -835,7 +840,10 @@ mod tests {
 
     #[test]
     fn should_read_bind_addr_from_env() -> Result<(), Box<dyn std::error::Error>> {
-        let values = env(&[(API_BIND_ADDR_ENV, "127.0.0.1:9000")]);
+        let values = env(&[
+            (API_BIND_ADDR_ENV, "127.0.0.1:9000"),
+            (GOOGLE_GEOCODING_API_KEY_ENV, "api-key"),
+        ]);
 
         let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
 
@@ -849,6 +857,7 @@ mod tests {
         let values = env(&[
             (VERTEX_AI_PROJECT_ID_ENV, "embedding-project"),
             (VERTEX_AI_LOCATION_ENV, "europe-west3"),
+            (GOOGLE_GEOCODING_API_KEY_ENV, "api-key"),
         ]);
 
         let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
@@ -862,8 +871,33 @@ mod tests {
     }
 
     #[test]
+    fn should_fail_when_google_geocoding_api_key_is_missing() {
+        let values = env(&[]);
+
+        let config = ApiConfig::from_getter(|name| values.get(name).cloned());
+
+        assert!(matches!(
+            config,
+            Err(ApiConfigError::MissingGoogleGeocodingApiKey)
+        ));
+    }
+
+    #[test]
+    fn should_accept_supplied_google_geocoding_api_key() -> Result<(), Box<dyn std::error::Error>> {
+        let values = env(&[(GOOGLE_GEOCODING_API_KEY_ENV, "api-key")]);
+
+        let config = ApiConfig::from_getter(|name| values.get(name).cloned())?;
+
+        assert_eq!("0.0.0.0:8080".parse::<SocketAddr>()?, config.bind_addr());
+        Ok(())
+    }
+
+    #[test]
     fn should_fail_when_bind_addr_is_invalid() {
-        let values = env(&[(API_BIND_ADDR_ENV, "not-an-addr")]);
+        let values = env(&[
+            (API_BIND_ADDR_ENV, "not-an-addr"),
+            (GOOGLE_GEOCODING_API_KEY_ENV, "api-key"),
+        ]);
 
         let config = ApiConfig::from_getter(|name| values.get(name).cloned());
 

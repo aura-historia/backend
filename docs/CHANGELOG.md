@@ -6,6 +6,11 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-08-11 - Wire Canonical Google Geocoding
+
+### Changed
+
+- Canonical shop and partner-shop application writes now geocode supplied structured addresses through the shared Google Maps adapter. Valid addresses return the documented `geoAddress`; unavailable geocoding returns the existing temporary-service failure.
 
 ## 2026-08-06 - Align Search Filter and Watchlist API Contracts
 

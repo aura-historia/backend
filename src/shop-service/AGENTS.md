@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `shop-core` and shared `common` app contracts.
+- Depends on `shop-core`, shared `common` app contracts, and shared `geo::{Geocoder, GeocodingError}`.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
 - Ports are public because adapter/runtime crates implement them.
