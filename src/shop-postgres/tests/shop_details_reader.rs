@@ -69,24 +69,10 @@ async fn should_hide_non_published_shop_details_for_all_public_lookups() {
         ),
         (
             Shop::create(new_shop(
-                "postgres-details-rejected",
-                Some(domain("rejected-details.example")),
+                "postgres-details-discarded",
+                Some(domain("discarded-details.example")),
             )),
-            "REJECTED",
-        ),
-        (
-            Shop::create(new_shop(
-                "postgres-details-archived",
-                Some(domain("archived-details.example")),
-            )),
-            "ARCHIVED",
-        ),
-        (
-            Shop::create(new_shop(
-                "postgres-details-deleted",
-                Some(domain("deleted-details.example")),
-            )),
-            "DELETED",
+            "DISCARDED",
         ),
     ];
 
@@ -173,7 +159,7 @@ const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations"
 
 fn sample_shop_with_shopify(slug: &str, shopify_domain: Domain) -> Shop {
     let mut shop = Shop::create(new_shop(slug, Some(shopify_domain)));
-    shop.publish();
+    let _ = shop.publish();
     shop
 }
 

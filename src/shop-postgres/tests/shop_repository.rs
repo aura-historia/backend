@@ -218,7 +218,7 @@ const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations"
 
 fn sample_shop(slug: &str) -> Shop {
     let mut shop = Shop::create(new_shop(slug));
-    shop.publish();
+    let _ = shop.publish();
     shop
 }
 

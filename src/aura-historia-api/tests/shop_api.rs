@@ -594,7 +594,7 @@ async fn seed_shop() -> Shop {
         partner_status: ShopPartnerStatus::Partnered,
         affiliate_configuration: None,
     });
-    shop.publish();
+    let _ = shop.publish();
 
     let mut tx = match unit_of_work.begin().await {
         Ok(tx) => tx,

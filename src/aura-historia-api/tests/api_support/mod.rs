@@ -17,7 +17,9 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingInput, EmbeddingVector};
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
+use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
+use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -51,6 +53,7 @@ use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
 use shop_core::shop_type::ShopType;
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
+    SqlxUserPartnerShopMembershipRepositoryFactory,
 };
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationHandler, AdminGetPartnerShopApplicationHandler,
@@ -273,7 +276,7 @@ pub async fn seed_shop() -> Shop {
         partner_status: ShopPartnerStatus::Partnered,
         affiliate_configuration: None,
     });
-    shop.publish();
+    let _ = shop.publish();
 
     let mut tx = unit_of_work
         .begin()
@@ -605,6 +608,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(WithdrawPartnerShopApplicationHandler::new(
             unit_of_work.clone(),
             SqlxPartnerShopApplicationRepositoryFactory::new(),
+            SqlxShopRepositoryFactory::new(),
         )),
         Arc::new(AdminListPartnerShopApplicationsHandler::new(
             unit_of_work.clone(),
@@ -625,7 +629,12 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             unit_of_work,
             SqlxPartnerShopApplicationRepositoryFactory::new(),
             shop_postgres::SqlxShopRepositoryFactory::new(),
+            SqlxUserPartnerShopMembershipRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
+            CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
+                get_dynamodb_client().await.clone(),
+                "table_1",
+            )),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

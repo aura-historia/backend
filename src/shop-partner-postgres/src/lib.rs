@@ -3,4 +3,6 @@ mod readers;
 mod repositories;
 
 pub use readers::{SqlxPartnerShopApplicationReaderFactory, SqlxUserPartnerShopsReaderFactory};
-pub use repositories::SqlxPartnerShopApplicationRepositoryFactory;
+pub use repositories::{
+    SqlxPartnerShopApplicationRepositoryFactory, SqlxUserPartnerShopMembershipRepositoryFactory,
+};

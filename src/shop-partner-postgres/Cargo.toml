@@ -17,6 +17,8 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 geo = { workspace = true }
+notification-service = { workspace = true }
+shop-postgres = { workspace = true }
 isocountry = { workspace = true }
 rstest = { workspace = true }
 serial_test = { workspace = true }

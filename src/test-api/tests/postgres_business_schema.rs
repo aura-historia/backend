@@ -64,7 +64,6 @@ async fn should_support_core_business_relations() {
             partner_shop_application_id,
             applicant_user_id,
             business_state,
-            execution_state,
             payload_type,
             shop_id
         )
@@ -72,7 +71,6 @@ async fn should_support_core_business_relations() {
             '60000000-0000-0000-0000-000000000001',
             '10000000-0000-0000-0000-000000000001',
             'APPROVED',
-            'COMPLETED',
             'EXISTING',
             '20000000-0000-0000-0000-000000000001'
         );

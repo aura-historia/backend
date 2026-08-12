@@ -105,6 +105,18 @@ pub enum RehydrateShopError {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ShopDiscardError {
+    #[error("only drafted shops can be discarded")]
+    NotDrafted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ShopPublishError {
+    #[error("discarded shops cannot be published")]
+    Discarded,
+}
+
 impl Shop {
     pub fn create(input: NewShop) -> Self {
         Self::create_with_lifecycle(input, ShopLifecycle::Drafted)
@@ -258,8 +270,26 @@ impl Shop {
         self.lifecycle
     }
 
-    pub fn publish(&mut self) -> ChangeOutcome {
-        replace_if_changed(&mut self.lifecycle, ShopLifecycle::Published)
+    pub fn publish(&mut self) -> Result<ChangeOutcome, ShopPublishError> {
+        match self.lifecycle {
+            ShopLifecycle::Drafted => Ok(replace_if_changed(
+                &mut self.lifecycle,
+                ShopLifecycle::Published,
+            )),
+            ShopLifecycle::Published => Ok(ChangeOutcome::Unchanged),
+            ShopLifecycle::Discarded => Err(ShopPublishError::Discarded),
+        }
+    }
+
+    pub fn discard(&mut self) -> Result<ChangeOutcome, ShopDiscardError> {
+        if self.lifecycle != ShopLifecycle::Drafted {
+            return Err(ShopDiscardError::NotDrafted);
+        }
+
+        Ok(replace_if_changed(
+            &mut self.lifecycle,
+            ShopLifecycle::Discarded,
+        ))
     }
 
     pub fn affiliate_configuration(&self) -> Option<&AffiliateConfiguration> {
@@ -416,6 +446,32 @@ mod tests {
             }),
             result
         );
+    }
+
+    #[test]
+    fn should_publish_drafted_shop_and_ignore_replay() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+
+        assert_eq!(Ok(ChangeOutcome::Changed), shop.publish());
+        assert_eq!(ShopLifecycle::Published, shop.lifecycle());
+        assert_eq!(Ok(ChangeOutcome::Unchanged), shop.publish());
+    }
+
+    #[test]
+    fn should_reject_publish_of_discarded_shop() {
+        let mut shop = Shop::create(new_shop("Antik und Stil"));
+        assert_eq!(Ok(ChangeOutcome::Changed), shop.discard());
+
+        assert_eq!(Err(ShopPublishError::Discarded), shop.publish());
+        assert_eq!(ShopLifecycle::Discarded, shop.lifecycle());
+    }
+
+    #[test]
+    fn should_discard_only_drafted_shop() {
+        let mut published = Shop::create(new_shop("Antik und Stil"));
+        assert_eq!(Ok(ChangeOutcome::Changed), published.publish());
+
+        assert_eq!(Err(ShopDiscardError::NotDrafted), published.discard());
     }
 
     #[test]

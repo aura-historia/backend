@@ -26,7 +26,9 @@ use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
+use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
+use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -62,6 +64,7 @@ use search_filter_service::use_cases::{
 };
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
+    SqlxUserPartnerShopMembershipRepositoryFactory,
 };
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationHandler, AdminGetPartnerShopApplicationHandler,
@@ -532,6 +535,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let delete_partner_application = WithdrawPartnerShopApplicationHandler::new(
         unit_of_work.clone(),
         SqlxPartnerShopApplicationRepositoryFactory::new(),
+        SqlxShopRepositoryFactory::new(),
     );
     let admin_list_partner_applications = AdminListPartnerShopApplicationsHandler::new(
         unit_of_work.clone(),
@@ -548,13 +552,6 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxPartnerShopApplicationRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
-    let admin_decide_partner_application = AdminDecidePartnerShopApplicationHandler::new(
-        unit_of_work.clone(),
-        SqlxPartnerShopApplicationRepositoryFactory::new(),
-        SqlxShopRepositoryFactory::new(),
-        SqlxUserAdminReaderFactory::new(),
-    );
-
     let aws_config = aws_config::defaults(aws_config::BehaviorVersion::v2026_01_12())
         .load()
         .await;
@@ -566,6 +563,17 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let readiness_table_name = table_name.clone();
     let table_name = Box::leak(table_name.into_boxed_str());
     let table_name_ref: &str = table_name;
+    let admin_decide_partner_application = AdminDecidePartnerShopApplicationHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnerShopApplicationRepositoryFactory::new(),
+        SqlxShopRepositoryFactory::new(),
+        SqlxUserPartnerShopMembershipRepositoryFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+        CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
+            (*dynamodb_client).clone(),
+            table_name_ref,
+        )),
+    );
     let product_user_states = SqlxProductUserStateReader::new(pool.clone());
     let get_similar_products = GetSimilarProductsHandler::new(
         unit_of_work.clone(),

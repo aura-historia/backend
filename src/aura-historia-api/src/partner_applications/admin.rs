@@ -1,7 +1,7 @@
-use super::types::{AdminPartnerApplicationData, DecisionData, PatchApplicationData};
+use super::types::{AdminPartnerApplicationData, DecisionData, PartnerApplicationDecisionData};
 use super::util::{no_store, parse_id, parse_json};
 use crate::auth::protected_context;
-use crate::error::{ApiError, BAD_BODY_VALUE};
+use crate::error::ApiError;
 use crate::state::PartnerApplicationsState;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -68,7 +68,6 @@ pub async fn admin_patch(
     State(state): State<PartnerApplicationsState>,
     headers: HeaderMap,
     Path(raw_id): Path<String>,
-    body: String,
 ) -> Response {
     let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
@@ -78,23 +77,11 @@ pub async fn admin_patch(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let data: PatchApplicationData = match parse_json(&body) {
-        Ok(v) => v,
-        Err(r) => return r,
-    };
-    let Some(task_token) = data.task_token else {
-        return ApiError::bad_request(BAD_BODY_VALUE)
-            .with_detail("Field 'taskToken' is required.")
-            .into_response();
-    };
     match state
         .admin_update
         .mark_in_review(
             &ctx,
-            AdminMarkPartnerShopApplicationInReviewCommand {
-                application_id,
-                task_token,
-            },
+            AdminMarkPartnerShopApplicationInReviewCommand { application_id },
         )
         .await
     {
@@ -120,10 +107,9 @@ pub async fn admin_decision(
         Ok(v) => v,
         Err(r) => return r,
     };
-    let decision = if data.decision.eq_ignore_ascii_case("approve") {
-        PartnerShopApplicationDecision::Approve
-    } else {
-        PartnerShopApplicationDecision::Reject
+    let decision = match data.decision {
+        PartnerApplicationDecisionData::Approve => PartnerShopApplicationDecision::Approve,
+        PartnerApplicationDecisionData::Reject => PartnerShopApplicationDecision::Reject,
     };
     match state
         .admin_decide

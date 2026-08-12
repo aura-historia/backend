@@ -1314,6 +1314,8 @@ impl From<CreatePartnerShopApplicationError> for ApiError {
             CreatePartnerShopApplicationError::ShopNotFound => {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
+            CreatePartnerShopApplicationError::ShopNotEligible => ApiError::conflict(CONFLICT)
+                .with_detail("Shop is not eligible for a partner application."),
             CreatePartnerShopApplicationError::SlugConflict { .. } => {
                 ApiError::conflict(SHOP_EXISTS_ALREADY).with_detail("Shop exists already.")
             }
@@ -1390,26 +1392,104 @@ impl_partner_shop_application_error!(
     NotFound,
     ConcurrencyConflict
 );
-impl_partner_shop_application_error!(
-    WithdrawPartnerShopApplicationError,
-    NotFound,
-    ConcurrencyConflict
-);
+impl From<WithdrawPartnerShopApplicationError> for ApiError {
+    fn from(error: WithdrawPartnerShopApplicationError) -> Self {
+        match error {
+            WithdrawPartnerShopApplicationError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            WithdrawPartnerShopApplicationError::NotFound => {
+                ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND)
+                    .with_detail("Partner shop application was not found.")
+            }
+            WithdrawPartnerShopApplicationError::ApplicationNotWithdrawable
+            | WithdrawPartnerShopApplicationError::ConcurrencyConflict => ApiError::conflict(
+                CONFLICT,
+            )
+            .with_detail("Partner shop application cannot be withdrawn in its current state."),
+            WithdrawPartnerShopApplicationError::TemporarilyUnavailable { .. }
+            | WithdrawPartnerShopApplicationError::BeginTransactionFailed
+            | WithdrawPartnerShopApplicationError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partner shop application is temporarily unavailable.")
+            }
+            WithdrawPartnerShopApplicationError::ShopNotFound
+            | WithdrawPartnerShopApplicationError::DraftShopNotDiscardable
+            | WithdrawPartnerShopApplicationError::InvalidPersistedState { .. }
+            | WithdrawPartnerShopApplicationError::Internal { .. } => {
+                ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
+                    .with_detail("Partner shop application failed internally.")
+            }
+        }
+    }
+}
 impl_partner_shop_application_error!(
     AdminGetPartnerShopApplicationError,
     NotFound,
     ConcurrencyConflict
 );
-impl_partner_shop_application_error!(
-    AdminUpdatePartnerShopApplicationError,
-    NotFound,
-    ConcurrencyConflict
-);
-impl_partner_shop_application_error!(
-    AdminDecidePartnerShopApplicationError,
-    NotFound,
-    ConcurrencyConflict
-);
+impl From<AdminUpdatePartnerShopApplicationError> for ApiError {
+    fn from(error: AdminUpdatePartnerShopApplicationError) -> Self {
+        match error {
+            AdminUpdatePartnerShopApplicationError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            AdminUpdatePartnerShopApplicationError::NotFound => {
+                ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND)
+                    .with_detail("Partner shop application was not found.")
+            }
+            AdminUpdatePartnerShopApplicationError::ApplicationNotReviewable
+            | AdminUpdatePartnerShopApplicationError::ConcurrencyConflict => ApiError::conflict(
+                CONFLICT,
+            )
+            .with_detail("Partner shop application cannot enter review in its current state."),
+            AdminUpdatePartnerShopApplicationError::TemporarilyUnavailable { .. }
+            | AdminUpdatePartnerShopApplicationError::BeginTransactionFailed
+            | AdminUpdatePartnerShopApplicationError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partner shop application is temporarily unavailable.")
+            }
+            AdminUpdatePartnerShopApplicationError::InvalidPersistedState { .. }
+            | AdminUpdatePartnerShopApplicationError::Internal { .. } => {
+                ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
+                    .with_detail("Partner shop application failed internally.")
+            }
+        }
+    }
+}
+impl From<AdminDecidePartnerShopApplicationError> for ApiError {
+    fn from(error: AdminDecidePartnerShopApplicationError) -> Self {
+        match error {
+            AdminDecidePartnerShopApplicationError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            AdminDecidePartnerShopApplicationError::NotFound => {
+                ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND)
+                    .with_detail("Partner shop application was not found.")
+            }
+            AdminDecidePartnerShopApplicationError::ApplicationNotDecidable
+            | AdminDecidePartnerShopApplicationError::ConcurrencyConflict => {
+                ApiError::conflict(CONFLICT)
+                    .with_detail("Partner shop application cannot be decided in its current state.")
+            }
+            AdminDecidePartnerShopApplicationError::NotificationFailed { .. }
+            | AdminDecidePartnerShopApplicationError::TemporarilyUnavailable { .. }
+            | AdminDecidePartnerShopApplicationError::BeginTransactionFailed
+            | AdminDecidePartnerShopApplicationError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PARTNER_SHOP_APPLICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Partner shop application is temporarily unavailable.")
+            }
+            AdminDecidePartnerShopApplicationError::ShopNotFound
+            | AdminDecidePartnerShopApplicationError::ShopNotPublishable
+            | AdminDecidePartnerShopApplicationError::DraftShopNotDiscardable
+            | AdminDecidePartnerShopApplicationError::InvalidPersistedState { .. }
+            | AdminDecidePartnerShopApplicationError::Internal { .. } => {
+                ApiError::internal_server_error(PARTNER_SHOP_APPLICATION_INTERNAL_ERROR)
+                    .with_detail("Partner shop application failed internally.")
+            }
+        }
+    }
+}
 
 impl From<OAuthServiceError> for ApiError {
     fn from(error: OAuthServiceError) -> Self {

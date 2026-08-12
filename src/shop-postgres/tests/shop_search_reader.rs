@@ -73,20 +73,16 @@ async fn should_exclude_non_published_shops_from_public_search() {
     let search = SqlxShopSearchReaderFactory::new();
     let published = sample_shop("postgres-public-visibility-published");
     let drafted = Shop::create(new_shop("postgres-public-visibility-drafted"));
-    let rejected = Shop::create(new_shop("postgres-public-visibility-rejected"));
-    let archived = Shop::create(new_shop("postgres-public-visibility-archived"));
-    let deleted = Shop::create(new_shop("postgres-public-visibility-deleted"));
+    let discarded = Shop::create(new_shop("postgres-public-visibility-discarded"));
 
     let mut tx = begin(&unit_of_work).await;
-    for shop in [&published, &drafted, &rejected, &archived, &deleted] {
+    for shop in [&published, &drafted, &discarded] {
         if let Err(error) = shops.in_transaction(&mut tx).insert(shop).await {
             panic!("failed to insert public visibility shop: {error:?}");
         }
     }
     commit(tx).await;
-    set_shop_lifecycle(&pool, rejected.id(), "REJECTED").await;
-    set_shop_lifecycle(&pool, archived.id(), "ARCHIVED").await;
-    set_shop_lifecycle(&pool, deleted.id(), "DELETED").await;
+    set_shop_lifecycle(&pool, discarded.id(), "DISCARDED").await;
 
     let mut tx = begin(&unit_of_work).await;
     let result = match search
@@ -349,7 +345,7 @@ const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations"
 
 fn sample_shop(slug: &str) -> Shop {
     let mut shop = Shop::create(new_shop(slug));
-    shop.publish();
+    let _ = shop.publish();
     shop
 }
 
@@ -378,7 +374,7 @@ fn search_shop(
         }),
     });
     let mut shop = Shop::create(input);
-    shop.publish();
+    let _ = shop.publish();
     shop
 }
 

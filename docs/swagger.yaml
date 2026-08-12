@@ -7672,7 +7672,6 @@ paths:
                   value:
                     - id: "550e8400-e29b-41d4-a716-446655440000"
                       businessState: "IN_REVIEW"
-                      executionState: "WAITING"
                       payload:
                         type: "new"
                         shopId: "550e8400-e29b-41d4-a716-446655440001"
@@ -7703,8 +7702,8 @@ paths:
         The application payload specifies either an existing shop (by `shopId`) or a new shop
         (with name, type, domains, and optional metadata such as a primary URL, image, contact details,
         address, and speciality keys).
-        The application is created with `businessState` `SUBMITTED` and `executionState` `PROCESSING`.
-        Both state fields are read-only and cannot be set by the client.
+        The application is created with `businessState` `SUBMITTED`. The review state is read-only
+        and is changed only through the review and decision actions.
         Returns the created application with HTTP 201.
         Requires valid Cognito JWT authentication.
       operationId: postPartnerApplication
@@ -7768,7 +7767,6 @@ paths:
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 businessState: "SUBMITTED"
-                executionState: "PROCESSING"
                 payload:
                   type: "new"
                   shopId: "550e8400-e29b-41d4-a716-446655440001"
@@ -7862,7 +7860,6 @@ paths:
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 businessState: "IN_REVIEW"
-                executionState: "WAITING"
                 payload:
                   type: "new"
                   shopId: "550e8400-e29b-41d4-a716-446655440001"
@@ -7893,158 +7890,6 @@ paths:
                       field: "partnerApplicationId"
                       sourceType: "path"
                     detail: "invalid character in UUID"
-        "401":
-          description: Unauthorized – invalid or missing JWT token.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 401
-                title: "Unauthorized"
-                error: "UNAUTHORIZED"
-        "404":
-          description: Not found – no partner shop application with the given ID exists for this user.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 404
-                title: "Not Found"
-                error: "PARTNER_SHOP_APPLICATION_NOT_FOUND"
-                detail: "There exists no PartnerShopApplication for user '...' with id '...'."
-        "500":
-          description: Internal server error.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
-    patch:
-      summary: Update a partner shop application
-      description: |
-        Updates the fields of a specific partner shop application identified by `partnerApplicationId`.
-        Only fields present in the request body are applied; omitted fields are left unchanged.
-        The `businessState` and `executionState` fields are **read-only** and cannot be updated through this endpoint.
-        The request body is required and must not be empty.
-        Returns the updated application.
-        Returns 404 when no application with the given ID exists for this user.
-        Requires valid Cognito JWT authentication.
-      operationId: patchPartnerApplication
-      tags:
-        - Partner Applications
-      parameters:
-        - name: partnerApplicationId
-          in: path
-          required: true
-          description: Unique identifier (UUID) of the partner shop application to update.
-          schema:
-            type: string
-            format: uuid
-          example: "550e8400-e29b-41d4-a716-446655440000"
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        description: |
-          Partial update for a partner shop application.
-          Only the provided fields are updated. All fields are optional.
-          Note: `businessState` and `executionState` are managed by the backend workflow and cannot be set by the client.
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PatchPartnerShopApplicationData"
-            examples:
-              update_name:
-                summary: Update only the shop name
-                value:
-                  shopName: "My Renamed Antique Store"
-              update_multiple:
-                summary: Update shop metadata for a new-shop application
-                value:
-                  shopName: "My Renamed Antique Store"
-                  shopType: "AUCTION_HOUSE"
-                  shopUrl: "https://my-antique-store.com/renamed"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
-      responses:
-        "200":
-          description: Partner shop application updated successfully. Returns the updated application.
-          headers:
-            Last-Modified:
-              description: When the application was last updated (RFC 7231 HTTP-date)
-              schema:
-                type: string
-                format: http-date
-              example: "Wed, 09 Apr 2026 12:00:00 GMT"
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/OwnPartnerApplicationData"
-              example:
-                id: "550e8400-e29b-41d4-a716-446655440000"
-                businessState: "SUBMITTED"
-                executionState: "PROCESSING"
-                payload:
-                  type: "new"
-                  shopId: "550e8400-e29b-41d4-a716-446655440001"
-        "400":
-          description: Bad request – missing or invalid path parameter or request body.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_path_param:
-                  summary: Missing partnerApplicationId path parameter
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "partnerApplicationId"
-                      sourceType: "path"
-                    detail: "Missing field 'partnerApplicationId'."
-                invalid_uuid:
-                  summary: Invalid UUID format
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "INVALID_UUID"
-                    source:
-                      field: "partnerApplicationId"
-                      sourceType: "path"
-                    detail: "invalid character in UUID"
-                missing_body:
-                  summary: Missing request body
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Body cannot be empty"
-                invalid_body:
-                  summary: Invalid request body
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "expected value at line 1 column 1"
         "401":
           description: Unauthorized – invalid or missing JWT token.
           content:
@@ -8077,9 +7922,10 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
     delete:
-      summary: Delete a partner shop application
+      summary: Withdraw a partner shop application
       description: |
-        Deletes the partner shop application identified by `partnerApplicationId` for the authenticated user.
+        Withdraws the partner shop application identified by `partnerApplicationId` for the authenticated user.
+        The application remains as terminal `WITHDRAWN`; a draft shop linked by a new-shop application is discarded.
         Returns 204 No Content on success.
         Returns 404 when no application with the given ID exists for this user.
         Requires valid Cognito JWT authentication.
@@ -8090,7 +7936,7 @@ paths:
         - name: partnerApplicationId
           in: path
           required: true
-          description: Unique identifier (UUID) of the partner shop application to delete.
+          description: Unique identifier (UUID) of the partner shop application to withdraw.
           schema:
             type: string
             format: uuid
@@ -8099,7 +7945,7 @@ paths:
         - BearerAuth: []
       responses:
         "204":
-          description: Partner shop application deleted successfully.
+          description: Partner shop application withdrawn successfully.
           headers:
             Access-Control-Allow-Origin:
               description: CORS header
@@ -8154,16 +8000,22 @@ paths:
                 title: "Not Found"
                 error: "PARTNER_SHOP_APPLICATION_NOT_FOUND"
                 detail: "There exists no PartnerShopApplication for user '...' with id '...'."
+        "409":
+          description: Conflict – the application cannot be withdrawn in its current state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "500":
           description: Internal server error.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+          example:
+            status: 500
+            title: "Internal Server Error"
+            error: "INTERNAL_SERVER_ERROR"
 
   /api/v1/partner-applications:
     get:
@@ -8210,14 +8062,12 @@ paths:
                     - id: "550e8400-e29b-41d4-a716-446655440000"
                       applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                       businessState: "SUBMITTED"
-                      executionState: "PROCESSING"
                       payload:
                         type: "new"
                         shopId: "550e8400-e29b-41d4-a716-446655440001"
                     - id: "7f1c2a88-4e18-4c3a-bf0d-6a0fd5e6d901"
                       applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f2"
                       businessState: "APPROVED"
-                      executionState: "COMPLETED"
                       payload:
                         type: "existing"
                         shopId: "1b0ef61a-a4e1-4667-a7e6-bce7eb4f8c1a"
@@ -8304,7 +8154,6 @@ paths:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
-                executionState: "WAITING"
                 payload:
                   type: "new"
                   shopId: "550e8400-e29b-41d4-a716-446655440001"
@@ -8378,15 +8227,12 @@ paths:
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
     patch:
-      summary: Update a partner shop application as admin
+      summary: Mark a partner shop application in review as admin
       description: |
-        Updates a specific partner shop application by ID across all users.
-        This endpoint accepts Cognito JWTs and Aura Historia access tokens.
-        User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
-        the `partner-shop-applications:write` scope.
-        Admins can update payload fields, but review decisions must be submitted through
-        `POST /api/v1/partner-applications/{partnerApplicationId}/decision`.
-        The request body is required and must not be empty.
+        Moves a `SUBMITTED` partner shop application to `IN_REVIEW`.
+        This action has no request body. Applications in terminal or already-review states return `409 Conflict`.
+        This endpoint accepts Cognito JWTs and Aura Historia access tokens. User callers must have the stored
+        `ADMIN` role; Aura Historia access tokens must include `partner-shop-applications:write`.
       operationId: adminPatchPartnerApplication
       tags:
         - Partner Applications
@@ -8394,7 +8240,7 @@ paths:
         - name: partnerApplicationId
           in: path
           required: true
-          description: Unique identifier (UUID) of the partner shop application to update.
+          description: Unique identifier (UUID) of the partner shop application to mark in review.
           schema:
             type: string
             format: uuid
@@ -8402,52 +8248,9 @@ paths:
       security:
         - BearerAuth: []
         - AccessTokenAuth: []
-      requestBody:
-        required: true
-        description: |
-          Partial update for a partner shop application.
-          All fields are optional, but the request body itself must be present and non-empty.
-          Admins may update payload fields only. `businessState` and `executionState`
-          remain workflow-controlled.
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AdminPatchPartnerShopApplicationData"
-            examples:
-              update_name:
-                summary: Update the shop name
-                value:
-                  shopName: "My Corrected Antique Store"
-              update_payload:
-                summary: Correct shop metadata
-                value:
-                  shopName: "My Antique Store"
-                  shopType: "AUCTION_HOUSE"
-                  shopUrl: "https://my-antique-store.com/curated"
-                  shopStructuredAddress:
-                    addressline: "Pariser Platz 1"
-                    addresslineExtra: "2. Etage"
-                    postalCode: "10117"
-                    locality: "Berlin"
-                    country: "DE"
-                    continent: "EUROPE"
-                  shopPhone: "+49 30 123456"
-                  shopEmail: "contact@my-antique-store.com"
       responses:
         "200":
-          description: Partner shop application updated successfully. Returns the updated application.
-          headers:
-            Last-Modified:
-              description: When the application was last updated (RFC 7231 HTTP-date)
-              schema:
-                type: string
-                format: http-date
-              example: "Wed, 10 Apr 2026 12:00:00 GMT"
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
+          description: Application marked in review.
           content:
             application/json:
               schema:
@@ -8456,93 +8259,45 @@ paths:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
                 businessState: "IN_REVIEW"
-                executionState: "WAITING"
                 payload:
                   type: "new"
                   shopId: "550e8400-e29b-41d4-a716-446655440001"
         "400":
-          description: Bad request – missing or invalid path parameter or request body.
+          description: Bad request – invalid path parameter.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_path_param:
-                  summary: Missing partnerApplicationId path parameter
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "partnerApplicationId"
-                      sourceType: "path"
-                    detail: "Missing field 'partnerApplicationId'."
-                invalid_uuid:
-                  summary: Invalid UUID format
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "INVALID_UUID"
-                    source:
-                      field: "partnerApplicationId"
-                      sourceType: "path"
-                    detail: "invalid character in UUID"
-                missing_body:
-                  summary: Missing request body
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Body cannot be empty"
-                invalid_body:
-                  summary: Invalid request body
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "expected value at line 1 column 1"
         "401":
           description: Unauthorized – invalid or missing JWT token.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              example:
-                status: 401
-                title: "Unauthorized"
-                error: "UNAUTHORIZED"
         "403":
           description: Forbidden – this endpoint requires the `ADMIN` role.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              example:
-                status: 403
-                title: "Forbidden"
-                error: "FORBIDDEN"
-                detail: "This action requires the 'ADMIN' role."
         "404":
           description: Not found – no partner shop application with the given ID exists.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              example:
-                status: 404
-                title: "Not Found"
-                error: "PARTNER_SHOP_APPLICATION_NOT_FOUND"
-                detail: "There exists no PartnerShopApplication with id '...'."
+        "409":
+          description: Conflict – the application cannot enter review in its current state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "500":
           description: Internal server error.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
 
   /api/v1/partner-applications/{partnerApplicationId}/decision:
     post:
@@ -8552,9 +8307,10 @@ paths:
         This endpoint accepts Cognito JWTs and Aura Historia access tokens.
         User callers must have the stored `ADMIN` role. Aura Historia access tokens must include
         the `partner-shop-applications:write` scope.
-        The targeted application must currently have `businessState` `IN_REVIEW`; otherwise the request fails with `409 Conflict`.
-        On success, the workflow resumes asynchronously and the returned application has `executionState` `PROCESSING`
-        while the decision is being applied.
+        An initial decision requires `businessState` `IN_REVIEW`; another decision or a different terminal decision fails with `409 Conflict`.
+        Retrying the matching terminal decision returns `200` without repeating authoritative writes and retries notification delivery.
+        Approval synchronously partners and publishes the linked shop and grants applicant membership. Rejection discards
+        the unused linked draft for a new-shop application. The returned application is terminal `APPROVED` or `REJECTED`.
       operationId: adminPostPartnerApplicationDecision
       tags:
         - Partner Applications
@@ -8588,7 +8344,7 @@ paths:
                   decision: "REJECT"
       responses:
         "200":
-          description: Decision accepted successfully. Returns the application while the workflow continues processing.
+          description: Decision completed successfully. Returns the terminal application.
           headers:
             Last-Modified:
               description: When the application was last updated (RFC 7231 HTTP-date)
@@ -8608,8 +8364,7 @@ paths:
               example:
                 id: "550e8400-e29b-41d4-a716-446655440000"
                 applicantUserId: "0196580c-e4ca-723f-a7e0-1a73588380f1"
-                businessState: "IN_REVIEW"
-                executionState: "PROCESSING"
+                businessState: "APPROVED"
                 payload:
                   type: "new"
                   shopId: "550e8400-e29b-41d4-a716-446655440001"
@@ -8696,17 +8451,23 @@ paths:
                 status: 409
                 title: "Conflict"
                 error: "CONFLICT"
-                detail: "Application not in review state - cannot resume step function for id '...'."
+                detail: "Partner shop application cannot be decided in its current state."
+        "503":
+          description: Service unavailable – the committed decision notification could not be delivered. Retry the same decision.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "500":
           description: Internal server error.
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+          example:
+            status: 500
+            title: "Internal Server Error"
+            error: "INTERNAL_SERVER_ERROR"
 
   /api/v1/oauth/authorize:
     get:
@@ -14583,17 +14344,6 @@ components:
         The state is read-only from the client perspective and can only be changed internally.
       example: SUBMITTED
 
-    ExecutionStateData:
-      type: string
-      enum: [PROCESSING, WAITING, COMPLETED]
-      description: |
-        The workflow execution state of a partner shop application:
-        - `PROCESSING`: The backend workflow is actively processing the application.
-        - `WAITING`: The workflow is paused and waiting for an admin decision.
-        - `COMPLETED`: The workflow has finished processing the application.
-        This state is read-only from the client perspective and is fully managed by the backend workflow.
-      example: WAITING
-
     GetPartnerShopApplicationPayloadData:
       description: |
         The response payload of a partner shop application. Discriminated by the `type` field.
@@ -14639,7 +14389,6 @@ components:
       required:
         - id
         - businessState
-        - executionState
         - payload
       properties:
         id:
@@ -14651,10 +14400,6 @@ components:
           allOf:
             - $ref: "#/components/schemas/PartnerShopApplicationStateData"
           description: Review/business state of the application.
-        executionState:
-          allOf:
-            - $ref: "#/components/schemas/ExecutionStateData"
-          description: Workflow execution state of the application.
         payload:
           $ref: "#/components/schemas/GetPartnerShopApplicationPayloadData"
 
@@ -14677,7 +14422,7 @@ components:
         Request payload for creating a new partner shop application. Discriminated by the `type` field.
         - `EXISTING`: Apply for partnership for an existing shop identified by `shopId`.
         - `NEW`: Apply for partnership for a new shop described by name, type, domains, and optional metadata such as a primary URL, image, address, and contact details.
-        The created application always starts with `businessState` `SUBMITTED` and `executionState` `PROCESSING`.
+        The created application starts with `businessState` `SUBMITTED`.
       oneOf:
         - title: Existing shop payload
           type: object
@@ -14758,128 +14503,6 @@ components:
           EXISTING: "#/components/schemas/PostPartnerShopApplicationPayloadData/oneOf/0"
           NEW: "#/components/schemas/PostPartnerShopApplicationPayloadData/oneOf/1"
 
-    PatchPartnerShopApplicationData:
-      type: object
-      description: |
-        Partial update for a partner shop application.
-        Only the fields present in the request body are applied; omitted fields are left unchanged.
-        All fields are optional.
-        The `businessState` and `executionState` fields are backend-managed and cannot be modified through this endpoint.
-        Note: These fields only apply to applications with a `NEW` payload type.
-        Sending patch fields for an application with `EXISTING` payload type is accepted but has no effect.
-      properties:
-        shopName:
-          type: string
-          description: Updated display name of the shop.
-          maxLength: 255
-          example: "My Renamed Antique Store"
-        shopType:
-          allOf:
-            - $ref: "#/components/schemas/ShopTypeData"
-          description: Updated shop type classification.
-        shopDomains:
-          type: array
-          items:
-            type: string
-          description: |
-            Updated set of domains for the shop. Replaces the existing domains entirely.
-            Domains are normalized (lowercase, no scheme, no www prefix, no path/query/fragment).
-          minItems: 1
-          uniqueItems: true
-          example:
-            - "my-antique-store.com"
-            - "my-antique-store.de"
-        shopUrl:
-          type: string
-          format: uri
-          nullable: true
-          description: Updated primary URL of the requested new shop website. When omitted or set to `null`, the current value remains unchanged.
-          example: "https://my-antique-store.com/renamed"
-        shopImage:
-          type: string
-          format: uri
-          nullable: true
-          description: Updated URL to the shop's logo or image. When omitted or set to `null`, the current image remains unchanged.
-          example: "https://my-antique-store.com/logo.png"
-        shopStructuredAddress:
-          allOf:
-            - $ref: "#/components/schemas/StructuredAddressData"
-          nullable: true
-          description: |
-            Updated structured postal address for the requested new shop.
-            When provided with at least one non-empty component, the address is later geocoded during shop creation.
-            When omitted or set to `null`, the current address remains unchanged.
-        shopPhone:
-          type: string
-          nullable: true
-          description: Updated public contact phone number for the requested new shop. When omitted or set to `null`, the current value remains unchanged.
-          example: "+49 30 123456"
-        shopEmail:
-          type: string
-          format: email
-          nullable: true
-          description: Updated public contact email address for the requested new shop. When omitted or set to `null`, the current value remains unchanged.
-          example: "contact@my-antique-store.com"
-    AdminPatchPartnerShopApplicationData:
-      type: object
-      description: |
-        Partial update for a partner shop application performed by an administrator.
-        Only the fields present in the request body are applied; omitted fields are left unchanged.
-        All fields are optional.
-        Review decisions are handled exclusively through `POST /api/v1/partner-applications/{partnerApplicationId}/decision`.
-      properties:
-        shopName:
-          type: string
-          description: Updated display name of the shop.
-          maxLength: 255
-          example: "My Renamed Antique Store"
-        shopType:
-          allOf:
-            - $ref: "#/components/schemas/ShopTypeData"
-          description: Updated shop type classification.
-        shopDomains:
-          type: array
-          items:
-            type: string
-          description: |
-            Updated set of domains for the shop. Replaces the existing domains entirely.
-            Domains are normalized (lowercase, no scheme, no www prefix, no path/query/fragment).
-          minItems: 1
-          uniqueItems: true
-          example:
-            - "my-antique-store.com"
-            - "my-antique-store.de"
-        shopUrl:
-          type: string
-          format: uri
-          nullable: true
-          description: Updated primary URL of the requested new shop website. When omitted or set to `null`, the current value remains unchanged.
-          example: "https://my-antique-store.com/curated"
-        shopImage:
-          type: string
-          format: uri
-          nullable: true
-          description: Updated URL to the shop's logo or image. When omitted or set to `null`, the current image remains unchanged.
-          example: "https://my-antique-store.com/logo.png"
-        shopStructuredAddress:
-          allOf:
-            - $ref: "#/components/schemas/StructuredAddressData"
-          nullable: true
-          description: |
-            Updated structured postal address for the requested new shop.
-            When provided with at least one non-empty component, the address is later geocoded during shop creation.
-            When omitted or set to `null`, the current address remains unchanged.
-        shopPhone:
-          type: string
-          nullable: true
-          description: Updated public contact phone number for the requested new shop. When omitted or set to `null`, the current value remains unchanged.
-          example: "+49 30 123456"
-        shopEmail:
-          type: string
-          format: email
-          nullable: true
-          description: Updated public contact email address for the requested new shop. When omitted or set to `null`, the current value remains unchanged.
-          example: "contact@my-antique-store.com"
     PartnerShopApplicationDecisionData:
       type: string
       enum: [APPROVE, REJECT]

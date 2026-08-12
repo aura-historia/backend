@@ -11,6 +11,7 @@
 - Exports public SQLx factories only.
 - Keeps SQL rows, mapping, repositories, and readers private.
 - Partner-shop application repository writes use `RETURNING` and expose only storage-neutral persisted state.
+- Owns the transaction-scoped, idempotent `user_partner_shops` membership writer used by approval.
 
 ## Ownership
 

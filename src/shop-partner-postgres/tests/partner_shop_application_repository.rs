@@ -46,7 +46,12 @@ async fn should_insert_find_update_and_delete_partner_shop_application() {
     assert_eq!(application.id(), by_user.value.id());
     assert_eq!(application.id(), by_id.value.id());
 
-    application.approve();
+    application
+        .mark_in_review()
+        .unwrap_or_else(|error| panic!("failed to mark application in review: {error}"));
+    application
+        .approve()
+        .unwrap_or_else(|error| panic!("failed to approve application: {error}"));
     applications
         .in_transaction(&mut tx)
         .update(&application, by_id.version)
@@ -114,7 +119,12 @@ async fn should_report_concurrency_conflict_for_stale_update_and_delete() {
         .insert(&application)
         .await
         .unwrap_or_else(|error| panic!("failed to insert application: {error:?}"));
-    application.approve();
+    application
+        .mark_in_review()
+        .unwrap_or_else(|error| panic!("failed to mark application in review: {error}"));
+    application
+        .approve()
+        .unwrap_or_else(|error| panic!("failed to approve application: {error}"));
     applications
         .in_transaction(&mut tx)
         .update(&application, PartnerShopApplicationStorageVersion::INITIAL)

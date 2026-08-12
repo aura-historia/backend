@@ -1,7 +1,6 @@
 use crate::shops::types::ShopTypeData;
 use common::currency::data::CurrencyData;
 use common::domain::Domain;
-use common::execution_state::ExecutionState;
 use common::language::data::LanguageData;
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::shop_id::ShopId;
@@ -24,7 +23,6 @@ use url::Url;
 pub(crate) struct OwnPartnerApplicationData {
     pub(crate) id: PartnerShopApplicationId,
     pub(crate) business_state: PartnerShopApplicationStateData,
-    pub(crate) execution_state: ExecutionStateData,
     pub(crate) payload: PartnerApplicationPayloadData,
 }
 
@@ -34,7 +32,6 @@ pub(crate) struct AdminPartnerApplicationData {
     pub(crate) id: PartnerShopApplicationId,
     pub(crate) applicant_user_id: UserId,
     pub(crate) business_state: PartnerShopApplicationStateData,
-    pub(crate) execution_state: ExecutionStateData,
     pub(crate) payload: PartnerApplicationPayloadData,
 }
 
@@ -56,24 +53,6 @@ impl From<PartnerShopApplicationState> for PartnerShopApplicationStateData {
             PartnerShopApplicationState::Rejected => Self::Rejected,
             PartnerShopApplicationState::Approved => Self::Approved,
             PartnerShopApplicationState::Withdrawn => Self::Withdrawn,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum ExecutionStateData {
-    Processing,
-    Waiting,
-    Completed,
-}
-
-impl From<ExecutionState> for ExecutionStateData {
-    fn from(state: ExecutionState) -> Self {
-        match state {
-            ExecutionState::Processing => Self::Processing,
-            ExecutionState::Waiting => Self::Waiting,
-            ExecutionState::Completed => Self::Completed,
         }
     }
 }
@@ -105,7 +84,6 @@ impl From<PartnerShopApplication> for OwnPartnerApplicationData {
         Self {
             id: a.id(),
             business_state: a.business_state().into(),
-            execution_state: a.execution_state().into(),
             payload: payload_data(&a),
         }
     }
@@ -116,7 +94,6 @@ impl From<PartnerShopApplicationView> for OwnPartnerApplicationData {
         Self {
             id: v.id,
             business_state: v.business_state.into(),
-            execution_state: v.execution_state.into(),
             payload: match v.payload {
                 PartnerShopApplicationPayload::Existing { shop_id } => {
                     PartnerApplicationPayloadData::Existing { shop_id }
@@ -135,7 +112,6 @@ impl From<PartnerShopApplication> for AdminPartnerApplicationData {
             id: a.id(),
             applicant_user_id: a.applicant_user_id(),
             business_state: a.business_state().into(),
-            execution_state: a.execution_state().into(),
             payload: payload_data(&a),
         }
     }
@@ -147,7 +123,6 @@ impl From<PartnerShopApplicationView> for AdminPartnerApplicationData {
             id: v.id,
             applicant_user_id: v.applicant_user_id,
             business_state: v.business_state.into(),
-            execution_state: v.execution_state.into(),
             payload: match v.payload {
                 PartnerShopApplicationPayload::Existing { shop_id } => {
                     PartnerApplicationPayloadData::Existing { shop_id }
@@ -209,11 +184,13 @@ pub(crate) struct PostApplicationData {
 }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PatchApplicationData {
-    pub(crate) task_token: Option<String>,
-}
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct DecisionData {
-    pub(crate) decision: String,
+    pub(crate) decision: PartnerApplicationDecisionData,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum PartnerApplicationDecisionData {
+    Approve,
+    Reject,
 }

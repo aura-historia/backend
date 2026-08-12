@@ -1,5 +1,4 @@
 use crate::partner_shop_application_state::PartnerShopApplicationState;
-use common::execution_state::domain::ExecutionState;
 use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
 };
@@ -9,9 +8,7 @@ pub struct PartnerShopApplication {
     id: PartnerShopApplicationId,
     applicant_user_id: UserId,
     business_state: PartnerShopApplicationState,
-    execution_state: ExecutionState,
     payload: PartnerShopApplicationPayload,
-    task_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,9 +30,7 @@ pub struct RehydratedPartnerShopApplicationState {
     pub id: PartnerShopApplicationId,
     pub applicant_user_id: UserId,
     pub business_state: PartnerShopApplicationState,
-    pub execution_state: ExecutionState,
     pub payload: PartnerShopApplicationPayload,
-    pub task_token: Option<String>,
 }
 
 impl PartnerShopApplication {
@@ -44,9 +39,7 @@ impl PartnerShopApplication {
             id: input.id,
             applicant_user_id: input.applicant_user_id,
             business_state: PartnerShopApplicationState::Submitted,
-            execution_state: ExecutionState::Processing,
             payload: input.payload,
-            task_token: None,
         }
     }
 
@@ -56,57 +49,120 @@ impl PartnerShopApplication {
             id: state.id,
             applicant_user_id: state.applicant_user_id,
             business_state: state.business_state,
-            execution_state: state.execution_state,
             payload: state.payload,
-            task_token: state.task_token,
         }
     }
 
-    pub fn mark_in_review(&mut self, task_token: String) {
-        self.business_state = PartnerShopApplicationState::InReview;
-        self.execution_state = ExecutionState::Waiting;
-        self.task_token = Some(task_token);
+    pub fn mark_in_review(&mut self) -> Result<(), PartnerShopApplicationTransitionError> {
+        self.transition(PartnerShopApplicationState::InReview)
     }
 
-    pub fn approve(&mut self) {
-        self.business_state = PartnerShopApplicationState::Approved;
-        self.execution_state = ExecutionState::Completed;
+    pub fn approve(&mut self) -> Result<(), PartnerShopApplicationTransitionError> {
+        self.transition(PartnerShopApplicationState::Approved)
     }
 
-    pub fn reject(&mut self) {
-        self.business_state = PartnerShopApplicationState::Rejected;
-        self.execution_state = ExecutionState::Completed;
+    pub fn reject(&mut self) -> Result<(), PartnerShopApplicationTransitionError> {
+        self.transition(PartnerShopApplicationState::Rejected)
     }
 
-    pub fn withdraw(&mut self) {
-        self.business_state = PartnerShopApplicationState::Withdrawn;
-        self.execution_state = ExecutionState::Completed;
+    pub fn withdraw(&mut self) -> Result<(), PartnerShopApplicationTransitionError> {
+        self.transition(PartnerShopApplicationState::Withdrawn)
+    }
+
+    pub fn has_applied_decision(&self, decision: PartnerShopApplicationDecision) -> bool {
+        matches!(
+            (decision, self.business_state),
+            (
+                PartnerShopApplicationDecision::Approve,
+                PartnerShopApplicationState::Approved
+            ) | (
+                PartnerShopApplicationDecision::Reject,
+                PartnerShopApplicationState::Rejected
+            )
+        )
+    }
+
+    fn transition(
+        &mut self,
+        target: PartnerShopApplicationState,
+    ) -> Result<(), PartnerShopApplicationTransitionError> {
+        if !is_allowed_transition(self.business_state, target) {
+            return Err(PartnerShopApplicationTransitionError::InvalidTransition {
+                from: self.business_state,
+                to: target,
+            });
+        }
+
+        self.business_state = target;
+        Ok(())
     }
 
     pub fn id(&self) -> PartnerShopApplicationId {
         self.id
     }
+
     pub fn applicant_user_id(&self) -> UserId {
         self.applicant_user_id
     }
+
     pub fn business_state(&self) -> PartnerShopApplicationState {
         self.business_state
     }
-    pub fn execution_state(&self) -> ExecutionState {
-        self.execution_state
-    }
+
     pub fn payload(&self) -> PartnerShopApplicationPayload {
         self.payload
     }
+
     pub fn shop_id(&self) -> ShopId {
         match self.payload {
             PartnerShopApplicationPayload::Existing { shop_id }
             | PartnerShopApplicationPayload::New { shop_id } => shop_id,
         }
     }
-    pub fn task_token(&self) -> Option<&str> {
-        self.task_token.as_deref()
+
+    pub fn is_new_shop_application(&self) -> bool {
+        matches!(self.payload, PartnerShopApplicationPayload::New { .. })
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartnerShopApplicationDecision {
+    Approve,
+    Reject,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PartnerShopApplicationTransitionError {
+    #[error("cannot transition partner shop application from {from:?} to {to:?}")]
+    InvalidTransition {
+        from: PartnerShopApplicationState,
+        to: PartnerShopApplicationState,
+    },
+}
+
+fn is_allowed_transition(
+    from: PartnerShopApplicationState,
+    to: PartnerShopApplicationState,
+) -> bool {
+    matches!(
+        (from, to),
+        (
+            PartnerShopApplicationState::Submitted,
+            PartnerShopApplicationState::InReview
+        ) | (
+            PartnerShopApplicationState::Submitted,
+            PartnerShopApplicationState::Withdrawn
+        ) | (
+            PartnerShopApplicationState::InReview,
+            PartnerShopApplicationState::Approved
+        ) | (
+            PartnerShopApplicationState::InReview,
+            PartnerShopApplicationState::Rejected
+        ) | (
+            PartnerShopApplicationState::InReview,
+            PartnerShopApplicationState::Withdrawn
+        )
+    )
 }
 
 #[cfg(test)]
@@ -116,97 +172,111 @@ mod tests {
     #[test]
     fn should_create_submitted_application_linked_to_new_shop() {
         let shop_id = ShopId::new();
-        let app = PartnerShopApplication::create(NewPartnerShopApplication {
-            id: PartnerShopApplicationId::new(),
-            applicant_user_id: UserId::new(),
-            payload: PartnerShopApplicationPayload::New { shop_id },
-        });
+        let application = application(PartnerShopApplicationPayload::New { shop_id });
 
-        assert_eq!(shop_id, app.shop_id());
+        assert_eq!(shop_id, application.shop_id());
         assert_eq!(
-            PartnerShopApplicationPayload::New { shop_id },
-            app.payload()
+            PartnerShopApplicationState::Submitted,
+            application.business_state()
         );
-        assert_eq!(PartnerShopApplicationState::Submitted, app.business_state());
-        assert_eq!(ExecutionState::Processing, app.execution_state());
-        assert_eq!(None, app.task_token());
+        assert!(application.is_new_shop_application());
     }
 
     #[test]
-    fn should_create_submitted_application_linked_to_existing_shop() {
-        let shop_id = ShopId::new();
-        let app = PartnerShopApplication::create(NewPartnerShopApplication {
-            id: PartnerShopApplicationId::new(),
-            applicant_user_id: UserId::new(),
-            payload: PartnerShopApplicationPayload::Existing { shop_id },
+    fn should_allow_submitted_to_in_review_to_approved() {
+        let mut application = application(PartnerShopApplicationPayload::Existing {
+            shop_id: ShopId::new(),
         });
 
-        assert_eq!(shop_id, app.shop_id());
+        assert_eq!(Ok(()), application.mark_in_review());
+        assert_eq!(Ok(()), application.approve());
         assert_eq!(
-            PartnerShopApplicationPayload::Existing { shop_id },
-            app.payload()
+            PartnerShopApplicationState::Approved,
+            application.business_state()
         );
     }
 
     #[test]
-    fn should_rehydrate_application_state() {
-        let id = PartnerShopApplicationId::new();
-        let user_id = UserId::new();
-        let shop_id = ShopId::new();
-        let app = PartnerShopApplication::rehydrate(RehydratedPartnerShopApplicationState {
-            id,
-            applicant_user_id: user_id,
-            business_state: PartnerShopApplicationState::InReview,
-            execution_state: ExecutionState::Waiting,
-            payload: PartnerShopApplicationPayload::Existing { shop_id },
-            task_token: Some("token".to_owned()),
+    fn should_allow_withdrawal_before_or_during_review() {
+        let mut submitted = application(PartnerShopApplicationPayload::New {
+            shop_id: ShopId::new(),
+        });
+        assert_eq!(Ok(()), submitted.withdraw());
+
+        let mut reviewed = application(PartnerShopApplicationPayload::New {
+            shop_id: ShopId::new(),
+        });
+        assert_eq!(Ok(()), reviewed.mark_in_review());
+        assert_eq!(Ok(()), reviewed.withdraw());
+
+        assert_eq!(
+            PartnerShopApplicationState::Withdrawn,
+            submitted.business_state()
+        );
+        assert_eq!(
+            PartnerShopApplicationState::Withdrawn,
+            reviewed.business_state()
+        );
+    }
+
+    #[test]
+    fn should_reject_decision_without_review() {
+        let mut application = application(PartnerShopApplicationPayload::New {
+            shop_id: ShopId::new(),
         });
 
-        assert_eq!(id, app.id());
-        assert_eq!(user_id, app.applicant_user_id());
-        assert_eq!(Some("token"), app.task_token());
+        let result = application.approve();
+
+        assert!(matches!(
+            result,
+            Err(PartnerShopApplicationTransitionError::InvalidTransition {
+                from: PartnerShopApplicationState::Submitted,
+                to: PartnerShopApplicationState::Approved,
+            })
+        ));
     }
 
     #[test]
-    fn should_mark_in_review_with_token() {
-        let mut app = application();
-        app.mark_in_review("task-token".to_owned());
-        assert_eq!(PartnerShopApplicationState::InReview, app.business_state());
-        assert_eq!(ExecutionState::Waiting, app.execution_state());
-        assert_eq!(Some("task-token"), app.task_token());
+    fn should_reject_transitions_after_terminal_state() {
+        let mut application = application(PartnerShopApplicationPayload::New {
+            shop_id: ShopId::new(),
+        });
+        assert_eq!(Ok(()), application.mark_in_review());
+        assert_eq!(Ok(()), application.reject());
+
+        assert!(matches!(
+            application.approve(),
+            Err(PartnerShopApplicationTransitionError::InvalidTransition {
+                from: PartnerShopApplicationState::Rejected,
+                to: PartnerShopApplicationState::Approved,
+            })
+        ));
+        assert!(matches!(
+            application.withdraw(),
+            Err(PartnerShopApplicationTransitionError::InvalidTransition {
+                from: PartnerShopApplicationState::Rejected,
+                to: PartnerShopApplicationState::Withdrawn,
+            })
+        ));
     }
 
     #[test]
-    fn should_approve_application() {
-        let mut app = application();
-        app.approve();
-        assert_eq!(PartnerShopApplicationState::Approved, app.business_state());
-        assert_eq!(ExecutionState::Completed, app.execution_state());
+    fn should_identify_only_matching_terminal_decision_as_replayable() {
+        let mut application = application(PartnerShopApplicationPayload::Existing {
+            shop_id: ShopId::new(),
+        });
+        assert_eq!(Ok(()), application.mark_in_review());
+        assert_eq!(Ok(()), application.approve());
+
+        assert!(application.has_applied_decision(PartnerShopApplicationDecision::Approve));
+        assert!(!application.has_applied_decision(PartnerShopApplicationDecision::Reject));
     }
 
-    #[test]
-    fn should_reject_application() {
-        let mut app = application();
-        app.reject();
-        assert_eq!(PartnerShopApplicationState::Rejected, app.business_state());
-        assert_eq!(ExecutionState::Completed, app.execution_state());
-    }
-
-    #[test]
-    fn should_withdraw_application() {
-        let mut app = application();
-        app.withdraw();
-        assert_eq!(PartnerShopApplicationState::Withdrawn, app.business_state());
-        assert_eq!(ExecutionState::Completed, app.execution_state());
-    }
-
-    fn application() -> PartnerShopApplication {
+    fn application(payload: PartnerShopApplicationPayload) -> PartnerShopApplication {
         PartnerShopApplication::create(NewPartnerShopApplication {
             id: PartnerShopApplicationId::new(),
             applicant_user_id: UserId::new(),
-            payload: PartnerShopApplicationPayload::New {
-                shop_id: ShopId::new(),
-            },
+            payload,
         })
     }
 }
