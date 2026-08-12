@@ -1,6 +1,4 @@
-use crate::ports::{
-    ShopGeocoder, ShopGeocoderError, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
-};
+use crate::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use crate::use_cases::queries::get_shop::ShopDetailsView;
 use common::currency::domain::Currency;
 use common::domain::Domain;
@@ -11,6 +9,7 @@ use common::operation_context::{
 };
 use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId};
+use geo::{Geocoder, GeocodingError};
 use serde_email::Email;
 use shop_core::{
     address::{GeoAddress, StructuredAddress},
@@ -116,7 +115,7 @@ impl<U, R, G, A> CreateShopUseCase for CreateShopHandler<U, R, G, A>
 where
     U: UnitOfWork,
     R: ShopRepositoryFactory<U::Tx>,
-    G: ShopGeocoder,
+    G: Geocoder,
     A: CheckUserAdminUseCase,
 {
     #[tracing::instrument(
@@ -297,16 +296,14 @@ fn map_admin_error(error: CheckUserAdminError) -> CreateShopError {
     }
 }
 
-impl From<ShopGeocoderError> for CreateShopError {
-    fn from(error: ShopGeocoderError) -> Self {
+impl From<GeocodingError> for CreateShopError {
+    fn from(error: GeocodingError) -> Self {
         match error {
-            ShopGeocoderError::NotFound => Self::InvalidAddress,
-            ShopGeocoderError::TemporarilyUnavailable => Self::TemporarilyUnavailable {
-                source: static_error("temporary geocoding failure"),
-            },
-            ShopGeocoderError::Internal => Self::Internal {
-                source: static_error("internal geocoding failure"),
-            },
+            GeocodingError::NotFound => Self::InvalidAddress,
+            GeocodingError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            GeocodingError::Internal { source } => Self::Internal { source },
         }
     }
 }
@@ -322,7 +319,7 @@ async fn geocode_address<G>(
     geocoder: &G,
 ) -> Result<Option<ShopAddress>, CreateShopError>
 where
-    G: ShopGeocoder,
+    G: Geocoder,
 {
     match structured_address {
         Some(structured) => {
@@ -373,6 +370,20 @@ mod tests {
         InvalidPersistedState,
     }
 
+    #[derive(Clone, Copy)]
+    enum GeocodingErrorKind {
+        NotFound,
+        TemporarilyUnavailable,
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("simulated temporary geocoding failure")]
+    struct TemporaryGeocodingFailure;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("simulated internal geocoding failure")]
+    struct InternalGeocodingFailure;
+
     #[derive(Default)]
     struct Counts {
         begin: usize,
@@ -389,7 +400,7 @@ mod tests {
         shop_by_slug: Option<StoredShop>,
         find_by_slug_error: Option<RepoErrorKind>,
         insert_error: Option<RepoErrorKind>,
-        geocoder_error: Option<ShopGeocoderError>,
+        geocoder_error: Option<GeocodingErrorKind>,
         inserted: Option<Shop>,
         counts: Counts,
     }
@@ -519,23 +530,46 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ShopGeocoder for FakeGeocoder {
+    impl Geocoder for FakeGeocoder {
         async fn geocode(
             &self,
             _address: &StructuredAddress,
-        ) -> Result<GeoAddress, ShopGeocoderError> {
+        ) -> Result<GeoAddress, GeocodingError> {
             with_state(&self.state, |state| {
                 state.counts.geocode += 1;
-                match &state.geocoder_error {
-                    Some(ShopGeocoderError::NotFound) => Err(ShopGeocoderError::NotFound),
-                    Some(ShopGeocoderError::TemporarilyUnavailable) => {
-                        Err(ShopGeocoderError::TemporarilyUnavailable)
-                    }
-                    Some(ShopGeocoderError::Internal) => Err(ShopGeocoderError::Internal),
+                match state.geocoder_error {
+                    Some(GeocodingErrorKind::NotFound) => Err(GeocodingError::NotFound),
+                    Some(GeocodingErrorKind::TemporarilyUnavailable) => Err(
+                        GeocodingError::temporarily_unavailable(TemporaryGeocodingFailure),
+                    ),
                     None => Ok(GeoAddress { lat: 1.0, lon: 2.0 }),
                 }
             })
         }
+    }
+
+    #[test]
+    fn should_map_geocoding_errors_preserving_sources() {
+        assert!(matches!(
+            CreateShopError::from(GeocodingError::NotFound),
+            CreateShopError::InvalidAddress
+        ));
+
+        let temporary = CreateShopError::from(GeocodingError::temporarily_unavailable(
+            TemporaryGeocodingFailure,
+        ));
+        assert!(matches!(
+            temporary,
+            CreateShopError::TemporarilyUnavailable { ref source }
+                if source.to_string() == "simulated temporary geocoding failure"
+        ));
+
+        let internal = CreateShopError::from(GeocodingError::internal(InternalGeocodingFailure));
+        assert!(matches!(
+            internal,
+            CreateShopError::Internal { ref source }
+                if source.to_string() == "simulated internal geocoding failure"
+        ));
     }
 
     #[tokio::test]
@@ -561,7 +595,7 @@ mod tests {
     async fn should_not_begin_create_when_geocoder_fails() {
         let state = shared_state();
         with_state(&state, |state| {
-            state.geocoder_error = Some(ShopGeocoderError::NotFound)
+            state.geocoder_error = Some(GeocodingErrorKind::NotFound)
         });
         let handler = build_handler(&state);
 
@@ -667,7 +701,7 @@ mod tests {
 
         let state = shared_state();
         with_state(&state, |state| {
-            state.geocoder_error = Some(ShopGeocoderError::TemporarilyUnavailable)
+            state.geocoder_error = Some(GeocodingErrorKind::TemporarilyUnavailable)
         });
         let handler = build_handler(&state);
 
@@ -677,7 +711,8 @@ mod tests {
 
         assert!(matches!(
             geo_result,
-            Err(CreateShopError::TemporarilyUnavailable { .. })
+            Err(CreateShopError::TemporarilyUnavailable { ref source })
+                if source.to_string() == "simulated temporary geocoding failure"
         ));
     }
 

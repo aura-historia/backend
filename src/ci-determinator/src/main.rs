@@ -11,6 +11,8 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/aura-historia-api",
     "src/aura-historia-worker",
     "src/common",
+    "src/embedding",
+    "src/geo",
     "src/image-fetcher",
     "src/large-language-model",
     "src/product-core",

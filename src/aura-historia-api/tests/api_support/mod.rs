@@ -16,6 +16,7 @@ use common::shop_id::ShopId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingInput, EmbeddingVector};
+use geo::{Geocoder, GeocodingError};
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
@@ -62,7 +63,7 @@ use shop_partner_service::use_cases::{
     ListPartnerShopApplicationsHandler, WithdrawPartnerShopApplicationHandler,
 };
 use shop_postgres::{SqlxPartnerShopReaderFactory, SqlxShopRepositoryFactory};
-use shop_service::ports::{ShopGeocoder, ShopGeocoderError, ShopRepository, ShopRepositoryFactory};
+use shop_service::ports::{ShopRepository, ShopRepositoryFactory};
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
 use shop_service::use_cases::queries::get_shop::GetShopHandler;
@@ -121,12 +122,14 @@ impl EmbeddingGenerator for TestEmbeddingGenerator {
 struct RejectGeocoder;
 
 #[async_trait::async_trait]
-impl ShopGeocoder for RejectGeocoder {
+impl Geocoder for RejectGeocoder {
     async fn geocode(
         &self,
         _address: &shop_core::address::StructuredAddress,
-    ) -> Result<shop_core::address::GeoAddress, ShopGeocoderError> {
-        Err(ShopGeocoderError::TemporarilyUnavailable)
+    ) -> Result<shop_core::address::GeoAddress, GeocodingError> {
+        Err(GeocodingError::temporarily_unavailable(
+            std::io::Error::other("geocoding unavailable"),
+        ))
     }
 }
 

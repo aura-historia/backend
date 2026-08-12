@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `shop-partner-core`, `shop-core`, `shop-service`, `user-core`, `user-service`, `notification-core`, `notification-service`, and `common` app contracts.
+- Depends on `shop-partner-core`, `shop-core`, `shop-service`, `user-core`, `user-service`, `notification-core`, `notification-service`, shared `common` app contracts, and shared `geo::{Geocoder, GeocodingError}`.
 - Root modules: `ports`, `use_cases`, `use_case_bundle`.
 - Handlers use `UnitOfWork` and transaction-scoped repository/reader factories.
 - New shop application creates a draft shop first, then the application row. Approval atomically publishes and partners the linked shop, grants applicant membership, and completes the application. Rejection and withdrawal atomically discard a new-shop draft; existing shops remain unchanged.

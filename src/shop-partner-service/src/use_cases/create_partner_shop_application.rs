@@ -13,6 +13,7 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, shop_name::ShopName,
 };
+use geo::{Geocoder, GeocodingError};
 use serde_email::Email;
 use shop_core::lifecycle::ShopLifecycle;
 use shop_core::partner_status::ShopPartnerStatus;
@@ -25,9 +26,7 @@ use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_partner_core::partner_shop_application::{
     NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
 };
-use shop_service::ports::{
-    ShopGeocoder, ShopGeocoderError, ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
-};
+use shop_service::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use std::collections::HashSet;
 use url::Url;
 
@@ -145,7 +144,7 @@ where
     U: UnitOfWork,
     A: PartnerShopApplicationRepositoryFactory<U::Tx>,
     S: ShopRepositoryFactory<U::Tx>,
-    G: ShopGeocoder,
+    G: Geocoder,
 {
     #[tracing::instrument(name = "create_partner_shop_application", skip_all, fields(applicant_user_id = %command.applicant_user_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -228,7 +227,7 @@ impl NewPartnerShopCommand {
         geocoder: &G,
     ) -> Result<Shop, CreatePartnerShopApplicationError>
     where
-        G: ShopGeocoder,
+        G: Geocoder,
     {
         let address = match self.structured_address {
             Some(structured) => Some(ShopAddress {
@@ -345,16 +344,53 @@ impl From<PartnerShopApplicationRepositoryError> for CreatePartnerShopApplicatio
     }
 }
 
-impl From<ShopGeocoderError> for CreatePartnerShopApplicationError {
-    fn from(error: ShopGeocoderError) -> Self {
+impl From<GeocodingError> for CreatePartnerShopApplicationError {
+    fn from(error: GeocodingError) -> Self {
         match error {
-            ShopGeocoderError::NotFound => Self::InvalidAddress,
-            ShopGeocoderError::TemporarilyUnavailable => Self::TemporarilyUnavailable {
-                source: static_error("temporary geocoding failure"),
-            },
-            ShopGeocoderError::Internal => Self::Internal {
-                source: static_error("internal geocoding failure"),
-            },
+            GeocodingError::NotFound => Self::InvalidAddress,
+            GeocodingError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            GeocodingError::Internal { source } => Self::Internal { source },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("simulated temporary geocoding failure")]
+    struct TemporaryGeocodingFailure;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("simulated internal geocoding failure")]
+    struct InternalGeocodingFailure;
+
+    #[test]
+    fn should_map_geocoding_errors_preserving_sources() {
+        assert!(matches!(
+            CreatePartnerShopApplicationError::from(GeocodingError::NotFound),
+            CreatePartnerShopApplicationError::InvalidAddress
+        ));
+
+        let temporary = CreatePartnerShopApplicationError::from(
+            GeocodingError::temporarily_unavailable(TemporaryGeocodingFailure),
+        );
+        assert!(matches!(
+            temporary,
+            CreatePartnerShopApplicationError::TemporarilyUnavailable { ref source }
+                if source.to_string() == "simulated temporary geocoding failure"
+        ));
+
+        let internal = CreatePartnerShopApplicationError::from(GeocodingError::internal(
+            InternalGeocodingFailure,
+        ));
+        assert!(matches!(
+            internal,
+            CreatePartnerShopApplicationError::Internal { ref source }
+                if source.to_string() == "simulated internal geocoding failure"
+        ));
     }
 }
