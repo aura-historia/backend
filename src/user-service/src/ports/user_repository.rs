@@ -10,6 +10,12 @@ common::version_newtype!(UserStorageVersion);
 
 pub type VersionedUser = Versioned<User, UserStorageVersion>;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum UserInsertOutcome {
+    Created(VersionedUser),
+    Existing(VersionedUser),
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum UserRepositoryError {
     #[error("concurrent user update")]
@@ -59,6 +65,11 @@ pub trait UserRepository: Send {
     ) -> Result<Option<VersionedUser>, UserRepositoryError>;
 
     async fn insert(&mut self, user: &User) -> Result<VersionedUser, UserRepositoryError>;
+
+    async fn insert_if_absent(
+        &mut self,
+        user: &User,
+    ) -> Result<UserInsertOutcome, UserRepositoryError>;
 
     async fn update(
         &mut self,

@@ -15,7 +15,9 @@ use user_core::role::UserRole;
 use user_core::tier::UserTier;
 use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
 use user_postgres::SqlxUserRepositoryFactory;
-use user_service::ports::{UserRepository, UserRepositoryError, UserRepositoryFactory};
+use user_service::ports::{
+    UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
+};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -136,6 +138,41 @@ async fn should_report_user_repository_conflicts_and_missing_rows() {
     assert!(matches!(
         stripe_conflict,
         Err(UserRepositoryError::StripeCustomerConflict { source }) if !source.to_string().is_empty()
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_return_existing_user_when_insert_if_absent_replays_user_id() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let users = SqlxUserRepositoryFactory::new();
+    let user = sample_user("postgres-idempotent", UserRole::User, None);
+    let mut changed_email = user.clone();
+    changed_email.change_email(email("postgres-idempotent-changed@example.com"));
+
+    let mut tx = begin(&unit_of_work).await;
+    match users.in_transaction(&mut tx).insert_if_absent(&user).await {
+        Ok(UserInsertOutcome::Created(_)) => {}
+        Ok(UserInsertOutcome::Existing(_)) => panic!("first insert unexpectedly found a user"),
+        Err(error) => panic!("failed to create user: {error:?}"),
+    }
+    commit(tx).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let same_user = users.in_transaction(&mut tx).insert_if_absent(&user).await;
+    let changed_user = users
+        .in_transaction(&mut tx)
+        .insert_if_absent(&changed_email)
+        .await;
+    commit(tx).await;
+
+    assert!(matches!(
+        same_user,
+        Ok(UserInsertOutcome::Existing(existing)) if existing.value.email() == user.email()
+    ));
+    assert!(matches!(
+        changed_user,
+        Ok(UserInsertOutcome::Existing(existing)) if existing.value.email() == user.email()
     ));
 }
 

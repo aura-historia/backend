@@ -1,4 +1,4 @@
-use crate::ports::{UserRepository, UserRepositoryError, UserRepositoryFactory};
+use crate::ports::{UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory};
 use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
@@ -28,6 +28,8 @@ pub enum CreateUserError {
     AuthenticatedActorRequired,
     #[error("operation not permitted")]
     Forbidden,
+    #[error("user identifier already exists with a different email")]
+    UserIdentityConflict,
     #[error("user email already exists")]
     EmailConflict {
         #[source]
@@ -124,12 +126,20 @@ where
             .await
             .map_err(|_| CreateUserError::BeginTransactionFailed)?;
 
-        let user = self
+        let user = match self
             .users
             .in_transaction(&mut tx)
-            .insert(&user)
+            .insert_if_absent(&user)
             .await?
-            .value;
+        {
+            UserInsertOutcome::Created(user) => user.value,
+            UserInsertOutcome::Existing(existing_user)
+                if existing_user.value.email() == user.email() =>
+            {
+                existing_user.value
+            }
+            UserInsertOutcome::Existing(_) => return Err(CreateUserError::UserIdentityConflict),
+        };
 
         tx.commit()
             .await
@@ -228,8 +238,8 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{
-        UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion,
-        VersionedUser,
+        UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
+        UserStorageVersion, VersionedUser,
     };
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
@@ -276,6 +286,7 @@ mod tests {
         find_by_id_error: Option<RepoErrorKind>,
         insert_error: Option<RepoErrorKind>,
         update_error: Option<RepoErrorKind>,
+        insert_outcome: Option<UserInsertOutcome>,
         find_by_id_calls: usize,
         insert_calls: usize,
         update_calls: usize,
@@ -451,6 +462,23 @@ mod tests {
             }
         }
 
+        async fn insert_if_absent(
+            &mut self,
+            user: &User,
+        ) -> Result<UserInsertOutcome, UserRepositoryError> {
+            let mut state = lock(&self.state);
+            state.insert_calls += 1;
+            if let Some(kind) = state.insert_error {
+                Err(repo_error(kind))
+            } else if let Some(outcome) = state.insert_outcome.clone() {
+                Ok(outcome)
+            } else {
+                let user = versioned(user.clone());
+                state.user = Some(user.clone());
+                Ok(UserInsertOutcome::Created(user))
+            }
+        }
+
         async fn update(
             &mut self,
             user: &User,
@@ -502,6 +530,65 @@ mod tests {
         assert_eq!(user_id, result.user_id);
         assert_eq!(1, lock(&uow.state).commits);
         assert_eq!(1, lock(&repo.state).insert_calls);
+    }
+
+    #[tokio::test]
+    async fn should_return_existing_user_and_commit_when_create_is_replayed() {
+        let user_id = UserId::new();
+        let uow = FakeUnitOfWork::default();
+        let repo = FakeUserRepositoryFactory::default();
+        lock(&repo.state).insert_outcome = Some(UserInsertOutcome::Existing(versioned(user_with(
+            user_id,
+            "ada@example.com",
+            UserRole::User,
+            UserTier::Free,
+        ))));
+        let handler = CreateUserHandler::new(uow.clone(), repo.clone());
+
+        let result = assert_ok(
+            handler
+                .execute(
+                    &ctx(Principal::System),
+                    CreateUserCommand {
+                        user_id,
+                        email: email("ada@example.com"),
+                    },
+                )
+                .await,
+        );
+
+        assert_eq!(user_id, result.user_id);
+        assert_eq!(1, lock(&uow.state).commits);
+        assert_eq!(1, lock(&repo.state).insert_calls);
+    }
+
+    #[tokio::test]
+    async fn should_reject_existing_user_with_different_email() {
+        let user_id = UserId::new();
+        let uow = FakeUnitOfWork::default();
+        let repo = FakeUserRepositoryFactory::default();
+        lock(&repo.state).insert_outcome = Some(UserInsertOutcome::Existing(versioned(user_with(
+            user_id,
+            "ada@example.com",
+            UserRole::User,
+            UserTier::Free,
+        ))));
+        let handler = CreateUserHandler::new(uow.clone(), repo);
+
+        assert_error(
+            handler
+                .execute(
+                    &ctx(Principal::System),
+                    CreateUserCommand {
+                        user_id,
+                        email: email("grace@example.com"),
+                    },
+                )
+                .await,
+            |error| matches!(error, CreateUserError::UserIdentityConflict),
+        );
+
+        assert_eq!(0, lock(&uow.state).commits);
     }
 
     #[tokio::test]

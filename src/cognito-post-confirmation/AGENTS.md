@@ -7,8 +7,9 @@
 ## Core Design
 
 - Cognito trigger that finishes user setup after signup.
-- Main neighbors: `common`, `user`.
-- Event/runtime edge crate. Keep init and handler glue here, behavior deeper when reusable.
+- Main neighbors: `common`, `user-service`, `user-postgres`.
+- Event/runtime edge crate. Map Cognito `sub` and `email` into `CreateUserUseCase` under `Principal::System`; Postgres is canonical user truth.
+- Cognito may redeliver. Same subject/email must be idempotent; mismatched replay and unresolved service failures stay retry-visible.
 
 ## Ownership
 
