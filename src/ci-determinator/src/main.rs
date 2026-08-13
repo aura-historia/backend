@@ -47,6 +47,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/billing-service",
     "src/billing-stripe",
     "src/stripe-lambda",
+    "src/shopify-lambda",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.
