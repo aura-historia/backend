@@ -46,6 +46,10 @@ pub use commands::update_user_profile::{
     UpdateUserProfileCommand, UpdateUserProfileError, UpdateUserProfileHandler,
     UpdateUserProfileResult, UpdateUserProfileUseCase,
 };
+pub use commands::upsert_newsletter_subscription::{
+    UpsertNewsletterSubscriptionCommand, UpsertNewsletterSubscriptionError,
+    UpsertNewsletterSubscriptionHandler, UpsertNewsletterSubscriptionUseCase,
+};
 pub use queries::admin_get_user::{
     AdminGetUserError, AdminGetUserHandler, AdminGetUserRequest, AdminGetUserUseCase,
 };

@@ -30,6 +30,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/user-dynamodb",
     "src/user-postgres",
     "src/user-service",
+    "src/user-zoho",
     "src/search-filter-core",
     "src/search-filter-opensearch",
     "src/search-filter-postgres",

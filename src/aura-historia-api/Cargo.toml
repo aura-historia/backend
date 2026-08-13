@@ -54,6 +54,7 @@ user-core = { workspace = true }
 user-dynamodb = { workspace = true }
 user-postgres = { workspace = true }
 user-service = { workspace = true }
+user-zoho = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 watchlist-core = { workspace = true }
 watchlist-postgres = { workspace = true }

@@ -8,10 +8,11 @@
 ## Core Design
 
 - Domain-only crate.
-- Root modules: `access_token`, `first_name`, `last_name`, `name`, `role`, `sort_user_field`, `tier`, `user`, `user_search`.
+- Root modules: `access_token`, `first_name`, `last_name`, `name`, `newsletter_subscription`, `role`, `sort_user_field`, `tier`, `user`, `user_search`.
 - `user::User` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
 - Access-token domain types and canonical scope enum live here; persistence stays behind service ports.
 - Access-token aggregate has no storage metadata; repositories/read models own timestamps.
+- `newsletter_subscription::NewsletterSubscription` owns newsletter recipient values and optional linked user identity.
 - User sort defaults to `Name`; no score sort in canonical user.
 - No dependency on `user-service`, legacy `user`, or adapters.
 

@@ -371,6 +371,13 @@ mod tests {
             panic!("not used by apply Stripe subscription")
         }
 
+        async fn insert_if_absent(
+            &mut self,
+            _user: &User,
+        ) -> Result<crate::ports::UserInsertOutcome, UserRepositoryError> {
+            panic!("not used by apply Stripe subscription")
+        }
+
         async fn update(
             &mut self,
             user: &User,

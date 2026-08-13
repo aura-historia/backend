@@ -155,6 +155,7 @@
 - `src/user-service/AGENTS.md` — canonical User service crate.
 - `src/user-dynamodb/AGENTS.md` — canonical User DynamoDB adapter crate.
 - `src/user-postgres/AGENTS.md` — canonical User Postgres adapter crate.
+- `src/user-zoho/AGENTS.md` — canonical User Zoho newsletter adapter crate.
 - `src/user-api/AGENTS.md` — `user-api` crate.
 - `src/user-lambda/AGENTS.md` — `user-lambda` crate.
 - `src/webhook-api/AGENTS.md` — `webhook-api` crate.

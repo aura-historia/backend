@@ -276,7 +276,9 @@ fn parse_country(value: Option<&str>) -> Result<Option<CountryCode>, UserRowMapp
         .transpose()
 }
 
-fn parse_optional_language(value: Option<&str>) -> Result<Option<Language>, UserRowMappingError> {
+pub(crate) fn parse_optional_language(
+    value: Option<&str>,
+) -> Result<Option<Language>, UserRowMappingError> {
     value.map(parse_language).transpose()
 }
 
@@ -300,7 +302,9 @@ fn parse_language(value: &str) -> Result<Language, UserRowMappingError> {
     }
 }
 
-fn parse_optional_currency(value: Option<&str>) -> Result<Option<Currency>, UserRowMappingError> {
+pub(crate) fn parse_optional_currency(
+    value: Option<&str>,
+) -> Result<Option<Currency>, UserRowMappingError> {
     value.map(parse_currency).transpose()
 }
 

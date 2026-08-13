@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod billing;
 pub mod error;
+pub mod newsletter;
 pub mod oauth;
 pub mod partner_applications;
 pub mod partner_products;
@@ -17,8 +18,9 @@ use crate::auth::{
     CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
 };
 use crate::state::{
-    AppState, BillingState, OAuthState, PartnerApplicationsState, PartnerProductsState,
-    ProductsState, ReadinessCheck, SearchFiltersState, ShopsState, UsersState, WatchlistState,
+    AppState, BillingState, NewsletterState, OAuthState, PartnerApplicationsState,
+    PartnerProductsState, ProductsState, ReadinessCheck, SearchFiltersState, ShopsState,
+    UsersState, WatchlistState,
 };
 use crate::transport::with_transport_middleware;
 use axum::Router;
@@ -98,8 +100,8 @@ use tokio::net::TcpListener;
 use tracing::info;
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_postgres::{
-    SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory, SqlxUserRepositoryFactory,
-    SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
+    SqlxNewsletterProfileReader, SqlxUserAccountReaderFactory, SqlxUserAdminReaderFactory,
+    SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
 };
 use user_service::use_cases::AuthenticateAccessTokenHandler;
 use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
@@ -110,12 +112,14 @@ use user_service::use_cases::commands::delete_access_token::DeleteAccessTokenHan
 use user_service::use_cases::commands::delete_user::DeleteUserHandler;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenHandler;
 use user_service::use_cases::commands::update_user_profile::UpdateUserProfileHandler;
+use user_service::use_cases::commands::upsert_newsletter_subscription::UpsertNewsletterSubscriptionHandler;
 use user_service::use_cases::queries::admin_get_user::AdminGetUserHandler;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
 use user_service::use_cases::queries::get_own_user::GetOwnUserHandler;
 use user_service::use_cases::queries::list_access_tokens::ListAccessTokensHandler;
 use user_service::use_cases::queries::search_users::SearchUsersHandler;
+use user_zoho::ZohoNewsletterSubscriptionWriter;
 use watchlist_postgres::{SqlxWatchlistQuotaReaderFactory, SqlxWatchlistRepositoryFactory};
 use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductHandler, UpdateWatchlistProductHandler, WatchProductHandler,
@@ -137,6 +141,12 @@ pub const STRIPE_PRO_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_PRO_MONTHLY_PRICE_ID";
 pub const STRIPE_PRO_YEARLY_PRICE_ID_ENV: &str = "STRIPE_PRO_YEARLY_PRICE_ID";
 pub const STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_MONTHLY_PRICE_ID";
 pub const STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_YEARLY_PRICE_ID";
+pub const ZOHO_LIST_KEY_ENV: &str = "ZOHO_LIST_KEY";
+pub const ZOHO_CLIENT_ID_ENV: &str = "ZOHO_CLIENT_ID";
+pub const ZOHO_CLIENT_SECRET_ENV: &str = "ZOHO_CLIENT_SECRET";
+pub const ZOHO_REFRESH_TOKEN_ENV: &str = "ZOHO_REFRESH_TOKEN";
+pub const ZOHO_ACCOUNTS_URL_ENV: &str = "ZOHO_ACCOUNTS_URL";
+pub const ZOHO_CAMPAIGNS_URL_ENV: &str = "ZOHO_CAMPAIGNS_URL";
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -152,6 +162,7 @@ pub struct ApiConfig {
     google_geocoder: GoogleGeocoderConfig,
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
+    zoho: ZohoConfig,
 }
 
 impl ApiConfig {
@@ -207,6 +218,15 @@ impl ApiConfig {
             ultimate_yearly: required_config(&mut get, STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV)?,
         };
 
+        let zoho = ZohoConfig {
+            list_key: required_config(&mut get, ZOHO_LIST_KEY_ENV)?,
+            client_id: required_config(&mut get, ZOHO_CLIENT_ID_ENV)?,
+            client_secret: required_config(&mut get, ZOHO_CLIENT_SECRET_ENV)?,
+            refresh_token: required_config(&mut get, ZOHO_REFRESH_TOKEN_ENV)?,
+            accounts_url: required_config(&mut get, ZOHO_ACCOUNTS_URL_ENV)?,
+            campaigns_url: required_config(&mut get, ZOHO_CAMPAIGNS_URL_ENV)?,
+        };
+
         Ok(Self {
             bind_addr,
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
@@ -214,6 +234,7 @@ impl ApiConfig {
             google_geocoder,
             stripe_billing,
             billing_prices,
+            zoho,
         })
     }
 
@@ -240,6 +261,20 @@ impl ApiConfig {
     fn billing_prices(&self) -> &BillingPriceIds {
         &self.billing_prices
     }
+
+    fn zoho(&self) -> &ZohoConfig {
+        &self.zoho
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct ZohoConfig {
+    list_key: String,
+    client_id: String,
+    client_secret: String,
+    refresh_token: String,
+    accounts_url: String,
+    campaigns_url: String,
 }
 
 fn required_config<F>(get: &mut F, name: &'static str) -> Result<String, ApiConfigError>
@@ -446,6 +481,17 @@ pub fn app(state: AppState) -> Router {
         );
     }
 
+    if let Some(newsletter) = state.newsletter {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/newsletter-subscriptions",
+                    axum::routing::put(newsletter::put::put_newsletter_subscription),
+                )
+                .with_state(newsletter),
+        );
+    }
+
     if let Some(partner_applications) = state.partner_applications {
         routes = routes.merge(
             Router::new()
@@ -587,6 +633,19 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         unit_of_work.clone(),
         SqlxUserRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
+    );
+    let newsletter_writer = ZohoNewsletterSubscriptionWriter::new(
+        config.zoho().list_key.clone(),
+        reqwest::Client::new(),
+        config.zoho().client_id.clone(),
+        config.zoho().client_secret.clone(),
+        config.zoho().refresh_token.clone(),
+        config.zoho().accounts_url.clone(),
+        config.zoho().campaigns_url.clone(),
+    );
+    let upsert_newsletter_subscription = UpsertNewsletterSubscriptionHandler::new(
+        SqlxNewsletterProfileReader::new(pool.clone()),
+        newsletter_writer,
     );
     let watch_product = WatchProductHandler::new(
         unit_of_work.clone(),
@@ -888,6 +947,10 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     .with_oauth(oauth_state)
     .with_search_filters(search_filters_state)
     .with_billing(billing_state)
+    .with_newsletter(NewsletterState::new(
+        Arc::new(upsert_newsletter_subscription),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    ))
     .with_readiness(readiness))
 }
 
@@ -1062,6 +1125,18 @@ mod tests {
             (
                 STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV,
                 "price_ultimate_yearly".to_owned(),
+            ),
+            (ZOHO_LIST_KEY_ENV, "zoho-list-key".to_owned()),
+            (ZOHO_CLIENT_ID_ENV, "zoho-client-id".to_owned()),
+            (ZOHO_CLIENT_SECRET_ENV, "zoho-client-secret".to_owned()),
+            (ZOHO_REFRESH_TOKEN_ENV, "zoho-refresh-token".to_owned()),
+            (
+                ZOHO_ACCOUNTS_URL_ENV,
+                "https://accounts.zoho.example".to_owned(),
+            ),
+            (
+                ZOHO_CAMPAIGNS_URL_ENV,
+                "https://campaigns.zoho.example".to_owned(),
             ),
         ]);
         environment.extend(

@@ -5,8 +5,9 @@ use aura_historia_api::auth::{
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, BillingState, OAuthState, PartnerApplicationsState, PartnerProductsState,
-    ProductsState, SearchFiltersState, ShopsState, UsersState, WatchlistState,
+    AppState, BillingState, NewsletterState, OAuthState, PartnerApplicationsState,
+    PartnerProductsState, ProductsState, SearchFiltersState, ShopsState, UsersState,
+    WatchlistState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -91,7 +92,9 @@ use user_core::access_token::{
 };
 use user_core::tier::UserTier;
 use user_dynamodb::DynamoDbAccessTokenStore;
-use user_service::ports::AccessTokenStore;
+use user_service::ports::{
+    AccessTokenStore, NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
+};
 use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierHandler;
@@ -100,6 +103,7 @@ use user_service::use_cases::commands::delete_access_token::DeleteAccessTokenHan
 use user_service::use_cases::commands::delete_user::DeleteUserHandler;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenHandler;
 use user_service::use_cases::commands::update_user_profile::UpdateUserProfileHandler;
+use user_service::use_cases::commands::upsert_newsletter_subscription::UpsertNewsletterSubscriptionHandler;
 use user_service::use_cases::queries::admin_get_user::AdminGetUserHandler;
 use user_service::use_cases::queries::check_user_admin::CheckUserAdminHandler;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenHandler;
@@ -165,6 +169,19 @@ impl StripePortalSessionCreator for TestStripeBilling {
             "https://billing.stripe.test/{}",
             request.stripe_customer_id
         )))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SuccessfulNewsletterWriter;
+
+#[async_trait::async_trait]
+impl NewsletterSubscriptionWriter for SuccessfulNewsletterWriter {
+    async fn upsert(
+        &self,
+        _subscription: &user_core::newsletter_subscription::NewsletterSubscription,
+    ) -> Result<(), NewsletterSubscriptionWriteError> {
+        Ok(())
     }
 }
 
@@ -764,6 +781,13 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     state::AppState::new(shops_state, users_state, watchlist_state, partner_state)
+        .with_newsletter(NewsletterState::new(
+            Arc::new(UpsertNewsletterSubscriptionHandler::new(
+                user_postgres::SqlxNewsletterProfileReader::new(get_postgres_client().await),
+                SuccessfulNewsletterWriter,
+            )),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
         .with_products(products_state)
         .with_partner_products(partner_products_state)
         .with_oauth(oauth_state)

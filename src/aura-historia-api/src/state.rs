@@ -37,6 +37,7 @@ use user_service::use_cases::commands::delete_access_token::DeleteAccessTokenUse
 use user_service::use_cases::commands::delete_user::DeleteUserUseCase;
 use user_service::use_cases::commands::update_access_token::UpdateAccessTokenUseCase;
 use user_service::use_cases::commands::update_user_profile::UpdateUserProfileUseCase;
+use user_service::use_cases::commands::upsert_newsletter_subscription::UpsertNewsletterSubscriptionUseCase;
 use user_service::use_cases::queries::admin_get_user::AdminGetUserUseCase;
 use user_service::use_cases::queries::get_access_token::GetAccessTokenUseCase;
 use user_service::use_cases::queries::get_own_user::GetOwnUserUseCase;
@@ -73,6 +74,7 @@ pub struct AppState {
     pub(crate) oauth: Option<OAuthState>,
     pub(crate) search_filters: Option<SearchFiltersState>,
     pub(crate) billing: Option<BillingState>,
+    pub(crate) newsletter: Option<NewsletterState>,
 }
 
 impl AppState {
@@ -93,6 +95,7 @@ impl AppState {
             oauth: None,
             search_filters: None,
             billing: None,
+            newsletter: None,
         }
     }
 
@@ -108,6 +111,7 @@ impl AppState {
             oauth: None,
             search_filters: None,
             billing: None,
+            newsletter: None,
         }
     }
 
@@ -140,6 +144,11 @@ impl AppState {
         self.billing = Some(billing);
         self
     }
+
+    pub fn with_newsletter(mut self, newsletter: NewsletterState) -> Self {
+        self.newsletter = Some(newsletter);
+        self
+    }
 }
 
 #[derive(Clone)]
@@ -161,6 +170,24 @@ impl BillingState {
             checkout,
             portal,
             manage,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct NewsletterState {
+    pub(crate) upsert_subscription: Arc<dyn UpsertNewsletterSubscriptionUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl NewsletterState {
+    pub fn new(
+        upsert_subscription: Arc<dyn UpsertNewsletterSubscriptionUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            upsert_subscription,
             authenticator,
         }
     }

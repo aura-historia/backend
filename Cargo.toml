@@ -60,6 +60,7 @@ user-dynamodb = { workspace = true }
 user-postgres = { workspace = true }
 user-api = { workspace = true }
 user-lambda = { workspace = true }
+user-zoho = { workspace = true }
 notification-send = { workspace = true }
 notification = { workspace = true }
 notification-core = { workspace = true }
@@ -138,6 +139,7 @@ members = [
     "src/user-postgres",
     "src/user-api",
     "src/user-lambda",
+    "src/user-zoho",
     "src/notification-send",
     "src/notification",
     "src/notification-core",
@@ -313,6 +315,7 @@ user-dynamodb = { path = "src/user-dynamodb" }
 user-postgres = { path = "src/user-postgres" }
 user-api = { path = "src/user-api" }
 user-lambda = { path = "src/user-lambda" }
+user-zoho = { path = "src/user-zoho" }
 user-lambda-index-opensearch = { path = "src/user-lambda/src/user-lambda-index-opensearch" }
 user-lambda-tier-update = { path = "src/user-lambda/src/user-lambda-tier-update" }
 cognito = { path = "src/cognito" }
