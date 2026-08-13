@@ -13,6 +13,10 @@ pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsResult,
     GenerateWatchlistNotificationsUseCase,
 };
+pub use commands::translate_product_event::{
+    TranslateProductEventCommand, TranslateProductEventError, TranslateProductEventHandler,
+    TranslateProductEventOutcome, TranslateProductEventResult, TranslateProductEventUseCase,
+};
 pub use commands::update_product::{
     UpdateProductCommand, UpdateProductError, UpdateProductHandler, UpdateProductResult,
     UpdateProductUseCase,

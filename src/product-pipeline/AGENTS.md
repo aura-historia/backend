@@ -7,8 +7,8 @@
 ## Core Design
 
 - Parent crate for product enrichment workers.
-- Child crates: `product-pipeline-embed-text`, `product-pipeline-translate`.
-- Main neighbors: `product-pipeline-embed-text`, `product-pipeline-translate`.
+- Child crate: `product-pipeline-embed-text`.
+- Main neighbor: `product-pipeline-embed-text`. Product translation migrated to `aura-historia-worker`.
 - Parent crate exists to group child executables or suites and keep their map discoverable.
 
 ## Ownership
@@ -36,4 +36,3 @@
 ## Child DOX Index
 
 - `src/product-pipeline/src/product-pipeline-embed-text/AGENTS.md` — `product-pipeline-embed-text` crate.
-- `src/product-pipeline/src/product-pipeline-translate/AGENTS.md` — `product-pipeline-translate` crate.

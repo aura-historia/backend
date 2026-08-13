@@ -15,6 +15,7 @@
 - OpenSearch-backed search is an ordinary reader. Do not model it as transactional.
 - `ProductUserStateReader` is an ordinary one-query batch read for relational state of OpenSearch result pages. Its lookup contains only the user and Product IDs; adapters derive image safety from authoritative Product data. Search and KNN handlers compose it with one required all-user DynamoDB notification read; no per-product reads or partial fallback.
 - Product detail, search, KNN, and watchlist result contracts use `common::personalized::Personalized<Item, ProductUserState>`; item views never inline `user_state`.
+- `ProductEventReader::find_domain_events` is the Product history capability; it excludes enrichment, policy, and lifecycle events.
 - `GenerateWatchlistNotifications` owns Product-event-driven watchlist notifications: it reads the immutable Product event/source and active recipients in one short Postgres transaction, commits, then invokes the Notification write use case. Its result reports inserted and deduplicated counts separately. DynamoDB work stays outside the Postgres transaction.
 - `ProductWatchlistDetailsReader` is a transaction-scoped, cursor-paged batch read contract for full localized personalized Product views and relational user state. Its cursor uses watchlist creation time plus Product ID.
 - `ProductDetailsBatchReader` is an ordinary one-query batch read for full localized personalized Product views and relational user state by Product ID; callers preserve their own source order.

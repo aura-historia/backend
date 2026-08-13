@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use aura_historia_worker::product_translation::{
+    LargeLanguageModelProductTitleTranslator, consume_product_translation_queue,
+};
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
 use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
@@ -20,11 +23,12 @@ use opensearch::{
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
 use product_postgres::{
-    SqlxProductSearchFilterMatchSourceReaderFactory,
-    SqlxProductWatchlistNotificationSourceReaderFactory,
+    SqlxProductSearchFilterMatchSourceReaderFactory, SqlxProductTranslationSourceReader,
+    SqlxProductTranslationWriterFactory, SqlxProductWatchlistNotificationSourceReaderFactory,
 };
 use product_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
+    TranslateProductEventHandler, TranslateProductEventUseCase,
 };
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
@@ -83,6 +87,12 @@ async fn main() -> Result<(), MainError> {
                 .dynamodb()
                 .ok_or(MainError::MissingScopeConfig { scope })?;
             run_watchlist_notifications(worker_config, pool, composition, dynamodb).await
+        }
+        WorkerScope::ProductTranslation => {
+            let vertex_ai = startup
+                .vertex_ai()
+                .ok_or(MainError::MissingScopeConfig { scope })?;
+            run_product_translation(worker_config, pool, composition, vertex_ai).await
         }
     }
 }
@@ -146,6 +156,26 @@ async fn run_search_filter_match_notifications(
     let task = tokio::spawn(consume_search_filter_match_notification_queue(
         receiver, handler,
     ));
+    finish_runtime(config, runtime, task).await
+}
+
+async fn run_product_translation(
+    config: aura_historia_worker::WorkerConfig,
+    pool: sqlx::PgPool,
+    composition: WorkerRuntimeComposition,
+    vertex_ai: &WorkerVertexAiConfig,
+) -> Result<(), MainError> {
+    let handler: Arc<dyn TranslateProductEventUseCase> =
+        Arc::new(TranslateProductEventHandler::new(
+            SqlxProductTranslationSourceReader::new(pool.clone()),
+            LargeLanguageModelProductTitleTranslator::new(vertex_ai_large_language_model(
+                vertex_ai,
+            )?),
+            SqlxUnitOfWork::new(pool),
+            SqlxProductTranslationWriterFactory::new(),
+        ));
+    let (runtime, receiver) = composition.into_parts();
+    let task = tokio::spawn(consume_product_translation_queue(receiver, handler));
     finish_runtime(config, runtime, task).await
 }
 

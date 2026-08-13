@@ -6105,7 +6105,6 @@ name = "product-pipeline"
 version = "0.1.0"
 dependencies = [
  "product-pipeline-embed-text",
- "product-pipeline-translate",
 ]
 
 [[package]]
@@ -6139,37 +6138,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
-]
-
-[[package]]
-name = "product-pipeline-translate"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "fxrate",
- "lambda_runtime",
- "llm",
- "mockall",
- "product",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "shop",
- "strum 0.28.0",
- "test-api",
- "thiserror 2.0.19",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 

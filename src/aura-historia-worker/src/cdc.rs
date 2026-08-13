@@ -302,6 +302,7 @@ enum CdcFanoutScope {
     SearchFilterMatchNotification,
     SearchFilterProjection,
     WatchlistNotification,
+    ProductTranslation,
 }
 
 impl CdcFanout {
@@ -337,6 +338,13 @@ impl CdcFanout {
         Self {
             registry,
             scope: CdcFanoutScope::SearchFilterProjection,
+        }
+    }
+
+    pub fn product_translation(registry: WorkerQueueRegistry) -> Self {
+        Self {
+            registry,
+            scope: CdcFanoutScope::ProductTranslation,
         }
     }
 
@@ -418,6 +426,23 @@ impl CdcFanout {
                     CdcTable::SearchFilters
                 ) {
                     search_filter_changed_job(change, change.operation)
+                } else {
+                    Err(CdcRouteError::UnsupportedTableForWorker(
+                        change.table.clone(),
+                    ))
+                }
+            }
+            CdcFanoutScope::ProductTranslation => {
+                if matches!(
+                    CdcTable::from(change.table.as_str()),
+                    CdcTable::ProductEvents
+                ) && change.operation == CdcOperation::Insert
+                {
+                    let jobs = product_event_jobs(change)?;
+                    Ok(jobs
+                        .into_iter()
+                        .filter(|job| job.target_queue == WorkerQueue::ProductTranslate)
+                        .collect())
                 } else {
                     Err(CdcRouteError::UnsupportedTableForWorker(
                         change.table.clone(),

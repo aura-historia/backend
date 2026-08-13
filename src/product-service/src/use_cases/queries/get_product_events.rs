@@ -163,7 +163,7 @@ where
         let events = self
             .reader
             .in_transaction(&mut tx)
-            .find_events(&request.lookup)
+            .find_domain_events(&request.lookup)
             .await?
             .ok_or(GetProductEventsError::NotFound)?;
         tx.commit()

@@ -130,7 +130,7 @@ Crash rule:
 
 | Source table | Operation | Route |
 |---|---|---|
-| `product_events` | INSERT | Product projector; percolator for domain/enrichment; watchlist notifications for canonical `PRODUCT_PRICE_CHANGED` / `PRODUCT_STATE_CHANGED`; enrichment pipeline for create/embed; delete cleanup for lifecycle delete. |
+| `product_events` | INSERT | Product projector; percolator for domain/enrichment; watchlist notifications for canonical `PRODUCT_PRICE_CHANGED` / `PRODUCT_STATE_CHANGED`; translation for `ENRICHMENT_EMBEDDED`; enrichment pipeline for create/embed; delete cleanup for lifecycle delete. |
 | `products` | INSERT/MODIFY/DELETE | No default downstream route. Product events are the projection trigger to avoid double-firing. Use products CDC only for future explicit non-event projections. |
 | `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. Idempotency: `(shop_id, version, op)`. |
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
@@ -164,13 +164,19 @@ Examples:
 | Search-filter percolator | `search-filter-lambda-percolate-product` | Domain/enrichment product event job | Postgres matches only. |
 | Search-filter match notification generator | Search-filter match notification path | Search-filter match inserted job | DynamoDB SearchFilter notification insert. |
 | Product embed | `product-pipeline-embed-text` | Domain created job | Postgres enrichment event + product update. Embedding stored in Postgres only. |
-| Product translate | `product-pipeline-translate` | Enrichment embedded job | Postgres enrichment event + product update. |
+| Product translate | legacy `product-pipeline-translate` | Enrichment embedded job | Postgres `product_translations` upsert plus one translated-titles enrichment event and Product revision update. |
 | Shop OpenSearch projector | `shop-lambda-opensearch-index` | Shop changed job | OpenSearch shop document write. |
 | Search-filter OpenSearch sync | `search-filter-lambda-opensearch-sync` | Search-filter changed job | OpenSearch percolator document write/delete from complete Postgres state, with external source-version protection. Search-filter embedding stays in Postgres. |
 | User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
 | Periodic matcher | ECS periodic matcher | Scheduled job | OpenSearch product search, Postgres matches, DynamoDB notifications. |
 
-The canonical search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, and watchlist notification generator are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+The canonical search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+
+## Canonical Product translation
+
+The product-translation scope accepts only `product_events` inserts and enqueues only `ENRICHMENT_EMBEDDED`. Its service use case rereads the committed source and requires `products.event_id` to equal the trigger event ID before invoking the configured neutral `large-language-model` translator. It translates a non-empty native title into the supported target languages other than the source language, then opens a short PostgreSQL transaction. The writer locks the Product, rechecks the source revision, upserts provenance-bearing `product_translations`, appends one `ENRICHMENT_TRANSLATED_TITLES` batch event, and advances `products.event_id` atomically. Redelivery is target-side idempotent: identical source/provenance/title rows return duplicate without a second event; superseded source events return stale without writes.
+
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=product-translation`; it requires `POSTGRES_*`, `VERTEX_AI_PROJECT_ID`, `VERTEX_AI_LOCATION`, `VERTEX_AI_MODEL`, and Google ADC. Its Sequin subscription must contain only `product_events` inserts. LLM calls happen before the short PostgreSQL write transaction; provider failures are retried by the worker and do not create partial translation state.
 
 ## Canonical search-filter percolator
 

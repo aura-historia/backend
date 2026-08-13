@@ -8,6 +8,9 @@ pub mod product_repository;
 pub mod product_search_filter_match_source_reader;
 pub mod product_search_reader;
 pub mod product_similar_products_reader;
+pub mod product_title_translator;
+pub mod product_translation_source_reader;
+pub mod product_translation_writer;
 pub mod product_user_state_reader;
 pub mod product_watchlist_details_reader;
 pub mod product_watchlist_notification_source_reader;
@@ -41,6 +44,14 @@ pub use product_search_filter_match_source_reader::{
 pub use product_search_reader::{ProductSearchReadError, ProductSearchReader};
 pub use product_similar_products_reader::{
     ProductSimilarProductsReadError, ProductSimilarProductsReader, ProductSimilarProductsRequest,
+};
+pub use product_title_translator::{ProductTitleTranslationError, ProductTitleTranslator};
+pub use product_translation_source_reader::{
+    ProductTranslationSource, ProductTranslationSourceReadError, ProductTranslationSourceReader,
+};
+pub use product_translation_writer::{
+    ProductTranslationWrite, ProductTranslationWriteError, ProductTranslationWriteOutcome,
+    ProductTranslationWriter, ProductTranslationWriterFactory,
 };
 pub use product_user_state_reader::{
     ProductUserStateLookup, ProductUserStateReadError, ProductUserStateReader,

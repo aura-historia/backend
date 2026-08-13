@@ -66,7 +66,7 @@ impl ProductEventReaderFactory<common::postgres::SqlxTransaction>
 
 #[async_trait::async_trait]
 impl ProductEventReader for SqlxProductEventReader<'_> {
-    async fn find_events(
+    async fn find_domain_events(
         &mut self,
         lookup: &ProductEventLookup,
     ) -> Result<Option<Vec<ProductEvent>>, ProductEventReadError> {
@@ -96,6 +96,7 @@ impl ProductEventReader for SqlxProductEventReader<'_> {
             SELECT event_id, product_id, event_type, payload, event_time
             FROM product_events
             WHERE product_id = $1
+              AND event_group = 'DOMAIN'
             ORDER BY event_time ASC, event_id ASC
             "#,
         )
