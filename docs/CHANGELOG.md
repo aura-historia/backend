@@ -12,6 +12,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Canonical shop and partner-shop application writes now geocode supplied structured addresses through the shared Google Maps adapter. Valid addresses return the documented `geoAddress`; unavailable geocoding returns the existing temporary-service failure.
 
+## Unreleased
+
+### Changed
+
+- Partner application decisions now use the canonical PostgreSQL state machine. `APPROVE` atomically publishes and partners the shop, grants applicant membership, and completes the application. `REJECT` and applicant withdrawal discard the unused draft shop created for a new-shop application.
+- Partner application responses no longer expose Step Functions execution state, and admin review no longer accepts a task token. Decision requests accept only typed `APPROVE` or `REJECT` values; unknown values return `400`.
+- Decision notifications are emitted after commit with the application ID as their idempotent origin key, so retrying a committed decision safely retries notification delivery. This is caller-retry delivery; a durable notification outbox is not yet implemented.
+
+## 2026-08-12 - Harden Canonical API Transport
+
+### Changed
+
+- Canonical API responses now include server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may supply `X-Correlation-Id` only when it is a non-empty, maximum-128-character ASCII identifier using letters, digits, `.`, `_`, or `-`; invalid values are replaced by the request ID.
+- The API now applies CORS, a 1 MiB request-body limit, a 30-second request timeout, and request tracing with credential headers redacted. `X-Request-Id` and `X-Correlation-Id` are exposed to browser clients.
+- `GET /ready` now returns `204 No Content` only when PostgreSQL, DynamoDB, and OpenSearch required by the configured API feature set are reachable; otherwise it returns `503 Service Unavailable`. `GET /health` remains the liveness endpoint.
+
+## 2026-08-12 - Restore Hybrid Product Search
+
+### Changed
+
+- `GET /api/v1/products` now uses native OpenSearch hybrid BM25 plus KNN retrieval for text queries with relevance ordering. Query-embedding failures transparently fall back to BM25; explicit price, creation, and update sorts remain BM25-only.
+
+## 2026-08-11 - Hide Non-Published Shops from Public Reads
+
+### Changed
+
+- Public `GET /api/v1/shops`, `GET /api/v1/shops/{shopId}`, and `GET /api/v1/by-slug/shops/{shopSlugId}` now return only published shops. Drafted, rejected, archived, and deleted records are hidden as absent. Approving a partner-shop application publishes its linked shop atomically with the approval.
+
+## 2026-08-11 - Enforce Cognito Access-Token Authentication
+
+### Changed
+
+- Canonical API runtime now verifies Cognito access JWTs with issuer, app-client, signature, and expiry checks. Cognito ID tokens are rejected; temporary JWKS retrieval failures return the documented `503 AUTH_TEMPORARILY_UNAVAILABLE` response. Aura Historia access tokens remain supported.
+
 ## 2026-08-06 - Align Search Filter and Watchlist API Contracts
 
 ### Changed

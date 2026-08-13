@@ -4,6 +4,7 @@ pub enum ShopLifecycle {
     #[default]
     Drafted,
     Published,
+    Discarded,
 }
 
 #[cfg(test)]

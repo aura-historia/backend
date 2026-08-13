@@ -11,6 +11,9 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use large_language_model::{
+    LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
+};
 use notification_core::notification::NotificationPayload;
 use notification_dynamodb::{
     all_notifications_reader::DynamoDbAllNotificationsReader,
@@ -28,10 +31,7 @@ use search_filter_postgres::{
     SqlxSearchFilterMatchNotificationSourceReaderFactory, SqlxSearchFilterMatchWriterFactory,
     SqlxSearchFilterMonthlyMatchQuotaReaderFactory, SqlxSearchFilterRepositoryFactory,
 };
-use search_filter_service::ports::{
-    ProductMatchEvaluation, ProductMatchEvaluator, ProductMatchEvaluatorError,
-    SearchFilterRepository, SearchFilterRepositoryFactory, SearchFilterView,
-};
+use search_filter_service::ports::{SearchFilterRepository, SearchFilterRepositoryFactory};
 use search_filter_service::use_cases::{
     GenerateSearchFilterMatchNotificationHandler, GenerateSearchFilterMatchNotificationUseCase,
     MatchProductEventHandler, MatchProductEventUseCase, ProjectSearchFilterChangeCommand,
@@ -58,16 +58,22 @@ const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_SIDE_EFFECT_OBSERVATION: Duration = Duration::from_secs(2);
 
-struct NonMatchingProductMatchEvaluator;
+struct NonMatchingLargeLanguageModel;
 
 #[async_trait::async_trait]
-impl ProductMatchEvaluator for NonMatchingProductMatchEvaluator {
-    async fn evaluate(
+impl LargeLanguageModel for NonMatchingLargeLanguageModel {
+    async fn generate<Output>(
         &self,
-        _product: &product_service::ports::ProductSearchFilterMatchSource,
-        _filter: &SearchFilterView,
-    ) -> Result<ProductMatchEvaluation, ProductMatchEvaluatorError> {
-        Ok(ProductMatchEvaluation::NotMatched)
+        _request: StructuredGenerationRequest,
+    ) -> Result<Output, LargeLanguageModelError>
+    where
+        Output: serde::de::DeserializeOwned + Send,
+    {
+        serde_json::from_str(r#"{"matches":false}"#).map_err(|source| {
+            LargeLanguageModelError::InvalidResponse {
+                source: common::error::boxed::box_error(source),
+            }
+        })
     }
 }
 
@@ -154,7 +160,7 @@ async fn should_keep_current_enrichment_match_for_each_product_event_delivery_or
 async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
-        let user_id = seed_user(&worker.pool, "Ultimate").await?;
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
         let product_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
@@ -248,7 +254,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
 async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
-        let user_id = seed_user(&worker.pool, "Ultimate").await?;
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
         let product_query = format!("Worker percolator product {user_id}");
         let active_filter = search_filter(
             user_id,
@@ -297,7 +303,7 @@ async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::E
 async fn complete_percolation_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = PercolatorWorker::start().await?;
     let result = async {
-        let user_id = seed_user(&worker.pool, "Ultimate").await?;
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
         let product_query = format!("Worker complete percolation product {user_id}");
         let active_filters: Vec<_> = (0..25)
             .map(|number| {
@@ -340,7 +346,7 @@ async fn complete_percolation_flow() -> Result<(), Box<dyn std::error::Error>> {
 async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
-        let user_id = seed_user(&worker.pool, "Free").await?;
+        let user_id = seed_user(&worker.pool, "FREE").await?;
         let product_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
@@ -389,7 +395,7 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
 async fn ignored_product_events_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
-        let user_id = seed_user(&worker.pool, "Ultimate").await?;
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
         let product_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
@@ -425,7 +431,7 @@ async fn ignored_product_events_flow() -> Result<(), Box<dyn std::error::Error>>
 async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
-        let user_id = seed_user(&worker.pool, "Ultimate").await?;
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
         let product_query = format!("Worker percolator product {user_id}");
         let filter = search_filter(
             user_id,
@@ -457,7 +463,7 @@ async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Erro
 async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = PercolatorWorker::start().await?;
     let result = async {
-        let user_id = seed_user(&worker.pool, "Ultimate").await?;
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
         let product_query = format!("Worker stale event product {user_id}");
         let filter = search_filter(
             user_id,
@@ -527,7 +533,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
 async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
-        let user_id = seed_user(&worker.pool, "Ultimate").await?;
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
         let product_query = format!("Worker percolator product {user_id}");
         let first_filter = search_filter(
             user_id,
@@ -612,7 +618,7 @@ impl FullFlowWorker {
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductSearchFilterMatchSourceReaderFactory::new(),
                 index.clone(),
-                NonMatchingProductMatchEvaluator,
+                NonMatchingLargeLanguageModel,
                 SqlxActiveSearchFilterMatchCandidateReaderFactory,
                 SqlxSearchFilterMatchWriterFactory,
             ));
@@ -729,7 +735,7 @@ impl PercolatorWorker {
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductSearchFilterMatchSourceReaderFactory::new(),
             index.clone(),
-            NonMatchingProductMatchEvaluator,
+            NonMatchingLargeLanguageModel,
             SqlxActiveSearchFilterMatchCandidateReaderFactory,
             SqlxSearchFilterMatchWriterFactory,
         ));
@@ -829,7 +835,7 @@ impl ScopedWorkerServer {
 
 async fn seed_user(pool: &sqlx::PgPool, tier: &str) -> Result<UserId, sqlx::Error> {
     let user_id = UserId::new();
-    sqlx::query("INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, $3, 'User')")
+    sqlx::query("INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, $3, 'USER')")
         .bind(uuid::Uuid::from(user_id))
         .bind(format!("worker-percolator-{user_id}@example.test"))
         .bind(tier)

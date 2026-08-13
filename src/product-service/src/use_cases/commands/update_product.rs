@@ -209,12 +209,23 @@ where
             .await
             .map_err(|_| UpdateProductError::BeginTransactionFailed)?;
         let loaded = match target {
-            UpdateProductTarget::Id(product_id) => self
-                .products
-                .in_transaction(&mut tx)
-                .find_by_id(product_id)
-                .await?
-                .ok_or(UpdateProductError::ProductNotFound)?,
+            UpdateProductTarget::Id(product_id) => {
+                let loaded = self
+                    .products
+                    .in_transaction(&mut tx)
+                    .find_by_id(product_id)
+                    .await?
+                    .ok_or(UpdateProductError::ProductNotFound)?;
+
+                if let Some(actor_id) = partner_actor(&context.principal) {
+                    self.authorizer
+                        .in_transaction(&mut tx)
+                        .authorize(actor_id, loaded.value.shop_id())
+                        .await?;
+                }
+
+                loaded
+            }
             UpdateProductTarget::Key(product_key) => {
                 if let Some(actor_id) = partner_actor(&context.principal) {
                     self.authorizer
@@ -605,6 +616,11 @@ mod tests {
 
     struct AllowPartnerProductAuthorizerTx;
 
+    #[derive(Clone, Copy)]
+    struct DenyPartnerProductAuthorizer;
+
+    struct DenyPartnerProductAuthorizerTx;
+
     impl PartnerProductAuthorizerFactory<FakeTx> for AllowPartnerProductAuthorizer {
         fn in_transaction<'tx>(
             &'tx self,
@@ -622,6 +638,26 @@ mod tests {
             _shop_id: ShopId,
         ) -> Result<(), PartnerProductAuthorizationError> {
             Ok(())
+        }
+    }
+
+    impl PartnerProductAuthorizerFactory<FakeTx> for DenyPartnerProductAuthorizer {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl PartnerProductAuthorizer + 'tx {
+            DenyPartnerProductAuthorizerTx
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartnerProductAuthorizer for DenyPartnerProductAuthorizerTx {
+        async fn authorize(
+            &mut self,
+            _actor_id: UserId,
+            _shop_id: ShopId,
+        ) -> Result<(), PartnerProductAuthorizationError> {
+            Err(PartnerProductAuthorizationError::Forbidden)
         }
     }
 
@@ -791,6 +827,14 @@ mod tests {
         }
     }
 
+    fn partner_context() -> OperationContext {
+        OperationContext {
+            principal: Principal::User(UserId::new()),
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
+        }
+    }
+
     fn url(value: &str) -> Result<Url, url::ParseError> {
         Url::parse(value)
     }
@@ -867,6 +911,36 @@ mod tests {
         assert_eq!(1, state.update_count);
         assert_eq!(1, state.append_count);
         assert_eq!(1, state.commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_partner_when_updating_product_by_id_without_shop_access()
+    -> Result<(), url::ParseError> {
+        let state = state();
+        let product = product()?;
+        let product_id = product.id();
+        lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
+        let command = UpdateProductCommand {
+            state: PatchField::Set(ProductState::Available),
+            ..Default::default()
+        };
+        let handler = UpdateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+            DenyPartnerProductAuthorizer,
+        );
+
+        let result = handler
+            .execute(&partner_context(), product_id, command)
+            .await;
+
+        assert!(matches!(result, Err(UpdateProductError::Forbidden)));
+        let state = lock_state(&state);
+        assert_eq!(0, state.update_count);
+        assert_eq!(0, state.append_count);
+        assert_eq!(0, state.commit_count);
         Ok(())
     }
 

@@ -8,12 +8,14 @@ async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 common = { workspace = true, features = ["postgres"] }
+large-language-model = { workspace = true }
 google-cloud-auth = { workspace = true }
 notification-dynamodb = { workspace = true }
 notification-service = { workspace = true }
 opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
+reqwest = { workspace = true }
 search-filter-opensearch = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
@@ -34,7 +36,6 @@ notification-core = { workspace = true }
 product-core = { workspace = true }
 indexmap = { workspace = true }
 time = { workspace = true }
-reqwest = { workspace = true, features = ["json"] }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["dynamodb", "opensearch", "postgres", "sequin"] }
 uuid = { workspace = true }

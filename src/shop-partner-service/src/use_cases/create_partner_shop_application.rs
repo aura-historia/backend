@@ -80,6 +80,8 @@ pub enum CreatePartnerShopApplicationError {
     Forbidden,
     #[error("shop not found")]
     ShopNotFound,
+    #[error("shop is not eligible for a partner application")]
+    ShopNotEligible,
     #[error("shop slug already exists")]
     SlugConflict {
         #[source]
@@ -171,14 +173,14 @@ where
 
         let payload = match prepared_payload {
             PreparedPartnerShopApplicationPayload::Existing { shop_id } => {
-                if self
+                let shop = self
                     .shops
                     .in_transaction(&mut tx)
                     .find_by_id(shop_id)
                     .await?
-                    .is_none()
-                {
-                    return Err(CreatePartnerShopApplicationError::ShopNotFound);
+                    .ok_or(CreatePartnerShopApplicationError::ShopNotFound)?;
+                if shop.shop.lifecycle() == ShopLifecycle::Discarded {
+                    return Err(CreatePartnerShopApplicationError::ShopNotEligible);
                 }
                 PartnerShopApplicationPayload::Existing { shop_id }
             }
@@ -259,7 +261,7 @@ impl NewPartnerShopCommand {
                     phone: self.phone,
                     email: self.email,
                 },
-                partner_status: ShopPartnerStatus::Partnered,
+                partner_status: ShopPartnerStatus::Scraped,
                 affiliate_configuration: None,
             },
             ShopLifecycle::Drafted,

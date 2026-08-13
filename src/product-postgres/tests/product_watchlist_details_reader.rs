@@ -205,35 +205,6 @@ async fn should_page_watchlisted_products_by_created_desc_then_product_id_asc() 
     assert_eq!(second_page.cursor.search_after, None);
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_reject_invalid_persisted_watchlisted_product_state() {
-    let pool = get_postgres_client().await;
-    let product = persist_product(&pool, "watchlist-invalid-state", None, None).await;
-    let user_id = seed_user(&pool, "FREE", false).await;
-    insert_watchlist(
-        &pool,
-        user_id,
-        product.id(),
-        true,
-        OffsetDateTime::UNIX_EPOCH,
-    )
-    .await;
-    execute(
-        &pool,
-        "UPDATE products SET state = 'BROKEN' WHERE product_id = $1",
-        uuid::Uuid::from(product.id()),
-        "invalidate product state",
-    )
-    .await;
-
-    let result = find_for_user_result(&pool, user_id, Language::En).await;
-
-    assert!(matches!(
-        result,
-        Err(ProductWatchlistDetailsReadError::InvalidReadModel)
-    ));
-}
-
 async fn find_for_user(
     pool: &sqlx::PgPool,
     user_id: UserId,
@@ -393,14 +364,6 @@ async fn insert_watchlist(
 
     if let Err(error) = result {
         panic!("failed to seed product watchlist: {error}");
-    }
-}
-
-async fn execute(pool: &sqlx::PgPool, sql: &str, product_id: uuid::Uuid, action: &str) {
-    let result = sqlx::query(sql).bind(product_id).execute(pool).await;
-
-    if let Err(error) = result {
-        panic!("failed to {action}: {error}");
     }
 }
 

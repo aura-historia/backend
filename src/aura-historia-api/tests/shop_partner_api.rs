@@ -261,7 +261,6 @@ async fn should_mark_partner_application_in_review_when_actor_is_admin() {
             application_id
         ))
         .bearer_auth(String::from(admin_token))
-        .json(&serde_json::json!({"taskToken": "task-token"}))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to admin patch partner application API: {error}"));
@@ -283,7 +282,6 @@ async fn should_decide_partner_application_when_actor_is_admin() {
             application_id
         ))
         .bearer_auth(String::from(admin_token.clone()))
-        .json(&serde_json::json!({"taskToken": "task-token"}))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to admin patch partner application API: {error}"));
@@ -296,7 +294,7 @@ async fn should_decide_partner_application_when_actor_is_admin() {
             application_id
         ))
         .bearer_auth(String::from(admin_token))
-        .json(&serde_json::json!({"decision": "reject"}))
+        .json(&serde_json::json!({"decision": "REJECT"}))
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to decide partner application API: {error}"));
@@ -305,6 +303,7 @@ async fn should_decide_partner_application_when_actor_is_admin() {
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(serde_json::json!(application_id), body["id"]);
     assert_eq!(serde_json::json!("REJECTED"), body["businessState"]);
+    assert!(body.get("executionState").is_none());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
@@ -345,7 +344,7 @@ async fn should_reject_partner_applications_list_when_actor_is_not_admin() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
-async fn should_reject_admin_partner_application_patch_when_task_token_is_missing() {
+async fn should_mark_partner_application_in_review() {
     let admin_token = admin_token().await;
     let user_token = user_token().await;
     let application_id = create_application(&user_token, seed_shop().await.id()).await;
@@ -357,12 +356,43 @@ async fn should_reject_admin_partner_application_patch_when_task_token_is_missin
             application_id
         ))
         .bearer_auth(String::from(admin_token))
-        .json(&serde_json::json!({}))
         .send()
         .await
-        .unwrap_or_else(|error| {
-            panic!("failed to admin patch invalid partner application API: {error}")
-        });
+        .unwrap_or_else(|error| panic!("failed to mark application in review: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!("IN_REVIEW"), body["businessState"]);
+    assert!(body.get("executionState").is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_lowercase_partner_application_decision() {
+    let admin_token = admin_token().await;
+    let user_token = user_token().await;
+    let application_id = create_application(&user_token, seed_shop().await.id()).await;
+    let reviewed = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/partner-applications/{}",
+            AURA_API.base_url(),
+            application_id
+        ))
+        .bearer_auth(String::from(admin_token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to mark application in review: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, reviewed.status());
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/partner-applications/{application_id}/decision",
+            AURA_API.base_url(),
+        ))
+        .bearer_auth(String::from(admin_token))
+        .json(&serde_json::json!({"decision": "reject"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to submit lowercase decision: {error}"));
     let (status, body) = json_response(response).await;
 
     assert_problem(
@@ -370,6 +400,245 @@ async fn should_reject_admin_partner_application_patch_when_task_token_is_missin
         &body,
         reqwest::StatusCode::BAD_REQUEST,
         "BAD_BODY_VALUE",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_decision_before_application_is_in_review() {
+    let admin_token = admin_token().await;
+    let user_token = user_token().await;
+    let application_id = create_application(&user_token, seed_shop().await.id()).await;
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/partner-applications/{application_id}/decision",
+            AURA_API.base_url(),
+        ))
+        .bearer_auth(String::from(admin_token))
+        .json(&serde_json::json!({"decision": "APPROVE"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to decide submitted application: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_opposite_decision_after_terminal_application_state() {
+    let admin_token = admin_token().await;
+    let user_token = user_token().await;
+    let application_id = create_application(&user_token, seed_shop().await.id()).await;
+
+    let reviewed = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/partner-applications/{application_id}",
+            AURA_API.base_url(),
+        ))
+        .bearer_auth(String::from(admin_token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to mark application in review: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, reviewed.status());
+
+    let rejected = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/partner-applications/{application_id}/decision",
+            AURA_API.base_url(),
+        ))
+        .bearer_auth(String::from(admin_token.clone()))
+        .json(&serde_json::json!({"decision": "REJECT"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to reject application: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, rejected.status());
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/partner-applications/{application_id}/decision",
+            AURA_API.base_url(),
+        ))
+        .bearer_auth(String::from(admin_token))
+        .json(&serde_json::json!({"decision": "APPROVE"}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to submit opposite decision: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::CONFLICT, "CONFLICT");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_approve_existing_application_and_grant_partner_shop_membership() {
+    let admin_token = admin_token().await;
+    let applicant_id = seed_user("USER").await;
+    let applicant_token = seed_access_token_for(
+        applicant_id,
+        HashSet::from([Scope::PartnerShopApplicationsWrite, Scope::PartnerShopsRead]),
+    )
+    .await;
+    let shop = seed_shop().await;
+    let application_id = create_application(&applicant_token, shop.id()).await;
+
+    mark_in_review(&admin_token, &application_id).await;
+    let (status, body) =
+        json_response(decide(&admin_token, &application_id, "APPROVE").await).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!("APPROVED"), body["businessState"]);
+
+    let (status, body) = json_response(partner_shops(&applicant_token).await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!(shop.id().to_string()), body[0]["shopId"]);
+    assert_eq!(serde_json::json!("PARTNERED"), body[0]["partnerStatus"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_approve_new_application_publish_shop_and_grant_partner_shop_membership() {
+    let admin_token = admin_token().await;
+    let applicant_id = seed_user("USER").await;
+    let applicant_token = seed_access_token_for(
+        applicant_id,
+        HashSet::from([Scope::PartnerShopApplicationsWrite, Scope::PartnerShopsRead]),
+    )
+    .await;
+    let (application_id, shop_id) = create_new_application(&applicant_token).await;
+
+    mark_in_review(&admin_token, &application_id).await;
+    let (status, body) =
+        json_response(decide(&admin_token, &application_id, "APPROVE").await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!("APPROVED"), body["businessState"]);
+
+    let (status, body) = json_response(get_shop(&shop_id).await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!(shop_id), body["shopId"]);
+    assert_eq!(serde_json::json!("PARTNERED"), body["partnerStatus"]);
+
+    let (status, body) = json_response(partner_shops(&applicant_token).await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!(shop_id), body[0]["shopId"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_new_application_and_keep_draft_shop_non_public() {
+    let admin_token = admin_token().await;
+    let applicant_token = user_token().await;
+    let (application_id, shop_id) = create_new_application(&applicant_token).await;
+
+    mark_in_review(&admin_token, &application_id).await;
+    let (status, body) = json_response(decide(&admin_token, &application_id, "REJECT").await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!("REJECTED"), body["businessState"]);
+
+    let (status, body) = json_response(get_shop(&shop_id).await).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "SHOP_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_reject_existing_application_without_hiding_shop() {
+    let admin_token = admin_token().await;
+    let applicant_token = user_token().await;
+    let shop = seed_shop().await;
+    let application_id = create_application(&applicant_token, shop.id()).await;
+
+    mark_in_review(&admin_token, &application_id).await;
+    let (status, body) = json_response(decide(&admin_token, &application_id, "REJECT").await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!("REJECTED"), body["businessState"]);
+
+    let (status, body) = json_response(get_shop(&shop.id().to_string()).await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!(shop.id().to_string()), body["shopId"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_withdraw_new_application_and_keep_draft_shop_non_public() {
+    let applicant_token = user_token().await;
+    let (application_id, shop_id) = create_new_application(&applicant_token).await;
+
+    let response = reqwest::Client::new()
+        .delete(format!(
+            "{}/api/v1/me/partner-applications/{application_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(applicant_token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to withdraw new partner application: {error}"));
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+
+    let (status, body) =
+        json_response(own_application(&applicant_token, &application_id).await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!("WITHDRAWN"), body["businessState"]);
+
+    let (status, body) = json_response(get_shop(&shop_id).await).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::NOT_FOUND,
+        "SHOP_NOT_FOUND",
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_withdraw_existing_application_without_hiding_shop() {
+    let applicant_token = user_token().await;
+    let shop = seed_shop().await;
+    let application_id = create_application(&applicant_token, shop.id()).await;
+
+    let response = reqwest::Client::new()
+        .delete(format!(
+            "{}/api/v1/me/partner-applications/{application_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(applicant_token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to withdraw existing partner application: {error}"));
+    assert_eq!(reqwest::StatusCode::NO_CONTENT, response.status());
+
+    let (status, body) = json_response(get_shop(&shop.id().to_string()).await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!(shop.id().to_string()), body["shopId"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_replay_matching_terminal_decision_without_changing_result() {
+    let admin_token = admin_token().await;
+    let applicant_token = user_token().await;
+    let application_id = create_application(&applicant_token, seed_shop().await.id()).await;
+
+    mark_in_review(&admin_token, &application_id).await;
+    let first = decide(&admin_token, &application_id, "REJECT").await;
+    assert_eq!(reqwest::StatusCode::OK, first.status());
+    let (status, body) = json_response(decide(&admin_token, &application_id, "REJECT").await).await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{body}");
+    assert_eq!(serde_json::json!("REJECTED"), body["businessState"]);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_allow_only_one_of_concurrent_opposite_decisions() {
+    let admin_token = admin_token().await;
+    let applicant_token = user_token().await;
+    let application_id = create_application(&applicant_token, seed_shop().await.id()).await;
+    mark_in_review(&admin_token, &application_id).await;
+
+    let (approve, reject) = tokio::join!(
+        decide(&admin_token, &application_id, "APPROVE"),
+        decide(&admin_token, &application_id, "REJECT"),
+    );
+    let statuses = [approve.status(), reject.status()];
+    assert!(statuses.contains(&reqwest::StatusCode::OK), "{statuses:?}");
+    assert!(
+        statuses.contains(&reqwest::StatusCode::CONFLICT),
+        "{statuses:?}"
     );
 }
 
@@ -393,6 +662,102 @@ async fn should_require_auth_for_partner_applications() {
         reqwest::StatusCode::UNAUTHORIZED,
         "INVALID_CREDENTIALS",
     );
+}
+
+async fn create_new_application(
+    token: &user_core::access_token::RawAccessToken,
+) -> (String, String) {
+    let suffix = PartnerShopApplicationId::new().to_string();
+    let response = reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/me/partner-applications",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .json(&serde_json::json!({
+            "payload": {
+                "type": "NEW",
+                "shopName": format!("New Shop {suffix}"),
+                "shopType": "COMMERCIAL_DEALER",
+                "shopDomains": [format!("new-shop-{suffix}.example")]
+            }
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create new partner application: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::CREATED, status, "{body}");
+    let application_id = body["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing partner application id: {body}"))
+        .to_owned();
+    let shop_id = body["payload"]["shopId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing new shop id: {body}"))
+        .to_owned();
+    (application_id, shop_id)
+}
+
+async fn mark_in_review(token: &user_core::access_token::RawAccessToken, application_id: &str) {
+    let response = reqwest::Client::new()
+        .patch(format!(
+            "{}/api/v1/partner-applications/{application_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to mark partner application in review: {error}"));
+    assert_eq!(reqwest::StatusCode::OK, response.status());
+}
+
+async fn decide(
+    token: &user_core::access_token::RawAccessToken,
+    application_id: &str,
+    decision: &str,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .post(format!(
+            "{}/api/v1/partner-applications/{application_id}/decision",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .json(&serde_json::json!({"decision": decision}))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to decide partner application: {error}"))
+}
+
+async fn get_shop(shop_id: &str) -> reqwest::Response {
+    reqwest::Client::new()
+        .get(format!("{}/api/v1/shops/{shop_id}", AURA_API.base_url()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get shop: {error}"))
+}
+
+async fn partner_shops(token: &user_core::access_token::RawAccessToken) -> reqwest::Response {
+    reqwest::Client::new()
+        .get(format!("{}/api/v1/me/partner-shops", AURA_API.base_url()))
+        .bearer_auth(String::from(token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list partner shops: {error}"))
+}
+
+async fn own_application(
+    token: &user_core::access_token::RawAccessToken,
+    application_id: &str,
+) -> reqwest::Response {
+    reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/me/partner-applications/{application_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get own partner application: {error}"))
 }
 
 async fn create_application(

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true }
+embedding = { workspace = true }
 geo = { workspace = true }
 indexmap = { workspace = true }
 notification-core = { workspace = true }

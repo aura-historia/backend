@@ -16,4 +16,10 @@ pub trait ProductSearchReader: Send + Sync {
         &self,
         request: &SearchProductsRequest,
     ) -> Result<ProductSearchReadResult, ProductSearchReadError>;
+
+    async fn search_hybrid(
+        &self,
+        request: &SearchProductsRequest,
+        embedding: &[f32],
+    ) -> Result<ProductSearchReadResult, ProductSearchReadError>;
 }

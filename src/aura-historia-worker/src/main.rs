@@ -11,6 +11,7 @@ use aura_historia_worker::{
 };
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
+use large_language_model::{VertexAiConfig, VertexAiGemini};
 use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
 use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use opensearch::{
@@ -25,9 +26,7 @@ use product_postgres::{
 use product_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
 };
-use search_filter_opensearch::{
-    OpenSearchSearchFilterIndex, VertexAiProductMatchEvaluator, VertexAiProductMatchEvaluatorConfig,
-};
+use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
     SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
     SqlxSearchFilterMatchNotificationSourceReaderFactory, SqlxSearchFilterMatchWriterFactory,
@@ -115,7 +114,7 @@ async fn run_search_filter_percolator(
         SqlxUnitOfWork::new(pool.clone()),
         SqlxProductSearchFilterMatchSourceReaderFactory::new(),
         OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
-        vertex_ai_product_match_evaluator(vertex_ai)?,
+        vertex_ai_large_language_model(vertex_ai)?,
         SqlxActiveSearchFilterMatchCandidateReaderFactory,
         SqlxSearchFilterMatchWriterFactory,
     ));
@@ -185,12 +184,13 @@ async fn finish_runtime(
     Ok(())
 }
 
-fn vertex_ai_product_match_evaluator(
+fn vertex_ai_large_language_model(
     config: &WorkerVertexAiConfig,
-) -> Result<VertexAiProductMatchEvaluator, MainError> {
-    let config = VertexAiProductMatchEvaluatorConfig::new(
+) -> Result<VertexAiGemini, MainError> {
+    let config = VertexAiConfig::new(
         config.project_id().to_owned(),
         config.location().to_owned(),
+        config.model().to_owned(),
     );
     let credentials = GoogleCredentialsBuilder::default()
         .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
@@ -198,7 +198,7 @@ fn vertex_ai_product_match_evaluator(
         .map_err(|error| MainError::VertexAiCredentials {
             detail: error.to_string(),
         })?;
-    Ok(VertexAiProductMatchEvaluator::new(config, credentials))
+    VertexAiGemini::new(config, credentials).map_err(MainError::VertexAiHttpClient)
 }
 
 fn opensearch_client(config: &WorkerOpenSearchConfig) -> Result<OpenSearch, MainError> {
@@ -237,6 +237,8 @@ enum MainError {
     OpenSearch { detail: String },
     #[error("failed to initialize Vertex AI credentials: {detail}")]
     VertexAiCredentials { detail: String },
+    #[error("failed to build Vertex AI HTTP client: {0}")]
+    VertexAiHttpClient(reqwest::Error),
     #[error(transparent)]
     Run(#[from] WorkerRunError),
 }

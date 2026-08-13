@@ -8,7 +8,9 @@ async-trait = { workspace = true }
 common = { workspace = true }
 embedding = { workspace = true }
 geo = { workspace = true }
+futures = { workspace = true }
 isocountry = { workspace = true }
+large-language-model = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 product-core = { workspace = true }
@@ -21,6 +23,7 @@ time = { workspace = true }
 user-core = { workspace = true }
 user-service = { workspace = true }
 tracing = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
 [dev-dependencies]

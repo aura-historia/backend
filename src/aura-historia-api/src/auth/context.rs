@@ -1,5 +1,6 @@
 use crate::auth::{ProtectedAuthExtractor, RequestMetadata, TransportPrincipal};
 use crate::error::{ApiError, FORBIDDEN};
+use crate::transport::{CORRELATION_ID_HEADER, REQUEST_ID_HEADER};
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use common::operation_context::OperationContext;
@@ -30,12 +31,13 @@ fn user_id(principal: &TransportPrincipal) -> Option<UserId> {
 }
 
 pub fn request_metadata(headers: &HeaderMap) -> RequestMetadata {
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let correlation_id = headers
-        .get("x-correlation-id")
+    let request_id = headers
+        .get(&REQUEST_ID_HEADER)
         .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| request_id.clone());
+        .unwrap_or("missing-request-id");
+    let correlation_id = headers
+        .get(&CORRELATION_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or(request_id);
     RequestMetadata::new(request_id, correlation_id)
 }

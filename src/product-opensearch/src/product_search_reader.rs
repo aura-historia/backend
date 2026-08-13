@@ -14,6 +14,9 @@ use common::query::any_of_query::AnyOfQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
+use opensearch::http::Method;
+use opensearch::http::headers::HeaderMap;
+use opensearch::http::request::JsonBody;
 use opensearch::{OpenSearch, SearchParts};
 use product_core::product_search::ProductSearch;
 use product_core::sort_product_field::SortProductField;
@@ -31,6 +34,9 @@ use strum::EnumCount;
 use time::format_description::well_known;
 
 const DEFAULT_INDEX: &str = "products";
+const HYBRID_SEARCH_PIPELINE_NAME: &str = "hybrid-search-pipeline";
+const DEFAULT_HYBRID_PAGE_SIZE: u64 = 20;
+const HYBRID_K: u16 = 100;
 
 #[derive(Clone)]
 pub struct OpenSearchProductSearchReader {
@@ -86,6 +92,46 @@ impl ProductSearchReader for OpenSearchProductSearchReader {
             .map_err(|_| ProductSearchReadError::ProductSearchQueryFailed)?;
 
         Ok(map_search_response(&request.search, search_response))
+    }
+
+    #[tracing::instrument(name = "opensearch_product_hybrid_search", skip_all)]
+    async fn search_hybrid(
+        &self,
+        request: &SearchProductsRequest,
+        embedding: &[f32],
+    ) -> Result<ProductSearchReadResult, ProductSearchReadError> {
+        let body = build_hybrid_search_request(&request.search, embedding, &request.cursor)
+            .map_err(|_| ProductSearchReadError::ProductSearchReadModelInvalid)?;
+        let pipeline = [("search_pipeline", HYBRID_SEARCH_PIPELINE_NAME)];
+        let response = self
+            .client
+            .send(
+                Method::Post,
+                SearchParts::Index(&[self.index.as_str()]).url().as_ref(),
+                HeaderMap::new(),
+                Some(&pipeline),
+                Some(JsonBody::new(body)),
+                None,
+            )
+            .await
+            .map_err(|_| ProductSearchReadError::ProductSearchQueryFailed)?;
+        if !response.status_code().is_success() {
+            return Err(ProductSearchReadError::ProductSearchQueryFailed);
+        }
+        let payload = response
+            .text()
+            .await
+            .map_err(|_| ProductSearchReadError::ProductSearchQueryFailed)?;
+        let search_response = serde_json::from_str::<SearchResponse<ProductDocument>>(&payload)
+            .map_err(|_| ProductSearchReadError::ProductSearchReadModelInvalid)?
+            .into_non_timed_out("product hybrid search")
+            .map_err(|_| ProductSearchReadError::ProductSearchQueryFailed)?;
+
+        Ok(map_hybrid_search_response(
+            &request.search,
+            search_response,
+            &request.cursor,
+        ))
     }
 }
 
@@ -191,6 +237,41 @@ fn insert_price(
     }
 }
 
+fn map_hybrid_search_response(
+    search: &ProductSearch,
+    search_response: SearchResponse<ProductDocument>,
+    cursor: &Option<Cursor<serde_json::Value>>,
+) -> ProductSearchReadResult {
+    let requested_size = cursor
+        .as_ref()
+        .map(|cursor| cursor.size)
+        .unwrap_or(DEFAULT_HYBRID_PAGE_SIZE);
+    let item_count = search_response.hits.hits.len() as u64;
+    let search_after = (item_count >= requested_size)
+        .then(|| {
+            search_response
+                .hits
+                .hits
+                .last()
+                .and_then(|hit| hit.sort.clone())
+        })
+        .flatten();
+
+    ProductSearchReadResult {
+        cursor: Cursor {
+            size: item_count,
+            search_after,
+        },
+        items: search_response
+            .hits
+            .hits
+            .into_iter()
+            .map(|hit| map_summary(search, hit))
+            .collect(),
+        total: None,
+    }
+}
+
 pub(crate) fn build_search_request(
     search: &ProductSearch,
     sort: &Sort<SortProductField>,
@@ -249,6 +330,79 @@ pub(crate) fn build_search_query(
             "filter": filter
         }
     }))
+}
+
+pub(crate) fn build_hybrid_search_request(
+    search: &ProductSearch,
+    embedding: &[f32],
+    cursor: &Option<Cursor<serde_json::Value>>,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let (must_not, filter) = build_filter_clauses(search)?;
+    let title_field = title_field(&search.language);
+    let bm25_text = build_product_query_clause(&search.product_query, title_field)
+        .unwrap_or_else(|| json!({ "match_all": {} }));
+    let bm25 = json!({
+        "bool": {
+            "must": [bm25_text],
+            "filter": filter.clone(),
+            "must_not": must_not.clone(),
+        }
+    });
+    let mut knn = json!({
+        "vector": embedding,
+        "k": HYBRID_K,
+    });
+    if !filter.is_empty() || !must_not.is_empty() {
+        knn["filter"] = json!({
+            "bool": {
+                "filter": filter,
+                "must_not": must_not,
+            }
+        });
+    }
+    let mut body = json!({
+        "_source": { "excludes": [ProductDocumentSerdeField::Embedding] },
+        "size": cursor
+            .as_ref()
+            .map(|cursor| cursor.size)
+            .unwrap_or(DEFAULT_HYBRID_PAGE_SIZE)
+            .max(1),
+        "query": {
+            "hybrid": {
+                "queries": [
+                    bm25,
+                    { "knn": { ProductDocumentSerdeField::Embedding.as_str(): knn } }
+                ]
+            }
+        },
+        "sort": [{
+            "_script": {
+                "type": "number",
+                "script": {
+                    "source": format!(
+                        "return _score + (Math.abs(doc['{}'].value.hashCode()) * 1.0e-15);",
+                        ProductDocumentSerdeField::ProductId.as_str()
+                    )
+                },
+                "order": "desc"
+            }
+        }]
+    });
+    if let Some(search_after) = cursor
+        .as_ref()
+        .and_then(|cursor| cursor.search_after.as_ref())
+    {
+        body["search_after"] = opensearch_search_after(search_after);
+    }
+
+    Ok(body)
+}
+
+fn opensearch_search_after(search_after: &serde_json::Value) -> serde_json::Value {
+    match search_after {
+        serde_json::Value::Array(_) => search_after.clone(),
+        _ => serde_json::Value::Array(vec![search_after.clone()]),
+    }
 }
 
 fn title_field(language: &Language) -> ProductDocumentSerdeField {
@@ -540,13 +694,6 @@ fn price_field_for(currency: &Currency) -> &'static str {
     }
 }
 
-fn opensearch_search_after(search_after: &serde_json::Value) -> serde_json::Value {
-    match search_after {
-        serde_json::Value::Array(_) => search_after.clone(),
-        _ => serde_json::Value::Array(vec![search_after.clone()]),
-    }
-}
-
 fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
     filter: &mut Vec<serde_json::Value>,
     query: &AnyOfQuery<T>,
@@ -752,6 +899,47 @@ mod tests {
             Some(&json!("asc"))
         );
         assert!(actual.get("size").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn should_build_hybrid_search_request_with_text_filters_and_cursor()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductSearch::new(Language::En, Currency::Usd)
+            .with_product_query("vintage brass lamp".try_into()?)
+            .with_state_query([ProductState::Available].into_iter().collect());
+        let cursor = Some(Cursor {
+            size: 10,
+            search_after: Some(json!([0.123])),
+        });
+
+        let actual = build_hybrid_search_request(&search, &[1.0; 3], &cursor)?;
+
+        assert_eq!(actual.pointer("/size"), Some(&json!(10)));
+        assert_eq!(
+            actual.pointer(
+                "/query/hybrid/queries/0/bool/must/0/bool/must/0/bool/should/0/multi_match/query"
+            ),
+            Some(&json!("vintage brass lamp"))
+        );
+        assert_eq!(
+            actual.pointer("/query/hybrid/queries/0/bool/filter/1/terms/state"),
+            Some(&json!(["AVAILABLE"]))
+        );
+        assert_eq!(
+            actual.pointer("/query/hybrid/queries/1/knn/embedding/vector"),
+            Some(&json!([1.0, 1.0, 1.0]))
+        );
+        assert_eq!(
+            actual
+                .pointer("/query/hybrid/queries/1/knn/embedding/filter/bool/filter/1/terms/state"),
+            Some(&json!(["AVAILABLE"]))
+        );
+        assert_eq!(actual.pointer("/search_after"), Some(&json!([0.123])));
+        assert_eq!(
+            actual.pointer("/sort/0/_script/order"),
+            Some(&json!("desc"))
+        );
         Ok(())
     }
 

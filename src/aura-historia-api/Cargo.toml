@@ -21,12 +21,15 @@ oauth-service = { workspace = true }
 opensearch = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }
+notification-core = { workspace = true }
 notification-dynamodb = { workspace = true }
+notification-service = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
 serde-email = { workspace = true }
 serde_json = { workspace = true }
 serde_qs = { workspace = true }
+sqlx = { workspace = true }
 shop-core = { workspace = true }
 shop-partner-core = { workspace = true }
 shop-partner-postgres = { workspace = true }
@@ -42,6 +45,7 @@ search-filter-service = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true, features = ["formatting"] }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
+tower-http = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 user-core = { workspace = true }

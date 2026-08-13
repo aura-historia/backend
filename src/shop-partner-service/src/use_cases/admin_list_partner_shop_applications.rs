@@ -360,7 +360,6 @@ mod tests {
             id: application.id(),
             applicant_user_id: application.applicant_user_id(),
             business_state: application.business_state(),
-            execution_state: application.execution_state(),
             payload: application.payload(),
             shop_id: application.shop_id(),
         }

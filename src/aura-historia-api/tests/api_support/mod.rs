@@ -18,7 +18,9 @@ use common::user_id::UserId;
 use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingInput, EmbeddingVector};
 use geo::{Geocoder, GeocodingError};
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
+use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
 use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
+use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -33,6 +35,7 @@ use product_postgres::{
     SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
     SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
 };
+
 use product_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
     GetSimilarProductsHandler, SearchProductsHandler, UpdateProductHandler, UpsertProductHandler,
@@ -51,6 +54,7 @@ use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
 use shop_core::shop_type::ShopType;
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
+    SqlxUserPartnerShopMembershipRepositoryFactory,
 };
 use shop_partner_service::use_cases::{
     AdminDecidePartnerShopApplicationHandler, AdminGetPartnerShopApplicationHandler,
@@ -97,12 +101,20 @@ use watchlist_service::use_cases::{
 };
 
 #[derive(Clone, Copy)]
-struct TestEmbeddingGenerator;
+enum TestEmbeddingGenerator {
+    Success,
+    Failure,
+}
 
 #[async_trait::async_trait]
 impl EmbeddingGenerator for TestEmbeddingGenerator {
     async fn generate(&self, _input: &EmbeddingInput) -> Result<EmbeddingVector, EmbeddingError> {
-        EmbeddingVector::try_new(vec![1.0; embedding::EMBEDDING_DIMENSIONS])
+        match self {
+            Self::Success => EmbeddingVector::try_new(vec![1.0; embedding::EMBEDDING_DIMENSIONS]),
+            Self::Failure => Err(EmbeddingError::InvalidInput {
+                reason: "test embedding failure",
+            }),
+        }
     }
 }
 
@@ -122,7 +134,12 @@ impl Geocoder for RejectGeocoder {
 }
 
 pub fn aura_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
-    Box::pin(async { app(test_state().await) })
+    Box::pin(async { app(test_state(TestEmbeddingGenerator::Success).await) })
+}
+
+pub fn aura_api_app_with_failed_search_embedding()
+-> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
+    Box::pin(async { app(test_state(TestEmbeddingGenerator::Failure).await) })
 }
 
 pub async fn json_response(
@@ -184,13 +201,13 @@ pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
 pub async fn seed_active_watchlist_entries(user_id: UserId, count: usize) {
     for _ in 0..count {
         let product_id = seed_product().await;
-        seed_watchlist_entry(user_id, product_id, "Active").await;
+        seed_watchlist_entry(user_id, product_id, "ACTIVE").await;
     }
 }
 
 pub async fn seed_inactive_watchlist_entry(user_id: UserId) -> ProductId {
     let product_id = seed_product().await;
-    seed_watchlist_entry(user_id, product_id, "InactiveByUser").await;
+    seed_watchlist_entry(user_id, product_id, "INACTIVE_BY_USER").await;
     product_id
 }
 
@@ -246,7 +263,7 @@ pub async fn seed_shop() -> Shop {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let repositories = SqlxShopRepositoryFactory::new();
     let id = ShopId::new();
-    let shop = Shop::create(NewShop {
+    let mut shop = Shop::create(NewShop {
         id,
         name: common::shop_name::ShopName::from(format!("API Acceptance Shop {id}").as_str()),
         shop_type: ShopType::CommercialDealer,
@@ -262,6 +279,7 @@ pub async fn seed_shop() -> Shop {
         partner_status: ShopPartnerStatus::Partnered,
         affiliate_configuration: None,
     });
+    let _ = shop.publish();
 
     let mut tx = unit_of_work
         .begin()
@@ -362,7 +380,7 @@ fn url(value: &str) -> Url {
     }
 }
 
-async fn test_state() -> AppState {
+async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let client = get_dynamodb_client().await;
@@ -392,6 +410,7 @@ async fn test_state() -> AppState {
         )),
         Arc::new(SearchProductsHandler::new(
             OpenSearchProductSearchReader::new(opensearch_client.clone()),
+            search_embeddings,
             SqlxProductUserStateReader::new(get_postgres_client().await),
             DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
@@ -517,7 +536,7 @@ async fn test_state() -> AppState {
         Arc::new(CreateSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
-            TestEmbeddingGenerator,
+            TestEmbeddingGenerator::Success,
             SqlxSearchFilterQuotaReaderFactory,
             user_postgres::SqlxUserTierEntitlementsFactory::new(),
         )),
@@ -527,7 +546,7 @@ async fn test_state() -> AppState {
         Arc::new(UpdateOwnedSearchFilterHandler::new(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
-            TestEmbeddingGenerator,
+            TestEmbeddingGenerator::Success,
             search_filter_reader.clone(),
             SqlxSearchFilterQuotaReaderFactory,
             user_postgres::SqlxUserTierEntitlementsFactory::new(),
@@ -592,6 +611,7 @@ async fn test_state() -> AppState {
         Arc::new(WithdrawPartnerShopApplicationHandler::new(
             unit_of_work.clone(),
             SqlxPartnerShopApplicationRepositoryFactory::new(),
+            SqlxShopRepositoryFactory::new(),
         )),
         Arc::new(AdminListPartnerShopApplicationsHandler::new(
             unit_of_work.clone(),
@@ -611,7 +631,13 @@ async fn test_state() -> AppState {
         Arc::new(AdminDecidePartnerShopApplicationHandler::new(
             unit_of_work,
             SqlxPartnerShopApplicationRepositoryFactory::new(),
+            shop_postgres::SqlxShopRepositoryFactory::new(),
+            SqlxUserPartnerShopMembershipRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
+            CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
+                get_dynamodb_client().await.clone(),
+                "table_1",
+            )),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

@@ -217,7 +217,9 @@ async fn should_report_update_conflict_when_shop_row_is_missing() {
 const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
 
 fn sample_shop(slug: &str) -> Shop {
-    Shop::create(new_shop(slug))
+    let mut shop = Shop::create(new_shop(slug));
+    let _ = shop.publish();
+    shop
 }
 
 async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {

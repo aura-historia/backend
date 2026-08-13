@@ -1,4 +1,3 @@
-use common::execution_state::domain::ExecutionState;
 use common::versioned::Versioned;
 use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
@@ -19,10 +18,8 @@ pub(crate) struct PartnerShopApplicationRow {
     pub partner_shop_application_id: uuid::Uuid,
     pub applicant_user_id: uuid::Uuid,
     pub business_state: String,
-    pub execution_state: String,
     pub payload_type: String,
     pub shop_id: uuid::Uuid,
-    pub task_token: Option<String>,
     pub version: i64,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -33,8 +30,6 @@ pub(crate) struct PartnerShopApplicationRow {
 pub(crate) enum PartnerShopApplicationRowMappingError {
     #[error("invalid partner shop application business state persisted")]
     InvalidBusinessState,
-    #[error("invalid partner shop application execution state persisted")]
-    InvalidExecutionState,
     #[error("invalid partner shop application payload type persisted")]
     InvalidPayloadType,
 
@@ -43,8 +38,8 @@ pub(crate) enum PartnerShopApplicationRowMappingError {
 }
 
 pub(crate) const APPLICATION_COLUMNS: &str = r#"
-    partner_shop_application_id, applicant_user_id, business_state, execution_state,
-    payload_type, shop_id, task_token, version, created, updated
+    partner_shop_application_id, applicant_user_id, business_state,
+    payload_type, shop_id, version, created, updated
 "#;
 
 impl TryFrom<PartnerShopApplicationRow> for PartnerShopApplicationView {
@@ -61,7 +56,6 @@ impl TryFrom<PartnerShopApplicationRow> for PartnerShopApplicationView {
             id: PartnerShopApplicationId::from(row.partner_shop_application_id),
             applicant_user_id: UserId::from(row.applicant_user_id),
             business_state: parse_business_state(&row.business_state)?,
-            execution_state: parse_execution_state(&row.execution_state)?,
             payload,
             shop_id,
         })
@@ -85,9 +79,7 @@ impl TryFrom<PartnerShopApplicationRow> for VersionedPartnerShopApplication {
                 id: PartnerShopApplicationId::from(row.partner_shop_application_id),
                 applicant_user_id: UserId::from(row.applicant_user_id),
                 business_state: parse_business_state(&row.business_state)?,
-                execution_state: parse_execution_state(&row.execution_state)?,
                 payload,
-                task_token: row.task_token,
             });
         Ok(Versioned::new(application, version))
     }
@@ -103,14 +95,6 @@ pub(crate) fn bind_business_state(value: PartnerShopApplicationState) -> &'stati
     }
 }
 
-pub(crate) fn bind_execution_state(value: ExecutionState) -> &'static str {
-    match value {
-        ExecutionState::Processing => "PROCESSING",
-        ExecutionState::Waiting => "WAITING",
-        ExecutionState::Completed => "COMPLETED",
-    }
-}
-
 pub(crate) fn bind_payload_type(value: PartnerShopApplicationPayload) -> &'static str {
     match value {
         PartnerShopApplicationPayload::Existing { .. } => "EXISTING",
@@ -118,8 +102,11 @@ pub(crate) fn bind_payload_type(value: PartnerShopApplicationPayload) -> &'stati
     }
 }
 
-pub(crate) fn version_to_i64(version: PartnerShopApplicationStorageVersion) -> i64 {
-    i64::try_from(version.into_inner()).map_or(i64::MAX, |value| value)
+pub(crate) fn version_to_i64(
+    version: PartnerShopApplicationStorageVersion,
+) -> Result<i64, PartnerShopApplicationRowMappingError> {
+    i64::try_from(version.into_inner())
+        .map_err(|_| PartnerShopApplicationRowMappingError::InvalidVersion)
 }
 
 fn parse_business_state(
@@ -135,13 +122,18 @@ fn parse_business_state(
     }
 }
 
-fn parse_execution_state(
-    value: &str,
-) -> Result<ExecutionState, PartnerShopApplicationRowMappingError> {
-    match value {
-        "PROCESSING" => Ok(ExecutionState::Processing),
-        "WAITING" => Ok(ExecutionState::Waiting),
-        "COMPLETED" => Ok(ExecutionState::Completed),
-        _ => Err(PartnerShopApplicationRowMappingError::InvalidExecutionState),
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_reject_storage_version_that_cannot_fit_postgres_integer() {
+        let version = PartnerShopApplicationStorageVersion::try_from(u64::MAX)
+            .map_err(|_| PartnerShopApplicationRowMappingError::InvalidVersion);
+
+        assert!(matches!(
+            version.and_then(version_to_i64),
+            Err(PartnerShopApplicationRowMappingError::InvalidVersion)
+        ));
     }
 }

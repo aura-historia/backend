@@ -53,7 +53,7 @@ impl ShopSearchReader for SqlxShopSearchReader<'_> {
         let mut builder = QueryBuilder::<Postgres>::new("WITH filtered AS (SELECT ");
         builder
             .push(shop_summary_columns())
-            .push(" FROM shops WHERE TRUE");
+            .push(" FROM shops WHERE lifecycle = 'PUBLISHED'");
         push_filters(&mut builder, &request.search);
         builder.push("), ranked AS (SELECT filtered.*, row_number() OVER (ORDER BY ");
         builder.push(field_sql(sort.sort));

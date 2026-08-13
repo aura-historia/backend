@@ -42,19 +42,17 @@ impl WatchlistRow {
 
 pub(crate) fn format_state(state: ResourceState) -> &'static str {
     match state {
-        ResourceState::Active => "Active",
-        ResourceState::InactiveByUser => "InactiveByUser",
-        ResourceState::InactiveByRestrictedPlan => "InactiveByRestrictedPlan",
+        ResourceState::Active => "ACTIVE",
+        ResourceState::InactiveByUser => "INACTIVE_BY_USER",
+        ResourceState::InactiveByRestrictedPlan => "INACTIVE_BY_RESTRICTED_PLAN",
     }
 }
 
 fn parse_state(value: &str) -> Option<ResourceState> {
     match value {
-        "Active" | "active" => Some(ResourceState::Active),
-        "InactiveByUser" | "inactive_by_user" => Some(ResourceState::InactiveByUser),
-        "InactiveByRestrictedPlan" | "inactive_by_restricted_plan" => {
-            Some(ResourceState::InactiveByRestrictedPlan)
-        }
+        "ACTIVE" => Some(ResourceState::Active),
+        "INACTIVE_BY_USER" => Some(ResourceState::InactiveByUser),
+        "INACTIVE_BY_RESTRICTED_PLAN" => Some(ResourceState::InactiveByRestrictedPlan),
         _ => None,
     }
 }
@@ -73,13 +71,13 @@ mod tests {
 
     #[test]
     fn should_format_all_states() {
-        assert_eq!("Active", format_state(ResourceState::Active));
+        assert_eq!("ACTIVE", format_state(ResourceState::Active));
         assert_eq!(
-            "InactiveByUser",
+            "INACTIVE_BY_USER",
             format_state(ResourceState::InactiveByUser)
         );
         assert_eq!(
-            "InactiveByRestrictedPlan",
+            "INACTIVE_BY_RESTRICTED_PLAN",
             format_state(ResourceState::InactiveByRestrictedPlan)
         );
     }

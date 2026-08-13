@@ -43,7 +43,7 @@ async fn should_reconcile_legacy_newest_first_quotas() {
         &pool,
         user_id,
         "old eligible",
-        "Active",
+        "ACTIVE",
         None,
         now - Duration::seconds(30),
     )
@@ -52,7 +52,7 @@ async fn should_reconcile_legacy_newest_first_quotas() {
         &pool,
         user_id,
         "middle eligible",
-        "Active",
+        "ACTIVE",
         None,
         now - Duration::seconds(20),
     )
@@ -61,7 +61,7 @@ async fn should_reconcile_legacy_newest_first_quotas() {
         &pool,
         user_id,
         "newest eligible",
-        "Active",
+        "ACTIVE",
         None,
         now - Duration::seconds(10),
     )
@@ -70,7 +70,7 @@ async fn should_reconcile_legacy_newest_first_quotas() {
         &pool,
         user_id,
         "newest feature restricted",
-        "Active",
+        "ACTIVE",
         Some("gold ring"),
         now,
     )
@@ -92,36 +92,36 @@ async fn should_reconcile_legacy_newest_first_quotas() {
     commit(tx).await;
 
     assert_eq!(
-        "InactiveByRestrictedPlan",
+        "INACTIVE_BY_RESTRICTED_PLAN",
         state_for_search_filter(&pool, old_filter).await
     );
     assert_eq!(
-        "InactiveByRestrictedPlan",
+        "INACTIVE_BY_RESTRICTED_PLAN",
         state_for_search_filter(&pool, middle_filter).await
     );
     assert_eq!(
-        "Active",
+        "ACTIVE",
         state_for_search_filter(&pool, newest_eligible_filter).await
     );
     assert_eq!(
-        "InactiveByRestrictedPlan",
+        "INACTIVE_BY_RESTRICTED_PLAN",
         state_for_search_filter(&pool, newest_restricted_filter).await
     );
     assert_eq!(
         1,
-        count_state(&pool, "search_filters", user_id, "Active").await
+        count_state(&pool, "search_filters", user_id, "ACTIVE").await
     );
     assert_eq!(
-        "InactiveByRestrictedPlan",
+        "INACTIVE_BY_RESTRICTED_PLAN",
         state_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await
     );
     assert_eq!(
-        "Active",
+        "ACTIVE",
         state_for_watchlist_entry(&pool, user_id, watchlist_ids[20]).await
     );
     assert_eq!(
         20,
-        count_state(&pool, "product_watchlist", user_id, "Active").await
+        count_state(&pool, "product_watchlist", user_id, "ACTIVE").await
     );
 }
 
@@ -134,7 +134,7 @@ async fn should_keep_legacy_free_tier_product_exclusions_and_lifecycle_filters_a
     let filter_id = uuid::Uuid::new_v4();
 
     sqlx::query(
-        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency) VALUES ($1, $2, 'legacy-compatible', 'Active', $3, 'en', 'EUR')",
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, state, search, language, currency) VALUES ($1, $2, 'legacy-compatible', 'ACTIVE', $3, 'en', 'EUR')",
     )
     .bind(filter_id)
     .bind(uuid::Uuid::from(user_id))
@@ -159,7 +159,7 @@ async fn should_keep_legacy_free_tier_product_exclusions_and_lifecycle_filters_a
         .unwrap_or_else(|error| panic!("failed to reconcile tier entitlements: {error:?}"));
     commit(tx).await;
 
-    assert_eq!("Active", state_for_search_filter(&pool, filter_id).await);
+    assert_eq!("ACTIVE", state_for_search_filter(&pool, filter_id).await);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -174,7 +174,7 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
         &pool,
         user_id,
         "plan restricted",
-        "InactiveByRestrictedPlan",
+        "INACTIVE_BY_RESTRICTED_PLAN",
         None,
         now,
     )
@@ -183,14 +183,14 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
         &pool,
         user_id,
         "user inactive",
-        "InactiveByUser",
+        "INACTIVE_BY_USER",
         None,
         now - Duration::seconds(1),
     )
     .await;
     let watchlist_ids = seed_watchlist_entries(&pool, user_id, 2, now).await;
     sqlx::query(
-        "UPDATE product_watchlist SET state = 'InactiveByRestrictedPlan' WHERE user_id = $1 AND product_id = $2",
+        "UPDATE product_watchlist SET state = 'INACTIVE_BY_RESTRICTED_PLAN' WHERE user_id = $1 AND product_id = $2",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(watchlist_ids[0])
@@ -198,7 +198,7 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     .await
     .unwrap_or_else(|error| panic!("failed to plan-restrict watchlist entry: {error:?}"));
     sqlx::query(
-        "UPDATE product_watchlist SET state = 'InactiveByUser' WHERE user_id = $1 AND product_id = $2",
+        "UPDATE product_watchlist SET state = 'INACTIVE_BY_USER' WHERE user_id = $1 AND product_id = $2",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(watchlist_ids[1])
@@ -220,19 +220,19 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     commit(tx).await;
 
     assert_eq!(
-        "Active",
+        "ACTIVE",
         state_for_search_filter(&pool, plan_restricted_filter).await
     );
     assert_eq!(
-        "InactiveByUser",
+        "INACTIVE_BY_USER",
         state_for_search_filter(&pool, user_inactive_filter).await
     );
     assert_eq!(
-        "Active",
+        "ACTIVE",
         state_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await
     );
     assert_eq!(
-        "InactiveByUser",
+        "INACTIVE_BY_USER",
         state_for_watchlist_entry(&pool, user_id, watchlist_ids[1]).await
     );
 }
@@ -251,7 +251,7 @@ async fn commit(tx: common::postgres::SqlxTransaction) {
 
 async fn seed_user(pool: &sqlx::PgPool, email: &str, tier: &str) -> UserId {
     let user_id = UserId::new();
-    sqlx::query("INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, $3, 'User')")
+    sqlx::query("INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, $3, 'USER')")
         .bind(uuid::Uuid::from(user_id))
         .bind(email)
         .bind(tier)
@@ -297,7 +297,7 @@ async fn seed_watchlist_entries(
         .await
         .unwrap_or_else(|error| panic!("failed to begin product seed transaction: {error:?}"));
     sqlx::query(
-        "INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'Online', 'None', '{}')",
+        "INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, $3, 'MARKETPLACE', 'SCRAPED', '{}')",
     )
     .bind(shop_id)
     .bind(format!("tier-entitlements-shop-{shop_id}"))
@@ -319,7 +319,7 @@ async fn seed_watchlist_entries(
         .await
         .unwrap_or_else(|error| panic!("failed to seed product event: {error:?}"));
         sqlx::query(
-            "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'Listed', 'Active', 'https://example.com/product')",
+            "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'LISTED', 'ACTIVE', 'https://example.com/product')",
         )
         .bind(product_id)
         .bind(format!("tier-entitlements-product-{product_id}"))
@@ -338,7 +338,7 @@ async fn seed_watchlist_entries(
     for (index, product_id) in product_ids.iter().enumerate() {
         let created = start - Duration::seconds((count - index) as i64);
         sqlx::query(
-            "INSERT INTO product_watchlist (user_id, product_id, state, created, updated) VALUES ($1, $2, 'Active', $3, $3)",
+            "INSERT INTO product_watchlist (user_id, product_id, state, created, updated) VALUES ($1, $2, 'ACTIVE', $3, $3)",
         )
         .bind(uuid::Uuid::from(user_id))
         .bind(product_id)

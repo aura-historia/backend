@@ -37,7 +37,10 @@ impl ShopDetailsReader for SqlxShopDetailsReader<'_> {
     ) -> Result<Option<ShopDetailsView>, ShopDetailsReadError> {
         let row = match request {
             GetShopRequest::ById(shop_id) => {
-                let sql = format!("SELECT {} FROM shops WHERE shop_id = $1", shop_columns());
+                let sql = format!(
+                    "SELECT {} FROM shops WHERE shop_id = $1 AND lifecycle = 'PUBLISHED'",
+                    shop_columns()
+                );
                 sqlx::query_as::<_, ShopRow>(&sql)
                     .bind(uuid::Uuid::from(*shop_id))
                     .fetch_optional(&mut *self.connection)
@@ -45,7 +48,7 @@ impl ShopDetailsReader for SqlxShopDetailsReader<'_> {
             }
             GetShopRequest::BySlug(slug_id) => {
                 let sql = format!(
-                    "SELECT {} FROM shops WHERE shop_slug_id = $1",
+                    "SELECT {} FROM shops WHERE shop_slug_id = $1 AND lifecycle = 'PUBLISHED'",
                     shop_columns()
                 );
                 sqlx::query_as::<_, ShopRow>(&sql)
@@ -55,7 +58,7 @@ impl ShopDetailsReader for SqlxShopDetailsReader<'_> {
             }
             GetShopRequest::ByShopifyDomain(domain) => {
                 let sql = format!(
-                    "SELECT {} FROM shops WHERE shopify_domain = $1",
+                    "SELECT {} FROM shops WHERE shopify_domain = $1 AND lifecycle = 'PUBLISHED'",
                     shop_columns()
                 );
                 sqlx::query_as::<_, ShopRow>(&sql)

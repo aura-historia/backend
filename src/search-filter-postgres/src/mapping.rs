@@ -243,9 +243,9 @@ impl TryFrom<MatchRow> for SearchFilterMatchView {
 
 pub(crate) fn format_state(value: ResourceState) -> &'static str {
     match value {
-        ResourceState::Active => "Active",
-        ResourceState::InactiveByUser => "InactiveByUser",
-        ResourceState::InactiveByRestrictedPlan => "InactiveByRestrictedPlan",
+        ResourceState::Active => "ACTIVE",
+        ResourceState::InactiveByUser => "INACTIVE_BY_USER",
+        ResourceState::InactiveByRestrictedPlan => "INACTIVE_BY_RESTRICTED_PLAN",
     }
 }
 pub(crate) fn user_search_filter_uuid(id: UserSearchFilterId) -> Result<uuid::Uuid, uuid::Error> {
@@ -253,11 +253,9 @@ pub(crate) fn user_search_filter_uuid(id: UserSearchFilterId) -> Result<uuid::Uu
 }
 fn state(v: &str) -> Result<ResourceState, SearchFilterRowMappingError> {
     match v {
-        "Active" | "active" => Ok(ResourceState::Active),
-        "InactiveByUser" | "inactive_by_user" => Ok(ResourceState::InactiveByUser),
-        "InactiveByRestrictedPlan" | "inactive_by_restricted_plan" => {
-            Ok(ResourceState::InactiveByRestrictedPlan)
-        }
+        "ACTIVE" => Ok(ResourceState::Active),
+        "INACTIVE_BY_USER" => Ok(ResourceState::InactiveByUser),
+        "INACTIVE_BY_RESTRICTED_PLAN" => Ok(ResourceState::InactiveByRestrictedPlan),
         _ => Err(SearchFilterRowMappingError::InvalidState),
     }
 }
@@ -563,7 +561,7 @@ mod tests {
             user_id: uuid::Uuid::nil(),
             name: "x".repeat(256),
             notifications: true,
-            state: "Active".to_owned(),
+            state: "ACTIVE".to_owned(),
             search,
             embedding: None,
             created: OffsetDateTime::UNIX_EPOCH,

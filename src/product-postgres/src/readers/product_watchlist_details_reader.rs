@@ -701,4 +701,11 @@ mod tests {
 
         assert!(result.is_err());
     }
+
+    #[test]
+    fn should_reject_invalid_persisted_product_state() {
+        let result = product_state("BROKEN");
+
+        assert!(result.is_err());
+    }
 }

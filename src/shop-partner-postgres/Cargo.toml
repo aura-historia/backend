@@ -10,7 +10,6 @@ shop-core = { workspace = true }
 shop-partner-core = { workspace = true }
 shop-partner-service = { workspace = true }
 shop-service = { workspace = true }
-shop-postgres = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }
@@ -18,6 +17,8 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 geo = { workspace = true }
+notification-service = { workspace = true }
+shop-postgres = { workspace = true }
 isocountry = { workspace = true }
 rstest = { workspace = true }
 serial_test = { workspace = true }

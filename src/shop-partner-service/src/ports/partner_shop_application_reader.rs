@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use crate::ports::PartnerShopApplicationRepositoryError;
-use common::execution_state::domain::ExecutionState;
 use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
 };
@@ -13,7 +12,6 @@ pub struct PartnerShopApplicationView {
     pub id: PartnerShopApplicationId,
     pub applicant_user_id: UserId,
     pub business_state: PartnerShopApplicationState,
-    pub execution_state: ExecutionState,
     pub payload: PartnerShopApplicationPayload,
     pub shop_id: ShopId,
 }

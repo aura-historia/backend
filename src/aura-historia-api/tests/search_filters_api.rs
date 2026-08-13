@@ -277,7 +277,7 @@ async fn should_serialize_concurrent_search_filter_creates_at_free_quota() {
     );
     let pool = get_postgres_client().await;
     let active_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM search_filters WHERE user_id = $1 AND state = 'Active'",
+        "SELECT count(*) FROM search_filters WHERE user_id = $1 AND state = 'ACTIVE'",
     )
     .bind(uuid::Uuid::from(user_id))
     .fetch_one(&pool)
@@ -296,7 +296,7 @@ async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota()
     let second_filter_id = uuid::Uuid::new_v4();
 
     sqlx::query(
-        "UPDATE search_filters SET state = 'InactiveByUser' WHERE user_search_filter_id = $1",
+        "UPDATE search_filters SET state = 'INACTIVE_BY_USER' WHERE user_search_filter_id = $1",
     )
     .bind(
         uuid::Uuid::parse_str(&first_filter_id)
@@ -306,7 +306,7 @@ async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota()
     .await
     .unwrap_or_else(|error| panic!("failed to inactivate first search filter: {error}"));
     sqlx::query(
-        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, enhanced_search_description, embedding, language, currency, version, created, updated, last_hybrid_search_matched) SELECT $1, user_id, 'Second alerts', notifications, 'InactiveByUser', search, enhanced_search_description, embedding, language, currency, version, created, updated, last_hybrid_search_matched FROM search_filters WHERE user_search_filter_id = $2",
+        "INSERT INTO search_filters (user_search_filter_id, user_id, name, notifications, state, search, enhanced_search_description, embedding, language, currency, version, created, updated, last_hybrid_search_matched) SELECT $1, user_id, 'Second alerts', notifications, 'INACTIVE_BY_USER', search, enhanced_search_description, embedding, language, currency, version, created, updated, last_hybrid_search_matched FROM search_filters WHERE user_search_filter_id = $2",
     )
     .bind(second_filter_id)
     .bind(uuid::Uuid::parse_str(&first_filter_id).unwrap_or_else(|error| {
@@ -352,7 +352,7 @@ async fn should_serialize_concurrent_search_filter_reactivations_at_free_quota()
         statuses
     );
     let active_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM search_filters WHERE user_id = $1 AND state = 'Active'",
+        "SELECT count(*) FROM search_filters WHERE user_id = $1 AND state = 'ACTIVE'",
     )
     .bind(uuid::Uuid::from(user_id))
     .fetch_one(&pool)

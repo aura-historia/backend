@@ -27,6 +27,7 @@ pub const OPENSEARCH_USERNAME_ENV: &str = "OPENSEARCH_USERNAME";
 pub const OPENSEARCH_PASSWORD_ENV: &str = "OPENSEARCH_PASSWORD";
 pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
+pub const VERTEX_AI_MODEL_ENV: &str = "VERTEX_AI_MODEL";
 
 const DEFAULT_WORKER_HEALTH_BIND_ADDR: &str = "0.0.0.0:8081";
 const DEFAULT_LOCAL_WORKER_SCOPE: &str = "search-filter-projection";
@@ -158,6 +159,7 @@ impl WorkerDynamoDbConfig {
 pub struct WorkerVertexAiConfig {
     project_id: String,
     location: String,
+    model: String,
 }
 
 impl WorkerVertexAiConfig {
@@ -167,6 +169,10 @@ impl WorkerVertexAiConfig {
 
     pub fn location(&self) -> &str {
         &self.location
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
     }
 }
 
@@ -204,6 +210,7 @@ impl WorkerStartupConfig {
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
+                    model: required_env(&mut get, VERTEX_AI_MODEL_ENV)?,
                 }),
             ),
             WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => (
@@ -738,6 +745,7 @@ mod tests {
         if scope == WorkerScope::SearchFilterPercolator {
             values.insert(VERTEX_AI_PROJECT_ID_ENV, "aura-historia-dev".to_owned());
             values.insert(VERTEX_AI_LOCATION_ENV, "europe-west3".to_owned());
+            values.insert(VERTEX_AI_MODEL_ENV, "gemini-3.1-flash-lite".to_owned());
         }
     }
 
@@ -875,6 +883,7 @@ mod tests {
     #[rstest]
     #[case(VERTEX_AI_PROJECT_ID_ENV)]
     #[case(VERTEX_AI_LOCATION_ENV)]
+    #[case(VERTEX_AI_MODEL_ENV)]
     fn should_require_vertex_configuration_for_production_percolator(
         #[case] missing_env: &'static str,
     ) {

@@ -1,6 +1,6 @@
 use crate::mapping::{
-    APPLICATION_COLUMNS, PartnerShopApplicationRow, bind_business_state, bind_execution_state,
-    bind_payload_type, version_to_i64,
+    APPLICATION_COLUMNS, PartnerShopApplicationRow, bind_business_state, bind_payload_type,
+    version_to_i64,
 };
 use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
@@ -96,9 +96,9 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
         let sql = format!(
             r#"
             INSERT INTO partner_shop_applications (
-                partner_shop_application_id, applicant_user_id, business_state, execution_state,
-                payload_type, shop_id, task_token
-            ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+                partner_shop_application_id, applicant_user_id, business_state,
+                payload_type, shop_id
+            ) VALUES ($1::uuid, $2, $3, $4, $5)
             RETURNING {}
             "#,
             APPLICATION_COLUMNS
@@ -108,10 +108,8 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
             .bind(application.id().to_string())
             .bind(uuid::Uuid::from(application.applicant_user_id()))
             .bind(bind_business_state(application.business_state()))
-            .bind(bind_execution_state(application.execution_state()))
             .bind(bind_payload_type(application.payload()))
             .bind(uuid::Uuid::from(application.shop_id()))
-            .bind(application.task_token())
             .fetch_one(&mut *self.connection)
             .await
             .map_err(PartnerShopApplicationWriteSqlxError)?;
@@ -131,26 +129,27 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
             r#"
             UPDATE partner_shop_applications
             SET business_state = $1,
-                execution_state = $2,
-                payload_type = $3,
-                shop_id = $4,
-                task_token = $5,
+                payload_type = $2,
+                shop_id = $3,
                 version = version + 1,
                 updated = now()
-            WHERE partner_shop_application_id = $6::uuid AND version = $7
+            WHERE partner_shop_application_id = $4::uuid AND version = $5
             RETURNING {}
             "#,
             APPLICATION_COLUMNS
         );
 
+        let expected_version = version_to_i64(expected_version).map_err(|source| {
+            PartnerShopApplicationRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            }
+        })?;
         let row = sqlx::query_as::<_, PartnerShopApplicationRow>(&sql)
             .bind(bind_business_state(application.business_state()))
-            .bind(bind_execution_state(application.execution_state()))
             .bind(bind_payload_type(application.payload()))
             .bind(uuid::Uuid::from(application.shop_id()))
-            .bind(application.task_token())
             .bind(application.id().to_string())
-            .bind(version_to_i64(expected_version))
+            .bind(expected_version)
             .fetch_optional(&mut *self.connection)
             .await
             .map_err(PartnerShopApplicationWriteSqlxError)?
@@ -167,9 +166,14 @@ impl PartnerShopApplicationRepository for SqlxPartnerShopApplicationRepository<'
         id: PartnerShopApplicationId,
         expected_version: PartnerShopApplicationStorageVersion,
     ) -> Result<(), PartnerShopApplicationRepositoryError> {
+        let expected_version = version_to_i64(expected_version).map_err(|source| {
+            PartnerShopApplicationRepositoryError::InvalidPersistedState {
+                source: box_error(source),
+            }
+        })?;
         let result = sqlx::query("DELETE FROM partner_shop_applications WHERE partner_shop_application_id = $1::uuid AND version = $2")
             .bind(id.to_string())
-            .bind(version_to_i64(expected_version))
+            .bind(expected_version)
             .execute(&mut *self.connection)
             .await
             .map_err(PartnerShopApplicationWriteSqlxError)?;

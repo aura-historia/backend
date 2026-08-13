@@ -572,7 +572,7 @@ async fn seed_shop() -> Shop {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let repositories = SqlxShopRepositoryFactory::new();
-    let shop = Shop::create(NewShop {
+    let mut shop = Shop::create(NewShop {
         id: ShopId::new(),
         name: ShopName::from("API Integration Shop"),
         shop_type: ShopType::CommercialDealer,
@@ -596,6 +596,7 @@ async fn seed_shop() -> Shop {
         partner_status: ShopPartnerStatus::Partnered,
         affiliate_configuration: None,
     });
+    let _ = shop.publish();
 
     let mut tx = match unit_of_work.begin().await {
         Ok(tx) => tx,

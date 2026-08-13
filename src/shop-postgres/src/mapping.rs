@@ -288,6 +288,7 @@ pub(crate) fn bind_lifecycle(value: ShopLifecycle) -> &'static str {
     match value {
         ShopLifecycle::Drafted => "DRAFTED",
         ShopLifecycle::Published => "PUBLISHED",
+        ShopLifecycle::Discarded => "DISCARDED",
     }
 }
 
@@ -549,6 +550,7 @@ fn parse_lifecycle(value: &str) -> Result<ShopLifecycle, ShopRowMappingError> {
     match value {
         "DRAFTED" => Ok(ShopLifecycle::Drafted),
         "PUBLISHED" => Ok(ShopLifecycle::Published),
+        "DISCARDED" => Ok(ShopLifecycle::Discarded),
         _ => Err(ShopRowMappingError::InvalidLifecycle),
     }
 }

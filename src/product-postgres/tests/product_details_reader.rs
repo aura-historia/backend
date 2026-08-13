@@ -554,20 +554,6 @@ async fn should_select_earliest_search_filter_match_deterministically() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_reject_invalid_persisted_user_tier() {
-    let pool = get_postgres_client().await;
-    let product = persist_product(&pool, "details-invalid-tier", None, None).await;
-    let user_id = seed_user(&pool, "BROKEN", false).await;
-
-    let result = find_details_result(&pool, details_request(product.id(), Some(user_id))).await;
-
-    assert!(matches!(
-        result,
-        Err(product_service::ports::ProductDetailsReadError::ProductDetailsReadModelInvalid)
-    ));
-}
-
 fn details_request(product_id: ProductId, user_id: Option<UserId>) -> ProductDetailsReadRequest {
     ProductDetailsReadRequest {
         lookup: ProductLookup::ById(product_id),

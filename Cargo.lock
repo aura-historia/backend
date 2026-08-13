@@ -233,7 +233,9 @@ dependencies = [
  "isocountry",
  "jsonwebtokens",
  "mockall",
+ "notification-core",
  "notification-dynamodb",
+ "notification-service",
  "oauth-core",
  "oauth-dynamodb",
  "oauth-service",
@@ -264,6 +266,7 @@ dependencies = [
  "time",
  "tokio",
  "tower",
+ "tower-http",
  "tracing",
  "url",
  "user-core",
@@ -292,6 +295,8 @@ dependencies = [
  "fxrate",
  "fxrate-lambda",
  "geo",
+ "image-fetcher",
+ "large-language-model",
  "newsletter-api",
  "notification",
  "notification-api",
@@ -364,6 +369,7 @@ dependencies = [
  "common",
  "google-cloud-auth",
  "indexmap 2.14.0",
+ "large-language-model",
  "notification-core",
  "notification-dynamodb",
  "notification-service",
@@ -2580,8 +2586,8 @@ name = "embedding"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "base64 0.23.0",
  "google-cloud-auth",
+ "image-fetcher",
  "lru 0.16.4",
  "reqwest 0.12.28",
  "serde",
@@ -3823,6 +3829,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "image-fetcher"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.0",
+ "reqwest 0.12.28",
+ "thiserror 2.0.19",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "imagesize"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4092,6 +4109,23 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "large-language-model"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "futures",
+ "google-cloud-auth",
+ "image-fetcher",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -6139,6 +6173,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "embedding",
  "fake",
  "geo",
  "indexmap 2.14.0",
@@ -7183,17 +7218,13 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
- "embedding",
- "futures",
  "geo",
- "google-cloud-auth",
  "indexmap 2.14.0",
  "isocountry",
  "opensearch",
  "product-core",
  "product-opensearch",
  "product-service",
- "reqwest 0.12.28",
  "search-filter-core",
  "search-filter-service",
  "serde",
@@ -7263,14 +7294,17 @@ dependencies = [
  "async-trait",
  "common",
  "embedding",
+ "futures",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
+ "large-language-model",
  "notification-core",
  "notification-service",
  "product-core",
  "product-service",
  "search-filter-core",
+ "serde",
  "serde_json",
  "shop-core",
  "thiserror 2.0.19",
@@ -7845,6 +7879,7 @@ dependencies = [
  "common",
  "geo",
  "isocountry",
+ "notification-service",
  "rstest",
  "serde-email",
  "serial_test",
@@ -7872,6 +7907,8 @@ dependencies = [
  "common",
  "fake",
  "geo",
+ "notification-core",
+ "notification-service",
  "serde",
  "serde-email",
  "shop-core",
@@ -9186,6 +9223,7 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
  "url",
 ]
 
