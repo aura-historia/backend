@@ -2,6 +2,10 @@ use crate::auth::AuthError;
 use axum::Json;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use billing_service::use_cases::{
+    CreateBillingCheckoutSessionError, CreateBillingManagementSessionError,
+    CreateBillingPortalSessionError,
+};
 use oauth_service::error::OAuthServiceError;
 use product_service::use_cases::{
     CreateProductError, DeleteProductError, GetProductError, GetProductEventsError,
@@ -71,6 +75,16 @@ pub(crate) const ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE");
 pub(crate) const INVALID_CREDENTIALS: ApiErrorCode = ApiErrorCode("INVALID_CREDENTIALS");
 pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
+pub(crate) const BILLING_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("BILLING_INTERNAL_ERROR");
+pub(crate) const BILLING_PROVIDER_FAILURE: ApiErrorCode = ApiErrorCode("BILLING_PROVIDER_FAILURE");
+pub(crate) const BILLING_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("BILLING_TEMPORARILY_UNAVAILABLE");
+pub(crate) const STRIPE_CUSTOMER_ALREADY_EXISTS: ApiErrorCode =
+    ApiErrorCode("STRIPE_CUSTOMER_ALREADY_EXISTS");
+pub(crate) const STRIPE_CUSTOMER_ASSOCIATION_CONFLICT: ApiErrorCode =
+    ApiErrorCode("STRIPE_CUSTOMER_ASSOCIATION_CONFLICT");
+pub(crate) const STRIPE_CUSTOMER_DOES_NOT_EXIST: ApiErrorCode =
+    ApiErrorCode("STRIPE_CUSTOMER_DOES_NOT_EXIST");
 pub(crate) const BAD_ORDER_VALUE: ApiErrorCode = ApiErrorCode("BAD_ORDER_VALUE");
 pub(crate) const BAD_PATH_PARAMETER_VALUE: ApiErrorCode = ApiErrorCode("BAD_PATH_PARAMETER_VALUE");
 pub(crate) const BAD_QUERY_PARAMETER_VALUE: ApiErrorCode =
@@ -1679,6 +1693,125 @@ impl From<CheckUserPartnerShopError> for ApiError {
             | CheckUserPartnerShopError::Internal { .. } => {
                 ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
                     .with_detail("Partner shop details failed internally.")
+            }
+        }
+    }
+}
+
+impl From<CreateBillingCheckoutSessionError> for ApiError {
+    fn from(error: CreateBillingCheckoutSessionError) -> Self {
+        match error {
+            CreateBillingCheckoutSessionError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreateBillingCheckoutSessionError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreateBillingCheckoutSessionError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            CreateBillingCheckoutSessionError::StripeCustomerAlreadyExists => {
+                ApiError::conflict(STRIPE_CUSTOMER_ALREADY_EXISTS)
+                    .with_detail("A Stripe customer is already associated with this user.")
+            }
+            CreateBillingCheckoutSessionError::StripeCustomerAssociationConflict => {
+                ApiError::conflict(STRIPE_CUSTOMER_ASSOCIATION_CONFLICT)
+                    .with_detail("Stripe customer association conflicts with current user state.")
+            }
+            CreateBillingCheckoutSessionError::ConcurrencyConflict => {
+                ApiError::conflict(CONFLICT).with_detail("Billing state changed concurrently.")
+            }
+            CreateBillingCheckoutSessionError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(BILLING_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Billing is temporarily unavailable.")
+            }
+            CreateBillingCheckoutSessionError::ProviderRejected { .. }
+            | CreateBillingCheckoutSessionError::ProviderInvalidResponse { .. } => {
+                ApiError::internal_server_error(BILLING_PROVIDER_FAILURE)
+                    .with_detail("Billing provider could not create a session.")
+            }
+            CreateBillingCheckoutSessionError::Internal { .. } => {
+                ApiError::internal_server_error(BILLING_INTERNAL_ERROR)
+                    .with_detail("Billing failed internally.")
+            }
+        }
+    }
+}
+
+impl From<CreateBillingPortalSessionError> for ApiError {
+    fn from(error: CreateBillingPortalSessionError) -> Self {
+        match error {
+            CreateBillingPortalSessionError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreateBillingPortalSessionError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreateBillingPortalSessionError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            CreateBillingPortalSessionError::StripeCustomerDoesNotExist => {
+                ApiError::unprocessable_content(STRIPE_CUSTOMER_DOES_NOT_EXIST)
+                    .with_detail("No Stripe customer is associated with this user.")
+            }
+            CreateBillingPortalSessionError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(BILLING_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Billing is temporarily unavailable.")
+            }
+            CreateBillingPortalSessionError::ProviderRejected { .. }
+            | CreateBillingPortalSessionError::ProviderInvalidResponse { .. } => {
+                ApiError::internal_server_error(BILLING_PROVIDER_FAILURE)
+                    .with_detail("Billing provider could not create a session.")
+            }
+            CreateBillingPortalSessionError::Internal { .. } => {
+                ApiError::internal_server_error(BILLING_INTERNAL_ERROR)
+                    .with_detail("Billing failed internally.")
+            }
+        }
+    }
+}
+
+impl From<CreateBillingManagementSessionError> for ApiError {
+    fn from(error: CreateBillingManagementSessionError) -> Self {
+        match error {
+            CreateBillingManagementSessionError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            CreateBillingManagementSessionError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            CreateBillingManagementSessionError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            CreateBillingManagementSessionError::StripeCustomerDoesNotExist => {
+                ApiError::unprocessable_content(STRIPE_CUSTOMER_DOES_NOT_EXIST)
+                    .with_detail("No Stripe customer is associated with this user.")
+            }
+            CreateBillingManagementSessionError::StripeCustomerAssociationConflict => {
+                ApiError::conflict(STRIPE_CUSTOMER_ASSOCIATION_CONFLICT)
+                    .with_detail("Stripe customer association conflicts with current user state.")
+            }
+            CreateBillingManagementSessionError::ConcurrencyConflict => {
+                ApiError::conflict(CONFLICT).with_detail("Billing state changed concurrently.")
+            }
+            CreateBillingManagementSessionError::TemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(BILLING_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Billing is temporarily unavailable.")
+            }
+            CreateBillingManagementSessionError::ProviderRejected { .. }
+            | CreateBillingManagementSessionError::ProviderInvalidResponse { .. } => {
+                ApiError::internal_server_error(BILLING_PROVIDER_FAILURE)
+                    .with_detail("Billing provider could not create a session.")
+            }
+            CreateBillingManagementSessionError::Internal { .. } => {
+                ApiError::internal_server_error(BILLING_INTERNAL_ERROR)
+                    .with_detail("Billing failed internally.")
             }
         }
     }

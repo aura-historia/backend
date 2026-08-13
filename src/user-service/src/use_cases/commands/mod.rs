@@ -1,4 +1,5 @@
 pub mod apply_stripe_subscription;
+pub mod associate_user_stripe_customer_id;
 pub mod change_user_role;
 pub mod change_user_tier;
 pub mod create_access_token;

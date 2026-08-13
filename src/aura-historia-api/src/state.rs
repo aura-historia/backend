@@ -1,5 +1,9 @@
 use crate::auth::TokenAuthenticator;
 use async_trait::async_trait;
+use billing_service::use_cases::{
+    CreateBillingCheckoutSessionUseCase, CreateBillingManagementSessionUseCase,
+    CreateBillingPortalSessionUseCase,
+};
 use oauth_service::use_cases::{
     AuthorizeUseCase, CreateOAuthClientUseCase, DeleteOAuthClientUseCase, GetOAuthClientUseCase,
     IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
@@ -68,6 +72,7 @@ pub struct AppState {
     pub(crate) partner_applications: Option<PartnerApplicationsState>,
     pub(crate) oauth: Option<OAuthState>,
     pub(crate) search_filters: Option<SearchFiltersState>,
+    pub(crate) billing: Option<BillingState>,
 }
 
 impl AppState {
@@ -87,6 +92,7 @@ impl AppState {
             partner_applications: Some(partner_applications),
             oauth: None,
             search_filters: None,
+            billing: None,
         }
     }
 
@@ -101,6 +107,7 @@ impl AppState {
             partner_applications: None,
             oauth: None,
             search_filters: None,
+            billing: None,
         }
     }
 
@@ -127,6 +134,35 @@ impl AppState {
     pub fn with_search_filters(mut self, search_filters: SearchFiltersState) -> Self {
         self.search_filters = Some(search_filters);
         self
+    }
+
+    pub fn with_billing(mut self, billing: BillingState) -> Self {
+        self.billing = Some(billing);
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct BillingState {
+    pub(crate) checkout: Arc<dyn CreateBillingCheckoutSessionUseCase>,
+    pub(crate) portal: Arc<dyn CreateBillingPortalSessionUseCase>,
+    pub(crate) manage: Arc<dyn CreateBillingManagementSessionUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl BillingState {
+    pub fn new(
+        checkout: Arc<dyn CreateBillingCheckoutSessionUseCase>,
+        portal: Arc<dyn CreateBillingPortalSessionUseCase>,
+        manage: Arc<dyn CreateBillingManagementSessionUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            checkout,
+            portal,
+            manage,
+            authenticator,
+        }
     }
 }
 

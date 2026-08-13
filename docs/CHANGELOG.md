@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- Canonical billing route implementations are now available in `aura-historia-api` for `POST /api/v1/me/billing/checkout`, `/portal`, and `/manage`; legacy `stripe-api` remains the deployed Gateway target during migration because the Axum runtime ingress cutover is not yet provisioned. The canonical routes use PostgreSQL User state and Stripe billing use cases. Cognito JWTs and Aura Historia access tokens are supported; delegated access tokens require `users:read`. Checkout customer association is committed before its Stripe session is created, so a later session failure leaves the customer association for safe management retry.
+
 - Partner application decisions now use the canonical PostgreSQL state machine. `APPROVE` atomically publishes and partners the shop, grants applicant membership, and completes the application. `REJECT` and applicant withdrawal discard the unused draft shop created for a new-shop application.
 - Partner application responses no longer expose Step Functions execution state, and admin review no longer accepts a task token. Decision requests accept only typed `APPROVE` or `REJECT` values; unknown values return `400`.
 - Decision notifications are emitted after commit with the application ID as their idempotent origin key, so retrying a committed decision safely retries notification delivery. This is caller-retry delivery; a durable notification outbox is not yet implemented.

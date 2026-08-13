@@ -223,6 +223,8 @@ dependencies = [
  "aws-sdk-dynamodb",
  "axum",
  "base64 0.23.0",
+ "billing-service",
+ "billing-stripe",
  "common",
  "embedding",
  "geo",
@@ -1352,6 +1354,36 @@ name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
+name = "billing-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "serde-email",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "user-service",
+]
+
+[[package]]
+name = "billing-stripe"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "billing-service",
+ "common",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "url",
+]
 
 [[package]]
 name = "bitflags"

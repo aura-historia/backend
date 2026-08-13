@@ -5,14 +5,24 @@ use aura_historia_api::auth::{
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, OAuthState, PartnerApplicationsState, PartnerProductsState, ProductsState,
-    SearchFiltersState, ShopsState, UsersState, WatchlistState,
+    AppState, BillingState, OAuthState, PartnerApplicationsState, PartnerProductsState,
+    ProductsState, SearchFiltersState, ShopsState, UsersState, WatchlistState,
 };
 use aura_historia_api::{app, state};
+use billing_service::ports::{
+    CreateStripeCheckoutSessionRequest, CreateStripeCustomerRequest,
+    CreateStripePortalSessionRequest, StripeBillingError, StripeCheckoutSessionCreator,
+    StripeCustomerCreator, StripePortalSessionCreator,
+};
+use billing_service::use_cases::{
+    BillingPriceIds, CreateBillingCheckoutSessionHandler, CreateBillingManagementSessionHandler,
+    CreateBillingPortalSessionHandler,
+};
 use common::domain::Domain;
 use common::postgres::SqlxUnitOfWork;
 use common::product_id::ProductId;
 use common::shop_id::ShopId;
+use common::stripe_customer_id::StripeCustomerId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingInput, EmbeddingVector};
@@ -82,6 +92,7 @@ use user_core::access_token::{
 use user_core::tier::UserTier;
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_service::ports::AccessTokenStore;
+use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierHandler;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenHandler;
@@ -115,6 +126,45 @@ impl EmbeddingGenerator for TestEmbeddingGenerator {
                 reason: "test embedding failure",
             }),
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TestStripeBilling;
+
+#[async_trait::async_trait]
+impl StripeCustomerCreator for TestStripeBilling {
+    async fn create_customer(
+        &self,
+        request: CreateStripeCustomerRequest,
+    ) -> Result<StripeCustomerId, StripeBillingError> {
+        Ok(StripeCustomerId::from(format!("cus_{}", request.user_id)))
+    }
+}
+
+#[async_trait::async_trait]
+impl StripeCheckoutSessionCreator for TestStripeBilling {
+    async fn create_checkout_session(
+        &self,
+        request: CreateStripeCheckoutSessionRequest,
+    ) -> Result<Url, StripeBillingError> {
+        Ok(url(&format!(
+            "https://checkout.stripe.test/{}/{}",
+            request.stripe_customer_id, request.price_id
+        )))
+    }
+}
+
+#[async_trait::async_trait]
+impl StripePortalSessionCreator for TestStripeBilling {
+    async fn create_portal_session(
+        &self,
+        request: CreateStripePortalSessionRequest,
+    ) -> Result<Url, StripeBillingError> {
+        Ok(url(&format!(
+            "https://billing.stripe.test/{}",
+            request.stripe_customer_id
+        )))
     }
 }
 
@@ -629,7 +679,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             user_postgres::SqlxUserAdminReaderFactory::new(),
         )),
         Arc::new(AdminDecidePartnerShopApplicationHandler::new(
-            unit_of_work,
+            unit_of_work.clone(),
             SqlxPartnerShopApplicationRepositoryFactory::new(),
             shop_postgres::SqlxShopRepositoryFactory::new(),
             SqlxUserPartnerShopMembershipRepositoryFactory::new(),
@@ -638,6 +688,50 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
                 get_dynamodb_client().await.clone(),
                 "table_1",
             )),
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
+
+    let billing_prices = BillingPriceIds {
+        pro_monthly: "price_pro_monthly".to_owned(),
+        pro_yearly: "price_pro_yearly".to_owned(),
+        ultimate_monthly: "price_ultimate_monthly".to_owned(),
+        ultimate_yearly: "price_ultimate_yearly".to_owned(),
+    };
+    let billing_state = BillingState::new(
+        Arc::new(CreateBillingCheckoutSessionHandler::new(
+            GetOwnUserHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAccountReaderFactory::new(),
+            ),
+            AssociateUserStripeCustomerIdHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserRepositoryFactory::new(),
+            ),
+            TestStripeBilling,
+            TestStripeBilling,
+            billing_prices.clone(),
+        )),
+        Arc::new(CreateBillingPortalSessionHandler::new(
+            GetOwnUserHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAccountReaderFactory::new(),
+            ),
+            TestStripeBilling,
+        )),
+        Arc::new(CreateBillingManagementSessionHandler::new(
+            GetOwnUserHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserAccountReaderFactory::new(),
+            ),
+            AssociateUserStripeCustomerIdHandler::new(
+                unit_of_work.clone(),
+                user_postgres::SqlxUserRepositoryFactory::new(),
+            ),
+            TestStripeBilling,
+            TestStripeBilling,
+            TestStripeBilling,
+            billing_prices,
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
@@ -674,6 +768,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         .with_partner_products(partner_products_state)
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)
+        .with_billing(billing_state)
 }
 
 struct RejectJwtAuthenticator;

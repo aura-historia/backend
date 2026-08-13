@@ -7,6 +7,11 @@ pub use commands::apply_stripe_subscription::{
     ApplyStripeSubscriptionCommand, ApplyStripeSubscriptionError, ApplyStripeSubscriptionHandler,
     ApplyStripeSubscriptionResult, ApplyStripeSubscriptionTarget, ApplyStripeSubscriptionUseCase,
 };
+pub use commands::associate_user_stripe_customer_id::{
+    AssociateUserStripeCustomerIdCommand, AssociateUserStripeCustomerIdError,
+    AssociateUserStripeCustomerIdHandler, AssociateUserStripeCustomerIdResult,
+    AssociateUserStripeCustomerIdUseCase,
+};
 pub use commands::change_user_role::{
     ChangeUserRoleCommand, ChangeUserRoleError, ChangeUserRoleHandler, ChangeUserRoleResult,
     ChangeUserRoleUseCase,
