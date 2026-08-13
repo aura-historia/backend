@@ -580,5 +580,73 @@
       "auction_start": null,
       "auction_end": null
     }
+  },
+  {
+    "html": "tests/fixtures/html/georgianantiques_available.html",
+    "raw_state": "instock",
+    "state_record": "AVAILABLE",
+    "schema": {
+      "shops_product_id": {
+        "selector": ".summary .sku",
+        "type": "text"
+      },
+      "title": {
+        "selector": "h1.product_title",
+        "type": "text"
+      },
+      "description": {
+        "selector": "#tab-description > p",
+        "type": "text"
+      },
+      "price": {
+        "selector": "meta[property='product:price:amount']",
+        "type": "attribute",
+        "name": "content"
+      },
+      "state": {
+        "selector": "meta[property='product:availability']",
+        "type": "attribute",
+        "name": "content"
+      },
+      "images": {
+        "selector": "#wpgs-gallery img, .wcgs-woocommerce-product-gallery img",
+        "type": "attribute",
+        "name": "src",
+        "cardinality": "all"
+      },
+      "default_currency": "GBP"
+    },
+    "raw": {
+      "shops_product_id": "23175",
+      "title": "Pair of Mid-Victorian Figured Mahogany Three-Drawer Jewellery Drawers.",
+      "description": [
+        "Circa 1870. Pair of Mid-Victorian figured mahogany three-drawer Jewellery drawers. The rectangular tops in figured mahogany with moulded edges above three drawers with original finely turned knobs, mahogany drawer linings and fine dovetails(sign of quality). With column sides and sitting on neat, fluted, moulded bases"
+      ],
+      "price": "550",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "instock",
+      "images": [],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "23175",
+      "title": "Pair of Mid-Victorian Figured Mahogany Three-Drawer Jewellery Drawers",
+      "description": "Circa 1870. Pair of Mid-Victorian figured mahogany three-drawer Jewellery drawers. The rectangular tops in figured mahogany with moulded edges above three drawers with original finely turned knobs, mahogany drawer linings and fine dovetails(sign of quality). With column sides and sitting on neat, fluted, moulded bases",
+      "price": 55000,
+      "price_currency": "GBP",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "AVAILABLE",
+      "url": "https://www.georgianantiques.net/product/pair-of-mid-victorian-figured-mahogany-three-drawer-jewellery-drawers/",
+      "images": [],
+      "auction_start": null,
+      "auction_end": null
+    }
   }
 ]
