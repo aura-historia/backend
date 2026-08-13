@@ -418,7 +418,7 @@ fn search_filter(user_id: UserId, query: &str) -> Result<SearchFilter, Box<dyn s
 async fn seed_user(pool: &sqlx::PgPool) -> Result<UserId, sqlx::Error> {
     let user_id = UserId::new();
     sqlx::query(
-        "INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'Ultimate', 'User')",
+        "INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'ULTIMATE', 'USER')",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(format!("sequin-worker-acceptance-{user_id}@example.com"))

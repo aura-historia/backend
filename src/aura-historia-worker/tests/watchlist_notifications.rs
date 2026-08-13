@@ -346,7 +346,7 @@ impl WatchlistWorker {
 async fn seed_user(pool: &sqlx::PgPool, label: &str) -> Result<UserId, sqlx::Error> {
     let user_id = UserId::new();
     sqlx::query(
-        "INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'Ultimate', 'User')",
+        "INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'ULTIMATE', 'USER')",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(format!("worker-watchlist-{label}-{user_id}@example.test"))
