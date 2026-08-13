@@ -3,6 +3,10 @@ pub mod commands;
 pub mod queries;
 
 pub use crate::ports::UserDetailsView;
+pub use commands::apply_stripe_subscription::{
+    ApplyStripeSubscriptionCommand, ApplyStripeSubscriptionError, ApplyStripeSubscriptionHandler,
+    ApplyStripeSubscriptionResult, ApplyStripeSubscriptionTarget, ApplyStripeSubscriptionUseCase,
+};
 pub use commands::change_user_role::{
     ChangeUserRoleCommand, ChangeUserRoleError, ChangeUserRoleHandler, ChangeUserRoleResult,
     ChangeUserRoleUseCase,

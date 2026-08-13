@@ -215,7 +215,7 @@ These AWS event flows stay:
 | DynamoDB notification insert | Stream/EventBridge/SQS | `notification-send` Lambda |
 | EventBridge schedule | cron | `fxrate-lambda` |
 | Shopify partner EventBridge/SQS | Shopify product events | `shopify-lambda`; this is external intake buffering before sync Postgres product/event writes, not the removed product command queue. |
-| Stripe partner EventBridge | subscription events | `stripe-lambda` |
+| Stripe partner EventBridge | subscription events | `stripe-lambda`; Lambda invokes canonical User service handlers with direct Postgres adapters for atomic user tier/customer updates. |
 | Step Functions | partner app workflow | `partner-shop-application-lambda`; Lambda writes Postgres business rows directly. |
 | CloudWatch log group events | EventBridge | CloudWatch log-retention Lambda |
 

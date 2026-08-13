@@ -8541,19 +8541,23 @@ dependencies = [
 name = "stripe-lambda"
 version = "0.1.0"
 dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
+ "async-trait",
  "aws_lambda_events",
  "common",
- "fake",
  "lambda_runtime",
- "rstest",
  "serde",
+ "serde-email",
  "serde_json",
+ "serial_test",
+ "sqlx",
+ "test-api",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "user",
+ "user-core",
+ "user-postgres",
+ "user-service",
+ "uuid",
 ]
 
 [[package]]

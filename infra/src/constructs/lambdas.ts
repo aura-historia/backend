@@ -354,6 +354,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "StripeLambda",
     binaryName: "stripe-lambda",
     memorySize: 256,
+    postgres: true,
     timeoutSeconds: 30,
     environment: (context) => ({
       ...baseEnvironment(context),
