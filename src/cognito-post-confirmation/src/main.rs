@@ -1,25 +1,18 @@
-use aws_config::BehaviorVersion;
 use aws_lambda_events::cognito::CognitoEventUserPoolsPostConfirmation;
-use aws_sdk_dynamodb::Client;
 use cognito_post_confirmation::handler;
+use common::postgres::{SqlxUnitOfWork, connect_from_env};
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
-use user::service::user_service::UserServiceImpl;
+use user_postgres::SqlxUserRepositoryFactory;
+use user_service::use_cases::CreateUserHandler;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     common::logging::init_logging();
 
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
-        .load()
-        .await;
-
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME")
-        .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
-    let client = Client::new(&aws_config);
-    let repository = UserDynamoDbRepositoryImpl::new(&client, &table_name);
-    let service = UserServiceImpl::new(&repository);
+    let pool = connect_from_env().await?;
+    let service =
+        CreateUserHandler::new(SqlxUnitOfWork::new(pool), SqlxUserRepositoryFactory::new());
 
     debug!("Lambda initialized.");
 

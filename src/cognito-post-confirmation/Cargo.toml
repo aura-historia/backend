@@ -4,23 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true }
+common = { workspace = true, features = ["postgres"] }
+thiserror = { workspace = true }
 tracing = { workspace = true }
-user = { workspace = true, features = ["dynamodb", "service", "data"] }
-tracing-subscriber = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["macros"] }
 aws_lambda_events = { workspace = true, features = ["cognito"] }
 lambda_runtime = { workspace = true }
-aws-config = { workspace = true }
-aws-sdk-dynamodb = { workspace = true }
-serde_json = { workspace = true }
 serde-email = { workspace = true }
-http = { workspace = true }
+user-postgres = { workspace = true }
+user-service = { workspace = true }
 
 [dev-dependencies]
-test-api = { workspace = true, features = ["dynamodb"] }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
 serial_test = { workspace = true }
-rstest = { workspace = true }
-http = { workspace = true }
-url = { workspace = true }
-fake = { workspace = true }
+test-api = { workspace = true, features = ["postgres"] }
+user-core = { workspace = true }

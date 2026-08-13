@@ -11,6 +11,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/aura-historia-api",
     "src/aura-historia-worker",
     "src/common",
+    "src/crawler",
     "src/embedding",
     "src/geo",
     "src/image-fetcher",
@@ -44,6 +45,7 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/oauth-service",
     "src/billing-service",
     "src/billing-stripe",
+    "src/stripe-lambda",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.
