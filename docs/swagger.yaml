@@ -4815,9 +4815,10 @@ paths:
         Creates a hosted Stripe Checkout session for the authenticated user to start a subscription.
         The request body selects the desired subscription plan and billing cycle.
         The backend first creates and persists a Stripe customer for the user, then creates a
-        subscription-mode Checkout session for that customer.
+        subscription-mode Checkout session for that customer. Stripe and PostgreSQL are separate
+        systems; an association remains persisted if later session creation fails.
         This endpoint can only be used when the user does not already have a `stripe_customer_id`.
-        Requires valid Cognito JWT authentication.
+        Requires Cognito JWT or Aura Historia access-token authentication. Delegated access tokens require `users:read`.
       operationId: postBillingCheckout
       tags:
         - Billing
@@ -4926,7 +4927,7 @@ paths:
         Creates a hosted Stripe customer-portal session for the authenticated user.
         This endpoint does not accept a request body.
         It can only be used when the user already has a persisted `stripe_customer_id`.
-        Requires valid Cognito JWT authentication.
+        Requires Cognito JWT or Aura Historia access-token authentication. Delegated access tokens require `users:read`.
       operationId: postBillingPortal
       tags:
         - Billing
@@ -5003,7 +5004,7 @@ paths:
         validates that the body is present and well-formed, but returns a portal session based on the
         stored Stripe customer rather than purchasing a new plan.
 
-        Requires valid Cognito JWT authentication.
+        Requires Cognito JWT or Aura Historia access-token authentication. Delegated access tokens require `users:read`.
       operationId: postBillingManage
       tags:
         - Billing

@@ -8,6 +8,8 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
+billing-service = { workspace = true }
+billing-stripe = { workspace = true }
 common = { workspace = true, features = ["api", "postgres"] }
 embedding = { workspace = true }
 geo = { workspace = true, features = ["data"] }

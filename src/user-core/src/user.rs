@@ -79,6 +79,12 @@ pub enum RehydrateUserError {
     GeoLongitudeOutOfRange,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AssociateStripeCustomerIdError {
+    #[error("a different Stripe customer is already associated")]
+    DifferentCustomerAlreadyAssociated,
+}
+
 impl User {
     pub fn create(input: NewUser) -> Result<Self, RehydrateUserError> {
         Self::rehydrate(RehydratedUserState {
@@ -133,6 +139,20 @@ impl User {
         stripe_customer_id: Option<StripeCustomerId>,
     ) -> ChangeOutcome {
         replace_if_changed(&mut self.account.stripe_customer_id, stripe_customer_id)
+    }
+
+    pub fn associate_stripe_customer_id(
+        &mut self,
+        stripe_customer_id: StripeCustomerId,
+    ) -> Result<ChangeOutcome, AssociateStripeCustomerIdError> {
+        match self.account.stripe_customer_id.as_ref() {
+            None => Ok(replace_if_changed(
+                &mut self.account.stripe_customer_id,
+                Some(stripe_customer_id),
+            )),
+            Some(current) if current == &stripe_customer_id => Ok(ChangeOutcome::Unchanged),
+            Some(_) => Err(AssociateStripeCustomerIdError::DifferentCustomerAlreadyAssociated),
+        }
     }
 
     pub fn id(&self) -> UserId {
@@ -470,6 +490,33 @@ mod tests {
 
         assert_eq!(ChangeOutcome::Changed, outcome);
         assert_eq!(Some(stripe_customer_id), user.account().stripe_customer_id);
+    }
+
+    #[test]
+    fn should_associate_stripe_customer_id_when_customer_is_absent() {
+        let mut user =
+            User::create(new_user()).unwrap_or_else(|error| panic!("user create failed: {error}"));
+        let stripe_customer_id = StripeCustomerId::from("cus_test");
+
+        let outcome = user.associate_stripe_customer_id(stripe_customer_id.clone());
+
+        assert_eq!(Ok(ChangeOutcome::Changed), outcome);
+        assert_eq!(Some(stripe_customer_id), user.account().stripe_customer_id);
+    }
+
+    #[test]
+    fn should_reject_association_when_different_customer_already_exists() {
+        let mut input = new_user();
+        input.account.stripe_customer_id = Some(StripeCustomerId::from("cus_existing"));
+        let mut user =
+            User::create(input).unwrap_or_else(|error| panic!("user create failed: {error}"));
+
+        let outcome = user.associate_stripe_customer_id(StripeCustomerId::from("cus_other"));
+
+        assert_eq!(
+            Err(AssociateStripeCustomerIdError::DifferentCustomerAlreadyAssociated),
+            outcome
+        );
     }
 
     #[test]

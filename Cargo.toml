@@ -86,6 +86,8 @@ members = [
     "src/aura-historia-api",
     "src/aura-historia-worker",
     "src/aws-tests",
+    "src/billing-service",
+    "src/billing-stripe",
     "src/cognito",
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
@@ -278,6 +280,8 @@ serde_fields = "0.1.0"
 serial_test = "4.0.1"
 sha2 = "0.11.0"
 aws-tests = { path = "src/aws-tests" }
+billing-service = { path = "src/billing-service" }
+billing-stripe = { path = "src/billing-stripe" }
 aws-tests-common = { path = "src/aws-tests/src/aws-tests-common" }
 smoking-tests = { path = "src/aws-tests/src/smoking-tests" }
 strum = "0.28.0"

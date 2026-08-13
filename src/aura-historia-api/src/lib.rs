@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod billing;
 pub mod error;
 pub mod newsletter;
 pub mod oauth;
@@ -17,12 +18,18 @@ use crate::auth::{
     CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
 };
 use crate::state::{
-    AppState, NewsletterState, OAuthState, PartnerApplicationsState, PartnerProductsState,
-    ProductsState, ReadinessCheck, SearchFiltersState, ShopsState, UsersState, WatchlistState,
+    AppState, BillingState, NewsletterState, OAuthState, PartnerApplicationsState,
+    PartnerProductsState, ProductsState, ReadinessCheck, SearchFiltersState, ShopsState,
+    UsersState, WatchlistState,
 };
 use crate::transport::with_transport_middleware;
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
+use billing_service::use_cases::{
+    BillingPriceIds, CreateBillingCheckoutSessionHandler, CreateBillingManagementSessionHandler,
+    CreateBillingPortalSessionHandler,
+};
+use billing_stripe::{StripeBillingClient, StripeBillingConfig};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use geo::{GoogleGeocoder, GoogleGeocoderConfig};
@@ -97,6 +104,7 @@ use user_postgres::{
     SqlxUserRepositoryFactory, SqlxUserSearchReaderFactory, SqlxUserTierEntitlementsFactory,
 };
 use user_service::use_cases::AuthenticateAccessTokenHandler;
+use user_service::use_cases::commands::associate_user_stripe_customer_id::AssociateUserStripeCustomerIdHandler;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleHandler;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierHandler;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenHandler;
@@ -125,6 +133,14 @@ pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
 pub const COGNITO_JWKS_URL_ENV: &str = "AURA_HISTORIA_COGNITO_JWKS_URL";
 pub const COGNITO_APP_CLIENT_IDS_ENV: &str = "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS";
 pub const GOOGLE_GEOCODING_API_KEY_ENV: &str = "GOOGLE_GEOCODING_API_KEY";
+pub const STRIPE_API_KEY_ENV: &str = "STRIPE_API_KEY";
+pub const STRIPE_CHECKOUT_SUCCESS_URL_ENV: &str = "STRIPE_CHECKOUT_SUCCESS_URL";
+pub const STRIPE_CHECKOUT_CANCEL_URL_ENV: &str = "STRIPE_CHECKOUT_CANCEL_URL";
+pub const STRIPE_PORTAL_RETURN_URL_ENV: &str = "STRIPE_PORTAL_RETURN_URL";
+pub const STRIPE_PRO_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_PRO_MONTHLY_PRICE_ID";
+pub const STRIPE_PRO_YEARLY_PRICE_ID_ENV: &str = "STRIPE_PRO_YEARLY_PRICE_ID";
+pub const STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_MONTHLY_PRICE_ID";
+pub const STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV: &str = "STRIPE_ULTIMATE_YEARLY_PRICE_ID";
 pub const ZOHO_LIST_KEY_ENV: &str = "ZOHO_LIST_KEY";
 pub const ZOHO_CLIENT_ID_ENV: &str = "ZOHO_CLIENT_ID";
 pub const ZOHO_CLIENT_SECRET_ENV: &str = "ZOHO_CLIENT_SECRET";
@@ -144,6 +160,8 @@ pub struct ApiConfig {
     cognito_jwt: CognitoJwtConfig,
     vertex_ai_embedding: VertexAiEmbeddingConfig,
     google_geocoder: GoogleGeocoderConfig,
+    stripe_billing: StripeBillingConfig,
+    billing_prices: BillingPriceIds,
     zoho: ZohoConfig,
 }
 
@@ -187,6 +205,18 @@ impl ApiConfig {
                 .filter(|api_key| !api_key.trim().is_empty())
                 .ok_or(ApiConfigError::MissingGoogleGeocodingApiKey)?,
         );
+        let stripe_billing = StripeBillingConfig {
+            api_key: required_config(&mut get, STRIPE_API_KEY_ENV)?,
+            checkout_success_url: required_url_config(&mut get, STRIPE_CHECKOUT_SUCCESS_URL_ENV)?,
+            checkout_cancel_url: required_url_config(&mut get, STRIPE_CHECKOUT_CANCEL_URL_ENV)?,
+            portal_return_url: required_url_config(&mut get, STRIPE_PORTAL_RETURN_URL_ENV)?,
+        };
+        let billing_prices = BillingPriceIds {
+            pro_monthly: required_config(&mut get, STRIPE_PRO_MONTHLY_PRICE_ID_ENV)?,
+            pro_yearly: required_config(&mut get, STRIPE_PRO_YEARLY_PRICE_ID_ENV)?,
+            ultimate_monthly: required_config(&mut get, STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV)?,
+            ultimate_yearly: required_config(&mut get, STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV)?,
+        };
 
         let zoho = ZohoConfig {
             list_key: required_config(&mut get, ZOHO_LIST_KEY_ENV)?,
@@ -202,6 +232,8 @@ impl ApiConfig {
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
             vertex_ai_embedding,
             google_geocoder,
+            stripe_billing,
+            billing_prices,
             zoho,
         })
     }
@@ -220,6 +252,14 @@ impl ApiConfig {
 
     fn google_geocoder(&self) -> &GoogleGeocoderConfig {
         &self.google_geocoder
+    }
+
+    fn stripe_billing(&self) -> &StripeBillingConfig {
+        &self.stripe_billing
+    }
+
+    fn billing_prices(&self) -> &BillingPriceIds {
+        &self.billing_prices
     }
 
     fn zoho(&self) -> &ZohoConfig {
@@ -243,7 +283,15 @@ where
 {
     get(name)
         .filter(|value| !value.trim().is_empty())
-        .ok_or(ApiConfigError::MissingCognitoConfig { name })
+        .ok_or(ApiConfigError::MissingRequiredConfig { name })
+}
+
+fn required_url_config<F>(get: &mut F, name: &'static str) -> Result<url::Url, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let value = required_config(get, name)?;
+    url::Url::parse(&value).map_err(|source| ApiConfigError::InvalidUrlConfig { name, source })
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -253,8 +301,14 @@ pub enum ApiConfigError {
         value: String,
         source: AddrParseError,
     },
-    #[error("missing required Cognito configuration {name}")]
-    MissingCognitoConfig { name: &'static str },
+    #[error("missing required configuration {name}")]
+    MissingRequiredConfig { name: &'static str },
+    #[error("invalid URL configuration {name}")]
+    InvalidUrlConfig {
+        name: &'static str,
+        #[source]
+        source: url::ParseError,
+    },
     #[error("{COGNITO_APP_CLIENT_IDS_ENV} must contain at least one client id")]
     EmptyCognitoAppClientIds,
     #[error(
@@ -417,6 +471,16 @@ pub fn app(state: AppState) -> Router {
         routes = routes.merge(search_filters::router(search_filters));
     }
 
+    if let Some(billing) = state.billing {
+        routes = routes.merge(
+            Router::new()
+                .route("/api/v1/me/billing/checkout", post(billing::checkout))
+                .route("/api/v1/me/billing/portal", post(billing::portal))
+                .route("/api/v1/me/billing/manage", post(billing::manage))
+                .with_state(billing),
+        );
+    }
+
     if let Some(newsletter) = state.newsletter {
         routes = routes.merge(
             Router::new()
@@ -536,6 +600,9 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         ListUserPartnerShopsHandler::new(unit_of_work.clone(), SqlxPartnerShopReaderFactory::new());
     let get_own_user =
         GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new());
+    let stripe_billing = StripeBillingClient::new(config.stripe_billing().clone())
+        .map_err(ApiStateError::StripeBilling)?;
+    let billing_prices = config.billing_prices().clone();
     let admin_get_user = AdminGetUserHandler::new(
         unit_of_work.clone(),
         SqlxUserAccountReaderFactory::new(),
@@ -713,6 +780,34 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         AuraAccessTokenAuthenticator::new(access_token_use_case),
     )
     .map_err(ApiStateError::CognitoJwt)?;
+    let billing_state = BillingState::new(
+        Arc::new(CreateBillingCheckoutSessionHandler::new(
+            GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
+            AssociateUserStripeCustomerIdHandler::new(
+                unit_of_work.clone(),
+                SqlxUserRepositoryFactory::new(),
+            ),
+            stripe_billing.clone(),
+            stripe_billing.clone(),
+            billing_prices.clone(),
+        )),
+        Arc::new(CreateBillingPortalSessionHandler::new(
+            GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
+            stripe_billing.clone(),
+        )),
+        Arc::new(CreateBillingManagementSessionHandler::new(
+            GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
+            AssociateUserStripeCustomerIdHandler::new(
+                unit_of_work.clone(),
+                SqlxUserRepositoryFactory::new(),
+            ),
+            stripe_billing.clone(),
+            stripe_billing.clone(),
+            stripe_billing,
+            billing_prices,
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let partner_products_state = PartnerProductsState::new(
         Arc::new(create_product),
         Arc::new(update_product),
@@ -851,6 +946,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     .with_partner_products(partner_products_state)
     .with_oauth(oauth_state)
     .with_search_filters(search_filters_state)
+    .with_billing(billing_state)
     .with_newsletter(NewsletterState::new(
         Arc::new(upsert_newsletter_subscription),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
@@ -916,6 +1012,8 @@ where
 
 #[derive(thiserror::Error, Debug)]
 pub enum ApiStateError {
+    #[error("failed to initialize Stripe billing client")]
+    StripeBilling(#[source] billing_stripe::StripeBillingClientInitError),
     #[error(transparent)]
     Postgres(#[from] PostgresConnectError),
     #[error(transparent)]
@@ -999,6 +1097,35 @@ mod tests {
             ),
             (COGNITO_APP_CLIENT_IDS_ENV, "audience-1".to_owned()),
             (GOOGLE_GEOCODING_API_KEY_ENV, "api-key".to_owned()),
+            (STRIPE_API_KEY_ENV, "stripe-api-key".to_owned()),
+            (
+                STRIPE_CHECKOUT_SUCCESS_URL_ENV,
+                "https://app.example/billing/success".to_owned(),
+            ),
+            (
+                STRIPE_CHECKOUT_CANCEL_URL_ENV,
+                "https://app.example/billing/cancel".to_owned(),
+            ),
+            (
+                STRIPE_PORTAL_RETURN_URL_ENV,
+                "https://app.example/billing".to_owned(),
+            ),
+            (
+                STRIPE_PRO_MONTHLY_PRICE_ID_ENV,
+                "price_pro_monthly".to_owned(),
+            ),
+            (
+                STRIPE_PRO_YEARLY_PRICE_ID_ENV,
+                "price_pro_yearly".to_owned(),
+            ),
+            (
+                STRIPE_ULTIMATE_MONTHLY_PRICE_ID_ENV,
+                "price_ultimate_monthly".to_owned(),
+            ),
+            (
+                STRIPE_ULTIMATE_YEARLY_PRICE_ID_ENV,
+                "price_ultimate_yearly".to_owned(),
+            ),
             (ZOHO_LIST_KEY_ENV, "zoho-list-key".to_owned()),
             (ZOHO_CLIENT_ID_ENV, "zoho-client-id".to_owned()),
             (ZOHO_CLIENT_SECRET_ENV, "zoho-client-secret".to_owned()),
@@ -1101,7 +1228,7 @@ mod tests {
 
         assert!(matches!(
             config,
-            Err(ApiConfigError::MissingCognitoConfig {
+            Err(ApiConfigError::MissingRequiredConfig {
                 name: COGNITO_ISSUER_ENV
             })
         ));

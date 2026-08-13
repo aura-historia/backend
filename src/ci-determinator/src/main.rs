@@ -44,6 +44,8 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/oauth-core",
     "src/oauth-dynamodb",
     "src/oauth-service",
+    "src/billing-service",
+    "src/billing-stripe",
     "src/stripe-lambda",
 ];
 
