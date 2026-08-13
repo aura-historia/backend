@@ -12,6 +12,8 @@ indexmap = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 product-core = { workspace = true }
+shop-core = { workspace = true }
+shop-service = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
 thiserror = { workspace = true }
