@@ -486,6 +486,21 @@ mod tests {
             }
         }
 
+        async fn insert_if_absent(
+            &mut self,
+            user: &User,
+        ) -> Result<crate::ports::UserInsertOutcome, UserRepositoryError> {
+            let mut state = lock(&self.state);
+            state.insert_calls += 1;
+            if let Some(kind) = state.insert_error {
+                Err(repo_error(kind))
+            } else {
+                let user = versioned(user.clone());
+                state.user = Some(user.clone());
+                Ok(crate::ports::UserInsertOutcome::Created(user))
+            }
+        }
+
         async fn update(
             &mut self,
             user: &User,

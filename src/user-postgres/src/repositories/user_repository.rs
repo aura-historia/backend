@@ -9,7 +9,8 @@ use serde_email::Email;
 use sqlx::PgConnection;
 use user_core::user::User;
 use user_service::ports::{
-    UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion, VersionedUser,
+    UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
+    UserStorageVersion, VersionedUser,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -152,6 +153,79 @@ impl UserRepository for SqlxUserRepository<'_> {
         VersionedUser::try_from(row).map_err(|source| UserRepositoryError::InvalidPersistedState {
             source: box_error(source),
         })
+    }
+
+    async fn insert_if_absent(
+        &mut self,
+        user: &User,
+    ) -> Result<UserInsertOutcome, UserRepositoryError> {
+        let profile = user.profile();
+        let preferences = user.preferences();
+        let account = user.account();
+        let structured_address = profile.structured_address.as_ref();
+        let geo_address = profile.geo_address;
+
+        let sql = format!(
+            r#"
+            INSERT INTO users (
+                user_id, email, first_name, last_name, language, currency, measurement_unit,
+                prohibited_content_consent, tier, role, stripe_customer_id,
+                structured_address_addressline, structured_address_addressline_extra,
+                structured_address_locality, structured_address_region,
+                structured_address_postal_code, structured_address_country,
+                geo_address_lat, geo_address_lon
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9, $10, $11,
+                $12, $13, $14, $15, $16, $17,
+                $18, $19
+            )
+            ON CONFLICT (user_id) DO NOTHING
+            RETURNING {}
+            "#,
+            user_columns()
+        );
+
+        let inserted = sqlx::query_as::<_, UserRow>(&sql)
+            .bind(uuid::Uuid::from(user.id()))
+            .bind::<&str>(user.email().as_ref())
+            .bind(profile.first_name.as_ref().map(AsRef::as_ref))
+            .bind(profile.last_name.as_ref().map(AsRef::as_ref))
+            .bind(bind_language(preferences.language))
+            .bind(bind_currency(preferences.currency))
+            .bind(bind_measurement_unit(preferences.measurement_unit))
+            .bind(preferences.prohibited_content_consent)
+            .bind(bind_tier(account.tier))
+            .bind(bind_role(account.role))
+            .bind(account.stripe_customer_id.as_ref().map(AsRef::as_ref))
+            .bind(structured_address.and_then(|value| value.addressline.as_deref()))
+            .bind(structured_address.and_then(|value| value.addressline_extra.as_deref()))
+            .bind(structured_address.and_then(|value| value.locality.as_deref()))
+            .bind(structured_address.and_then(|value| value.region.as_deref()))
+            .bind(structured_address.and_then(|value| value.postal_code.as_deref()))
+            .bind(bind_country(structured_address))
+            .bind(geo_address.map(|value| value.lat))
+            .bind(geo_address.map(|value| value.lon))
+            .fetch_optional(&mut *self.connection)
+            .await
+            .map_err(map_write_error)?;
+
+        match inserted {
+            Some(row) => VersionedUser::try_from(row)
+                .map(UserInsertOutcome::Created)
+                .map_err(|source| UserRepositoryError::InvalidPersistedState {
+                    source: box_error(source),
+                }),
+            None => self
+                .find_by_id(user.id())
+                .await?
+                .map(UserInsertOutcome::Existing)
+                .ok_or_else(|| UserRepositoryError::TemporarilyUnavailable {
+                    source: box_error(std::io::Error::other(
+                        "user disappeared after idempotent insert conflict",
+                    )),
+                }),
+        }
     }
 
     async fn update(

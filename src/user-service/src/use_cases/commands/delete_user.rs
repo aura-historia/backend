@@ -447,6 +447,16 @@ mod tests {
             Ok(Versioned::new(user.clone(), UserStorageVersion::INITIAL))
         }
 
+        async fn insert_if_absent(
+            &mut self,
+            user: &User,
+        ) -> Result<crate::ports::UserInsertOutcome, UserRepositoryError> {
+            Ok(crate::ports::UserInsertOutcome::Created(Versioned::new(
+                user.clone(),
+                UserStorageVersion::INITIAL,
+            )))
+        }
+
         async fn update(
             &mut self,
             user: &User,

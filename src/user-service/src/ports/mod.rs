@@ -14,7 +14,8 @@ pub use user_admin_reader::{
     UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,
 };
 pub use user_repository::{
-    UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion, VersionedUser,
+    UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
+    UserStorageVersion, VersionedUser,
 };
 pub use user_search_reader::{UserSearchReadError, UserSearchReader, UserSearchReaderFactory};
 pub use user_stripe_customer_reader::{
