@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- `aura-historia-api` now serves `PUT /api/v1/newsletter-subscriptions` through the canonical User bounded context. It accepts anonymous, Cognito JWT, or Aura Historia access-token callers; valid authenticated callers retain user-profile fallback for omitted `firstName`, `lastName`, `language`, and `currency` fields. Invalid supplied bearer credentials return `401 INVALID_CREDENTIALS`; Zoho invalid-email responses return `400 INVALID_EMAIL`; temporary provider failures return `503 NEWSLETTER_TEMPORARILY_UNAVAILABLE`; unexpected provider failures return `500 NEWSLETTER_INTERNAL_ERROR`. The legacy `newsletter-api` Lambda remains during migration.
 - Partner application decisions now use the canonical PostgreSQL state machine. `APPROVE` atomically publishes and partners the shop, grants applicant membership, and completes the application. `REJECT` and applicant withdrawal discard the unused draft shop created for a new-shop application.
 - Partner application responses no longer expose Step Functions execution state, and admin review no longer accepts a task token. Decision requests accept only typed `APPROVE` or `REJECT` values; unknown values return `400`.
 - Decision notifications are emitted after commit with the application ID as their idempotent origin key, so retrying a committed decision safely retries notification delivery. This is caller-retry delivery; a durable notification outbox is not yet implemented.

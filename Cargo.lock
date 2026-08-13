@@ -273,6 +273,7 @@ dependencies = [
  "user-dynamodb",
  "user-postgres",
  "user-service",
+ "user-zoho",
  "uuid",
  "watchlist-core",
  "watchlist-postgres",
@@ -353,6 +354,7 @@ dependencies = [
  "user-lambda",
  "user-postgres",
  "user-service",
+ "user-zoho",
  "watchlist-core",
  "watchlist-postgres",
  "watchlist-service",
@@ -9659,6 +9661,23 @@ dependencies = [
  "tokio",
  "tracing",
  "user-core",
+]
+
+[[package]]
+name = "user-zoho"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "url",
+ "user-core",
+ "user-service",
+ "wiremock",
 ]
 
 [[package]]

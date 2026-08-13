@@ -1,4 +1,6 @@
 pub mod access_token_store;
+pub mod newsletter_profile_reader;
+pub mod newsletter_subscription_writer;
 pub mod user_account_reader;
 pub mod user_admin_reader;
 pub mod user_repository;
@@ -7,6 +9,12 @@ pub mod user_stripe_customer_reader;
 pub mod user_tier_entitlements;
 
 pub use access_token_store::{AccessTokenStore, AccessTokenStoreError};
+pub use newsletter_profile_reader::{
+    NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader,
+};
+pub use newsletter_subscription_writer::{
+    NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
+};
 pub use user_account_reader::{
     UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
 };

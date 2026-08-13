@@ -2,6 +2,7 @@ pub mod access_token;
 pub mod first_name;
 pub mod last_name;
 pub mod name;
+pub mod newsletter_subscription;
 pub mod role;
 pub mod sort_user_field;
 pub mod tier;
