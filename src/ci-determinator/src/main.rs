@@ -42,6 +42,8 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/oauth-core",
     "src/oauth-dynamodb",
     "src/oauth-service",
+    "src/billing-service",
+    "src/billing-stripe",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.
