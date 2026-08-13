@@ -297,7 +297,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> ProductId {
     .bind(shop_id)
     .bind(raw_product_id.to_string())
     .bind("LISTED")
-    .bind("DRAFTED")
+    .bind("ACTIVE")
     .bind("https://example.test/product")
     .execute(&mut *transaction)
     .await;
