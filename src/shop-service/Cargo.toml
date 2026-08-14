@@ -7,6 +7,7 @@ edition = "2024"
 async-trait = { workspace = true }
 common = { workspace = true }
 geo = { workspace = true }
+openssl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde-email = { workspace = true }

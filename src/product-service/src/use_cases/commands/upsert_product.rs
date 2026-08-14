@@ -136,29 +136,21 @@ where
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
 {
-    async fn execute_once(
+    async fn persist(
         &self,
+        tx: &mut U::Tx,
         context: &OperationContext,
         command: UpsertProductCommand,
     ) -> Result<UpsertProductResult, UpsertProductError> {
         let key = ProductKey::new(command.shop_id, command.shops_product_id.clone());
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpsertProductError::BeginTransactionFailed)?;
         if let Some(actor_id) = partner_actor(&context.principal) {
             self.authorizer
-                .in_transaction(&mut tx)
+                .in_transaction(tx)
                 .authorize(actor_id, command.shop_id)
                 .await?;
         }
 
-        let existing = self
-            .products
-            .in_transaction(&mut tx)
-            .find_by_key(&key)
-            .await?;
+        let existing = self.products.in_transaction(tx).find_by_key(&key).await?;
 
         let result = match existing {
             Some(loaded) => {
@@ -171,12 +163,12 @@ where
                 if let Some(new_event_id) = event_id {
                     product = self
                         .products
-                        .in_transaction(&mut tx)
+                        .in_transaction(tx)
                         .update(&product, expected_event_id, new_event_id)
                         .await?
                         .value;
                     for event in &events {
-                        self.events.in_transaction(&mut tx).append(event).await?;
+                        self.events.in_transaction(tx).append(event).await?;
                     }
                 }
 
@@ -194,11 +186,11 @@ where
                     .ok_or(UpsertProductError::InvalidProductState)?;
                 let persisted = self
                     .products
-                    .in_transaction(&mut tx)
+                    .in_transaction(tx)
                     .insert(&product, event_id)
                     .await?;
                 for event in product.pending_events() {
-                    self.events.in_transaction(&mut tx).append(event).await?;
+                    self.events.in_transaction(tx).append(event).await?;
                 }
 
                 UpsertProductResult::Created(CreateProductResult {
@@ -209,19 +201,23 @@ where
             }
         };
 
+        Ok(result)
+    }
+
+    async fn execute_once(
+        &self,
+        context: &OperationContext,
+        command: UpsertProductCommand,
+    ) -> Result<UpsertProductResult, UpsertProductError> {
+        let mut tx = self
+            .unit_of_work
+            .begin()
+            .await
+            .map_err(|_| UpsertProductError::BeginTransactionFailed)?;
+        let result = self.persist(&mut tx, context, command).await?;
         tx.commit()
             .await
             .map_err(|_| UpsertProductError::CommitTransactionFailed)?;
-
-        tracing::info!(
-            event = "product.upserted",
-            actor_type = context.principal.kind(),
-            actor_id = %context.principal.label(),
-            shop_id = %key.shop_id,
-            shops_product_id = %key.shops_product_id,
-            outcome = "success",
-        );
-
         Ok(result)
     }
 }
@@ -260,12 +256,23 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        match self.execute_once(context, command.clone()).await {
+        let result = match self.execute_once(context, command.clone()).await {
             Err(UpsertProductError::ProductKeyAlreadyExists) => {
                 self.execute_once(context, command).await
             }
             result => result,
-        }
+        }?;
+        tracing::info!(
+            event = "product.upserted",
+            actor_type = context.principal.kind(),
+            actor_id = %context.principal.label(),
+            product_id = %match &result {
+                UpsertProductResult::Created(value) => value.product_id,
+                UpsertProductResult::Updated(value) => value.product_id,
+            },
+            outcome = "success",
+        );
+        Ok(result)
     }
 }
 
