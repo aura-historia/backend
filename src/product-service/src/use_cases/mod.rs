@@ -17,6 +17,15 @@ pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsResult,
     GenerateWatchlistNotificationsUseCase,
 };
+pub use commands::ingest_shopify_product::{
+    IngestShopifyProductCommand, IngestShopifyProductError, IngestShopifyProductHandler,
+    IngestShopifyProductResult, IngestShopifyProductUseCase,
+};
+pub use commands::ingest_woocommerce_product::{
+    IngestWoocommerceProductCommand, IngestWoocommerceProductError,
+    IngestWoocommerceProductHandler, IngestWoocommerceProductResult,
+    IngestWoocommerceProductUseCase, WoocommerceProductEventKind,
+};
 pub use commands::translate_product_event::{
     TranslateProductCommand, TranslateProductEventError, TranslateProductEventHandler,
     TranslateProductEventOutcome, TranslateProductEventResult, TranslateProductEventUseCase,

@@ -1,17 +1,6 @@
-use common::currency::domain::Currency;
-use common::domain::Domain;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::{MonetaryAmount, Price};
 use common::product_state::domain::ProductState;
-#[cfg(test)]
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
-use product::core::description::Description;
-use product::core::product_image::ProductImage;
-use product::core::prohibited_content::ProhibitedContent;
-use product::core::title::Title;
-use product::service::product_command::UpsertProductCommand;
+use indexmap::IndexSet;
+use product_service::use_cases::IngestShopifyProductCommand;
 use serde::Deserialize;
 use url::Url;
 
@@ -22,7 +11,6 @@ pub struct ShopifyEventDetail {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
 pub struct ShopifyEventMetadata {
     #[serde(rename = "X-Shopify-Topic")]
     pub topic: String,
@@ -41,8 +29,6 @@ pub struct ShopifyProductPayload {
     pub body_html: Option<String>,
     #[serde(default)]
     pub handle: Option<String>,
-    #[serde(default)]
-    pub vendor: Option<String>,
     #[serde(default)]
     pub status: Option<String>,
     #[serde(default)]
@@ -71,253 +57,126 @@ pub enum ShopifyProductEventKind {
     Delete,
 }
 
-#[derive(Debug, Clone)]
-pub struct ShopifyProductEvent {
-    pub shop_id: common::shop_id::ShopId,
-    pub shop_domain: Domain,
-    pub kind: ShopifyProductEventKind,
-    pub payload: ShopifyProductPayload,
-    pub currency: Option<Currency>,
-    pub language: Option<Language>,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum ShopifyProductEventError {
-    #[error("Missing product title")]
+    #[error("Shopify product title is missing")]
     MissingTitle,
-    #[error("Missing product handle")]
+    #[error("Shopify product handle is missing")]
     MissingHandle,
-    #[error("Invalid product URL: {0}")]
-    InvalidUrl(#[from] url::ParseError),
-    #[error("Invalid Shopify price '{0}'")]
-    InvalidPrice(String),
-    #[error("Shop has no Shopify currency configured")]
-    MissingCurrency,
-    #[error("Shop has no Shopify language configured")]
-    MissingLanguage,
 }
 
-impl TryFrom<ShopifyProductEvent> for UpsertProductCommand {
-    type Error = ShopifyProductEventError;
-
-    fn try_from(event: ShopifyProductEvent) -> Result<Self, Self::Error> {
-        let title = event
-            .payload
-            .title
-            .as_deref()
-            .filter(|title| !title.trim().is_empty())
-            .ok_or(ShopifyProductEventError::MissingTitle)?;
-        let description = event
-            .payload
-            .body_html
-            .as_deref()
-            .map(fallbacked_html_to_markdown)
-            .filter(|description| !description.is_empty());
-        let language = event
-            .language
-            .ok_or(ShopifyProductEventError::MissingLanguage)?;
-        let handle = event
-            .payload
-            .handle
-            .clone()
-            .filter(|handle| !handle.is_empty())
-            .ok_or(ShopifyProductEventError::MissingHandle)?;
-        let url = Url::parse(&format!("https://{}/products/{handle}", event.shop_domain))?;
-        let state = match event.kind {
-            ShopifyProductEventKind::Delete => ProductState::Removed,
-            ShopifyProductEventKind::Create | ShopifyProductEventKind::Update => {
-                product_state(&event.payload)
-            }
+impl ShopifyProductEventKind {
+    pub fn command(
+        self,
+        shop_domain: common::domain::Domain,
+        payload: ShopifyProductPayload,
+    ) -> Result<IngestShopifyProductCommand, ShopifyProductEventError> {
+        let state = match self {
+            Self::Delete => ProductState::Removed,
+            Self::Create | Self::Update => product_state(&payload),
         };
+        let title = payload
+            .title
+            .filter(|value| !value.trim().is_empty())
+            .ok_or(ShopifyProductEventError::MissingTitle)?;
+        let handle = payload
+            .handle
+            .filter(|value| !value.trim().is_empty())
+            .ok_or(ShopifyProductEventError::MissingHandle)?;
 
-        Ok(UpsertProductCommand {
-            shop_id: event.shop_id,
-            shops_product_id: ShopsProductId::from(event.payload.id.to_string()),
-            seller_name_raw: None,
-            structured_address: None,
-            geo_address: None,
-            native_title: Some(Localized::new(language, Title::from(title))),
-            native_description: description
-                .map(Description::from)
-                .map(|description| Localized::new(language, description)),
-            native_price: parse_price(
-                event
-                    .payload
-                    .variants
-                    .first()
-                    .and_then(|v| v.price.as_deref()),
-                event.currency,
-            )?,
-            native_price_estimate_min: None,
-            native_price_estimate_max: None,
-            state: Some(state),
-            url: Some(url),
-            images: event
-                .payload
+        Ok(IngestShopifyProductCommand {
+            shop_domain,
+            shops_product_id: common::shops_product_id::ShopsProductId::from(
+                payload.id.to_string(),
+            ),
+            title,
+            description: payload
+                .body_html
+                .as_deref()
+                .map(fallbacked_html_to_markdown)
+                .filter(|value| !value.is_empty()),
+            handle,
+            price: payload
+                .variants
+                .first()
+                .and_then(|variant| variant.price.clone()),
+            state,
+            image_urls: payload
                 .images
                 .into_iter()
-                .map(|image| ProductImage {
-                    url: image.src,
-                    prohibited_content: ProhibitedContent::Unknown,
-                })
-                .collect(),
-            auction_start: None,
-            auction_end: None,
+                .map(|image| image.src)
+                .collect::<IndexSet<_>>(),
         })
     }
 }
 
 pub fn fallbacked_html_to_markdown(html: &str) -> String {
-    html_to_markdown_rs::convert(html, None)
-        .map(|conversion_result| conversion_result.content)
-        .unwrap_or_else(|_| Some(html.to_owned()))
-        .unwrap_or_else(|| html.to_owned())
+    match html_to_markdown_rs::convert(html, None) {
+        Ok(result) => result.content.unwrap_or_else(|| html.to_owned()),
+        Err(_) => html.to_owned(),
+    }
 }
 
 pub fn product_state(payload: &ShopifyProductPayload) -> ProductState {
     match payload.status.as_deref() {
-        Some("active") => {
+        Some("active")
             if payload
                 .variants
                 .iter()
-                .any(|variant| variant.inventory_quantity.unwrap_or_default() > 0)
-            {
-                ProductState::Available
-            } else {
-                ProductState::Sold
-            }
+                .any(|variant| variant.inventory_quantity.unwrap_or_default() > 0) =>
+        {
+            ProductState::Available
         }
+        Some("active") => ProductState::Sold,
         Some("draft") => ProductState::Listed,
         Some("archived") => ProductState::Removed,
         _ => ProductState::Unknown,
     }
 }
 
-pub fn parse_price(
-    price: Option<&str>,
-    currency: Option<Currency>,
-) -> Result<Option<Price>, ShopifyProductEventError> {
-    let Some(price) = price.filter(|price| !price.trim().is_empty()) else {
-        return Ok(None);
-    };
-    let currency = currency.ok_or(ShopifyProductEventError::MissingCurrency)?;
-    let trimmed = price.trim();
-    let (major, minor) = trimmed.split_once('.').unwrap_or((trimmed, ""));
-    if !major.chars().all(|c| c.is_ascii_digit()) || !minor.chars().all(|c| c.is_ascii_digit()) {
-        return Err(ShopifyProductEventError::InvalidPrice(trimmed.to_owned()));
-    }
-    let major: u64 = major
-        .parse()
-        .map_err(|_| ShopifyProductEventError::InvalidPrice(trimmed.to_owned()))?;
-    let mut minor = minor.chars().take(2).collect::<String>();
-    while minor.len() < 2 {
-        minor.push('0');
-    }
-    let minor: u64 = minor
-        .parse()
-        .map_err(|_| ShopifyProductEventError::InvalidPrice(trimmed.to_owned()))?;
-    Ok(Some(Price::new(
-        MonetaryAmount::from(major * 100 + minor),
-        currency,
-    )))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::domain::Domain;
-    use common::price::domain::{MonetaryAmount, Price};
-    use fake::{Fake, Faker};
-    use shop::core::partner_status::ShopPartnerStatus;
-    use shop::core::shop::Shop;
-
-    fn shopify_detail(topic: &str) -> serde_json::Value {
-        serde_json::json!({
-            "payload": {
-                "id": 10231453024539_u64,
-                "body_html": "<p>Hallo Test Beschreibung!</p>",
-                "handle": "thomas-testprodukt",
-                "title": "Thomas Testprodukt",
-                "vendor": "partner vendor",
-                "status": "active",
-                "variants": [{"price": "420.00", "inventory_quantity": 2}],
-                "images": [{"src": "https://cdn.shopify.com/product.jpg"}]
-            },
-            "metadata": {
-                "X-Shopify-Topic": topic,
-                "X-Shopify-Shop-Domain": "partner-shop.myshopify.com",
-                "X-Shopify-Event-Id": "event-1"
-            }
-        })
-    }
-
-    fn partnered_shop() -> Shop {
-        let mut shop: Shop = Faker.fake();
-        shop.shop_id = ShopId::new();
-        shop.shopify_domain = Some(Domain::try_from("partner-shop.myshopify.com").unwrap());
-        shop.shopify_currency = Some(Currency::Usd);
-        shop.shopify_language = Some(Language::De);
-        shop.partner_status = ShopPartnerStatus::Partnered;
-        shop
-    }
 
     #[test]
-    fn should_map_update_event_to_upsert_command_for_shopify_product() {
-        let shop = partnered_shop();
-        let event = ShopifyProductEvent {
-            shop_id: shop.shop_id,
-            shop_domain: shop.shopify_domain.clone().unwrap(),
-            kind: ShopifyProductEventKind::Update,
-            currency: shop.shopify_currency,
-            language: shop.shopify_language,
-            payload: serde_json::from_value(shopify_detail("products/update")["payload"].clone())
-                .unwrap(),
+    fn should_map_delete_to_removed_product_command() {
+        let payload = ShopifyProductPayload {
+            id: 42,
+            title: Some("Cabinet".to_owned()),
+            body_html: None,
+            handle: Some("cabinet".to_owned()),
+            status: Some("active".to_owned()),
+            variants: Vec::new(),
+            images: Vec::new(),
         };
 
-        let actual = UpsertProductCommand::try_from(event).unwrap();
+        let command = ShopifyProductEventKind::Delete
+            .command(
+                common::domain::Domain::try_from("partner.example")
+                    .unwrap_or_else(|error| panic!("invalid domain: {error}")),
+                payload,
+            )
+            .unwrap_or_else(|error| panic!("failed mapping payload: {error}"));
 
-        assert_eq!(actual.shop_id, shop.shop_id);
-        assert_eq!(actual.shops_product_id.to_string(), "10231453024539");
-        assert_eq!(actual.state, Some(ProductState::Available));
-        assert_eq!(
-            actual.native_price.unwrap(),
-            Price::new(MonetaryAmount::from(42_000_u64), Currency::Usd)
-        );
-        assert_eq!(
-            actual.url.unwrap().as_str(),
-            "https://partner-shop.myshopify.com/products/thomas-testprodukt"
-        );
-        assert_eq!(actual.images.len(), 1);
-        assert_eq!(
-            actual.native_title.map(|t| t.localization),
-            Some(Language::De)
-        );
+        assert_eq!(ProductState::Removed, command.state);
+        assert_eq!("42", command.shops_product_id.to_string());
     }
 
     #[test]
-    fn should_map_delete_event_to_removed_state_for_shopify_product() {
-        let shop = partnered_shop();
-        let event = ShopifyProductEvent {
-            shop_id: shop.shop_id,
-            shop_domain: shop.shopify_domain.clone().unwrap(),
-            kind: ShopifyProductEventKind::Delete,
-            currency: shop.shopify_currency,
-            language: shop.shopify_language,
-            payload: serde_json::from_value(shopify_detail("products/delete")["payload"].clone())
-                .unwrap(),
-        };
+    fn should_map_active_in_stock_product_to_available() {
+        let state = product_state(&ShopifyProductPayload {
+            id: 42,
+            title: None,
+            body_html: None,
+            handle: None,
+            status: Some("active".to_owned()),
+            variants: vec![ShopifyVariantPayload {
+                price: None,
+                inventory_quantity: Some(1),
+            }],
+            images: Vec::new(),
+        });
 
-        let actual = UpsertProductCommand::try_from(event).unwrap();
-
-        assert_eq!(actual.state, Some(ProductState::Removed));
-    }
-
-    #[test]
-    fn should_convert_html_description_to_text_when_html_is_malformed_for_html_to_text() {
-        let actual = fallbacked_html_to_markdown("<p>Hello <strong>World");
-
-        assert!(actual.contains("Hello"));
-        assert!(actual.contains("World"));
+        assert_eq!(ProductState::Available, state);
     }
 }

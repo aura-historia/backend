@@ -188,8 +188,9 @@ where
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
 {
-    async fn execute_for_target(
+    async fn persist_for_target(
         &self,
+        tx: &mut U::Tx,
         context: &OperationContext,
         target: UpdateProductTarget,
         command: UpdateProductCommand,
@@ -203,23 +204,18 @@ where
             tracing::field::display(context.principal.label()),
         );
 
-        let mut tx = self
-            .unit_of_work
-            .begin()
-            .await
-            .map_err(|_| UpdateProductError::BeginTransactionFailed)?;
         let loaded = match target {
             UpdateProductTarget::Id(product_id) => {
                 let loaded = self
                     .products
-                    .in_transaction(&mut tx)
+                    .in_transaction(tx)
                     .find_by_id(product_id)
                     .await?
                     .ok_or(UpdateProductError::ProductNotFound)?;
 
                 if let Some(actor_id) = partner_actor(&context.principal) {
                     self.authorizer
-                        .in_transaction(&mut tx)
+                        .in_transaction(tx)
                         .authorize(actor_id, loaded.value.shop_id())
                         .await?;
                 }
@@ -229,12 +225,12 @@ where
             UpdateProductTarget::Key(product_key) => {
                 if let Some(actor_id) = partner_actor(&context.principal) {
                     self.authorizer
-                        .in_transaction(&mut tx)
+                        .in_transaction(tx)
                         .authorize(actor_id, product_key.shop_id)
                         .await?;
                 }
                 self.products
-                    .in_transaction(&mut tx)
+                    .in_transaction(tx)
                     .find_by_key(&product_key)
                     .await?
                     .ok_or(UpdateProductError::ProductNotFound)?
@@ -250,28 +246,13 @@ where
         if let Some(new_event_id) = event_id {
             product = self
                 .products
-                .in_transaction(&mut tx)
+                .in_transaction(tx)
                 .update(&product, expected_event_id, new_event_id)
                 .await?
                 .value;
             for event in &events {
-                self.events.in_transaction(&mut tx).append(event).await?;
+                self.events.in_transaction(tx).append(event).await?;
             }
-        }
-
-        tx.commit()
-            .await
-            .map_err(|_| UpdateProductError::CommitTransactionFailed)?;
-
-        if let Some(event_id) = event_id {
-            tracing::info!(
-                event = "product.updated",
-                actor_type = context.principal.kind(),
-                actor_id = %context.principal.label(),
-                product_id = %product.id(),
-                event_id = %event_id,
-                outcome = "success",
-            );
         }
 
         Ok(UpdateProductResult {
@@ -306,8 +287,23 @@ where
         product_id: ProductId,
         command: UpdateProductCommand,
     ) -> Result<UpdateProductResult, UpdateProductError> {
-        self.execute_for_target(context, UpdateProductTarget::Id(product_id), command)
+        let mut tx = self
+            .unit_of_work
+            .begin()
             .await
+            .map_err(|_| UpdateProductError::BeginTransactionFailed)?;
+        let result = self
+            .persist_for_target(
+                &mut tx,
+                context,
+                UpdateProductTarget::Id(product_id),
+                command,
+            )
+            .await?;
+        tx.commit()
+            .await
+            .map_err(|_| UpdateProductError::CommitTransactionFailed)?;
+        Ok(result)
     }
 
     #[tracing::instrument(
@@ -328,8 +324,23 @@ where
         product_key: ProductKey,
         command: UpdateProductCommand,
     ) -> Result<UpdateProductResult, UpdateProductError> {
-        self.execute_for_target(context, UpdateProductTarget::Key(product_key), command)
+        let mut tx = self
+            .unit_of_work
+            .begin()
             .await
+            .map_err(|_| UpdateProductError::BeginTransactionFailed)?;
+        let result = self
+            .persist_for_target(
+                &mut tx,
+                context,
+                UpdateProductTarget::Key(product_key),
+                command,
+            )
+            .await?;
+        tx.commit()
+            .await
+            .map_err(|_| UpdateProductError::CommitTransactionFailed)?;
+        Ok(result)
     }
 }
 

@@ -11,7 +11,8 @@ use oauth_service::use_cases::{
 };
 use product_service::use_cases::{
     CreateProductUseCase, DeleteProductUseCase, GetProductEventsUseCase, GetProductUseCase,
-    GetSimilarProductsUseCase, SearchProductsUseCase, UpdateProductUseCase, UpsertProductUseCase,
+    GetSimilarProductsUseCase, IngestWoocommerceProductUseCase, SearchProductsUseCase,
+    UpdateProductUseCase, UpsertProductUseCase,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
@@ -75,6 +76,7 @@ pub struct AppState {
     pub(crate) search_filters: Option<SearchFiltersState>,
     pub(crate) billing: Option<BillingState>,
     pub(crate) newsletter: Option<NewsletterState>,
+    pub(crate) webhooks: Option<WebhooksState>,
 }
 
 impl AppState {
@@ -96,6 +98,7 @@ impl AppState {
             search_filters: None,
             billing: None,
             newsletter: None,
+            webhooks: None,
         }
     }
 
@@ -112,6 +115,7 @@ impl AppState {
             search_filters: None,
             billing: None,
             newsletter: None,
+            webhooks: None,
         }
     }
 
@@ -148,6 +152,29 @@ impl AppState {
     pub fn with_newsletter(mut self, newsletter: NewsletterState) -> Self {
         self.newsletter = Some(newsletter);
         self
+    }
+
+    pub fn with_webhooks(mut self, webhooks: WebhooksState) -> Self {
+        self.webhooks = Some(webhooks);
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct WebhooksState {
+    pub(crate) ingest: Arc<dyn IngestWoocommerceProductUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl WebhooksState {
+    pub fn new(
+        ingest: Arc<dyn IngestWoocommerceProductUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            ingest,
+            authenticator,
+        }
     }
 }
 
