@@ -7,6 +7,9 @@ use common::language::domain::Language;
 use common::personalized::api::PersonalizedData;
 use common::user_id::UserId;
 use common::{pagination::cursor::api::JsonCursoredData, query::range_query::RangeQuery};
+use embedding::{
+    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+};
 use fake::{Fake, Faker};
 use lambda_runtime::LambdaEvent;
 use notification::service::notification_service::MockNotificationService;
@@ -20,7 +23,6 @@ use product::opensearch::{
 use product::service::query_service::QueryProductServiceImpl;
 use product_api::search::handle;
 use product_personalization::service::ProductPersonalizationServiceImpl;
-use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
 use shop::data::shop_type_data::ShopTypeData;
@@ -37,6 +39,29 @@ fn one_hot_embedding(slot: usize) -> Vec<f32> {
     let mut embedding = vec![0.0_f32; 768];
     embedding[slot] = 1.0;
     embedding
+}
+
+struct FixedEmbeddingGenerator;
+
+#[async_trait::async_trait]
+impl EmbeddingGenerator for FixedEmbeddingGenerator {
+    async fn embed_product(
+        &self,
+        _: &EmbeddingText,
+        _: Option<&EmbeddingText>,
+        _: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        Err(EmbeddingError::InvalidInput {
+            reason: "test generator supports queries only",
+        })
+    }
+
+    async fn embed_search_query(
+        &self,
+        _: &EmbeddingText,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        EmbeddingVector::try_new(one_hot_embedding(0))
+    }
 }
 
 fn ranked_embedding(rank: usize) -> Vec<f32> {
@@ -789,11 +814,7 @@ async fn should_200_when_following_search_after_for_native_hybrid_product_api() 
     access_token_verifier_service
         .expect_verify_extract_user_id()
         .returning(|_| Box::pin(async { Ok(None) }));
-    let mut embedding_service = MockMultimodalEmbeddingService::default();
-    embedding_service
-        .expect_embed_query()
-        .times(3)
-        .returning(|_| Box::pin(async { Ok(one_hot_embedding(0)) }));
+    let embedding_service = FixedEmbeddingGenerator;
 
     let search = ProductSearchData {
         language: LanguageData::En,
@@ -975,11 +996,7 @@ async fn should_200_when_following_scalar_search_after_for_native_hybrid_get_pro
     access_token_verifier_service
         .expect_verify_extract_user_id()
         .returning(|_| Box::pin(async { Ok(None) }));
-    let mut embedding_service = MockMultimodalEmbeddingService::default();
-    embedding_service
-        .expect_embed_query()
-        .times(2)
-        .returning(|_| Box::pin(async { Ok(one_hot_embedding(0)) }));
+    let embedding_service = FixedEmbeddingGenerator;
 
     let product_query = "art deco scalar cursor";
     let product_query_encoded = "art%20deco%20scalar%20cursor";

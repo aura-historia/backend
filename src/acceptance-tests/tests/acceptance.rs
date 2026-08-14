@@ -1228,43 +1228,6 @@ async fn should_set_retention_policy_when_cloudwatch_log_group_is_created() {
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [Cloudformation()])]
-async fn should_materialize_product_in_dynamodb_when_put_new_item() {
-    let stack = get_cfn_output();
-    let shop = prepare_test_shop().await;
-    let mut create_cmd: CreateProductCommand = Faker.fake();
-    create_cmd.shop_id = shop.shop_id;
-
-    create_products(vec![create_cmd.clone()]).await;
-
-    let repository = ProductDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &stack.dynamodb_table_1_name,
-    );
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let materialized = repository
-            .get_product_record(&shop.shop_id, &create_cmd.shops_product_id)
-            .await
-            .unwrap();
-
-        if let Some(materialized) = materialized {
-            assert_eq!(shop.shop_id, materialized.shop_id);
-            assert_eq!(create_cmd.shops_product_id, materialized.shops_product_id);
-            assert_eq!(create_cmd.url, materialized.url);
-            break;
-        }
-
-        if Instant::now() >= deadline {
-            panic!(
-                "Timeout: ProductRecord for shop '{}' / product '{}' not found in DynamoDB after 60s",
-                shop.shop_id, create_cmd.shops_product_id
-            );
-        }
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-#[aura_integration_test(services = [Cloudformation()])]
 async fn should_materialize_product_in_dynamodb_for_domain_event() {
     let stack = get_cfn_output();
     let shop = prepare_test_shop().await;

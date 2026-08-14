@@ -8,7 +8,9 @@ common = { workspace = true, features = ["api", "opensearch"] }
 search-filter = { workspace = true, features = ["data", "service", "dynamodb"] }
 shop = { workspace = true, features = ["dynamodb"] }
 product = { workspace = true, features = ["data", "service", "dynamodb", "opensearch"] }
-product-pipeline-embed-text = { workspace = true }
+async-trait = { workspace = true }
+embedding = { workspace = true }
+google-cloud-auth = { workspace = true }
 geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }

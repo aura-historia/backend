@@ -26,7 +26,9 @@ use common::shop_id::ShopId;
 use common::stripe_customer_id::StripeCustomerId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
-use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingInput, EmbeddingVector};
+use embedding::{
+    EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+};
 use geo::{Geocoder, GeocodingError};
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
@@ -121,15 +123,33 @@ enum TestEmbeddingGenerator {
     Failure,
 }
 
-#[async_trait::async_trait]
-impl EmbeddingGenerator for TestEmbeddingGenerator {
-    async fn generate(&self, _input: &EmbeddingInput) -> Result<EmbeddingVector, EmbeddingError> {
+impl TestEmbeddingGenerator {
+    fn embedding(&self) -> Result<EmbeddingVector, EmbeddingError> {
         match self {
             Self::Success => EmbeddingVector::try_new(vec![1.0; embedding::EMBEDDING_DIMENSIONS]),
             Self::Failure => Err(EmbeddingError::InvalidInput {
                 reason: "test embedding failure",
             }),
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl EmbeddingGenerator for TestEmbeddingGenerator {
+    async fn embed_product(
+        &self,
+        _: &EmbeddingText,
+        _: Option<&EmbeddingText>,
+        _: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.embedding()
+    }
+
+    async fn embed_search_query(
+        &self,
+        _: &EmbeddingText,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.embedding()
     }
 }
 

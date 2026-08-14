@@ -41,10 +41,6 @@ pub struct CloudFormationOutput {
     pub search_filter_open_search_sync_dead_letter_queue_url: String,
     pub product_update_notify_user_queue_url: String,
     pub product_update_notify_user_dead_letter_queue_url: String,
-    pub product_pipeline_translate_queue_url: String,
-    pub product_pipeline_translate_dead_letter_queue_url: String,
-    pub product_pipeline_embed_text_queue_url: String,
-    pub product_pipeline_embed_text_dead_letter_queue_url: String,
     #[serde(default)]
     pub stripe_event_bus_name: String,
     #[serde(default)]
@@ -244,10 +240,6 @@ pub async fn reset() {
         cfn_output.search_filter_open_search_sync_dead_letter_queue_url,
         cfn_output.product_update_notify_user_queue_url,
         cfn_output.product_update_notify_user_dead_letter_queue_url,
-        cfn_output.product_pipeline_translate_queue_url,
-        cfn_output.product_pipeline_translate_dead_letter_queue_url,
-        cfn_output.product_pipeline_embed_text_queue_url,
-        cfn_output.product_pipeline_embed_text_dead_letter_queue_url,
     ])
     .await
     .expect("shouldn't fail clearing queues");

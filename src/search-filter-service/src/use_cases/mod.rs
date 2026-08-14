@@ -1,4 +1,4 @@
-use embedding::{EmbeddingError, EmbeddingInput, EmbeddingText};
+use embedding::{EmbeddingError, EmbeddingText};
 use search_filter_core::ProductSearch;
 
 mod create_search_filter;
@@ -23,9 +23,9 @@ pub use project_search_filter_change::*;
 pub use update_owned_search_filter::*;
 pub use update_search_filter_match_feedback::*;
 
-pub(crate) fn embedding_input(
+pub(crate) fn embedding_query(
     search: &ProductSearch,
-) -> Result<Option<EmbeddingInput>, EmbeddingError> {
+) -> Result<Option<EmbeddingText>, EmbeddingError> {
     let mut parts = search
         .product_query
         .iter()
@@ -40,38 +40,35 @@ pub(crate) fn embedding_input(
         return Ok(None);
     };
 
-    EmbeddingText::new(text)
-        .map(EmbeddingInput::Query)
-        .map(Some)
+    EmbeddingText::new(text).map(Some)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::embedding_input;
+    use super::embedding_query;
     use common::{currency::domain::Currency, language::domain::Language};
-    use embedding::EmbeddingInput;
     use search_filter_core::ProductSearch;
 
     #[test]
-    fn should_build_search_embedding_input() -> Result<(), Box<dyn std::error::Error>> {
+    fn should_build_search_embedding_query() -> Result<(), Box<dyn std::error::Error>> {
         let search = ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query("vintage brass lamp".try_into()?);
 
-        let input = embedding_input(&search)?;
+        let query = embedding_query(&search)?;
 
         assert!(matches!(
-            input,
-            Some(EmbeddingInput::Query(ref text)) if text.as_str() == "vintage brass lamp"
+            query,
+            Some(ref text) if text.as_str() == "vintage brass lamp"
         ));
         Ok(())
     }
 
     #[test]
-    fn should_not_build_search_embedding_input_without_search_terms()
+    fn should_not_build_search_embedding_query_without_search_terms()
     -> Result<(), Box<dyn std::error::Error>> {
         let search = ProductSearch::new(Language::En, Currency::Eur);
 
-        assert_eq!(None, embedding_input(&search)?);
+        assert_eq!(None, embedding_query(&search)?);
         Ok(())
     }
 }

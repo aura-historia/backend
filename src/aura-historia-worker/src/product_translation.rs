@@ -19,7 +19,7 @@ use product_core::title::Title;
 use product_service::{
     ports::{ProductTitleTranslationError, ProductTitleTranslator},
     use_cases::{
-        TranslateProductEventCommand, TranslateProductEventOutcome, TranslateProductEventUseCase,
+        TranslateProductCommand, TranslateProductEventOutcome, TranslateProductEventUseCase,
     },
 };
 use serde::Deserialize;
@@ -154,7 +154,7 @@ async fn execute_job(
 
 fn command_from_job(
     job: DomainJob,
-) -> Result<TranslateProductEventCommand, ProductTranslationWorkerError> {
+) -> Result<TranslateProductCommand, ProductTranslationWorkerError> {
     let DomainJobPayload::ProductEvent(event) = job.payload else {
         return Err(ProductTranslationWorkerError::UnexpectedJobPayload);
     };
@@ -168,7 +168,7 @@ fn command_from_job(
             source: box_error(source),
         }
     })?;
-    Ok(TranslateProductEventCommand {
+    Ok(TranslateProductCommand {
         event_id,
         product_id,
     })
@@ -276,7 +276,7 @@ mod tests {
 
         assert!(matches!(
             command,
-            Ok(TranslateProductEventCommand { event_id: actual_event_id, product_id: actual_product_id })
+            Ok(TranslateProductCommand { event_id: actual_event_id, product_id: actual_product_id })
                 if actual_event_id == event_id && actual_product_id == product_id
         ));
     }

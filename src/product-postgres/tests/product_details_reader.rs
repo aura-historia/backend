@@ -655,8 +655,10 @@ async fn insert_translation(
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO product_translations (product_id, language, title, description)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO product_translations (product_id, source_event_id, language, title, description)
+        SELECT product_id, event_id, $2, $3, $4
+        FROM products
+        WHERE product_id = $1
         "#,
     )
     .bind(uuid::Uuid::from(product_id))

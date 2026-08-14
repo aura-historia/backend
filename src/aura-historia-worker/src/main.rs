@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+use aura_historia_worker::product_embedding::consume_product_embedding_queue;
 use aura_historia_worker::product_translation::{
     LargeLanguageModelProductTitleTranslator, consume_product_translation_queue,
 };
@@ -13,6 +12,7 @@ use aura_historia_worker::{
     WorkerVertexAiConfig, run_until_shutdown_with_runtime,
 };
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
+use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
 use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
@@ -23,12 +23,14 @@ use opensearch::{
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
 use product_postgres::{
+    SqlxProductEmbeddingSourceReader, SqlxProductEmbeddingWriterFactory,
     SqlxProductSearchFilterMatchSourceReaderFactory, SqlxProductTranslationSourceReader,
     SqlxProductTranslationWriterFactory, SqlxProductWatchlistNotificationSourceReaderFactory,
 };
 use product_service::use_cases::{
-    GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
-    TranslateProductEventHandler, TranslateProductEventUseCase,
+    EmbedProductEventHandler, EmbedProductEventUseCase, GenerateWatchlistNotificationsHandler,
+    GenerateWatchlistNotificationsUseCase, TranslateProductEventHandler,
+    TranslateProductEventUseCase,
 };
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
@@ -41,6 +43,7 @@ use search_filter_service::use_cases::{
     MatchProductEventHandler, MatchProductEventUseCase, ProjectSearchFilterChangeHandler,
     ProjectSearchFilterChangeUseCase,
 };
+use std::sync::Arc;
 use user_postgres::SqlxUserTierEntitlementsFactory;
 use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
 
@@ -93,6 +96,12 @@ async fn main() -> Result<(), MainError> {
                 .vertex_ai()
                 .ok_or(MainError::MissingScopeConfig { scope })?;
             run_product_translation(worker_config, pool, composition, vertex_ai).await
+        }
+        WorkerScope::ProductEmbedding => {
+            let vertex_ai = startup
+                .vertex_ai()
+                .ok_or(MainError::MissingScopeConfig { scope })?;
+            run_product_embedding(worker_config, pool, composition, vertex_ai).await
         }
     }
 }
@@ -159,6 +168,26 @@ async fn run_search_filter_match_notifications(
     finish_runtime(config, runtime, task).await
 }
 
+async fn run_product_embedding(
+    config: aura_historia_worker::WorkerConfig,
+    pool: sqlx::PgPool,
+    composition: WorkerRuntimeComposition,
+    vertex_ai: &WorkerVertexAiConfig,
+) -> Result<(), MainError> {
+    let handler: Arc<dyn EmbedProductEventUseCase> = Arc::new(EmbedProductEventHandler::new(
+        SqlxProductEmbeddingSourceReader::new(pool.clone()),
+        VertexAiEmbeddingGenerator::new(
+            VertexAiEmbeddingConfig::new(vertex_ai.project_id(), vertex_ai.location()),
+            vertex_ai_credentials()?,
+        ),
+        SqlxUnitOfWork::new(pool),
+        SqlxProductEmbeddingWriterFactory::new(),
+    ));
+    let (runtime, receiver) = composition.into_parts();
+    let task = tokio::spawn(consume_product_embedding_queue(receiver, handler));
+    finish_runtime(config, runtime, task).await
+}
+
 async fn run_product_translation(
     config: aura_historia_worker::WorkerConfig,
     pool: sqlx::PgPool,
@@ -220,15 +249,23 @@ fn vertex_ai_large_language_model(
     let config = VertexAiConfig::new(
         config.project_id().to_owned(),
         config.location().to_owned(),
-        config.model().to_owned(),
+        config
+            .model()
+            .ok_or(MainError::MissingVertexAiModel)?
+            .to_owned(),
     );
-    let credentials = GoogleCredentialsBuilder::default()
+    let credentials = vertex_ai_credentials()?;
+    VertexAiGemini::new(config, credentials).map_err(MainError::VertexAiHttpClient)
+}
+
+fn vertex_ai_credentials()
+-> Result<google_cloud_auth::credentials::AccessTokenCredentials, MainError> {
+    GoogleCredentialsBuilder::default()
         .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
         .build_access_token_credentials()
         .map_err(|error| MainError::VertexAiCredentials {
             detail: error.to_string(),
-        })?;
-    VertexAiGemini::new(config, credentials).map_err(MainError::VertexAiHttpClient)
+        })
 }
 
 fn opensearch_client(config: &WorkerOpenSearchConfig) -> Result<OpenSearch, MainError> {
@@ -269,6 +306,8 @@ enum MainError {
     VertexAiCredentials { detail: String },
     #[error("failed to build Vertex AI HTTP client: {0}")]
     VertexAiHttpClient(reqwest::Error),
+    #[error("validated Vertex AI LLM configuration is missing its model")]
+    MissingVertexAiModel,
     #[error(transparent)]
     Run(#[from] WorkerRunError),
 }

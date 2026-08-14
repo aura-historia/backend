@@ -9,7 +9,7 @@
 - Saved search filter domain, repositories, and match logic.
 - Root modules: `core`, `data`, `dynamodb`, `opensearch`, `service`.
 
-- Main neighbors: `common`, `geo`, `product`, `product-pipeline-embed-text`, `shop`, `user`.
+- Main neighbors: `common`, `embedding`, `geo`, `product`, `shop`, `user`.
 - Library crate. Keep domain, persistence, and service seams explicit.
 - A search-filter is a saved search to alert user on new/updated desired products
 

@@ -73,7 +73,6 @@ oauth-api = { workspace = true }
 oauth-core = { workspace = true }
 oauth-service = { workspace = true }
 oauth-dynamodb = { workspace = true }
-product-pipeline = { workspace = true }
 fxrate = { workspace = true }
 fxrate-lambda = { workspace = true }
 partner-shop-application = { workspace = true }
@@ -152,7 +151,6 @@ members = [
     "src/oauth-core",
     "src/oauth-service",
     "src/oauth-dynamodb",
-    "src/product-pipeline",
     "src/fxrate",
     "src/fxrate-lambda",
     "src/crawler",
@@ -247,9 +245,6 @@ watchlist-service = { path = "src/watchlist-service" }
 watchlist-postgres = { path = "src/watchlist-postgres" }
 product-watchlist-api = { path = "src/product-watchlist-api" }
 product-lambda = { path = "src/product-lambda" }
-product-pipeline-embed-text = { path = "src/product-pipeline/src/product-pipeline-embed-text" }
-
-product-pipeline = { path = "src/product-pipeline" }
 product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
 product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
 product-lambda-ingest-partner-products = { path = "src/product-lambda/src/product-lambda-ingest-partner-products" }

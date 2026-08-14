@@ -323,7 +323,6 @@ dependencies = [
  "product-lambda-delete-product",
  "product-opensearch",
  "product-personalization",
- "product-pipeline",
  "product-postgres",
  "product-service",
  "product-watchlist",
@@ -371,6 +370,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-dynamodb",
  "common",
+ "embedding",
  "google-cloud-auth",
  "indexmap 2.14.0",
  "large-language-model",
@@ -5840,20 +5840,22 @@ dependencies = [
 name = "product-api"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
  "cognito",
  "common",
+ "embedding",
  "fake",
  "geo",
+ "google-cloud-auth",
  "http 1.5.0",
  "isocountry",
  "lambda_runtime",
  "notification",
  "product",
  "product-personalization",
- "product-pipeline-embed-text",
  "product-watchlist",
  "rstest",
  "search-filter",
@@ -6097,47 +6099,6 @@ dependencies = [
  "tracing",
  "url",
  "user",
- "uuid",
-]
-
-[[package]]
-name = "product-pipeline"
-version = "0.1.0"
-dependencies = [
- "product-pipeline-embed-text",
-]
-
-[[package]]
-name = "product-pipeline-embed-text"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "base64 0.23.0",
- "common",
- "fake",
- "fxrate",
- "google-cloud-auth",
- "lambda_runtime",
- "lru 0.16.4",
- "mockall",
- "product",
- "reqwest 0.12.28",
- "rstest",
- "serde",
- "serde_dynamo",
- "serde_json",
- "serial_test",
- "shop",
- "test-api",
- "thiserror 2.0.19",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
  "uuid",
 ]
 
@@ -7072,6 +7033,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-dynamodb",
  "common",
+ "embedding",
  "fake",
  "field",
  "geo",
@@ -7080,7 +7042,6 @@ dependencies = [
  "mockall",
  "opensearch",
  "product",
- "product-pipeline-embed-text",
  "reqwest 0.12.28",
  "rstest",
  "search-filter",
@@ -7103,13 +7064,16 @@ dependencies = [
 name = "search-filter-api"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
  "aws_lambda_events",
  "common",
+ "embedding",
  "fake",
  "futures-util",
  "geo",
+ "google-cloud-auth",
  "http 1.5.0",
  "isocountry",
  "lambda_runtime",
@@ -7117,7 +7081,6 @@ dependencies = [
  "opensearch",
  "product",
  "product-personalization",
- "product-pipeline-embed-text",
  "product-watchlist",
  "rstest",
  "search-filter",

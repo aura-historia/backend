@@ -2,6 +2,8 @@ pub mod partner_product_authorizer;
 pub mod product_details_batch_reader;
 pub mod product_details_reader;
 pub mod product_embedding_reader;
+pub mod product_embedding_source_reader;
+pub mod product_embedding_writer;
 pub mod product_event_reader;
 pub mod product_event_store;
 pub mod product_repository;
@@ -28,6 +30,13 @@ pub use product_details_reader::{
 pub use product_embedding_reader::{
     ProductEmbedding, ProductEmbeddingLookup, ProductEmbeddingReadError, ProductEmbeddingReader,
     ProductEmbeddingReaderFactory,
+};
+pub use product_embedding_source_reader::{
+    ProductEmbeddingSource, ProductEmbeddingSourceReadError, ProductEmbeddingSourceReader,
+};
+pub use product_embedding_writer::{
+    ProductEmbeddingWrite, ProductEmbeddingWriteError, ProductEmbeddingWriteOutcome,
+    ProductEmbeddingWriter, ProductEmbeddingWriterFactory,
 };
 pub use product_event_reader::{
     ProductEventReadError, ProductEventReader, ProductEventReaderFactory,

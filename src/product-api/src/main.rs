@@ -1,7 +1,9 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::apigw::ApiGatewayV2httpRequest;
 use cognito::load_access_token_verifier_service;
-use lambda_runtime::tracing::debug;
+use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
+use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
+use lambda_runtime::tracing::{debug, error};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use notification::dynamodb::repository::NotificationDynamoDbRepositoryImpl;
 use notification::service::noop_adapters::{NoopS3Adapter, NoopSesAdapter};
@@ -13,9 +15,6 @@ use product::service::query_service::QueryProductServiceImpl;
 use product::service::semantic_service::SemanticSearchServiceImpl;
 use product_api::handler;
 use product_personalization::service::ProductPersonalizationServiceImpl;
-use product_pipeline_embed_text::service::{
-    MultimodalEmbeddingService, MultimodalEmbeddingServiceImpl,
-};
 use product_watchlist::dynamodb::repository::WatchlistProductDynamoDbRepositoryImpl;
 use search_filter::dynamodb::repository::UserSearchFilterDynamoDbRepositoryImpl;
 use user::dynamodb::repository::UserDynamoDbRepositoryImpl;
@@ -23,6 +22,7 @@ use user::service::user_service::UserServiceImpl;
 
 const DEFAULT_VERTEX_AI_PROJECT_ID: &str = "project-2c6e1dcc-3fb9-4910-adc";
 const DEFAULT_VERTEX_AI_LOCATION: &str = "eu";
+const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -67,13 +67,21 @@ async fn main() -> Result<(), Error> {
     static NOOP_S3: NoopS3Adapter = NoopS3Adapter;
 
     let get_product_service = GetProductServiceImpl::new(&product_dynamodb_repository);
-    // The impl now caches `embed_query` results internally via a 4096-entry LRU.
-    let query_embedding_service: Option<Box<dyn MultimodalEmbeddingService + Sync + Send>> =
-        google_application_credentials.as_ref().map(|_| {
-            Box::new(MultimodalEmbeddingServiceImpl::new(
-                &vertex_ai_project_id,
-                &vertex_ai_location,
-            )) as Box<_>
+    let query_embedding_service: Option<Box<dyn EmbeddingGenerator>> =
+        google_application_credentials.as_ref().and_then(|_| {
+            GoogleCredentialsBuilder::default()
+                .with_scopes([GOOGLE_CLOUD_PLATFORM_SCOPE])
+                .build_access_token_credentials()
+                .map(|credentials| {
+                    Box::new(VertexAiEmbeddingGenerator::new(
+                        VertexAiEmbeddingConfig::new(&vertex_ai_project_id, &vertex_ai_location),
+                        credentials,
+                    )) as Box<dyn EmbeddingGenerator>
+                })
+                .inspect_err(|error| {
+                    error!(error = %error, "Failed to initialize query embedding generator; falling back to BM25 search")
+                })
+                .ok()
         });
     let query_product_service = QueryProductServiceImpl::new(&product_opensearch_repository);
     let semantic_search_service = SemanticSearchServiceImpl::new(

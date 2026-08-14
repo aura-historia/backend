@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 common = { workspace = true, features = ["api", "opensearch"] }
 product = { workspace = true, features = ["data", "service", "dynamodb", "opensearch", "sqs"] }
-product-pipeline-embed-text = { workspace = true }
+embedding = { workspace = true }
+google-cloud-auth = { workspace = true }
 product-watchlist = { workspace = true, features = ["data", "service", "dynamodb"] }
 product-personalization = { workspace = true }
 notification = { workspace = true, features = ["service"] }
@@ -27,6 +28,7 @@ url = { workspace = true }
 time = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 product = { workspace = true, features = ["test-data"] }
 product-watchlist = { workspace = true, features = ["test-data"] }
 notification = { workspace = true, features = ["test-data"] }

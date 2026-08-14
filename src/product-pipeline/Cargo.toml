@@ -1,7 +1,0 @@
-[package]
-name = "product-pipeline"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-product-pipeline-embed-text = { workspace = true }

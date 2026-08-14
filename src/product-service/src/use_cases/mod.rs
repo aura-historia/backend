@@ -8,13 +8,17 @@ pub use commands::create_product::{
 pub use commands::delete_product::{
     DeleteProductError, DeleteProductHandler, DeleteProductResult, DeleteProductUseCase,
 };
+pub use commands::embed_product_event::{
+    EmbedProductCommand, EmbedProductEventError, EmbedProductEventHandler,
+    EmbedProductEventOutcome, EmbedProductEventResult, EmbedProductEventUseCase,
+};
 pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsError,
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsResult,
     GenerateWatchlistNotificationsUseCase,
 };
 pub use commands::translate_product_event::{
-    TranslateProductEventCommand, TranslateProductEventError, TranslateProductEventHandler,
+    TranslateProductCommand, TranslateProductEventError, TranslateProductEventHandler,
     TranslateProductEventOutcome, TranslateProductEventResult, TranslateProductEventUseCase,
 };
 pub use commands::update_product::{

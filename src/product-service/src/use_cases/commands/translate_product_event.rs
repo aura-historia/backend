@@ -14,7 +14,7 @@ use common::{
 const EMBEDDED_EVENT_TYPE: &str = "ENRICHMENT_EMBEDDED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TranslateProductEventCommand {
+pub struct TranslateProductCommand {
     pub event_id: EventId,
     pub product_id: ProductId,
 }
@@ -72,7 +72,7 @@ pub trait TranslateProductEventUseCase: Send + Sync {
     async fn execute(
         &self,
         context: &OperationContext,
-        command: TranslateProductEventCommand,
+        command: TranslateProductCommand,
     ) -> Result<TranslateProductEventResult, TranslateProductEventError>;
 }
 
@@ -117,7 +117,7 @@ where
     async fn execute(
         &self,
         context: &OperationContext,
-        command: TranslateProductEventCommand,
+        command: TranslateProductCommand,
     ) -> Result<TranslateProductEventResult, TranslateProductEventError> {
         context
             .require()
@@ -445,9 +445,9 @@ mod tests {
         )
     }
 
-    fn command(state: &SharedState) -> TranslateProductEventCommand {
+    fn command(state: &SharedState) -> TranslateProductCommand {
         let source = lock(state).source.clone().expect("source exists");
-        TranslateProductEventCommand {
+        TranslateProductCommand {
             event_id: source.event_id,
             product_id: source.product_id,
         }
