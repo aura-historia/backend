@@ -195,6 +195,7 @@ CREATE INDEX products_fx_rate_id_idx ON products (fx_rate_id);
 
 CREATE TABLE product_translations (
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
+    source_event_id uuid NOT NULL,
     language text NOT NULL,
     title text,
     description text,
@@ -228,7 +229,15 @@ ALTER TABLE products
     REFERENCES product_events(product_id, event_id)
     DEFERRABLE INITIALLY DEFERRED;
 
+ALTER TABLE product_translations
+    ADD CONSTRAINT product_translations_source_event_fkey
+    FOREIGN KEY (product_id, source_event_id)
+    REFERENCES product_events(product_id, event_id)
+    DEFERRABLE INITIALLY DEFERRED;
+
 CREATE INDEX product_events_product_time_idx ON product_events (product_id, event_time ASC);
+CREATE INDEX product_translations_source_event_idx
+    ON product_translations (product_id, source_event_id);
 CREATE INDEX product_events_type_time_idx ON product_events (event_type, event_time ASC);
 
 CREATE TABLE product_watchlist (

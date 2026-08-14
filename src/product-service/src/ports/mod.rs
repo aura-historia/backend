@@ -2,12 +2,17 @@ pub mod partner_product_authorizer;
 pub mod product_details_batch_reader;
 pub mod product_details_reader;
 pub mod product_embedding_reader;
+pub mod product_embedding_source_reader;
+pub mod product_embedding_writer;
 pub mod product_event_reader;
 pub mod product_event_store;
 pub mod product_repository;
 pub mod product_search_filter_match_source_reader;
 pub mod product_search_reader;
 pub mod product_similar_products_reader;
+pub mod product_title_translator;
+pub mod product_translation_source_reader;
+pub mod product_translation_writer;
 pub mod product_user_state_reader;
 pub mod product_watchlist_details_reader;
 pub mod product_watchlist_notification_source_reader;
@@ -26,6 +31,13 @@ pub use product_embedding_reader::{
     ProductEmbedding, ProductEmbeddingLookup, ProductEmbeddingReadError, ProductEmbeddingReader,
     ProductEmbeddingReaderFactory,
 };
+pub use product_embedding_source_reader::{
+    ProductEmbeddingSource, ProductEmbeddingSourceReadError, ProductEmbeddingSourceReader,
+};
+pub use product_embedding_writer::{
+    ProductEmbeddingWrite, ProductEmbeddingWriteError, ProductEmbeddingWriteOutcome,
+    ProductEmbeddingWriter, ProductEmbeddingWriterFactory,
+};
 pub use product_event_reader::{
     ProductEventReadError, ProductEventReader, ProductEventReaderFactory,
 };
@@ -41,6 +53,14 @@ pub use product_search_filter_match_source_reader::{
 pub use product_search_reader::{ProductSearchReadError, ProductSearchReader};
 pub use product_similar_products_reader::{
     ProductSimilarProductsReadError, ProductSimilarProductsReader, ProductSimilarProductsRequest,
+};
+pub use product_title_translator::{ProductTitleTranslationError, ProductTitleTranslator};
+pub use product_translation_source_reader::{
+    ProductTranslationSource, ProductTranslationSourceReadError, ProductTranslationSourceReader,
+};
+pub use product_translation_writer::{
+    ProductTranslationWrite, ProductTranslationWriteError, ProductTranslationWriteOutcome,
+    ProductTranslationWriter, ProductTranslationWriterFactory,
 };
 pub use product_user_state_reader::{
     ProductUserStateLookup, ProductUserStateReadError, ProductUserStateReader,

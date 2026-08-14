@@ -12,6 +12,7 @@ use common::{
     personalized::{Personalized, api::PersonalizedData},
     sort::api::extract_sort_query,
 };
+use embedding::{EmbeddingGenerator, EmbeddingText};
 use lambda_runtime::LambdaEvent;
 use product::core::sort_product_field::SortProductField;
 use product::data::sort_product_field_data::SortProductFieldData;
@@ -21,13 +22,12 @@ use product::data::{
 };
 use product::service::query_service::QueryProductService;
 use product_personalization::service::ProductPersonalizationService;
-use product_pipeline_embed_text::service::MultimodalEmbeddingService;
 use tracing::warn;
 
 pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     service: &impl QueryProductService,
-    embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
+    embedding_service: Option<&dyn EmbeddingGenerator>,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
     product_personalization_service: &impl ProductPersonalizationService,
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
@@ -100,16 +100,24 @@ pub async fn handle(
             .map(AsRef::as_ref)
             .collect::<Vec<_>>()
             .join(" ");
-        match es.embed_query(&query_text).await {
+        let embedding = match EmbeddingText::new(query_text) {
+            Ok(text) => es.embed_search_query(&text).await,
+            Err(error) => Err(error),
+        };
+        match embedding {
             Ok(embedding) => {
                 service
-                    .search_products_hybrid(&product_search, &embedding, &Some(cursor))
+                    .search_products_hybrid(
+                        &product_search,
+                        &embedding.into_values(),
+                        &Some(cursor),
+                    )
                     .await?
             }
             Err(err) => {
                 // Fail-open: log and fall back to BM25 so we never break the search path
                 // because of an embedding-service hiccup.
-                warn!(error = %err, "embed_query failed; falling back to BM25 path");
+                warn!(error = %err, "query embedding failed; falling back to BM25 path");
                 service
                     .search_products(&product_search, &sort, &Some(cursor))
                     .await?

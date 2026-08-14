@@ -123,7 +123,6 @@
 - `src/product-api-partner/AGENTS.md` — `product-api-partner` crate.
 - `src/product-lambda/AGENTS.md` — `product-lambda` crate.
 - `src/product-personalization/AGENTS.md` — `product-personalization` crate.
-- `src/product-pipeline/AGENTS.md` — `product-pipeline` crate.
 - `src/product-watchlist/AGENTS.md` — legacy `product-watchlist` crate.
 - `src/watchlist-core/AGENTS.md` — canonical Watchlist domain crate.
 - `src/watchlist-service/AGENTS.md` — canonical Watchlist service crate.

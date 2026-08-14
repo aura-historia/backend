@@ -8,6 +8,10 @@ pub use commands::create_product::{
 pub use commands::delete_product::{
     DeleteProductError, DeleteProductHandler, DeleteProductResult, DeleteProductUseCase,
 };
+pub use commands::embed_product_event::{
+    EmbedProductCommand, EmbedProductEventError, EmbedProductEventHandler,
+    EmbedProductEventOutcome, EmbedProductEventResult, EmbedProductEventUseCase,
+};
 pub use commands::generate_watchlist_notifications::{
     GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsError,
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsResult,
@@ -21,6 +25,10 @@ pub use commands::ingest_woocommerce_product::{
     IngestWoocommerceProductCommand, IngestWoocommerceProductError,
     IngestWoocommerceProductHandler, IngestWoocommerceProductResult,
     IngestWoocommerceProductUseCase, WoocommerceProductEventKind,
+};
+pub use commands::translate_product_event::{
+    TranslateProductCommand, TranslateProductEventError, TranslateProductEventHandler,
+    TranslateProductEventOutcome, TranslateProductEventResult, TranslateProductEventUseCase,
 };
 pub use commands::update_product::{
     UpdateProductCommand, UpdateProductError, UpdateProductHandler, UpdateProductResult,

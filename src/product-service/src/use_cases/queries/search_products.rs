@@ -19,7 +19,7 @@ use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
-use embedding::{EmbeddingGenerator, EmbeddingInput, EmbeddingText};
+use embedding::{EmbeddingGenerator, EmbeddingText};
 
 use indexmap::IndexSet;
 use notification_service::ports::all_notifications_reader::AllNotificationsReader;
@@ -142,8 +142,8 @@ where
         context: &OperationContext,
         request: SearchProductsRequest,
     ) -> Result<SearchProductsResult, SearchProductsError> {
-        let result = match hybrid_embedding_input(&request) {
-            Some(input) => match self.embeddings.generate(&input).await {
+        let result = match hybrid_embedding_query(&request) {
+            Some(query) => match self.embeddings.embed_search_query(&query).await {
                 Ok(embedding) => {
                     self.reader
                         .search_hybrid(&request, embedding.values())
@@ -170,7 +170,7 @@ where
     }
 }
 
-fn hybrid_embedding_input(request: &SearchProductsRequest) -> Option<EmbeddingInput> {
+fn hybrid_embedding_query(request: &SearchProductsRequest) -> Option<EmbeddingText> {
     if !matches!(
         request.sort.as_ref().map(|sort| sort.sort),
         None | Some(SortProductField::Score)
@@ -187,10 +187,11 @@ fn hybrid_embedding_input(request: &SearchProductsRequest) -> Option<EmbeddingIn
         .collect::<Vec<_>>()
         .join("\n");
 
-    match EmbeddingText::new(text) {
-        Ok(text) => Some(EmbeddingInput::Query(text)),
-        Err(_) => None,
-    }
+    let Ok(text) = EmbeddingText::new(text) else {
+        return None;
+    };
+
+    Some(text)
 }
 
 fn personalization_user_id(principal: &Principal) -> Option<common::user_id::UserId> {
@@ -244,7 +245,7 @@ mod tests {
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::MonetaryAmount;
     use common::user_id::UserId;
-    use embedding::{EmbeddingError, EmbeddingInput, EmbeddingVector};
+    use embedding::{EmbeddingError, EmbeddingVector};
 
     use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
     use notification_core::notification_id::NotificationId;
@@ -259,7 +260,7 @@ mod tests {
         search_result: Option<Result<ProductSearchReadResult, ProductSearchReadError>>,
         hybrid_search_result: Option<Result<ProductSearchReadResult, ProductSearchReadError>>,
         embedding_result: Option<Result<EmbeddingVector, EmbeddingError>>,
-        embedding_inputs: Vec<EmbeddingInput>,
+        embedding_queries: Vec<String>,
         used_hybrid_search: bool,
         user_states_result:
             Option<Result<HashMap<ProductId, ProductUserState>, ProductUserStateReadError>>,
@@ -337,12 +338,23 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EmbeddingGenerator for FakeEmbeddingGenerator {
-        async fn generate(
+        async fn embed_product(
             &self,
-            input: &EmbeddingInput,
+            _: &EmbeddingText,
+            _: Option<&embedding::EmbeddingText>,
+            _: Option<&embedding::EmbeddingImageUrl>,
+        ) -> Result<EmbeddingVector, EmbeddingError> {
+            Err(EmbeddingError::InvalidInput {
+                reason: "test generator supports queries only",
+            })
+        }
+
+        async fn embed_search_query(
+            &self,
+            query: &EmbeddingText,
         ) -> Result<EmbeddingVector, EmbeddingError> {
             let mut state = lock_state(&self.state);
-            state.embedding_inputs.push(input.clone());
+            state.embedding_queries.push(query.as_str().to_owned());
             match state.embedding_result.take() {
                 Some(result) => result,
                 None => EmbeddingVector::try_new(vec![1.0; embedding::EMBEDDING_DIMENSIONS]),
@@ -538,8 +550,8 @@ mod tests {
         let state = lock_state(&state);
         assert!(state.used_hybrid_search);
         assert!(matches!(
-            state.embedding_inputs.as_slice(),
-            [EmbeddingInput::Query(text)] if text.as_str() == "vintage brass lamp"
+            state.embedding_queries.as_slice(),
+            [query] if query == "vintage brass lamp"
         ));
         Ok(())
     }
@@ -567,7 +579,7 @@ mod tests {
         );
         let state = lock_state(&state);
         assert!(!state.used_hybrid_search);
-        assert_eq!(1, state.embedding_inputs.len());
+        assert_eq!(1, state.embedding_queries.len());
         Ok(())
     }
 
@@ -592,7 +604,7 @@ mod tests {
             result
         );
         let state = lock_state(&state);
-        assert!(state.embedding_inputs.is_empty());
+        assert!(state.embedding_queries.is_empty());
         assert!(!state.used_hybrid_search);
         Ok(())
     }

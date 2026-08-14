@@ -91,40 +91,6 @@ impl EmbeddingImageUrl {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EmbeddingContent {
-    text: EmbeddingText,
-    image_url: Option<EmbeddingImageUrl>,
-}
-
-impl EmbeddingContent {
-    pub fn new(text: EmbeddingText) -> Self {
-        Self {
-            text,
-            image_url: None,
-        }
-    }
-
-    pub fn with_image_url(mut self, image_url: EmbeddingImageUrl) -> Self {
-        self.image_url = Some(image_url);
-        self
-    }
-
-    pub fn text(&self) -> &EmbeddingText {
-        &self.text
-    }
-
-    pub fn image_url(&self) -> Option<&EmbeddingImageUrl> {
-        self.image_url.as_ref()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EmbeddingInput {
-    Query(EmbeddingText),
-    Content(EmbeddingContent),
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmbeddingVector(Vec<f32>);
 
@@ -145,7 +111,17 @@ impl EmbeddingVector {
 
 #[async_trait::async_trait]
 pub trait EmbeddingGenerator: Send + Sync {
-    async fn generate(&self, input: &EmbeddingInput) -> Result<EmbeddingVector, EmbeddingError>;
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError>;
+
+    async fn embed_search_query(
+        &self,
+        query: &EmbeddingText,
+    ) -> Result<EmbeddingVector, EmbeddingError>;
 }
 
 #[async_trait::async_trait]
@@ -153,15 +129,29 @@ impl<G> EmbeddingGenerator for Arc<G>
 where
     G: EmbeddingGenerator + ?Sized,
 {
-    async fn generate(&self, input: &EmbeddingInput) -> Result<EmbeddingVector, EmbeddingError> {
-        self.as_ref().generate(input).await
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.as_ref()
+            .embed_product(title, additional_text, image_url)
+            .await
+    }
+
+    async fn embed_search_query(
+        &self,
+        query: &EmbeddingText,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.as_ref().embed_search_query(query).await
     }
 }
 
 /// Vertex AI Gemini Embedding implementation of [`EmbeddingGenerator`].
 ///
-/// The caller owns semantic text construction. This adapter owns provider protocol,
-/// image retrieval, response validation, and the bounded query cache.
+/// Callers supply semantic product or search fields. This adapter owns Google prompt
+/// format, provider protocol, image retrieval, response validation, and query cache.
 pub struct VertexAiEmbeddingGenerator {
     embed_content_url: String,
     client: reqwest::Client,
@@ -183,34 +173,40 @@ impl VertexAiEmbeddingGenerator {
         }
     }
 
-    async fn generate_query(
+    async fn embed_search_query(
         &self,
-        text: &EmbeddingText,
+        query: &EmbeddingText,
     ) -> Result<EmbeddingVector, EmbeddingError> {
-        if let Some(vector) = self.query_cache.lock().await.get(text).cloned() {
+        if let Some(vector) = self.query_cache.lock().await.get(query).cloned() {
             return Ok(vector);
         }
 
         let vector = self
-            .request_embedding(EmbedContentRequest::for_query(text))
+            .request_embedding(EmbedContentRequest::for_search_query(query))
             .await?;
         self.query_cache
             .lock()
             .await
-            .put(text.clone(), vector.clone());
+            .put(query.clone(), vector.clone());
         Ok(vector)
     }
 
-    async fn generate_content(
+    async fn embed_product(
         &self,
-        content: &EmbeddingContent,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
     ) -> Result<EmbeddingVector, EmbeddingError> {
-        let image = match content.image_url() {
+        let image = match image_url {
             Some(image_url) => self.fetch_image(image_url).await,
             None => None,
         };
-        self.request_embedding(EmbedContentRequest::for_content(content.text(), image))
-            .await
+        self.request_embedding(EmbedContentRequest::for_product(
+            title,
+            additional_text,
+            image,
+        ))
+        .await
     }
 
     async fn request_embedding(
@@ -251,11 +247,20 @@ impl VertexAiEmbeddingGenerator {
 
 #[async_trait::async_trait]
 impl EmbeddingGenerator for VertexAiEmbeddingGenerator {
-    async fn generate(&self, input: &EmbeddingInput) -> Result<EmbeddingVector, EmbeddingError> {
-        match input {
-            EmbeddingInput::Query(text) => self.generate_query(text).await,
-            EmbeddingInput::Content(content) => self.generate_content(content).await,
-        }
+    async fn embed_product(
+        &self,
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image_url: Option<&EmbeddingImageUrl>,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.embed_product(title, additional_text, image_url).await
+    }
+
+    async fn embed_search_query(
+        &self,
+        query: &EmbeddingText,
+    ) -> Result<EmbeddingVector, EmbeddingError> {
+        self.embed_search_query(query).await
     }
 }
 
@@ -306,15 +311,20 @@ struct EmbedContentRequest {
 }
 
 impl EmbedContentRequest {
-    fn for_query(text: &EmbeddingText) -> Self {
+    fn for_search_query(query: &EmbeddingText) -> Self {
         Self::for_parts(vec![ContentPart::Text {
-            text: format!("task: search result | query: {}", text.as_str()),
+            text: format!("task: search result | query: {}", query.as_str()),
         }])
     }
 
-    fn for_content(text: &EmbeddingText, image: Option<FetchedImage>) -> Self {
+    fn for_product(
+        title: &EmbeddingText,
+        additional_text: Option<&EmbeddingText>,
+        image: Option<FetchedImage>,
+    ) -> Self {
+        let additional_text = additional_text.map(EmbeddingText::as_str).unwrap_or("none");
         let mut parts = vec![ContentPart::Text {
-            text: text.as_str().to_owned(),
+            text: format!("title: {} | text: {additional_text}", title.as_str()),
         }];
         if let Some(image) = image {
             parts.push(ContentPart::InlineData {
@@ -402,14 +412,43 @@ mod tests {
     }
 
     #[test]
-    fn should_serialize_query_vertex_request() -> Result<(), EmbeddingError> {
-        let query = EmbedContentRequest::for_query(&EmbeddingText::new("vintage brass lamp")?);
+    fn should_serialize_search_query_vertex_request() -> Result<(), EmbeddingError> {
+        let query =
+            EmbedContentRequest::for_search_query(&EmbeddingText::new("vintage brass lamp")?);
 
         assert_eq!(
             serde_json::to_value(query).map_err(|_| EmbeddingError::InvalidResponse {
                 reason: "query request serialization failed"
             })?,
             serde_json::json!({"content":{"parts":[{"text":"task: search result | query: vintage brass lamp"}]},"outputDimensionality":768})
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_serialize_product_vertex_request_with_additional_text_or_none()
+    -> Result<(), EmbeddingError> {
+        let title = EmbeddingText::new("vintage brass lamp")?;
+        let additional_text = EmbeddingText::new("adjustable arm")?;
+
+        assert_eq!(
+            serde_json::to_value(EmbedContentRequest::for_product(
+                &title,
+                Some(&additional_text),
+                None,
+            ))
+            .map_err(|_| EmbeddingError::InvalidResponse {
+                reason: "product request serialization failed"
+            })?,
+            serde_json::json!({"content":{"parts":[{"text":"title: vintage brass lamp | text: adjustable arm"}]},"outputDimensionality":768})
+        );
+        assert_eq!(
+            serde_json::to_value(EmbedContentRequest::for_product(&title, None, None)).map_err(
+                |_| EmbeddingError::InvalidResponse {
+                    reason: "product request serialization failed"
+                }
+            )?,
+            serde_json::json!({"content":{"parts":[{"text":"title: vintage brass lamp | text: none"}]},"outputDimensionality":768})
         );
         Ok(())
     }

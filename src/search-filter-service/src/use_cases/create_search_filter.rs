@@ -4,7 +4,7 @@ use crate::ports::{
     SearchFilterView,
 };
 use crate::tier_policy::{active_filter_quota, validate_search_features};
-use crate::use_cases::embedding_input;
+use crate::use_cases::embedding_query;
 use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
@@ -141,10 +141,10 @@ where
         command: CreateSearchFilterCommand,
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError> {
         authorize_owner(context, command.user_id)?;
-        let embedding = match embedding_input(&command.search).map_err(embedding_error)? {
-            Some(input) => Some(
+        let embedding = match embedding_query(&command.search).map_err(embedding_error)? {
+            Some(query) => Some(
                 self.embeddings
-                    .generate(&input)
+                    .embed_search_query(&query)
                     .await
                     .map_err(embedding_error)?
                     .into_values(),

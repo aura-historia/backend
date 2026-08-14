@@ -7,8 +7,8 @@
 
 ## Core Design
 
-- `EmbeddingGenerator` is product/search-filter free. Callers compose their own text.
-- `VertexAiEmbeddingGenerator` owns Vertex HTTP, optional-image use, and query LRU cache.
+- `EmbeddingGenerator` exposes semantic product and search-query embedding methods. Callers supply title, optional extra text, and optional image URL fields.
+- `VertexAiEmbeddingGenerator` owns Vertex HTTP, Google-specific prompt format, optional-image use, and query LRU cache.
 - `image-fetcher` owns reusable guarded image retrieval, including target/redirect validation, retries, byte limits, and media sniffing.
 - Provider DTOs stay private. This crate logs no input, response, token, URL, or error payload.
 - Composition roots pass `VertexAiEmbeddingConfig` plus Google access-token credentials; they resolve ADC at that boundary. This crate reads no environment variables directly.

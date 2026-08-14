@@ -1,4 +1,6 @@
 pub mod cdc;
+pub mod product_embedding;
+pub mod product_translation;
 pub mod retry;
 pub mod search_filter_match_notifications;
 pub mod search_filter_percolator;
@@ -44,6 +46,8 @@ pub enum WorkerScope {
     SearchFilterPercolator,
     SearchFilterMatchNotification,
     WatchlistNotification,
+    ProductTranslation,
+    ProductEmbedding,
 }
 
 impl WorkerScope {
@@ -69,6 +73,8 @@ impl WorkerScope {
             "search-filter-percolator" => Ok(Self::SearchFilterPercolator),
             "search-filter-match-notification" => Ok(Self::SearchFilterMatchNotification),
             "watchlist-notification" => Ok(Self::WatchlistNotification),
+            "product-translation" => Ok(Self::ProductTranslation),
+            "product-embedding" => Ok(Self::ProductEmbedding),
             _ => Err(WorkerStartupConfigError::InvalidScope { value }),
         }
     }
@@ -79,6 +85,8 @@ impl WorkerScope {
             Self::SearchFilterPercolator => WorkerQueue::SearchFilterPercolator,
             Self::SearchFilterMatchNotification => WorkerQueue::SearchFilterMatchNotification,
             Self::WatchlistNotification => WorkerQueue::WatchlistNotification,
+            Self::ProductTranslation => WorkerQueue::ProductTranslate,
+            Self::ProductEmbedding => WorkerQueue::ProductEmbed,
         }
     }
 }
@@ -159,7 +167,7 @@ impl WorkerDynamoDbConfig {
 pub struct WorkerVertexAiConfig {
     project_id: String,
     location: String,
-    model: String,
+    model: Option<String>,
 }
 
 impl WorkerVertexAiConfig {
@@ -171,8 +179,8 @@ impl WorkerVertexAiConfig {
         &self.location
     }
 
-    pub fn model(&self) -> &str {
-        &self.model
+    pub fn model(&self) -> Option<&str> {
+        self.model.as_deref()
     }
 }
 
@@ -210,7 +218,25 @@ impl WorkerStartupConfig {
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
-                    model: required_env(&mut get, VERTEX_AI_MODEL_ENV)?,
+                    model: Some(required_env(&mut get, VERTEX_AI_MODEL_ENV)?),
+                }),
+            ),
+            WorkerScope::ProductTranslation => (
+                None,
+                None,
+                Some(WorkerVertexAiConfig {
+                    project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
+                    location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
+                    model: Some(required_env(&mut get, VERTEX_AI_MODEL_ENV)?),
+                }),
+            ),
+            WorkerScope::ProductEmbedding => (
+                None,
+                None,
+                Some(WorkerVertexAiConfig {
+                    project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
+                    location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
+                    model: None,
                 }),
             ),
             WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => (
@@ -448,6 +474,29 @@ impl WorkerRuntime {
         ))
     }
 
+    pub fn with_product_embedding_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry = WorkerQueueRegistry::new().with_queue(WorkerQueue::ProductEmbed, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::ProductEmbed, receiver);
+        Ok((Self::new(CdcFanout::product_embedding(registry)), receivers))
+    }
+
+    pub fn with_product_translation_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry = WorkerQueueRegistry::new().with_queue(WorkerQueue::ProductTranslate, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::ProductTranslate, receiver);
+        Ok((
+            Self::new(CdcFanout::product_translation(registry)),
+            receivers,
+        ))
+    }
+
     pub fn with_search_filter_projection_queue(
         config: QueueConfig,
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
@@ -491,6 +540,10 @@ impl WorkerRuntimeComposition {
             WorkerScope::WatchlistNotification => {
                 WorkerRuntime::with_watchlist_notification_queue(config)?
             }
+            WorkerScope::ProductTranslation => {
+                WorkerRuntime::with_product_translation_queue(config)?
+            }
+            WorkerScope::ProductEmbedding => WorkerRuntime::with_product_embedding_queue(config)?,
         };
         let consumer_queue = scope.consumer_queue();
         let receiver =
@@ -741,11 +794,20 @@ mod tests {
             WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
                 values.insert(DYNAMODB_TABLE_NAME_ENV, "notifications".to_owned());
             }
+            WorkerScope::ProductTranslation => {}
+            WorkerScope::ProductEmbedding => {}
         }
-        if scope == WorkerScope::SearchFilterPercolator {
+        if matches!(
+            scope,
+            WorkerScope::SearchFilterPercolator
+                | WorkerScope::ProductTranslation
+                | WorkerScope::ProductEmbedding
+        ) {
             values.insert(VERTEX_AI_PROJECT_ID_ENV, "aura-historia-dev".to_owned());
             values.insert(VERTEX_AI_LOCATION_ENV, "europe-west3".to_owned());
-            values.insert(VERTEX_AI_MODEL_ENV, "gemini-3.1-flash-lite".to_owned());
+            if !matches!(scope, WorkerScope::ProductEmbedding) {
+                values.insert(VERTEX_AI_MODEL_ENV, "gemini-3.1-flash-lite".to_owned());
+            }
         }
     }
 
@@ -847,6 +909,16 @@ mod tests {
         "watchlist-notification",
         WorkerQueue::WatchlistNotification
     )]
+    #[case(
+        WorkerScope::ProductTranslation,
+        "product-translation",
+        WorkerQueue::ProductTranslate
+    )]
+    #[case(
+        WorkerScope::ProductEmbedding,
+        "product-embedding",
+        WorkerQueue::ProductEmbed
+    )]
     fn should_validate_only_dependencies_for_selected_scope(
         #[case] scope: WorkerScope,
         #[case] scope_name: &str,
@@ -874,7 +946,12 @@ mod tests {
             config.dynamodb().is_some()
         );
         assert_eq!(
-            scope == WorkerScope::SearchFilterPercolator,
+            matches!(
+                scope,
+                WorkerScope::SearchFilterPercolator
+                    | WorkerScope::ProductTranslation
+                    | WorkerScope::ProductEmbedding
+            ),
             config.vertex_ai().is_some()
         );
         Ok(())
@@ -919,6 +996,16 @@ mod tests {
         WorkerScope::WatchlistNotification,
         WorkerQueue::WatchlistNotification,
         r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"PRODUCT_PRICE_CHANGED","event_group":"DOMAIN"}}]}"#
+    )]
+    #[case(
+        WorkerScope::ProductTranslation,
+        WorkerQueue::ProductTranslate,
+        r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"ENRICHMENT_EMBEDDED","event_group":"ENRICHMENT"}}]}"#
+    )]
+    #[case(
+        WorkerScope::ProductEmbedding,
+        WorkerQueue::ProductEmbed,
+        r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
     )]
     #[tokio::test]
     async fn should_build_one_intended_cdc_route_and_consumer_for_scope(

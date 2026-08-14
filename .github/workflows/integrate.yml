@@ -168,12 +168,19 @@ jobs:
 
       - name: Generate coverage for ${{ matrix.crate }}
         run: |
-          if ! find coverage-profraw -name "*.profraw" -type f -print -quit | grep -q .; then
-            echo "No LLVM coverage profiles were written."
-            exit 1
+          set -euo pipefail
+          if profile_path="$(find coverage-profraw -type f -name "*.profraw" -print -quit)"; then
+            if [ -z "$profile_path" ]; then
+              echo "No LLVM coverage profiles were written." >&2
+              exit 1
+            fi
+          else
+            status=$?
+            echo "Failed to search for LLVM coverage profiles (find exited with $status)." >&2
+            exit "$status"
           fi
           mkdir -p coverage-lcov
-          grcov . --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o "coverage-lcov/${{ strategy.job-index }}.lcov"
+          grcov coverage-profraw --binary-path ./target/debug/deps/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" --ignore "*/target/*" --ignore "*/.cargo/*" -o "coverage-lcov/${{ strategy.job-index }}.lcov"
           test -s "coverage-lcov/${{ strategy.job-index }}.lcov"
 
       - name: Upload coverage for ${{ matrix.crate }}

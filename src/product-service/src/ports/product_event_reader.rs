@@ -10,7 +10,7 @@ pub enum ProductEventReadError {
 
 #[async_trait::async_trait]
 pub trait ProductEventReader: Send {
-    async fn find_events(
+    async fn find_domain_events(
         &mut self,
         lookup: &ProductEventLookup,
     ) -> Result<Option<Vec<ProductEvent>>, ProductEventReadError>;

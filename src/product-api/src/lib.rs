@@ -4,13 +4,13 @@ use common::api::{
     error::{ApiError, log_api_error},
     error_code::INTERNAL_SERVER_ERROR,
 };
+use embedding::EmbeddingGenerator;
 use lambda_runtime::LambdaEvent;
 use product::service::{
     get_service::GetProductService, query_service::QueryProductService,
     semantic_service::SemanticSearchService,
 };
 use product_personalization::service::ProductPersonalizationService;
-use product_pipeline_embed_text::service::MultimodalEmbeddingService;
 
 pub mod get_product;
 pub mod get_product_history;
@@ -43,7 +43,7 @@ pub async fn handler(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
     query_product_service: &impl QueryProductService,
-    query_embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
+    query_embedding_service: Option<&dyn EmbeddingGenerator>,
     semantic_search_service: &impl SemanticSearchService,
     product_personalization_service: &impl ProductPersonalizationService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),
@@ -72,7 +72,7 @@ pub async fn handle(
     event: LambdaEvent<ApiGatewayV2httpRequest>,
     get_product_service: &impl GetProductService,
     query_product_service: &impl QueryProductService,
-    query_embedding_service: Option<&(dyn MultimodalEmbeddingService + Sync + Send)>,
+    query_embedding_service: Option<&dyn EmbeddingGenerator>,
     semantic_search_service: &impl SemanticSearchService,
     product_personalization_service: &impl ProductPersonalizationService,
     access_token_verifier_service: &(impl AccessTokenVerifierService + Sync),

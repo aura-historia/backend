@@ -19,12 +19,12 @@ use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::{sort::SortOrder, user_id::UserId};
+use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingText};
 use product::core::{
     product::Product,
     product_search::{ProductSearch, ProductSearchSerdeField},
 };
 use product::opensearch::product_document::ProductDocument;
-use product_pipeline_embed_text::service::{MultimodalEmbeddingError, MultimodalEmbeddingService};
 use time::OffsetDateTime;
 use tracing::{error, info, warn};
 use user::core::user::User;
@@ -74,7 +74,7 @@ pub enum UserSearchFilterError {
     OpenSearchError(#[from] opensearch::Error),
 
     #[error("Encountered embedding service error: {0}")]
-    EmbeddingError(#[from] MultimodalEmbeddingError),
+    EmbeddingError(#[from] EmbeddingError),
 
     #[error("User with UserId '{0}' not found.")]
     UserNotFound(UserId),
@@ -266,7 +266,7 @@ pub struct CreateSearchFilterProductMatchesResult {
 pub struct UserSearchFilterServiceImpl<'a> {
     repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
     user_service: &'a (dyn UserService + Sync),
-    embedding_service: Option<&'a (dyn MultimodalEmbeddingService + Sync + Send)>,
+    embedding_service: Option<&'a dyn EmbeddingGenerator>,
     #[cfg(feature = "opensearch")]
     opensearch_repository: Option<
         &'a (dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository + Sync),
@@ -290,7 +290,7 @@ impl<'a> UserSearchFilterServiceImpl<'a> {
     pub fn with_embedding_service(
         repository: &'a (dyn UserSearchFilterDynamoDbRepository + Sync),
         user_service: &'a (dyn UserService + Sync),
-        embedding_service: &'a (dyn MultimodalEmbeddingService + Sync + Send),
+        embedding_service: &'a dyn EmbeddingGenerator,
     ) -> Self {
         Self {
             repository,
@@ -324,7 +324,7 @@ impl<'a> UserSearchFilterServiceImpl<'a> {
         opensearch_repository: &'a (
                 dyn crate::opensearch::repository::UserSearchFilterOpenSearchRepository + Sync
             ),
-        embedding_service: &'a (dyn MultimodalEmbeddingService + Sync + Send),
+        embedding_service: &'a dyn EmbeddingGenerator,
     ) -> Self {
         Self {
             repository,
@@ -358,7 +358,11 @@ impl<'a> UserSearchFilterServiceImpl<'a> {
             return Ok(None);
         };
 
-        Ok(Some(embedding_service.embed_query(&embedding_text).await?))
+        let embedding_text = EmbeddingText::new(embedding_text)?;
+        let embedding = embedding_service
+            .embed_search_query(&embedding_text)
+            .await?;
+        Ok(Some(embedding.into_values()))
     }
 }
 
@@ -929,6 +933,33 @@ fn extract_failed_sort_keys(
 
 #[cfg(test)]
 mod tests {
+    use embedding::{
+        EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
+    };
+
+    struct FixedEmbeddingGenerator(Vec<f32>);
+
+    #[async_trait::async_trait]
+    impl EmbeddingGenerator for FixedEmbeddingGenerator {
+        async fn embed_product(
+            &self,
+            _: &EmbeddingText,
+            _: Option<&EmbeddingText>,
+            _: Option<&EmbeddingImageUrl>,
+        ) -> Result<EmbeddingVector, EmbeddingError> {
+            Err(EmbeddingError::InvalidInput {
+                reason: "test generator supports queries only",
+            })
+        }
+
+        async fn embed_search_query(
+            &self,
+            _: &EmbeddingText,
+        ) -> Result<EmbeddingVector, EmbeddingError> {
+            EmbeddingVector::try_new(self.0.clone())
+        }
+    }
+
     fn system_ctx() -> common::actor::RequestContext {
         common::actor::RequestContext {
             actor: common::actor::domain::Actor::System,
@@ -1099,6 +1130,7 @@ mod tests {
     }
 
     mod create_search_filter {
+        use super::FixedEmbeddingGenerator;
         use crate::core::quota::SearchFilterQuota;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::service::user_search_filter_service::{
@@ -1112,7 +1144,6 @@ mod tests {
         use common::user_id::UserId;
         use fake::{Fake, Faker};
         use product::core::product_search::{ProductSearch, ProductSearchSerdeField};
-        use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
         use user::core::tier::UserTier;
         use user::core::user::User;
         use user::service::user_service::{MockUserService, UserServiceError};
@@ -1150,7 +1181,7 @@ mod tests {
         async fn should_compute_embedding_when_creating_search_filter_with_query_text() {
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
             let mut user_service = MockUserService::default();
-            let mut embedding_service = MockMultimodalEmbeddingService::default();
+            let embedding_service = FixedEmbeddingGenerator(vec![1.0; 768]);
 
             user_service.expect_find_user().return_once(|_| {
                 Box::pin(async {
@@ -1162,17 +1193,11 @@ mod tests {
             repository
                 .expect_query_user_search_filter_records()
                 .return_once(|_, _| Box::pin(async { Ok(vec![]) }));
-            embedding_service
-                .expect_embed_query()
-                .times(1)
-                .returning(|query| {
-                    assert_eq!(query, "antique lamp");
-                    Box::pin(async { Ok(vec![0.1, 0.2]) })
-                });
+
             repository
                 .expect_put_user_search_filter_record()
                 .return_once(|record| {
-                    assert_eq!(record.embedding, Some(vec![0.1, 0.2]));
+                    assert_eq!(record.embedding, Some(vec![1.0 / 768_f32.sqrt(); 768]));
                     Box::pin(async { Ok(PutItemOutput::builder().build()) })
                 });
 
@@ -1196,7 +1221,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(actual.embedding, Some(vec![0.1, 0.2]));
+            assert_eq!(actual.embedding, Some(vec![1.0 / 768_f32.sqrt(); 768]));
         }
 
         #[tokio::test]
@@ -1660,6 +1685,7 @@ mod tests {
     }
 
     mod update_search_filter {
+        use super::FixedEmbeddingGenerator;
         use crate::core::user_search_filter_update::UserSearchFilterUpdate;
         use crate::dynamodb::repository::MockUserSearchFilterDynamoDbRepository;
         use crate::dynamodb::user_search_filter_record::UserSearchFilterRecord;
@@ -1673,7 +1699,6 @@ mod tests {
         use common::user_id::UserId;
         use common::user_search_filter_id::UserSearchFilterId;
         use fake::{Fake, Faker};
-        use product_pipeline_embed_text::service::MockMultimodalEmbeddingService;
         use user::core::tier::UserTier;
         use user::core::user::User;
 
@@ -1715,7 +1740,7 @@ mod tests {
 
             let mut updated = existing.clone();
             updated.product_query = vec!["antique chandelier".try_into().unwrap()];
-            updated.embedding = Some(vec![0.3, 0.4]);
+            updated.embedding = Some(vec![1.0 / 768_f32.sqrt(); 768]);
 
             let mut repository = MockUserSearchFilterDynamoDbRepository::default();
             repository
@@ -1724,7 +1749,10 @@ mod tests {
             repository
                 .expect_update_user_search_filter_record()
                 .return_once(move |_, _, record_update| {
-                    assert_eq!(record_update.embedding, Some(vec![0.3, 0.4]));
+                    assert_eq!(
+                        record_update.embedding,
+                        Some(vec![1.0 / 768_f32.sqrt(); 768])
+                    );
                     Box::pin(async move { Ok(Some(updated)) })
                 });
 
@@ -1736,14 +1764,7 @@ mod tests {
                     Ok(user)
                 })
             });
-            let mut embedding_service = MockMultimodalEmbeddingService::default();
-            embedding_service
-                .expect_embed_query()
-                .times(1)
-                .returning(|query| {
-                    assert_eq!(query, "antique chandelier");
-                    Box::pin(async { Ok(vec![0.3, 0.4]) })
-                });
+            let embedding_service = FixedEmbeddingGenerator(vec![1.0; 768]);
 
             let service = UserSearchFilterServiceImpl::with_embedding_service(
                 &repository,
@@ -1764,7 +1785,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(actual.embedding, Some(vec![0.3, 0.4]));
+            assert_eq!(actual.embedding, Some(vec![1.0 / 768_f32.sqrt(); 768]));
         }
 
         #[tokio::test]
