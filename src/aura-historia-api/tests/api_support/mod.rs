@@ -7,7 +7,7 @@ use aura_historia_api::auth::{
 use aura_historia_api::state::{
     AppState, BillingState, NewsletterState, OAuthState, PartnerApplicationsState,
     PartnerProductsState, ProductsState, SearchFiltersState, ShopsState, UsersState,
-    WatchlistState,
+    WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -49,7 +49,8 @@ use product_postgres::{
 
 use product_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
-    GetSimilarProductsHandler, SearchProductsHandler, UpdateProductHandler, UpsertProductHandler,
+    GetSimilarProductsHandler, IngestWoocommerceProductHandler, SearchProductsHandler,
+    UpdateProductHandler, UpsertProductHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -73,7 +74,10 @@ use shop_partner_service::use_cases::{
     CreatePartnerShopApplicationHandler, GetPartnerShopApplicationHandler,
     ListPartnerShopApplicationsHandler, WithdrawPartnerShopApplicationHandler,
 };
-use shop_postgres::{SqlxPartnerShopReaderFactory, SqlxShopRepositoryFactory};
+use shop_postgres::{
+    SqlxPartnerShopReaderFactory, SqlxShopRepositoryFactory,
+    SqlxWoocommerceWebhookShopReaderFactory, SqlxWoocommerceWebhookSignatureVerifierFactory,
+};
 use shop_service::ports::{ShopRepository, ShopRepositoryFactory};
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
@@ -516,6 +520,19 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
+    let webhooks_state = WebhooksState::new(
+        Arc::new(IngestWoocommerceProductHandler::new(
+            unit_of_work.clone(),
+            SqlxPartnerShopReaderFactory::new(),
+            SqlxWoocommerceWebhookShopReaderFactory::new(),
+            SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
+            SqlxProductRepositoryFactory::new(),
+            SqlxProductEventStoreFactory::new(),
+            SqlxPartnerProductAuthorizerFactory::new(),
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
+
     let shops_state = ShopsState::new(
         Arc::new(GetShopHandler::new(
             unit_of_work.clone(),
@@ -790,6 +807,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         ))
         .with_products(products_state)
         .with_partner_products(partner_products_state)
+        .with_webhooks(webhooks_state)
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)
         .with_billing(billing_state)

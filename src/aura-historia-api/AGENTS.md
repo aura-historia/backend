@@ -13,7 +13,7 @@
 - `auth/` owns bearer auth extraction, Cognito JWT verification via cached JWKS, Aura access-token auth, and mapping to `OperationContext`.
 - Auth accepts Cognito access JWTs and Aura access tokens through one interface. Cognito needs `AURA_HISTORIA_COGNITO_ISSUER`, `AURA_HISTORIA_COGNITO_JWKS_URL`, and comma-separated `AURA_HISTORIA_COGNITO_APP_CLIENT_IDS`; it fetches JWKS with bounded cache/refresh. Cognito maps to open-world first-party `Principal::User`; Aura access tokens map explicit scopes to closed-world delegated capabilities.
 - Auth extractors only authenticate. Required capability and business policy checks belong in service/use-case code, not controllers.
-- Global axum transport middleware creates UUID request IDs; it accepts only bounded safe `X-Correlation-Id` values (max 128 ASCII alphanumeric, `.`, `_`, `-`) and returns both IDs on every response. It also owns safe request tracing, sensitive-header redaction, CORS, a 1 MiB body cap, and a 30-second timeout.
+- Global axum transport middleware creates UUID request IDs; it accepts only bounded safe `X-Correlation-Id` values (max 128 ASCII alphanumeric, `.`, `_`, `-`) and returns both IDs on every response. It also owns safe request tracing, sensitive-header redaction, CORS including WooCommerce topic/signature headers, a 1 MiB body cap, and a 30-second timeout.
 - `/health` reports process liveness. `/ready` returns `204` only after PostgreSQL pool acquisition, DynamoDB table lookup, and OpenSearch ping succeed; it returns `503` otherwise.
 - No API Gateway adapter.
 - `shops/` owns shop REST controllers. Public shop list and detail routes return only `PUBLISHED` shops; partner-application approval publishes its linked shop.
@@ -25,6 +25,7 @@
 - `products/` owns canonical product detail, search, immutable history, and similar-product REST controllers. Detail, history, and similar routes use product ID or shop/product slugs. Canonical detail, search, KNN, and watchlist Product values always serialize as `PersonalizedData` with required `item` and optional `userState`. Detail and watchlist use joined Postgres reads; search and KNN use denormalized OpenSearch fields, then service-owned batched Postgres plus DynamoDB hydration for valid user/delegated-user tokens. Image values always expose `prohibitedContent`; unsafe image URLs are omitted without effective consent. Product history uses the no-consent redaction default. Product prices remain stored source amounts/currencies with `fxRateId`; currency conversion is deferred to #1466.
 - `partner_applications/` owns own/admin partner-shop application REST controllers.
 - `partner_products/` owns synchronous partner Product batch create, update, upsert, and delete controllers at `POST`, `PATCH`, `PUT`, and `DELETE /api/v1/shops/{shopId}/products`. Batches allow at most 100 entries; each entry calls one service use case; partial batches return `200` with failed `{ shopId, shopsProductId }` items.
+- `webhooks/` owns direct WooCommerce Product webhook transport. It receives the raw body plus topic/signature headers and delegates one Product intake use case, which validates the signed partner request and persists canonical Product state; successful requests return `204` only after the authoritative Postgres write commits.
 - `oauth/` owns OAuth REST controllers for client registration, authorization code, token, revoke, and introspection flows.
 - Runtime shop and partner-shop structured-address writes use one shared Google geocoder adapter. `GOOGLE_GEOCODING_API_KEY` is required at startup.
 - Newsletter runtime requires `ZOHO_LIST_KEY`, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`, `ZOHO_ACCOUNTS_URL`, and `ZOHO_CAMPAIGNS_URL`; credentials and contact payloads are never logged.
@@ -65,3 +66,4 @@
 - `products/` — canonical product detail and search REST controllers.
 - `search_filters/` — saved-search filter and match REST controllers.
 - `billing/` — Stripe billing session REST controllers.
+- `webhooks/` — WooCommerce product webhook REST controller.

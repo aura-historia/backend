@@ -56,6 +56,8 @@ pub(crate) fn with_transport_middleware(router: Router) -> Router {
                 .allow_headers([
                     header::AUTHORIZATION,
                     header::CONTENT_TYPE,
+                    HeaderName::from_static("x-wc-webhook-topic"),
+                    HeaderName::from_static("x-wc-webhook-signature"),
                     CORRELATION_ID_HEADER,
                 ])
                 .expose_headers([REQUEST_ID_HEADER, CORRELATION_ID_HEADER]),

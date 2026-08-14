@@ -52,8 +52,8 @@ info:
     - Every canonical API response includes server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced. Both headers are CORS-exposed.
     - Requests are limited to 1 MiB and time out after 30 seconds.
     - `GET /health` is a process liveness check. `GET /ready` returns `204` only when the configured PostgreSQL, DynamoDB, and OpenSearch dependencies are reachable; it otherwise returns `503`.
-    - WooCommerce webhook ingestion is **asynchronous** and responds with **`202 Accepted`** after
-      queue forwarding; partner Product batch writes are synchronous
+    - WooCommerce webhook ingestion responds with **`204 No Content`** only after signed validation
+      and canonical Product persistence commits; partner Product batch writes are synchronous
 
     ## Environment endpoints
 
@@ -809,10 +809,10 @@ paths:
                 value:
                   id: 17
       responses:
-        "202":
+        "204":
           description: |
-            Webhook accepted for asynchronous processing.
-            The backend returns no response body on successful queue forwarding.
+            Webhook signature and partner authorization are validated, then canonical Product
+            persistence commits synchronously. The backend returns no response body on success.
           headers:
             Access-Control-Allow-Origin:
               description: CORS header
@@ -822,9 +822,7 @@ paths:
         "400":
           description: |
             Bad request — invalid or missing shop ID, missing body, malformed JSON, unsupported
-            WooCommerce topic, a payload that does not satisfy the selected topic's requirements,
-            or missing required shop-level WooCommerce configuration (`woocommerceLanguage`,
-            and `woocommerceCurrency` when a non-empty `price` is sent).
+            WooCommerce topic, or a payload that does not satisfy the selected topic's requirements.
           content:
             application/problem+json:
               schema:
@@ -906,7 +904,7 @@ paths:
                     source:
                       field: "x-wc-webhook-signature"
                       sourceType: "header"
-                    detail: "Missing WooCommerce signature header."
+                    detail: "WooCommerce signature header is required."
                 signature_mismatch:
                   summary: WooCommerce signature does not match the request body
                   value:
@@ -916,7 +914,7 @@ paths:
                     source:
                       field: "x-wc-webhook-signature"
                       sourceType: "header"
-                    detail: "WooCommerce signature mismatch."
+                    detail: "WooCommerce signature is invalid."
         "403":
           description: Forbidden — the authenticated caller is not linked to the requested partner shop
           content:
@@ -938,7 +936,7 @@ paths:
                 title: "Not Found"
                 error: "SHOP_NOT_FOUND"
         "503":
-          description: Service unavailable — the webhook event could not be forwarded to the asynchronous ingestion queue
+          description: Service unavailable — signed webhook validation or canonical Product persistence is temporarily unavailable
           content:
             application/problem+json:
               schema:
@@ -948,7 +946,7 @@ paths:
                 title: "Service Unavailable"
                 error: "SERVICE_UNAVAILABLE"
         "500":
-          description: Internal server error — the shop has no configured WooCommerce webhook secret or another unexpected failure occurred
+          description: Internal server error — WooCommerce shop integration configuration is incomplete or another unexpected failure occurred
           content:
             application/problem+json:
               schema:

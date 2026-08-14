@@ -17,6 +17,11 @@ pub use commands::ingest_shopify_product::{
     IngestShopifyProductCommand, IngestShopifyProductError, IngestShopifyProductHandler,
     IngestShopifyProductResult, IngestShopifyProductUseCase,
 };
+pub use commands::ingest_woocommerce_product::{
+    IngestWoocommerceProductCommand, IngestWoocommerceProductError,
+    IngestWoocommerceProductHandler, IngestWoocommerceProductResult,
+    IngestWoocommerceProductUseCase, WoocommerceProductEventKind,
+};
 pub use commands::update_product::{
     UpdateProductCommand, UpdateProductError, UpdateProductHandler, UpdateProductResult,
     UpdateProductUseCase,

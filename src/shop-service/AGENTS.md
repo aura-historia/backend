@@ -11,7 +11,7 @@
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
 - Ports are public because adapter/runtime crates implement them.
-- Shop write use cases own admin/partner authorization checks inline; controllers must not enforce those rules.
+- Shop write use cases own admin/partner authorization checks inline; controllers must not enforce those rules. WooCommerce ports expose transaction-scoped partner membership, safe integration config, and HMAC verification for the Product intake use case. The verifier returns semantic outcomes; raw secrets never appear in Shop service application return types.
 - Shop admin checks call `CheckUserAdminUseCase` with actor from `OperationContext`, not target user id.
 - Repository writes return persisted storage-neutral state; write use cases must not read after write to build responses.
 - Query use cases return read-optimized payloads for their API use case and avoid controller-side N+1 hydration.

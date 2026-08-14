@@ -9,7 +9,8 @@ use billing_service::use_cases::{
 use oauth_service::error::OAuthServiceError;
 use product_service::use_cases::{
     CreateProductError, DeleteProductError, GetProductError, GetProductEventsError,
-    GetSimilarProductsError, SearchProductsError, UpdateProductError, UpsertProductError,
+    GetSimilarProductsError, IngestWoocommerceProductError, SearchProductsError,
+    UpdateProductError, UpsertProductError,
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterError, DeleteOwnedSearchFilterError, GetOwnedSearchFilterError,
@@ -76,6 +77,9 @@ pub(crate) const ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("ACCESS_TOKEN_TEMPORARILY_UNAVAILABLE");
 pub(crate) const INVALID_CREDENTIALS: ApiErrorCode = ApiErrorCode("INVALID_CREDENTIALS");
 pub(crate) const BAD_BODY_VALUE: ApiErrorCode = ApiErrorCode("BAD_BODY_VALUE");
+pub(crate) const BAD_HEADER_VALUE: ApiErrorCode = ApiErrorCode("BAD_HEADER_VALUE");
+pub(crate) const PARTNER_SHOP_NOT_PARTNERED: ApiErrorCode =
+    ApiErrorCode("PARTNER_SHOP_NOT_PARTNERED");
 pub(crate) const BILLING_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("BILLING_INTERNAL_ERROR");
 pub(crate) const BILLING_PROVIDER_FAILURE: ApiErrorCode = ApiErrorCode("BILLING_PROVIDER_FAILURE");
 pub(crate) const BILLING_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
@@ -682,6 +686,63 @@ impl From<DeleteProductError> for ApiError {
             }
             _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
                 .with_detail("Product delete failed internally."),
+        }
+    }
+}
+
+impl From<IngestWoocommerceProductError> for ApiError {
+    fn from(error: IngestWoocommerceProductError) -> Self {
+        match error {
+            IngestWoocommerceProductError::MissingTitle
+            | IngestWoocommerceProductError::MissingUrl
+            | IngestWoocommerceProductError::InvalidPrice => ApiError::bad_request(BAD_BODY_VALUE)
+                .with_detail("WooCommerce product payload is invalid."),
+            IngestWoocommerceProductError::MissingShopCurrency
+            | IngestWoocommerceProductError::MissingShopLanguage => {
+                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                    .with_detail("WooCommerce shop configuration is incomplete.")
+            }
+            IngestWoocommerceProductError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            IngestWoocommerceProductError::ActorMayNotIngestForShop
+            | IngestWoocommerceProductError::ShopNotPartnered => {
+                ApiError::forbidden(PARTNER_SHOP_NOT_PARTNERED)
+                    .with_detail("Actor is not a partner of this shop.")
+            }
+            IngestWoocommerceProductError::ShopNotFound => {
+                ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
+            }
+            IngestWoocommerceProductError::WebhookSecretNotConfigured => {
+                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                    .with_detail("WooCommerce webhook secret is not configured.")
+            }
+            IngestWoocommerceProductError::InvalidSignature => {
+                ApiError::unauthorized(BAD_HEADER_VALUE)
+                    .with_header_field("x-wc-webhook-signature")
+                    .with_detail("WooCommerce signature is invalid.")
+            }
+            IngestWoocommerceProductError::PartnerMembershipTemporarilyUnavailable { .. }
+            | IngestWoocommerceProductError::WebhookShopTemporarilyUnavailable { .. } => {
+                ApiError::service_unavailable(SHOP_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("WooCommerce webhook validation is temporarily unavailable.")
+            }
+            IngestWoocommerceProductError::InvalidPartnerMembershipReadModel { .. }
+            | IngestWoocommerceProductError::InvalidWebhookShopReadModel { .. } => {
+                ApiError::internal_server_error(SHOP_INTERNAL_ERROR)
+                    .with_detail("WooCommerce webhook validation failed internally.")
+            }
+            IngestWoocommerceProductError::ProductUpsertFailed { source } => ApiError::from(source),
+            IngestWoocommerceProductError::ProductRemovalFailed { source } => {
+                ApiError::from(source)
+            }
+            IngestWoocommerceProductError::BeginTransactionFailed
+            | IngestWoocommerceProductError::CommitTransactionFailed => {
+                ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("WooCommerce product ingestion is temporarily unavailable.")
+            }
         }
     }
 }

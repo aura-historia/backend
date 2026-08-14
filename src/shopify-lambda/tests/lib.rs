@@ -117,7 +117,7 @@ async fn should_mark_product_removed_and_append_event_for_shopify_delete() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
-async fn should_ignore_shopify_event_for_non_partner_shop() {
+async fn should_ignore_shopify_event_for_unpartnered_shop() {
     let shop = seed_shop(ShopPartnerStatus::Scraped).await;
     let domain = shop
         .shopify()
@@ -128,6 +128,174 @@ async fn should_ignore_shopify_event_for_non_partner_shop() {
 
     assert!(response.batch_item_failures.is_empty());
     assert_eq!(0, product_count(shop.id()).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_ignore_shopify_event_for_missing_shop() {
+    let response = invoke(
+        SHOPIFY_TOPIC_PRODUCTS_CREATE,
+        "missing-shop.example",
+        105,
+        5,
+    )
+    .await;
+
+    assert!(response.batch_item_failures.is_empty());
+    assert_eq!(0, product_count_for_shops_product_id(105).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_retry_malformed_sqs_body_without_persisting_product() {
+    let response = invoke_event(sqs_event("malformed-sqs", Some("not-json".to_owned()))).await;
+
+    assert_eq!(vec!["malformed-sqs"], failure_ids(response));
+    assert_eq!(0, product_count_for_shops_product_id(106).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_retry_malformed_eventbridge_detail_without_persisting_product() {
+    let response = invoke_event(event_with_detail(
+        "malformed-detail",
+        "event-malformed-detail",
+        serde_json::json!({
+            "payload": shopify_payload(107, 5),
+            "metadata": {"X-Shopify-Topic": SHOPIFY_TOPIC_PRODUCTS_CREATE}
+        }),
+    ))
+    .await;
+
+    assert_eq!(vec!["malformed-detail"], failure_ids(response));
+    assert_eq!(0, product_count_for_shops_product_id(107).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_acknowledge_unsupported_topic_without_persisting_product() {
+    let response = invoke_event(event_with_detail(
+        "unsupported-topic",
+        "event-unsupported-topic",
+        shopify_detail("orders/create", "unsupported-topic.example", 108, 5),
+    ))
+    .await;
+
+    assert!(response.batch_item_failures.is_empty());
+    assert_eq!(0, product_count_for_shops_product_id(108).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_acknowledge_invalid_shop_domain_without_persisting_product() {
+    let response = invoke_event(event_with_detail(
+        "invalid-domain",
+        "event-invalid-domain",
+        shopify_detail(SHOPIFY_TOPIC_PRODUCTS_CREATE, "not a domain", 109, 5),
+    ))
+    .await;
+
+    assert!(response.batch_item_failures.is_empty());
+    assert_eq!(0, product_count_for_shops_product_id(109).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_acknowledge_missing_title_without_persisting_product() {
+    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
+    let domain = shop
+        .shopify()
+        .map(|value| value.domain.as_str())
+        .unwrap_or("");
+    let mut payload = shopify_payload(110, 5);
+    payload["title"] = serde_json::Value::Null;
+
+    let response = invoke_event(event_with_detail(
+        "missing-title",
+        "event-missing-title",
+        serde_json::json!({
+            "payload": payload,
+            "metadata": {
+                "X-Shopify-Topic": SHOPIFY_TOPIC_PRODUCTS_CREATE,
+                "X-Shopify-Shop-Domain": domain,
+                "X-Shopify-Event-Id": "shopify-missing-title"
+            }
+        }),
+    ))
+    .await;
+
+    assert!(response.batch_item_failures.is_empty());
+    assert_eq!(0, product_count(shop.id()).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_acknowledge_invalid_price_without_persisting_product() {
+    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
+    let domain = shop
+        .shopify()
+        .map(|value| value.domain.as_str())
+        .unwrap_or("");
+    let mut payload = shopify_payload(111, 5);
+    payload["variants"][0]["price"] = serde_json::json!("not-a-price");
+
+    let response = invoke_event(event_with_detail(
+        "invalid-price",
+        "event-invalid-price",
+        serde_json::json!({
+            "payload": payload,
+            "metadata": {
+                "X-Shopify-Topic": SHOPIFY_TOPIC_PRODUCTS_CREATE,
+                "X-Shopify-Shop-Domain": domain,
+                "X-Shopify-Event-Id": "shopify-invalid-price"
+            }
+        }),
+    ))
+    .await;
+
+    assert!(response.batch_item_failures.is_empty());
+    assert_eq!(0, product_count(shop.id()).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_not_append_duplicate_event_for_redelivered_shopify_update() {
+    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
+    let domain = shop
+        .shopify()
+        .map(|value| value.domain.as_str())
+        .unwrap_or("");
+    assert!(
+        invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 112, 5)
+            .await
+            .batch_item_failures
+            .is_empty()
+    );
+
+    let first = invoke(SHOPIFY_TOPIC_PRODUCTS_UPDATE, domain, 112, 0).await;
+    let second = invoke(SHOPIFY_TOPIC_PRODUCTS_UPDATE, domain, 112, 0).await;
+
+    assert!(first.batch_item_failures.is_empty());
+    assert!(second.batch_item_failures.is_empty());
+    let product = product_row(shop.id(), 112).await;
+    assert_eq!("SOLD", product.state);
+    assert_eq!(2, product_event_count(product.product_id).await);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_not_append_duplicate_event_for_redelivered_shopify_delete() {
+    let shop = seed_shop(ShopPartnerStatus::Partnered).await;
+    let domain = shop
+        .shopify()
+        .map(|value| value.domain.as_str())
+        .unwrap_or("");
+    assert!(
+        invoke(SHOPIFY_TOPIC_PRODUCTS_CREATE, domain, 113, 5)
+            .await
+            .batch_item_failures
+            .is_empty()
+    );
+
+    let first = invoke(SHOPIFY_TOPIC_PRODUCTS_DELETE, domain, 113, 5).await;
+    let second = invoke(SHOPIFY_TOPIC_PRODUCTS_DELETE, domain, 113, 5).await;
+
+    assert!(first.batch_item_failures.is_empty());
+    assert!(second.batch_item_failures.is_empty());
+    let product = product_row(shop.id(), 113).await;
+    assert_eq!("REMOVED", product.state);
+    assert_eq!(2, product_event_count(product.product_id).await);
 }
 
 async fn invoke(
@@ -147,12 +315,33 @@ async fn invoke(
             SqlxPartnerProductAuthorizerFactory::new(),
         ),
     );
-    match handler(
+    invoke_with_ingestion(
         event(topic, shop_domain, product_id, inventory_quantity),
         &ingestion,
     )
     .await
-    {
+}
+
+async fn invoke_event(event: LambdaEvent<SqsEvent>) -> aws_lambda_events::sqs::SqsBatchResponse {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let ingestion = IngestShopifyProductHandler::new(
+        GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
+        UpsertProductHandler::new(
+            unit_of_work,
+            SqlxProductRepositoryFactory::new(),
+            SqlxProductEventStoreFactory::new(),
+            SqlxPartnerProductAuthorizerFactory::new(),
+        ),
+    );
+    invoke_with_ingestion(event, &ingestion).await
+}
+
+async fn invoke_with_ingestion(
+    event: LambdaEvent<SqsEvent>,
+    ingestion: &(dyn product_service::use_cases::IngestShopifyProductUseCase + Send + Sync),
+) -> aws_lambda_events::sqs::SqsBatchResponse {
+    match handler(event, ingestion).await {
         Ok(response) => response,
         Err(error) => panic!("Shopify handler failed: {error}"),
     }
@@ -208,34 +397,63 @@ fn event(
     product_id: u64,
     inventory_quantity: i64,
 ) -> LambdaEvent<SqsEvent> {
-    let mut event = EventBridgeEvent::default();
-    event.id = Some(format!("event-{product_id}-{inventory_quantity}"));
-    event.detail_type = "shopifyWebhook".to_owned();
-    event.source = "aws.partner/shopify.com/test".to_owned();
-    event.detail = serde_json::json!({
-        "payload": {
-            "id": product_id,
-            "title": "Shopify Cabinet",
-            "body_html": "<p>Imported cabinet</p>",
-            "handle": format!("cabinet-{product_id}"),
-            "status": "active",
-            "variants": [{"price": "42.00", "inventory_quantity": inventory_quantity}],
-            "images": [{"src": "https://images.example/cabinet.jpg"}]
-        },
+    event_with_detail(
+        &format!("message-{product_id}-{inventory_quantity}"),
+        &format!("event-{product_id}-{inventory_quantity}"),
+        shopify_detail(topic, shop_domain, product_id, inventory_quantity),
+    )
+}
+
+fn shopify_detail(
+    topic: &str,
+    shop_domain: &str,
+    product_id: u64,
+    inventory_quantity: i64,
+) -> serde_json::Value {
+    serde_json::json!({
+        "payload": shopify_payload(product_id, inventory_quantity),
         "metadata": {
             "X-Shopify-Topic": topic,
             "X-Shopify-Shop-Domain": shop_domain,
             "X-Shopify-Event-Id": format!("shopify-{product_id}-{inventory_quantity}")
         }
-    });
+    })
+}
+
+fn shopify_payload(product_id: u64, inventory_quantity: i64) -> serde_json::Value {
+    serde_json::json!({
+        "id": product_id,
+        "title": "Shopify Cabinet",
+        "body_html": "<p>Imported cabinet</p>",
+        "handle": format!("cabinet-{product_id}"),
+        "status": "active",
+        "variants": [{"price": "42.00", "inventory_quantity": inventory_quantity}],
+        "images": [{"src": "https://images.example/cabinet.jpg"}]
+    })
+}
+
+fn event_with_detail(
+    message_id: &str,
+    event_id: &str,
+    detail: serde_json::Value,
+) -> LambdaEvent<SqsEvent> {
+    let mut event = EventBridgeEvent::default();
+    event.id = Some(event_id.to_owned());
+    event.detail_type = "shopifyWebhook".to_owned();
+    event.source = "aws.partner/shopify.com/test".to_owned();
+    event.detail = detail;
     let body = serde_json::to_string(&event)
         .unwrap_or_else(|error| panic!("failed serializing Shopify EventBridge fixture: {error}"));
+    sqs_event(message_id, Some(body))
+}
+
+fn sqs_event(message_id: &str, body: Option<String>) -> LambdaEvent<SqsEvent> {
     let mut message = SqsMessage::default();
-    message.message_id = Some(format!("message-{product_id}-{inventory_quantity}"));
-    message.body = Some(body);
-    let mut sqs_event = SqsEvent::default();
-    sqs_event.records = vec![message];
-    LambdaEvent::new(sqs_event, Context::default())
+    message.message_id = Some(message_id.to_owned());
+    message.body = body;
+    let mut event = SqsEvent::default();
+    event.records = vec![message];
+    LambdaEvent::new(event, Context::default())
 }
 
 struct ProductRow {
@@ -297,4 +515,23 @@ async fn product_count(shop_id: ShopId) -> i64 {
         Ok(count) => count,
         Err(error) => panic!("failed counting Shopify products: {error}"),
     }
+}
+
+async fn product_count_for_shops_product_id(product_id: u64) -> i64 {
+    match sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE shops_product_id = $1")
+        .bind(product_id.to_string())
+        .fetch_one(&get_postgres_client().await)
+        .await
+    {
+        Ok(count) => count,
+        Err(error) => panic!("failed counting Shopify products by external ID: {error}"),
+    }
+}
+
+fn failure_ids(response: aws_lambda_events::sqs::SqsBatchResponse) -> Vec<String> {
+    response
+        .batch_item_failures
+        .into_iter()
+        .map(|failure| failure.item_identifier)
+        .collect()
 }

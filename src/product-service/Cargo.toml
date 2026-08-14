@@ -9,6 +9,7 @@ common = { workspace = true }
 embedding = { workspace = true }
 geo = { workspace = true }
 indexmap = { workspace = true }
+html-to-markdown-rs = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 product-core = { workspace = true }

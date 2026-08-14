@@ -12,6 +12,7 @@ pub mod state;
 pub mod transport;
 pub mod users;
 pub mod watchlist;
+pub mod webhooks;
 
 use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, CognitoJwtAuthenticator,
@@ -20,7 +21,7 @@ use crate::auth::{
 use crate::state::{
     AppState, BillingState, NewsletterState, OAuthState, PartnerApplicationsState,
     PartnerProductsState, ProductsState, ReadinessCheck, SearchFiltersState, ShopsState,
-    UsersState, WatchlistState,
+    UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use axum::Router;
@@ -60,7 +61,8 @@ use product_postgres::{
 };
 use product_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
-    GetSimilarProductsHandler, SearchProductsHandler, UpdateProductHandler, UpsertProductHandler,
+    GetSimilarProductsHandler, IngestWoocommerceProductHandler, SearchProductsHandler,
+    UpdateProductHandler, UpsertProductHandler,
 };
 use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
@@ -83,11 +85,11 @@ use shop_partner_service::use_cases::{
 };
 use shop_postgres::{
     SqlxPartnerShopReaderFactory, SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory,
-    SqlxShopSearchReaderFactory,
+    SqlxShopSearchReaderFactory, SqlxWoocommerceWebhookShopReaderFactory,
+    SqlxWoocommerceWebhookSignatureVerifierFactory,
 };
 use shop_service::use_cases::commands::create_shop::CreateShopHandler;
 use shop_service::use_cases::commands::update_shop::UpdateShopHandler;
-
 use shop_service::use_cases::queries::get_shop::GetShopHandler;
 use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsHandler;
 use shop_service::use_cases::queries::search_shops::SearchShopsHandler;
@@ -375,6 +377,17 @@ pub fn app(state: AppState) -> Router {
                     get(products::get_similar_products::get_similar_products_by_slug),
                 )
                 .with_state(products),
+        );
+    }
+
+    if let Some(webhooks) = state.webhooks {
+        routes = routes.merge(
+            Router::new()
+                .route(
+                    "/api/v1/webhooks/woocommerce/{shop_id}",
+                    post(webhooks::post_woocommerce::post_woocommerce),
+                )
+                .with_state(webhooks),
         );
     }
 
@@ -760,6 +773,15 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxProductEventStoreFactory::new(),
         SqlxPartnerProductAuthorizerFactory::new(),
     );
+    let ingest_woocommerce_product = IngestWoocommerceProductHandler::new(
+        unit_of_work.clone(),
+        SqlxPartnerShopReaderFactory::new(),
+        SqlxWoocommerceWebhookShopReaderFactory::new(),
+        SqlxWoocommerceWebhookSignatureVerifierFactory::new(),
+        SqlxProductRepositoryFactory::new(),
+        SqlxProductEventStoreFactory::new(),
+        SqlxPartnerProductAuthorizerFactory::new(),
+    );
     let list_watchlist = ListWatchlistHandler::new(
         unit_of_work.clone(),
         SqlxProductWatchlistDetailsReaderFactory::new(),
@@ -944,6 +966,10 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         .with_product_events(Arc::new(get_product_events)),
     )
     .with_partner_products(partner_products_state)
+    .with_webhooks(WebhooksState::new(
+        Arc::new(ingest_woocommerce_product),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    ))
     .with_oauth(oauth_state)
     .with_search_filters(search_filters_state)
     .with_billing(billing_state)
