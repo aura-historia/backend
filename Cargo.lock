@@ -17,7 +17,6 @@ dependencies = [
  "common",
  "fake",
  "futures-util",
- "fxrate",
  "http 1.5.0",
  "notification",
  "notification-api",
@@ -295,7 +294,6 @@ dependencies = [
  "cognito-post-confirmation",
  "common",
  "embedding",
- "fxrate",
  "fxrate-lambda",
  "geo",
  "image-fetcher",
@@ -319,6 +317,7 @@ dependencies = [
  "product-api",
  "product-api-partner",
  "product-core",
+ "product-fxratesapi",
  "product-lambda",
  "product-lambda-delete-product",
  "product-opensearch",
@@ -1974,7 +1973,6 @@ dependencies = [
  "dotenvy",
  "fake",
  "futures",
- "fxrate",
  "httpdate",
  "imagesize",
  "kuchiki",
@@ -2975,43 +2973,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "fxrate"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-sdk-dynamodb",
- "common",
- "fxrate",
- "mockall",
- "reqwest 0.12.28",
- "serde",
- "serde_dynamo",
- "serde_fields",
- "serde_json",
- "serial_test",
- "strum 0.28.0",
- "test-api",
- "thiserror 2.0.19",
- "time",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
 name = "fxrate-lambda"
 version = "0.1.0"
 dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
+ "async-trait",
+ "aws_lambda_events",
  "common",
- "fxrate",
  "lambda_runtime",
+ "product-fxratesapi",
+ "product-postgres",
+ "product-service",
  "reqwest 0.12.28",
- "rstest",
  "serde_json",
  "serial_test",
+ "sqlx",
+ "strum 0.28.0",
  "test-api",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -5807,7 +5785,6 @@ dependencies = [
  "common",
  "fake",
  "field",
- "fxrate",
  "geo",
  "html-escape",
  "indexmap 2.14.0",
@@ -5883,7 +5860,6 @@ dependencies = [
  "cognito",
  "common",
  "fake",
- "fxrate",
  "geo",
  "http 1.5.0",
  "lambda_runtime",
@@ -5921,11 +5897,26 @@ dependencies = [
  "serde_fields",
  "serde_json",
  "shop-core",
+ "strum 0.28.0",
  "thiserror 2.0.19",
  "time",
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "product-fxratesapi"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "product-service",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "strum 0.28.0",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -5974,7 +5965,6 @@ dependencies = [
  "aws_lambda_events",
  "common",
  "fake",
- "fxrate",
  "geo",
  "indexmap 2.14.0",
  "itertools 0.15.0",
@@ -6118,6 +6108,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sqlx",
+ "strum 0.28.0",
  "test-api",
  "thiserror 2.0.19",
  "time",
@@ -6144,6 +6135,7 @@ dependencies = [
  "serde_json",
  "shop-core",
  "shop-service",
+ "strum 0.28.0",
  "thiserror 2.0.19",
  "time",
  "tokio",
@@ -9928,7 +9920,6 @@ dependencies = [
  "cognito",
  "common",
  "fake",
- "fxrate",
  "geo",
  "html-to-markdown-rs",
  "http 1.5.0",

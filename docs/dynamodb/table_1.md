@@ -156,16 +156,6 @@ One record per (user, origin event). LSI1 routes to either watchlist or search-f
 
 ---
 
-### FX Rates
-
-Single global record, overwritten on every sync.
-
-| Attribute | Pattern |
-|-----------|---------|
-| `pk` | `global#fx_rate` |
-| `sk` | `fx_rate#details` |
-
----
 
 ## Indexes Summary
 

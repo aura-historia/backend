@@ -8,7 +8,7 @@
 
 - Worker Lambda that ingests queued partner product commands.
 - Root modules: `service`, `types`.
-- Main neighbors: `common`, `fxrate`, `geo`, `product`, `shop`.
+- Main neighbors: `common`, `geo`, `product`, `shop`.
 - Event/runtime edge crate. Keep init and handler glue here, behavior deeper when reusable.
 
 ## Ownership

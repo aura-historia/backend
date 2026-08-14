@@ -1,6 +1,10 @@
 pub mod commands;
 pub mod queries;
 
+pub use commands::capture_fx_rate_snapshot::{
+    CaptureFxRateSnapshotCommand, CaptureFxRateSnapshotError, CaptureFxRateSnapshotHandler,
+    CaptureFxRateSnapshotOutcome, CaptureFxRateSnapshotResult, CaptureFxRateSnapshotUseCase,
+};
 pub use commands::create_product::{
     CreateProductCommand, CreateProductError, CreateProductHandler, CreateProductResult,
     CreateProductUseCase,

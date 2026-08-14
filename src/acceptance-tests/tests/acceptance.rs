@@ -23,9 +23,6 @@ use common::{
     user_id::UserId,
 };
 use fake::{Fake, Faker};
-use fxrate::dynamodb::record::FxRatesRecord;
-use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
-use fxrate::service::MockFxRateService;
 use notification::{
     data::{
         get_notification_data::GetNotificationData, patch_notification_data::PatchNotificationData,
@@ -972,14 +969,7 @@ async fn create_products(commands: Vec<CreateProductCommand>) {
     let shop_repository =
         ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let mut fx_rate_service = MockFxRateService::new();
-    fx_rate_service
-        .expect_get_current()
-        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let command_service =
-        CommandProductServiceImpl::new(&product_repository, &fx_rate_service, &get_shop_service)
-            .await
-            .expect("shouldn't fail creating CommandProductServiceImpl");
+    let command_service = CommandProductServiceImpl::new(&product_repository, &get_shop_service);
 
     let result = command_service.create(commands).await;
     assert!(result.is_empty(), "Some products failed to create");
@@ -993,14 +983,7 @@ async fn update_products(commands: HashMap<ProductKey, UpdateProductCommand>) {
     let shop_repository =
         ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
     let get_shop_service = GetShopServiceImpl::new(&shop_repository);
-    let mut fx_rate_service = MockFxRateService::new();
-    fx_rate_service
-        .expect_get_current()
-        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    let command_service =
-        CommandProductServiceImpl::new(&product_repository, &fx_rate_service, &get_shop_service)
-            .await
-            .expect("shouldn't fail creating CommandProductServiceImpl");
+    let command_service = CommandProductServiceImpl::new(&product_repository, &get_shop_service);
 
     let result = command_service.update(commands).await;
     assert!(result.is_empty(), "Some products failed to update");
@@ -4563,20 +4546,7 @@ async fn should_respond_200_for_admin_decision_reject() {
 // creation endpoint with x-api-key authentication (no Cognito JWT).
 // ---------------------------------------------------------------------------
 
-async fn seed_fixed_fx_rates() {
-    let stack = get_cfn_output();
-    let dynamodb_client = get_dynamodb_client().await;
-    let repository =
-        FxRateDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);
-    use fxrate::dynamodb::repository::FxRateDynamoDbRepository;
-    repository
-        .put_fx_rates_record(FxRatesRecord::from(FixedFxRate()))
-        .await
-        .expect("shouldn't fail seeding FX rates record");
-}
-
 async fn prepare_partner_shop() -> (ShopRecord, RawAccessToken) {
-    seed_fixed_fx_rates().await;
     let stack = get_cfn_output();
 
     // Create the partnered shop record
@@ -6629,7 +6599,6 @@ const SHOPIFY_ACCEPTANCE_PRODUCT_ID: u64 = 99_999_000_000_001;
 
 /// Seeds a partner shop with the acceptance-test Shopify domain in DynamoDB.
 async fn seed_shopify_acceptance_shop() -> ShopRecord {
-    seed_fixed_fx_rates().await;
     let stack = get_cfn_output();
     let dynamodb_client = get_dynamodb_client().await;
     let shop_repo = ShopDynamoDbRepositoryImpl::new(dynamodb_client, &stack.dynamodb_table_1_name);

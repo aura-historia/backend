@@ -1,21 +1,68 @@
-use fxrate::service::FxRateService;
+//! Scheduled AWS Lambda edge handler for immutable Product FX snapshots.
+
+use aws_lambda_events::eventbridge::EventBridgeEvent;
+use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use lambda_runtime::LambdaEvent;
+use product_service::use_cases::{
+    CaptureFxRateSnapshotCommand, CaptureFxRateSnapshotOutcome, CaptureFxRateSnapshotUseCase,
+};
+use serde_json::Value;
+use time::OffsetDateTime;
 use tracing::{info, warn};
 
-#[tracing::instrument(skip(service, event), fields(requestId = %event.context.request_id))]
+#[tracing::instrument(
+    skip(event, snapshots),
+    fields(request_id = %event.context.request_id, event_bridge_event_id = tracing::field::Empty)
+)]
 pub async fn handler(
-    service: &(dyn FxRateService + Send + Sync),
-    event: LambdaEvent<serde_json::Value>,
+    event: LambdaEvent<EventBridgeEvent<Value>>,
+    snapshots: &(dyn CaptureFxRateSnapshotUseCase + Send + Sync),
 ) -> Result<(), lambda_runtime::Error> {
-    let update_res = service.update_current().await;
-    match update_res {
-        Ok(_) => {
-            info!("Updated FxRatesRecord.");
+    let context = operation_context(&event);
+    let source_event_id = event.payload.id.clone().ok_or_else(|| {
+        lambda_runtime::Error::from(std::io::Error::other("scheduled event is missing ID"))
+    })?;
+    tracing::Span::current().record("event_bridge_event_id", &source_event_id);
+
+    let result = snapshots
+        .execute(
+            &context,
+            CaptureFxRateSnapshotCommand {
+                source_event_id,
+                captured_at: OffsetDateTime::now_utc(),
+            },
+        )
+        .await;
+    match result {
+        Ok(result) => {
+            match result.outcome {
+                CaptureFxRateSnapshotOutcome::Captured { fx_rate_id } => {
+                    info!(event = "fx_rate_snapshot.captured", fx_rate_id = %fx_rate_id);
+                }
+                CaptureFxRateSnapshotOutcome::Duplicate => {
+                    info!(event = "fx_rate_snapshot.duplicate");
+                }
+            }
             Ok(())
         }
-        Err(err) => {
-            warn!(error = %err, "Failed updating FxRatesRecord.");
-            Err(err.into())
+        Err(error) => {
+            warn!(error = %error, "failed to capture FX rate snapshot");
+            Err(error.into())
         }
+    }
+}
+
+fn operation_context(event: &LambdaEvent<EventBridgeEvent<Value>>) -> OperationContext {
+    let request_id = RequestId::new(event.context.request_id.clone());
+    let correlation_id = event
+        .payload
+        .id
+        .as_deref()
+        .map(CorrelationId::new)
+        .unwrap_or_else(|| CorrelationId::new(request_id.as_str()));
+    OperationContext {
+        principal: Principal::System,
+        request_id,
+        correlation_id,
     }
 }

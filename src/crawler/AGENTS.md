@@ -9,7 +9,7 @@
 
 - Crawler be async, Postgres-backed, LLM-assisted ingest system for antique shop sites.
 - Root modules: `google_llm`, `local_db`, `logging`, `network`, `review`, `scraper`, `service`, `spider`.
-- Main neighbors: `common`, `fxrate`, `product`, `shop`.
+- Main neighbors: `common`, `product`, `shop`.
 - Main binaries: `server`, `demo`, `demo-spider`, `demo-scraper`, `fetch-fixture`.
 - `service::cron` drive three parallel loops: shop sync, spider, scraper.
 - Spider and scraper cron use global slot schedulers. Refill only schedulable work; scraper fetch picks random eligible domains, takes up to 100 due URLs per domain by default, and excludes domains already seen in the pass.

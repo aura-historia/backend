@@ -1,34 +1,29 @@
-use aws_config::BehaviorVersion;
-use fxrate::{
-    dynamodb::repository::FxRateDynamoDbRepositoryImpl, fxratesapi::FxRatesApiClientImpl,
-    service::FxRateServiceImpl,
-};
+use aws_lambda_events::eventbridge::EventBridgeEvent;
+use common::postgres::SqlxUnitOfWork;
 use fxrate_lambda::handler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use product_fxratesapi::FxRatesApiQuoteProvider;
+use product_postgres::SqlxFxRateSnapshotRepositoryFactory;
+use product_service::use_cases::CaptureFxRateSnapshotHandler;
+use serde_json::Value;
 use tracing::debug;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     common::logging::init_logging();
 
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
-        .load()
-        .await;
+    let pool = common::postgres::connect_from_env().await?;
+    let token = std::env::var("FXRATES_API_TOKEN")
+        .map_err(|_| Error::from("missing required environment variable FXRATES_API_TOKEN"))?;
+    let snapshots = CaptureFxRateSnapshotHandler::new(
+        FxRatesApiQuoteProvider::new(reqwest::Client::new(), token),
+        SqlxUnitOfWork::new(pool),
+        SqlxFxRateSnapshotRepositoryFactory::new(),
+    );
 
-    let table_name = std::env::var("DYNAMODB_TABLE_NAME")
-        .expect("shouldn't fail loading env-var 'DYNAMODB_TABLE_NAME'");
-    let fxrates_api_token = std::env::var("FXRATES_API_TOKEN")
-        .expect("shouldn't fail loading env-var 'FXRATES_API_TOKEN'");
-    let dynamodb = aws_sdk_dynamodb::Client::new(&aws_config);
-    let reqwest = reqwest::Client::new();
-    let repository = FxRateDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-    let fxrates_api = FxRatesApiClientImpl::new(&reqwest, &fxrates_api_token);
-    let service = FxRateServiceImpl::new(&fxrates_api, &repository);
-
-    debug!("Lambda initialized.");
-
-    run(service_fn(|event: LambdaEvent<serde_json::Value>| async {
-        handler(&service, event).await
-    }))
+    debug!("FX rate Lambda initialized");
+    run(service_fn(
+        |event: LambdaEvent<EventBridgeEvent<Value>>| async { handler(event, &snapshots).await },
+    ))
     .await
 }

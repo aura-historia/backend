@@ -28,6 +28,7 @@ fake = { workspace = true, optional = true }
 
 [dev-dependencies]
 notification-core = { workspace = true }
+strum = { workspace = true }
 
 [features]
 default = []

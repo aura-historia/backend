@@ -12,7 +12,7 @@
 - The ordinary Product user-state reader resolves an OpenSearch result page in one set-based query: profile consent/tier, watchlist, selected search-filter match, and Free-tier monthly hide state.
 - Keeps SQL rows, SQL, mappings, repositories, event stores, and reader internals private.
 - Product row and `product_events` append bind to caller-owned transactions through service factory ports. The Product event-history reader returns domain events only.
-- Product repository writes return storage-neutral persisted product state.
+- Product repository writes return storage-neutral persisted product state. FX snapshot writes insert immutable parent and EUR conversion rows atomically and deduplicate EventBridge source IDs.
 - Batch watchlist details use a tie-safe `created DESC, product_id ASC` cursor page with one joined query.
 - Real Postgres integration tests live under `tests/` by implementation file, with helpers inline per file.
 

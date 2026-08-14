@@ -1,7 +1,5 @@
 use aws_config::BehaviorVersion;
 use aws_lambda_events::sqs::SqsEvent;
-use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
-use fxrate::service::FxRateServiceImpl;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
@@ -27,12 +25,7 @@ async fn main() -> Result<(), Error> {
     )));
     let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_repository)));
     let product_repository = ProductDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-
-    let fxrate_repository = FxRateDynamoDbRepositoryImpl::new(&dynamodb, &table_name);
-    let fxrate_service = FxRateServiceImpl::new_read_only(&fxrate_repository);
-    let product_service =
-        CommandProductServiceImpl::new(&product_repository, &fxrate_service, get_shop_service)
-            .await?;
+    let product_service = CommandProductServiceImpl::new(&product_repository, get_shop_service);
 
     debug!("Lambda initialized.");
 

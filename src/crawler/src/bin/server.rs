@@ -83,8 +83,6 @@ use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepos
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
-use fxrate::dynamodb::repository::FxRateDynamoDbRepositoryImpl;
-use fxrate::service::FxRateServiceImpl;
 use opensearch::auth::Credentials;
 use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
 use product::dynamodb::repository::ProductDynamoDbRepositoryImpl;
@@ -546,20 +544,10 @@ async fn main() {
             table_name.clone(),
         )));
         let get_shop_service = Box::leak(Box::new(GetShopServiceImpl::new(shop_dynamodb_repo)));
-            let fxrate_repository = Box::leak(Box::new(FxRateDynamoDbRepositoryImpl::new(
-            Box::leak(Box::new(dynamodb.clone())),
-            table_name.clone(),
-        )));
-        let fxrate_service = FxRateServiceImpl::new_read_only(fxrate_repository);
-        let command_product_service = Box::new(
-            CommandProductServiceImpl::new(
-                product_dynamodb_repo,
-                &fxrate_service,
-                get_shop_service,
-                    )
-            .await
-            .expect("shouldn't fail creating CommandProductServiceImpl (check FxRates record in DynamoDB)"),
-        );
+        let command_product_service = Box::new(CommandProductServiceImpl::new(
+            product_dynamodb_repo,
+            get_shop_service,
+        ));
         let product_push = Box::new(ProductPushServiceImpl::new(command_product_service));
 
         let db_max_connections = config.effective_db_max_connections();

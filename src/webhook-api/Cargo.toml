@@ -15,7 +15,6 @@ lambda_runtime = { workspace = true }
 llm = { workspace = true, features = ["google"] }
 opensearch = { workspace = true }
 openssl = { workspace = true, features = ["vendored"] } # we unfortunately need this as crates "jsonwebtokens*" cannot do rust-tls
-fxrate = { workspace = true }
 product = { workspace = true, features = ["dynamodb", "service"] }
 product-lambda-ingest-partner-products = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

@@ -1,5 +1,6 @@
 pub mod description;
 pub mod fx_rate_id;
+pub mod fx_rate_snapshot;
 pub mod heuristics;
 pub mod product;
 pub mod product_event;

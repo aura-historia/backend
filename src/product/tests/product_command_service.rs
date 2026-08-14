@@ -8,8 +8,6 @@ use common::{
     utm::append_utm_params,
 };
 use fake::{Fake, Faker};
-use fxrate::dynamodb::record::FxRatesRecord;
-use fxrate::service::MockFxRateService;
 use product::core::product::Product;
 use product::dynamodb::product_event_record::domain::ProductDomainEventRecordSerdeField;
 use product::dynamodb::{
@@ -39,22 +37,11 @@ fn default_shop_service() -> MockGetShopService {
     service
 }
 
-fn default_fx_rate_service() -> MockFxRateService {
-    let mut service = MockFxRateService::new();
-    service
-        .expect_get_current()
-        .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-    service
-}
-
 async fn command_product_service<'a>(
     repository: &'a (dyn ProductDynamoDbRepository + Sync),
 ) -> CommandProductServiceImpl<'a> {
     let get_shop_service = Box::leak(Box::new(default_shop_service()));
-    let fx_rate_service = default_fx_rate_service();
-    CommandProductServiceImpl::new(repository, &fx_rate_service, get_shop_service)
-        .await
-        .expect("failed to create CommandProductServiceImpl in test")
+    CommandProductServiceImpl::new(repository, get_shop_service)
 }
 
 /// Scans all items across all pages from `table_1`.

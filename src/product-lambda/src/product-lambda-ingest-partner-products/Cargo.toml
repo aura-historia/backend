@@ -10,7 +10,6 @@ aws-sdk-dynamodb = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["sqs"] }
 common = { workspace = true, features = ["sqs", "api", "opensearch"] }
-fxrate = { workspace = true }
 geo = { workspace = true }
 itertools = { workspace = true }
 indexmap = { workspace = true }

@@ -423,10 +423,10 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     id: "FxRateSyncLambda",
     binaryName: "fxrate-lambda",
     memorySize: 128,
+    postgres: true,
     timeoutSeconds: 10,
     skipEphemeral: true,
-    environment: (context) => ({
-      ...baseEnvironment(context),
+    environment: () => ({
       FXRATES_API_TOKEN: ssmValue("/fxratesapi/prod/api-token"),
     }),
   },
@@ -543,7 +543,7 @@ function openSearchWorkerEnvironment(context: LambdaEnvironmentContext): Record<
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
   for (const [key, fn] of Object.entries(functions) as [LambdaKey, lambda.Function | undefined][]) {
-    if (!fn || key === "cloudWatchLogRetention") {
+    if (!fn || key === "cloudWatchLogRetention" || key === "fxRateSync") {
       continue;
     }
 

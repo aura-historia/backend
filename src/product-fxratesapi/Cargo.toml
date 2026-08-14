@@ -1,0 +1,14 @@
+[package]
+name = "product-fxratesapi"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+common = { workspace = true }
+product-service = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
+strum = { workspace = true }
+thiserror = { workspace = true }

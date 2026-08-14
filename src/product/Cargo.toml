@@ -19,7 +19,6 @@ uuid = { workspace = true }
 html-escape = { workspace = true }
 regex = { workspace = true }
 shop = { workspace = true }
-fxrate = { workspace = true, optional = true }
 tracing = { workspace = true}
 indexmap = { workspace = true }
 
@@ -38,7 +37,6 @@ sqlx = { workspace = true, optional = true }
 
 [dev-dependencies]
 aws-config = { workspace = true }
-fxrate = { workspace = true }
 product = { workspace = true, features = ["full"] }
 test-api = { workspace = true, features = ["dynamodb", "opensearch", "postgres", "sqs"] }
 serial_test = { workspace = true }
@@ -51,7 +49,7 @@ data = ["common/api", "shop/data", "geo/data"]
 dynamodb = ["aws-sdk-dynamodb", "serde_dynamo", "common/dynamodb", "field", "strum", "shop/dynamodb"]
 opensearch = ["dynamodb", "dep:opensearch", "strum", "strum_macros", "common/opensearch", "shop/opensearch"]
 sqs = ["aws-sdk-sqs", "common/sqs"]
-service = ["itertools", "shop/dynamodb", "shop/seller", "tokio", "tokio/time", "tokio/sync", "dep:fxrate"]
+service = ["itertools", "shop/dynamodb", "shop/seller", "tokio", "tokio/time", "tokio/sync"]
 postgres = ["dep:sqlx", "common/postgres", "service"]
 test-data = ["fake", "common/test-data", "shop/test-data", "geo/test-data"]
 full = ["data", "dynamodb", "opensearch", "service", "sqs", "postgres", "test-data"]

@@ -37,26 +37,26 @@ pub trait FxRate {
 pub struct FixedFxRate();
 
 impl FixedFxRate {
-    fn eur_base_rate(currency: Currency) -> f64 {
+    fn eur_base_rate(currency: Currency) -> Rate {
         match currency {
-            Currency::Eur => 1.0,
-            Currency::Usd => 1.117,
-            Currency::Gbp => 0.843,
-            Currency::Aud => 1.748,
-            Currency::Cad => 1.557,
-            Currency::Nzd => 1.900,
-            Currency::Cny => 8.150,
-            Currency::Brl => 6.100,
-            Currency::Pln => 4.270,
-            Currency::Try => 40.500,
-            Currency::Jpy => 163.000,
-            Currency::Czk => 25.100,
-            Currency::Rub => 100.000,
-            Currency::Aed => 4.103,
-            Currency::Sar => 4.190,
-            Currency::Hkd => 8.711,
-            Currency::Sgd => 1.488,
-            Currency::Chf => 0.944,
+            Currency::Eur => 1_000_000,
+            Currency::Usd => 1_117_000,
+            Currency::Gbp => 843_000,
+            Currency::Aud => 1_748_000,
+            Currency::Cad => 1_557_000,
+            Currency::Nzd => 1_900_000,
+            Currency::Cny => 8_150_000,
+            Currency::Brl => 6_100_000,
+            Currency::Pln => 4_270_000,
+            Currency::Try => 40_500_000,
+            Currency::Jpy => 163_000_000,
+            Currency::Czk => 25_100_000,
+            Currency::Rub => 100_000_000,
+            Currency::Aed => 4_103_000,
+            Currency::Sar => 4_190_000,
+            Currency::Hkd => 8_711_000,
+            Currency::Sgd => 1_488_000,
+            Currency::Chf => 944_000,
         }
     }
 
@@ -66,7 +66,9 @@ impl FixedFxRate {
         }
         let eur_from = Self::eur_base_rate(from);
         let eur_to = Self::eur_base_rate(to);
-        ((eur_to / eur_from) * FX_RATE_SCALE as f64).round() as u64
+        let numerator = u128::from(eur_to) * u128::from(FX_RATE_SCALE);
+        let rounded = (numerator + u128::from(eur_from / 2)) / u128::from(eur_from);
+        rounded as Rate
     }
 }
 

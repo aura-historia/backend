@@ -17,7 +17,7 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 | DynamoDB notifications | AWS DynamoDB | Notification TTL and insert-to-send behavior. |
 | DynamoDB access tokens | AWS DynamoDB | Existing access-token storage and lookup. |
 | `notification-send` | AWS Lambda | Sends external notifications through SES. |
-| FxRate Lambda | AWS Lambda | Updates FX rates in DynamoDB. |
+| FxRate Lambda | AWS Lambda | Captures immutable EUR FX snapshots in Postgres. |
 | Shopify Lambda | AWS Lambda | Handles Shopify events, writes Postgres directly. |
 | Stripe Lambda | AWS Lambda | Handles Stripe subscription events, writes Postgres directly. |
 | Step Functions | AWS workflow | Partner-shop-application workflow. |
@@ -42,7 +42,6 @@ flowchart TD
     SEND["notification-send Lambda"]
     SES["SES"]
     FX["FxRate Lambda"]
-    DDBFX[(DynamoDB FX rate)]
 
     API -->|"sync business transaction"| PG
     SHOPIFY -->|"sync product/event transaction"| PG
@@ -67,7 +66,7 @@ flowchart TD
     DDBN -->|"stream/event rule"| SEND
     SEND --> SES
 
-    FX --> DDBFX
+    FX -->|"immutable FX snapshot transaction"| PG
 ```
 
 ## Product write flow
@@ -225,7 +224,7 @@ These AWS event flows stay:
 | Source | Route | Target |
 |---|---|---|
 | DynamoDB notification insert | Stream/EventBridge/SQS | `notification-send` Lambda |
-| EventBridge schedule | cron | `fxrate-lambda` |
+| EventBridge schedule | cron | `fxrate-lambda`; captures one idempotent Product FX snapshot in Postgres per EventBridge event ID |
 | Shopify partner EventBridge/SQS | Shopify product events | `shopify-lambda`; this is external intake buffering before sync Postgres product/event writes, not the removed product command queue. |
 | Stripe partner EventBridge | subscription events | `stripe-lambda`; Lambda invokes canonical User service handlers with direct Postgres adapters for atomic user tier/customer updates. |
 | Step Functions | partner app workflow | `partner-shop-application-lambda`; Lambda writes Postgres business rows directly. |
@@ -242,6 +241,7 @@ Minimum unique keys:
 | Product event | `product_events.event_id` |
 | Product materialized state | `products.event_id` |
 | Product worker job | `product_events.event_id` |
+| Scheduled FX snapshot | `fx_rates.source_event_id` |
 | Shop worker job | `(shop_id, version, op)` |
 | Search-filter worker job | `(user_search_filter_id, version, op)` |
 | User tier worker job | `(user_id, version)` |

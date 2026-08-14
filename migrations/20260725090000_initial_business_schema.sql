@@ -113,6 +113,7 @@ CREATE TABLE fx_rates (
     fx_rate_id uuid PRIMARY KEY,
     captured_at timestamptz NOT NULL,
     source text NOT NULL,
+    source_event_id text NOT NULL UNIQUE,
     created timestamptz NOT NULL DEFAULT now()
 );
 

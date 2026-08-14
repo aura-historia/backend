@@ -10,8 +10,7 @@
 - Canonical migration types now live in `product-core`, `product-service`, and `product-postgres`.
 - DynamoDB/OpenSearch and old service paths remain here until caller cutover.
 - Root modules: `core`, `data`, `dynamodb`, `opensearch`, `postgres`, `service`.
-
-- Main neighbors: `common`, `fxrate`, `geo`, `shop`.
+- Main neighbors: `common`, `geo`, `shop`.
 - Library crate. Keep old behavior stable while migration moves canonical code out.
 
 ## Ownership

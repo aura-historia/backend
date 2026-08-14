@@ -20,13 +20,11 @@ use common::event_id::EventId;
 use common::has_key::HasKey;
 use common::logging::{LogEventType, LogWriteSource};
 use common::mergeable::Mergeable;
-use common::price::domain::FxRate;
+use common::price::domain::{FixedFxRate, FxRate};
 use common::product_id::ProductKey;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
-use fxrate::dynamodb::record::FxRatesRecord;
-use fxrate::service::{FxRateService, FxRateServiceError};
 use shop::core::affiliate_configuration::AffiliateConfiguration;
 use shop::core::shop_type::ShopType;
 use shop::service::get_service::GetShopService;
@@ -57,7 +55,7 @@ pub enum DeleteProductCommandError {
 
 pub struct CommandProductServiceImpl<'a> {
     dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-    fx_rate: Option<FxRatesRecord>,
+    fx_rate: FixedFxRate,
     get_shop_service: Option<&'a (dyn GetShopService + Sync)>,
 }
 
@@ -70,17 +68,15 @@ struct ResolvedShopInformation {
 }
 
 impl<'a> CommandProductServiceImpl<'a> {
-    pub async fn new(
+    pub fn new(
         dynamodb_repository: &'a (dyn ProductDynamoDbRepository + Sync),
-        fx_rate_service: &(dyn FxRateService + Sync),
         get_shop_service: &'a (dyn GetShopService + Sync),
-    ) -> Result<Self, FxRateServiceError> {
-        let fx_rate = fx_rate_service.get_current().await?;
-        Ok(Self {
+    ) -> Self {
+        Self {
             dynamodb_repository,
-            fx_rate: Some(fx_rate),
+            fx_rate: FixedFxRate(),
             get_shop_service: Some(get_shop_service),
-        })
+        }
     }
 
     pub fn new_delete_only(
@@ -88,15 +84,13 @@ impl<'a> CommandProductServiceImpl<'a> {
     ) -> Self {
         Self {
             dynamodb_repository,
-            fx_rate: None,
+            fx_rate: FixedFxRate(),
             get_shop_service: None,
         }
     }
 
-    fn fx_rate(&self) -> &FxRatesRecord {
-        self.fx_rate
-            .as_ref()
-            .expect("fx rate must exist for create, update, and upsert")
+    fn fx_rate(&self) -> &FixedFxRate {
+        &self.fx_rate
     }
 
     fn get_shop_service(&self) -> &(dyn GetShopService + Sync) {
@@ -953,8 +947,6 @@ mod tests {
     use common::has_key::HasKey;
     use common::{price::domain::FixedFxRate, product_state::domain::ProductState};
     use fake::{Fake, Faker};
-    use fxrate::dynamodb::record::FxRatesRecord;
-    use fxrate::service::MockFxRateService;
     use rstest;
     use shop::core::shop::Shop;
     use shop::core::shop_type::ShopType;
@@ -971,22 +963,11 @@ mod tests {
         service
     }
 
-    fn default_fx_rate_service() -> MockFxRateService {
-        let mut service = MockFxRateService::new();
-        service
-            .expect_get_current()
-            .returning(|| Box::pin(async { Ok(FxRatesRecord::from(FixedFxRate())) }));
-        service
-    }
-
     async fn make_command_product_service<'a>(
         repository: &'a (dyn ProductDynamoDbRepository + Sync),
     ) -> CommandProductServiceImpl<'a> {
         let get_shop_service = Box::leak(Box::new(default_shop_service()));
-        let fx_rate_service = default_fx_rate_service();
-        CommandProductServiceImpl::new(repository, &fx_rate_service, get_shop_service)
-            .await
-            .expect("failed to create CommandProductServiceImpl in test")
+        CommandProductServiceImpl::new(repository, get_shop_service)
     }
 
     mod determine_update_events {
@@ -1312,10 +1293,7 @@ mod tests {
             repository: &'a (dyn ProductDynamoDbRepository + Sync),
             get_shop_service: &'a (dyn GetShopService + Sync),
         ) -> CommandProductServiceImpl<'a> {
-            let fx_rate_service = default_fx_rate_service();
-            CommandProductServiceImpl::new(repository, &fx_rate_service, get_shop_service)
-                .await
-                .expect("failed to create CommandProductServiceImpl in test")
+            CommandProductServiceImpl::new(repository, get_shop_service)
         }
 
         #[tokio::test]

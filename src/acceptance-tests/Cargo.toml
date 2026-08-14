@@ -9,7 +9,6 @@ test-api = { workspace = true, features = ["cloudformation", "dynamodb", "opense
 aws-tests-common = { workspace = true }
 base64 = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-fxrate = { workspace = true }
 product = { workspace = true, features = ["full"] }
 product-watchlist = { workspace = true, features = ["full"] }
 notification = { workspace = true, features = ["service", "dynamodb", "data", "test-data"] }
