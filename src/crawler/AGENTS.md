@@ -16,12 +16,12 @@
 - Shop sync load active shops and domains from upstream shop search into local Postgres.
 - Spider crawl shop domains, discover URLs, infer or refresh shop product regex, and batch-upsert URL metadata.
 - Spider HTTP asks for `gzip, br, deflate` only; avoid zstd decode noise from bad origins.
-- Scraper consume product URLs, fetch HTML, detect stored soft-404 removed templates, reuse or grow CSS selector schemas, normalize products, and push results onward. Product pages may carry zero images.
+- Scraper consume product URLs, fetch HTML with short inline retry backoff capped at 2s, detect stored soft-404 removed templates, reuse or grow CSS selector schemas, normalize products, and push results onward. `Retry-After` headers must not sleep domain workers; failed URLs use `shop_urls.next_retry_at` after final fetch failure.
 - Scraper description text without own language signal inherits title language only when language was detected from the title itself.
 - `review` own human-review rail and optional LLM-judge rail for URL patterns and schemas.
 - Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `shops_removed_page_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
 - Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper feeds backend product push.
-- Locking be two-layer: process-local locks stop duplicate in one process, DB lock/cooldown metadata stop bad overlap and hot-loop retries across runs.
+- Locking be two-layer: process-local locks stop duplicate in one process, DB lock/cooldown metadata stop bad overlap and hot-loop retries across runs after final fetch failure.
 - LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair page classification, schema evaluation, state mapping fallback.
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.

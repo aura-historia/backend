@@ -1,5 +1,5 @@
 use super::job::CrawlerCronJob;
-use crate::network::policy::{NetworkErrorKind, retry_cooldown_for};
+use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
 use crate::spider::advisory_lock::DomainLock;
 use crate::spider::candidate_service::SpiderCandidate;
 use crate::spider::classification::url_pattern_service::UrlPatternServiceError;
@@ -70,7 +70,7 @@ fn crawl_cooldown_profile(error_kind: &str) -> Option<CrawlCooldownProfile> {
 fn cooldown_for_spider_failure(error_kind: &str, failure_count: i32) -> Duration {
     crawl_cooldown_profile(error_kind)
         .map(|profile| profile.cooldown_for_failure_count(failure_count))
-        .unwrap_or_else(|| retry_cooldown_for(NetworkErrorKind::Unknown))
+        .unwrap_or_else(|| durable_retry_cooldown_for(NetworkErrorKind::Unknown))
 }
 
 fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
@@ -431,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn cooldown_should_use_retry_cooldown_for_first_two_grouped_failures() {
+    fn cooldown_should_use_durable_retry_cooldown_for_first_two_grouped_failures() {
         for error_kind in [
             "EmptyCrawl",
             "TinyCrawl",
@@ -505,7 +505,7 @@ mod tests {
     fn cooldown_should_keep_generic_fallback_for_unknown_failures() {
         assert_eq!(
             cooldown_for_spider_failure("spider_run_error", LONG_COOLDOWN_FAILURE_COUNT),
-            retry_cooldown_for(NetworkErrorKind::Unknown)
+            durable_retry_cooldown_for(NetworkErrorKind::Unknown)
         );
     }
 
@@ -671,7 +671,7 @@ mod tests {
                     && *failure_count == 1
                     && next_crawl_at_is_about(
                         *next_crawl_at,
-                        retry_cooldown_for(NetworkErrorKind::Unknown),
+                        durable_retry_cooldown_for(NetworkErrorKind::Unknown),
                     )
             })
             .returning(|_, _, _, _| Box::pin(async { Ok(()) }));
