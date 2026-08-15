@@ -1,5 +1,5 @@
 use super::job::CrawlerCronJob;
-use crate::network::policy::{NetworkErrorKind, retry_cooldown_for};
+use crate::network::policy::{NetworkErrorKind, durable_retry_cooldown_for};
 use crate::scraper::candidate_service::{
     ProductSnapshot, ScraperCandidate, ScraperCandidateService,
 };
@@ -190,7 +190,7 @@ async fn scrape_candidate(
             let is_pending_schema_review = matches!(&e, ScraperError::PendingSchemaReview { .. });
 
             if let ScraperError::HttpError { kind, .. } = &e {
-                let cooldown = retry_cooldown_for(*kind);
+                let cooldown = durable_retry_cooldown_for(*kind);
                 let next_retry_at = time::OffsetDateTime::now_utc()
                     + time::Duration::seconds(cooldown.as_secs() as i64);
                 let status_code = match kind {
@@ -702,7 +702,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_mark_fetch_failure_for_retryable_scraper_http_error() {
+    async fn should_apply_durable_retry_cooldown_after_final_fetch_failure() {
+        let before = time::OffsetDateTime::now_utc();
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
@@ -716,6 +717,17 @@ mod tests {
         scraper_candidates
             .expect_mark_fetch_failure()
             .once()
+            .withf(move |_, _, _, _, status_code, next_retry_at| {
+                let expected_cooldown = durable_retry_cooldown_for(NetworkErrorKind::Timeout);
+                let expected_from =
+                    before + time::Duration::seconds(expected_cooldown.as_secs() as i64);
+                let expected_until = time::OffsetDateTime::now_utc()
+                    + time::Duration::seconds(expected_cooldown.as_secs() as i64)
+                    + time::Duration::seconds(1);
+                status_code.is_none()
+                    && *next_retry_at >= expected_from
+                    && *next_retry_at <= expected_until
+            })
             .returning(|_, _, _, _, _, _| Box::pin(async { Ok(()) }));
 
         let mut scraper_service = MockScraperService::new();

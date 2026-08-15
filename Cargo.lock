@@ -1973,7 +1973,6 @@ dependencies = [
  "dotenvy",
  "fake",
  "futures",
- "httpdate",
  "imagesize",
  "kuchiki",
  "libc",
