@@ -486,5 +486,167 @@
       "auction_start": null,
       "auction_end": null
     }
+  },
+  {
+    "html": "tests/fixtures/html/proantic_available.html",
+    "raw_state": "in stock",
+    "state_record": "AVAILABLE",
+    "schema": {
+      "shops_product_id": {
+        "selector": "meta[property='product:retailer_item_id']",
+        "type": "attribute",
+        "name": "content"
+      },
+      "title": {
+        "selector": "meta[property='og:title']",
+        "type": "attribute",
+        "name": "content"
+      },
+      "description": {
+        "selector": ".container-display-description",
+        "type": "text"
+      },
+      "price": {
+        "selector": ".prixobj",
+        "type": "text"
+      },
+      "seller_name": {
+        "selector": ".container-display-right-contact-nom i",
+        "type": "text"
+      },
+      "state": {
+        "selector": "meta[property='product:availability']",
+        "type": "attribute",
+        "name": "content"
+      },
+      "images": {
+        "selector": ".img_carousel_display",
+        "type": "attribute",
+        "name": "src",
+        "cardinality": "all"
+      },
+      "default_currency": "EUR",
+      "raw_attributes": {
+        "rawCategoryPath": {
+          "selector": ".ariane",
+          "type": "text",
+          "cardinality": "all"
+        },
+        "rawCondition": {
+          "selector": "meta[property='product:condition']",
+          "type": "attribute",
+          "name": "content",
+          "cardinality": "all"
+        }
+      }
+    },
+    "raw": {
+      "shops_product_id": "1186805",
+      "title": "Vue de Gdsank ( Danzig ) , école Hollandaise , 1672 , monogrammé .",
+      "description": [
+        "Vue de Danzig ou Gdsansk , huile sur panneau de chêne , dimensions 27,5 cm x 23,5 cm , avec le cadre 47 cm x 43 cm , daté 1672 , monogrammé W.v.N.y F , école hollandaise .\nAllemande au 17 è siècle , ville portuaire elle fait partie des villes de la Hanse . Après le dernier congrès de la ligue en 1669 , elle reste unie aux trois villes de Lübeck , Hambourg et Brême , c'est l'une des places les plus importantes pour l'échange des marchandises dans le trafic entre l'Est , le nord et l'ouest de l'Europe .\nEn 1919 le traité de Versailles en fait une ville libre , elle est rattachée à la Pologne après la guerre et devient Gdsanck ."
+      ],
+      "price": "6 900 €",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": "Galerie Laury-Bailly",
+      "state": "in stock",
+      "images": [
+        "https://www.proantic.com/galerie/laurybailly/img/1186805-main-64f3401e587f2.jpg",
+        "https://www.proantic.com/galerie/laurybailly/img/1186805-64f3404b1fbfe.jpg",
+        "https://www.proantic.com/galerie/laurybailly/img/1186805-64f3406506557.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "1186805",
+      "title": "Vue de Gdsank ( Danzig ) , école Hollandaise , 1672 , monogrammé ",
+      "description": "Vue de Danzig ou Gdsansk , huile sur panneau de chêne , dimensions 27,5 cm x 23,5 cm , avec le cadre 47 cm x 43 cm , daté 1672 , monogrammé W.v.N.y F , école hollandaise .\nAllemande au 17 è siècle , ville portuaire elle fait partie des villes de la Hanse . Après le dernier congrès de la ligue en 1669 , elle reste unie aux trois villes de Lübeck , Hambourg et Brême , c'est l'une des places les plus importantes pour l'échange des marchandises dans le trafic entre l'Est , le nord et l'ouest de l'Europe .\nEn 1919 le traité de Versailles en fait une ville libre , elle est rattachée à la Pologne après la guerre et devient Gdsanck .",
+      "price": 690000,
+      "price_currency": "EUR",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": "Galerie Laury-Bailly",
+      "state": "AVAILABLE",
+      "url": "https://www.proantic.com/1186805-vue-de-gdsank-danzig-ecole-hollandaise-1672-monogramme.html",
+      "images": [
+        "https://www.proantic.com/galerie/laurybailly/img/1186805-main-64f3401e587f2.jpg",
+        "https://www.proantic.com/galerie/laurybailly/img/1186805-64f3404b1fbfe.jpg",
+        "https://www.proantic.com/galerie/laurybailly/img/1186805-64f3406506557.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
+  },
+  {
+    "html": "tests/fixtures/html/georgianantiques_available.html",
+    "raw_state": "instock",
+    "state_record": "AVAILABLE",
+    "schema": {
+      "shops_product_id": {
+        "selector": ".summary .sku",
+        "type": "text"
+      },
+      "title": {
+        "selector": "h1.product_title",
+        "type": "text"
+      },
+      "description": {
+        "selector": "#tab-description > p",
+        "type": "text"
+      },
+      "price": {
+        "selector": "meta[property='product:price:amount']",
+        "type": "attribute",
+        "name": "content"
+      },
+      "state": {
+        "selector": "meta[property='product:availability']",
+        "type": "attribute",
+        "name": "content"
+      },
+      "images": {
+        "selector": "#wpgs-gallery img, .wcgs-woocommerce-product-gallery img",
+        "type": "attribute",
+        "name": "src",
+        "cardinality": "all"
+      },
+      "default_currency": "GBP"
+    },
+    "raw": {
+      "shops_product_id": "23175",
+      "title": "Pair of Mid-Victorian Figured Mahogany Three-Drawer Jewellery Drawers.",
+      "description": [
+        "Circa 1870. Pair of Mid-Victorian figured mahogany three-drawer Jewellery drawers. The rectangular tops in figured mahogany with moulded edges above three drawers with original finely turned knobs, mahogany drawer linings and fine dovetails(sign of quality). With column sides and sitting on neat, fluted, moulded bases"
+      ],
+      "price": "550",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "instock",
+      "images": [],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "23175",
+      "title": "Pair of Mid-Victorian Figured Mahogany Three-Drawer Jewellery Drawers",
+      "description": "Circa 1870. Pair of Mid-Victorian figured mahogany three-drawer Jewellery drawers. The rectangular tops in figured mahogany with moulded edges above three drawers with original finely turned knobs, mahogany drawer linings and fine dovetails(sign of quality). With column sides and sitting on neat, fluted, moulded bases",
+      "price": 55000,
+      "price_currency": "GBP",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "AVAILABLE",
+      "url": "https://www.georgianantiques.net/product/pair-of-mid-victorian-figured-mahogany-three-drawer-jewellery-drawers/",
+      "images": [],
+      "auction_start": null,
+      "auction_end": null
+    }
   }
 ]

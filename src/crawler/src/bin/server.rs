@@ -348,6 +348,7 @@ async fn main() {
             scraper_interval: Duration::from_mins(10),
             scraper_urls_per_domain: 100,
             spider_concurrency: 3,
+            spider_site_concurrency_limit: 8,
             scraper_concurrency: 3,
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
@@ -359,6 +360,7 @@ async fn main() {
             spider_interval_s = config.spider_interval.as_secs(),
             scraper_interval_s = config.scraper_interval.as_secs(),
             spider_concurrency = config.spider_concurrency,
+            spider_site_concurrency_limit = config.spider_site_concurrency_limit,
             scraper_concurrency = config.scraper_concurrency,
             scraper_schema_seed_pages = config.scraper_schema_seed_pages,
             scraper_domain_delay_ms = config.scraper_domain_delay.as_millis(),
@@ -513,7 +515,7 @@ async fn main() {
         let spider_config = SpiderServiceConfig {
             ..Default::default()
         };
-        let website_spider = Box::new(SpiderImpl::default());
+        let website_spider = Box::new(SpiderImpl::new(config.spider_website_config()));
 
         let spider_svc = Box::new(SpiderServiceImpl::new(
             spider_config,

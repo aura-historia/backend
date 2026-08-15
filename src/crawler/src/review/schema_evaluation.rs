@@ -148,9 +148,7 @@ fn page_has_required_extraction(page: &SchemaPageEvaluation) -> bool {
 }
 
 fn raw_extraction_has_required_values(raw: &RawExtractedProduct) -> bool {
-    !raw.title.trim().is_empty()
-        && !raw.state.trim().is_empty()
-        && raw.images.iter().any(|image| !image.trim().is_empty())
+    !raw.title.trim().is_empty() && !raw.state.trim().is_empty()
 }
 
 fn evaluate_schema_fields(
@@ -362,6 +360,29 @@ mod tests {
         let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
 
         assert!(schema_matrix_has_required_coverage(&matrix));
+    }
+
+    #[test]
+    fn should_cover_product_page_when_images_are_absent() {
+        let schemas = vec![ProductCssSelectorSchema {
+            images: image_rule("#gallery img"),
+            ..schema("h1")
+        }];
+        let pages = vec![SchemaReviewPageInput {
+            url: "https://example.com/no-image-product".to_string(),
+            role: PAGE_ROLE_PRIMARY.to_string(),
+            raw_html: "<html><body><span id=\"product-id\">SKU</span><h1>Title</h1><span id=\"state\">Available</span><div id=\"gallery\"></div></body></html>".to_string(),
+        }];
+
+        let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
+
+        assert!(schema_matrix_has_required_coverage(&matrix));
+        assert!(
+            matrix.candidates[0].pages[0]
+                .extracted
+                .as_ref()
+                .is_some_and(|raw| raw.images.is_empty())
+        );
     }
 
     #[test]

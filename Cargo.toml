@@ -329,7 +329,7 @@ indexmap = { version = "2.14.0", features = ["serde"] }
 fxrate-lambda = { path = "src/fxrate-lambda" }
 slug = "0.1.6"
 crawler = { path = "src/crawler" }
-spider = { version = "=2.52.13", default-features = false, features = ["sync", "reqwest_rustls_tls", "auto_throttle", "robots_cache", "rate_limit"] }
+spider = { version = "2", default-features = false, features = ["sync", "reqwest_rustls_tls", "auto_throttle", "robots_cache", "rate_limit"] }
 scraper = "0.27.0"
 schemars = "1.2.1"
 llm = { git = "https://github.com/bruderj15/llm", rev = "bc562d0f6547857c4af5171c8c5aea3671f2b771", default-features = false, features = ["rustls-tls"] }

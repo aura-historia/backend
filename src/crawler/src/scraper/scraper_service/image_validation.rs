@@ -31,6 +31,7 @@ impl ReqwestImageValidator {
     pub(crate) fn new() -> Self {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::limited(5))
+            .http1_only()
             .timeout(std::time::Duration::from_secs(8))
             .build()
             .expect("reqwest image validator client should build");

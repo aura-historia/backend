@@ -144,6 +144,7 @@ impl ReqwestHtmlFetcher {
 
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::limited(10))
+            .http1_only()
             .timeout(std::time::Duration::from_secs(15))
             .user_agent(DEFAULT_USER_AGENT)
             .default_headers(default_headers)

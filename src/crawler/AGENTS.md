@@ -15,7 +15,8 @@
 - Spider and scraper cron use global slot schedulers. Refill only schedulable work; scraper fetch picks random eligible domains, takes up to 100 due URLs per domain by default, and excludes domains already seen in the pass.
 - Shop sync load active shops and domains from upstream shop search into local Postgres.
 - Spider crawl shop domains, discover URLs, infer or refresh shop product regex, and batch-upsert URL metadata.
-- Scraper consume product URLs, fetch HTML, detect stored soft-404 removed templates, reuse or grow CSS selector schemas, normalize products, and push results onward.
+- Spider HTTP asks for `gzip, br, deflate` only; avoid zstd decode noise from bad origins.
+- Scraper consume product URLs, fetch HTML, detect stored soft-404 removed templates, reuse or grow CSS selector schemas, normalize products, and push results onward. Product pages may carry zero images.
 - Scraper description text without own language signal inherits title language only when language was detected from the title itself.
 - `review` own human-review rail and optional LLM-judge rail for URL patterns and schemas.
 - Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `shops_removed_page_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
@@ -24,7 +25,7 @@
 - LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair page classification, schema evaluation, state mapping fallback.
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
-- Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors.
+- Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors. State selector prompt must choose only availability/cart action nodes and exclude price text.
 - Schema prompt DSL strips script/style and layout noise, including header/footer/nav custom elements.
 - Product schemas may generate configured raw attribute selectors for review/demo/file inspection only. Missing raw attribute selector matches are skipped; extracted raw values are not DB or product-command data. New raw attribute keys need schema regeneration for existing cached shop schemas.
 - Initial schema generation accepts product schema responses only. Append repair accepts product, removed, and not-product classifications.
@@ -65,6 +66,7 @@
 - Schema repair should grow cache carefully. Bad generated schema should die fast, not poison shop cache.
 - State mapping should prefer exact or regex reuse before LLM fallback.
 - Price normalization de-dupes repeated visible/accessibility price text only when candidates agree or one clean decimal form beats malformed visual cents.
+- Keep spider per-site concurrency bounded. `spider::Website` default concurrency can explode HTTP/2 stream churn; crawler pins a conservative per-site limit and scraper-owned reqwest clients stay HTTP/1-only.
 - Filter non-actionable `html5ever::tree_builder` warnings at crawler entrypoints.
 - Avoid code duplication between `demo` and `server` when shared builder or service can hold it.
 - Testcontainers tests be preferred proof for DB behavior. Keep fixtures focused and stable.
