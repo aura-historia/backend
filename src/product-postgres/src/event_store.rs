@@ -110,6 +110,7 @@ fn event_payload_json(payload: &ProductDomainEventPayload) -> Value {
             "description": payload.description.as_ref().map(localized_description_json),
             "address": address_json(&payload.address),
             "pricing": pricing_json(payload.pricing),
+            "saleValuation": sale_valuation_json(payload.sale_valuation),
             "state": format!("{:?}", payload.state),
             "url": payload.url.as_str(),
             "images": images_json(&payload.images),
@@ -119,6 +120,7 @@ fn event_payload_json(payload: &ProductDomainEventPayload) -> Value {
             "kind": "stateChanged",
             "oldState": format!("{:?}", payload.old_state),
             "newState": format!("{:?}", payload.new_state),
+            "saleValuation": sale_valuation_json(payload.sale_valuation),
         }),
         ProductDomainEventPayload::AddressChanged(payload) => json!({
             "kind": "addressChanged",
@@ -196,7 +198,15 @@ fn pricing_json(pricing: ProductPricing) -> Value {
         "price": pricing.price.map(price_json),
         "priceEstimateMin": pricing.price_estimate_min.map(price_json),
         "priceEstimateMax": pricing.price_estimate_max.map(price_json),
-        "fxRateId": pricing.fx_rate_id.map(String::from),
+    })
+}
+
+fn sale_valuation_json(valuation: Option<product_core::product::ProductSaleValuation>) -> Value {
+    valuation.map_or(Value::Null, |valuation| {
+        json!({
+            "soldAt": valuation.sold_at.to_string(),
+            "fxRateId": valuation.fx_rate_id.to_string(),
+        })
     })
 }
 
@@ -232,7 +242,7 @@ fn auction_json(auction: ProductAuction) -> Value {
 mod tests {
     use super::*;
     use common::currency::domain::Currency;
-    use common::fx_rate_id::FxRateId;
+
     use common::language::domain::Language;
     use common::localized::Localized;
     use common::price::domain::{MonetaryAmount, Price};
@@ -261,12 +271,11 @@ mod tests {
         Price::new(MonetaryAmount::from(amount), currency)
     }
 
-    fn pricing(fx_rate_id: Option<FxRateId>) -> ProductPricing {
+    fn pricing() -> ProductPricing {
         ProductPricing {
             price: Some(price(1_200, Currency::Eur)),
             price_estimate_min: Some(price(1_000, Currency::Eur)),
             price_estimate_max: Some(price(1_400, Currency::Eur)),
-            fx_rate_id,
         }
     }
 
@@ -281,7 +290,6 @@ mod tests {
 
     #[test]
     fn should_write_lossless_created_payload() {
-        let fx_rate_id = FxRateId::new();
         let payload = ProductDomainEventPayload::Created(Box::new(ProductCreated {
             title: Some(Localized::new(Language::En, Title::from("Bronze vase"))),
             description: Some(Localized::new(Language::En, Description::from("Ancient"))),
@@ -292,7 +300,8 @@ mod tests {
                     lon: 8.0,
                 }),
             },
-            pricing: pricing(Some(fx_rate_id)),
+            pricing: pricing(),
+            sale_valuation: None,
             state: ProductState::Listed,
             url: url("https://shop.example/products/1"),
             images: images(),
@@ -319,10 +328,7 @@ mod tests {
             json.pointer("/pricing/price/currency")
                 .and_then(Value::as_str)
         );
-        assert_eq!(
-            Some(fx_rate_id.to_string().as_str()),
-            json.pointer("/pricing/fxRateId").and_then(Value::as_str)
-        );
+
         assert_eq!(
             Some("https://shop.example/image.jpg"),
             json.pointer("/images/0/url").and_then(Value::as_str)
@@ -334,16 +340,13 @@ mod tests {
     }
 
     #[test]
-    fn should_write_old_and_new_pricing_snapshots_with_fx_rate_ids() {
-        let old_fx_rate_id = FxRateId::new();
-        let new_fx_rate_id = FxRateId::new();
+    fn should_write_old_and_new_source_pricing_snapshots() {
         let payload = ProductDomainEventPayload::PriceChanged(ProductPriceChanged {
-            old_pricing: pricing(Some(old_fx_rate_id)),
+            old_pricing: pricing(),
             new_pricing: ProductPricing {
                 price: Some(price(1_500, Currency::Usd)),
                 price_estimate_min: None,
                 price_estimate_max: None,
-                fx_rate_id: Some(new_fx_rate_id),
             },
         });
 
@@ -359,14 +362,6 @@ mod tests {
             json.pointer("/newPricing/price/currency")
                 .and_then(Value::as_str)
         );
-        assert_eq!(
-            Some(old_fx_rate_id.to_string().as_str()),
-            json.pointer("/oldPricing/fxRateId").and_then(Value::as_str)
-        );
-        assert_eq!(
-            Some(new_fx_rate_id.to_string().as_str()),
-            json.pointer("/newPricing/fxRateId").and_then(Value::as_str)
-        );
     }
 
     #[test]
@@ -375,6 +370,7 @@ mod tests {
             ProductDomainEventPayload::StateChanged(ProductStateChanged {
                 old_state: ProductState::Listed,
                 new_state: ProductState::Available,
+                sale_valuation: None,
             }),
             ProductDomainEventPayload::AddressChanged(ProductAddressChanged {
                 address: ProductAddress::default(),

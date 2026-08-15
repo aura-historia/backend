@@ -44,7 +44,8 @@ info:
       current title and description from persisted translations; similar reads resolve projected result titles.
       Product history remains immutable and is not localized.
       Detail and history prices remain their stored source amount and currency; their `pricing` snapshots
-      include `fxRateId`, but no currency conversion is performed. Source → EUR → requested-currency conversion is deferred to
+      contain only source prices. Sale events may include a separate immutable `saleValuation` with `soldAt` and `fxRateId`.
+      No currency conversion is performed; source → EUR → requested-currency conversion is deferred to
       [#1466](https://github.com/aura-historia/backend/issues/1466).
     - Errors are returned as **`application/problem+json`** using a consistent RFC 9457-style structure
       with `status`, `title`, `error`, optional `source`, and optional `detail`
@@ -962,8 +963,8 @@ paths:
       description: |
         Retrieves a single product by its `productId`.
 
-        Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
-        `fxRateId`; this endpoint performs no currency conversion.
+        Product prices remain stored source amounts and currencies. The `pricing` snapshot contains
+        source prices only; this endpoint performs no currency conversion.
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
         adds optional top-level `userState`; authenticated responses are not cached.
@@ -1064,8 +1065,8 @@ paths:
       description: |
         Retrieves a single product by its shop slug ID and product slug ID.
 
-        Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
-        `fxRateId`; this endpoint performs no currency conversion.
+        Product prices remain stored source amounts and currencies. The `pricing` snapshot contains
+        source prices only; this endpoint performs no currency conversion.
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
         adds optional top-level `userState`; authenticated responses are not cached.
@@ -1183,8 +1184,8 @@ paths:
         Returns an array of immutable events representing state changes, price changes, and other
         product lifecycle events, ordered chronologically.
 
-        Price snapshots preserve the stored source amount and currency and include the recorded
-        `fxRateId`. This endpoint performs no currency conversion.
+        Price snapshots preserve stored source amounts and currencies. A sale event records its
+        immutable `saleValuation` separately. This endpoint performs no currency conversion.
       operationId: getProductHistory
       tags:
         - Products
@@ -1223,7 +1224,6 @@ paths:
                           price:
                             currency: "EUR"
                             amount: 3000
-                          fxRateId: "750e8400-e29b-41d4-a716-446655440010"
                         state: "LISTED"
                         url: "https://shop.example/products/6ba7b810"
                         images: []
@@ -1237,12 +1237,10 @@ paths:
                           price:
                             currency: "EUR"
                             amount: 3000
-                          fxRateId: "750e8400-e29b-41d4-a716-446655440010"
                         newPricing:
                           price:
                             currency: "EUR"
                             amount: 2999
-                          fxRateId: "850e8400-e29b-41d4-a716-446655440010"
                       timestamp: "2024-01-15T09:15:00Z"
         "400":
           description: Bad request - Invalid parameters
@@ -1355,7 +1353,7 @@ paths:
   /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/history:
     get:
       summary: Get product event history by slug
-      description: Returns immutable history for a shop/product slug pair. Price snapshots preserve their stored source amounts and currencies and include `fxRateId`; no conversion is performed.
+      description: Returns immutable history for a shop/product slug pair. Price snapshots preserve stored source amounts and currencies; sale valuation is recorded separately; no conversion is performed.
       operationId: getProductHistoryBySlug
       tags:
         - Products
@@ -10035,7 +10033,7 @@ components:
           nullable: true
         pricing:
           type: object
-          description: Stored source pricing. `fxRateId` identifies the source FX snapshot; no conversion occurs.
+          description: Stored source pricing. No FX snapshot is implied; no conversion occurs.
           properties:
             price:
               allOf:
@@ -10048,10 +10046,6 @@ components:
             priceEstimateMax:
               allOf:
                 - $ref: "#/components/schemas/PriceData"
-              nullable: true
-            fxRateId:
-              type: string
-              format: uuid
               nullable: true
         price:
           allOf:
@@ -10523,7 +10517,7 @@ components:
           description: Unique identifier for this event
         payload:
           type: object
-          description: Immutable event snapshot. Created and price-change snapshots expose `pricing` / `oldPricing` / `newPricing` with stored source `price`, estimate bounds, and `fxRateId`; no conversion is applied.
+          description: Immutable event snapshot. Created and price-change snapshots expose `pricing` / `oldPricing` / `newPricing` with stored source price and estimate bounds; sale events expose immutable `saleValuation`; no conversion is applied.
         timestamp:
           type: string
           format: date-time

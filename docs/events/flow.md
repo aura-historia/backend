@@ -71,7 +71,7 @@ flowchart TD
 
 ## Product write flow
 
-Product writes are synchronous and persist full immutable payload snapshots. Pricing currently retains `price`, `price_estimate_min`, `price_estimate_max`, and `fx_rate_id`; prices remain stored source amounts and currencies. FX snapshots are a separate canonical context: each persisted generation stores one checked EUR-base `units_per_eur` quote for every supported currency, including EUR at scale. Capture fetches the provider before its short Postgres transaction and deduplicates by EventBridge event ID.
+Product writes are synchronous and persist full immutable payload snapshots. Pricing retains only source `price`, `price_estimate_min`, and `price_estimate_max`; it never carries an FX ID. Creating or transitioning a Product to `SOLD` reads the latest persisted FX snapshot in the Product transaction and records immutable `sale_fx_rate_id` plus `sold_at`. Missing or invalid persisted FX data rejects the write. A sold Product can move only to `REMOVED` through generic writes, preserving its sale valuation. FX snapshots are a separate canonical context: each persisted generation stores one checked EUR-base `units_per_eur` quote for every supported currency, including EUR at scale. Capture fetches the provider before its short Postgres transaction and deduplicates by EventBridge event ID.
 
 ```mermaid
 sequenceDiagram

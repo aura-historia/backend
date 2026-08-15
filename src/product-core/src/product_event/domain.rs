@@ -1,7 +1,6 @@
 use crate::description::Description;
 use crate::product_image::ProductImage;
 use crate::title::Title;
-use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::Price;
@@ -83,7 +82,6 @@ pub struct ProductCreatedDomainEventPayload {
     pub price: Option<Price>,
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
-    pub fx_rate_id: Option<FxRateId>,
     pub state: ProductState,
     pub url: Url,
     pub images: IndexSet<ProductImage>,
@@ -102,8 +100,6 @@ pub struct ProductStateChangeDomainEventPayload {
 pub struct ProductPriceChangeDomainEventPayload {
     pub old_price: Option<Price>,
     pub new_price: Option<Price>,
-    pub old_fx_rate_id: Option<FxRateId>,
-    pub new_fx_rate_id: Option<FxRateId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,8 +108,6 @@ pub struct ProductEstimatePriceChangeDomainEventPayload {
     pub old_price_estimate_max: Option<Price>,
     pub new_price_estimate_min: Option<Price>,
     pub new_price_estimate_max: Option<Price>,
-    pub old_fx_rate_id: Option<FxRateId>,
-    pub new_fx_rate_id: Option<FxRateId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -154,7 +148,6 @@ mod faker_payloads {
                 price: config.fake_with_rng(rng),
                 price_estimate_min: config.fake_with_rng(rng),
                 price_estimate_max: config.fake_with_rng(rng),
-                fx_rate_id: Some(FxRateId::new()),
                 state: config.fake_with_rng(rng),
                 url: test_url("https://www.example.com/product"),
                 images: config
@@ -172,8 +165,6 @@ mod faker_payloads {
             ProductPriceChangeDomainEventPayload {
                 old_price: config.fake_with_rng(rng),
                 new_price: config.fake_with_rng(rng),
-                old_fx_rate_id: Some(FxRateId::new()),
-                new_fx_rate_id: Some(FxRateId::new()),
             }
         }
     }
@@ -185,8 +176,6 @@ mod faker_payloads {
                 old_price_estimate_max: config.fake_with_rng(rng),
                 new_price_estimate_min: config.fake_with_rng(rng),
                 new_price_estimate_max: config.fake_with_rng(rng),
-                old_fx_rate_id: Some(FxRateId::new()),
-                new_fx_rate_id: Some(FxRateId::new()),
             }
         }
     }
@@ -246,7 +235,6 @@ mod tests {
             price: Some(price(100, Currency::Eur)),
             price_estimate_min: Some(price(90, Currency::Eur)),
             price_estimate_max: Some(price(120, Currency::Eur)),
-            fx_rate_id: Some(FxRateId::new()),
             state: ProductState::Listed,
             url: url("product"),
             images: IndexSet::new(),
@@ -266,8 +254,6 @@ mod tests {
         ProductPriceChangeDomainEventPayload {
             old_price: Some(price(100, Currency::Eur)),
             new_price: Some(price(200, Currency::Eur)),
-            old_fx_rate_id: Some(FxRateId::new()),
-            new_fx_rate_id: Some(FxRateId::new()),
         }
     }
 
@@ -277,8 +263,6 @@ mod tests {
             old_price_estimate_max: Some(price(120, Currency::Eur)),
             new_price_estimate_min: Some(price(99, Currency::Usd)),
             new_price_estimate_max: Some(price(132, Currency::Usd)),
-            old_fx_rate_id: Some(FxRateId::new()),
-            new_fx_rate_id: Some(FxRateId::new()),
         }
     }
 
@@ -356,13 +340,12 @@ mod tests {
     }
 
     #[test]
-    fn should_keep_pricing_and_fx_rate_snapshots_for_price_events() {
+    fn should_keep_source_pricing_snapshots_for_price_events() {
         let price_change = price_payload();
         let estimate_change = estimate_payload();
 
         assert_eq!(Some(price(100, Currency::Eur)), price_change.old_price);
         assert_eq!(Some(price(200, Currency::Eur)), price_change.new_price);
-        assert_ne!(price_change.old_fx_rate_id, price_change.new_fx_rate_id);
         assert_eq!(
             Some(price(90, Currency::Eur)),
             estimate_change.old_price_estimate_min
@@ -371,19 +354,14 @@ mod tests {
             Some(price(132, Currency::Usd)),
             estimate_change.new_price_estimate_max
         );
-        assert_ne!(
-            estimate_change.old_fx_rate_id,
-            estimate_change.new_fx_rate_id
-        );
     }
 
     #[test]
-    fn should_keep_pricing_and_fx_rate_in_created_snapshot() {
+    fn should_keep_source_pricing_in_created_snapshot() {
         let payload = created_payload();
 
         assert_eq!(Some(price(100, Currency::Eur)), payload.price);
         assert_eq!(Some(price(90, Currency::Eur)), payload.price_estimate_min);
         assert_eq!(Some(price(120, Currency::Eur)), payload.price_estimate_max);
-        assert!(payload.fx_rate_id.is_some());
     }
 }

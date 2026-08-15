@@ -1,5 +1,6 @@
-use common::error::boxed::BoxError;
+use common::{error::boxed::BoxError, fx_rate_id::FxRateId};
 use fxrate_core::{FxRateSnapshot, NewFxRateSnapshot};
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FxRateSnapshotInsertOutcome {
@@ -14,10 +15,39 @@ pub enum FxRateSnapshotRepositoryError {
         #[source]
         source: BoxError,
     },
+    #[error("FX rate snapshot read failed")]
+    ReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("persisted FX rate snapshot is invalid")]
+    InvalidPersistedSnapshot {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]
 pub trait FxRateSnapshotRepository: Send {
+    async fn find_latest(
+        &mut self,
+    ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>;
+
+    async fn find_latest_at_or_before(
+        &mut self,
+        timestamp: OffsetDateTime,
+    ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>;
+
+    async fn find_by_id(
+        &mut self,
+        id: FxRateId,
+    ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>;
+
+    async fn find_by_ids(
+        &mut self,
+        ids: &[FxRateId],
+    ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError>;
+
     async fn insert(
         &mut self,
         snapshot: &NewFxRateSnapshot,

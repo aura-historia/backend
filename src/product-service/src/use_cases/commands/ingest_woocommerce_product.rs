@@ -15,9 +15,14 @@ use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use fxrate_service::ports::{
+    FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
+};
 use indexmap::IndexSet;
 use product_core::description::Description;
-use product_core::product::{NewProduct, Product, ProductAddress, ProductAuction, ProductPricing};
+use product_core::product::{
+    NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
+};
 use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
@@ -141,7 +146,7 @@ struct CanonicalWoocommerceProduct {
     images: IndexSet<ProductImage>,
 }
 
-pub struct IngestWoocommerceProductHandler<U, M, S, V, R, E, A> {
+pub struct IngestWoocommerceProductHandler<U, M, S, V, R, E, A, F> {
     unit_of_work: U,
     memberships: M,
     shops: S,
@@ -149,10 +154,12 @@ pub struct IngestWoocommerceProductHandler<U, M, S, V, R, E, A> {
     products: R,
     events: E,
     authorizer: A,
+    fx_rates: F,
 }
 
-impl<U, M, S, V, R, E, A> IngestWoocommerceProductHandler<U, M, S, V, R, E, A> {
-    pub fn new(
+impl<U, M, S, V, R, E, A, F> IngestWoocommerceProductHandler<U, M, S, V, R, E, A, F> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_fx_rates(
         unit_of_work: U,
         memberships: M,
         shops: S,
@@ -160,6 +167,7 @@ impl<U, M, S, V, R, E, A> IngestWoocommerceProductHandler<U, M, S, V, R, E, A> {
         products: R,
         events: E,
         authorizer: A,
+        fx_rates: F,
     ) -> Self {
         Self {
             unit_of_work,
@@ -169,11 +177,12 @@ impl<U, M, S, V, R, E, A> IngestWoocommerceProductHandler<U, M, S, V, R, E, A> {
             products,
             events,
             authorizer,
+            fx_rates,
         }
     }
 }
 
-impl<U, M, S, V, R, E, A> IngestWoocommerceProductHandler<U, M, S, V, R, E, A>
+impl<U, M, S, V, R, E, A, F> IngestWoocommerceProductHandler<U, M, S, V, R, E, A, F>
 where
     U: UnitOfWork,
     M: PartnerShopReaderFactory<U::Tx>,
@@ -182,6 +191,7 @@ where
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     async fn validate_webhook(
         &self,
@@ -265,7 +275,13 @@ where
                     pricing.price = Some(price);
                     product.replace_pricing(pricing);
                 }
-                product.change_state(state);
+                let sale_valuation =
+                    if state == ProductState::Sold && product.state() != ProductState::Sold {
+                        Some(sale_valuation(&self.fx_rates, tx).await?)
+                    } else {
+                        None
+                    };
+                apply_state(&mut product, state, sale_valuation)?;
                 product.change_url(url);
                 product.replace_images(images);
                 let events = product.take_pending_events();
@@ -289,6 +305,11 @@ where
                 }))
             }
             None => {
+                let sale_valuation = if state == ProductState::Sold {
+                    Some(sale_valuation(&self.fx_rates, tx).await?)
+                } else {
+                    None
+                };
                 let product = Product::create(NewProduct {
                     id: ProductId::new(),
                     shop_id,
@@ -301,6 +322,7 @@ where
                         price,
                         ..Default::default()
                     },
+                    sale_valuation,
                     state,
                     url,
                     images,
@@ -357,7 +379,7 @@ where
             .ok_or(UpdateProductError::ProductNotFound)?;
         let expected_event_id = loaded.version;
         let mut product = loaded.value;
-        product.change_state(ProductState::Removed);
+        product.mark_removed()?;
         let events = product.take_pending_events();
         let event_id = events.last().map(|event| event.event_id);
 
@@ -381,8 +403,8 @@ where
 }
 
 #[async_trait::async_trait]
-impl<U, M, S, V, R, E, A> IngestWoocommerceProductUseCase
-    for IngestWoocommerceProductHandler<U, M, S, V, R, E, A>
+impl<U, M, S, V, R, E, A, F> IngestWoocommerceProductUseCase
+    for IngestWoocommerceProductHandler<U, M, S, V, R, E, A, F>
 where
     U: UnitOfWork,
     M: PartnerShopReaderFactory<U::Tx>,
@@ -391,6 +413,7 @@ where
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "ingest_woocommerce_product",
@@ -489,6 +512,51 @@ where
     }
 }
 
+fn apply_state(
+    product: &mut Product,
+    state: ProductState,
+    sale_valuation: Option<ProductSaleValuation>,
+) -> Result<(), UpsertProductError> {
+    match state {
+        ProductState::Listed => product.mark_listed()?,
+        ProductState::Available => product.mark_available()?,
+        ProductState::Reserved => product.mark_reserved()?,
+        ProductState::Sold => {
+            product.mark_sold(sale_valuation.ok_or(UpsertProductError::SaleFxSnapshotMissing)?)?
+        }
+        ProductState::Removed => product.mark_removed()?,
+        ProductState::Unknown => product.mark_unknown()?,
+    };
+    Ok(())
+}
+
+async fn sale_valuation<Tx, F>(
+    fx_rates: &F,
+    tx: &mut Tx,
+) -> Result<ProductSaleValuation, UpsertProductError>
+where
+    F: FxRateSnapshotRepositoryFactory<Tx>,
+{
+    let mut repository = fx_rates.in_transaction(tx);
+    let snapshot = repository
+        .find_latest()
+        .await
+        .map_err(|error| match error {
+            FxRateSnapshotRepositoryError::InsertFailed { source }
+            | FxRateSnapshotRepositoryError::ReadFailed { source } => {
+                UpsertProductError::SaleFxSnapshotUnavailable { source }
+            }
+            FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
+                UpsertProductError::SaleFxSnapshotInvalid { source }
+            }
+        })?
+        .ok_or(UpsertProductError::SaleFxSnapshotMissing)?;
+    Ok(ProductSaleValuation {
+        sold_at: time::OffsetDateTime::now_utc(),
+        fx_rate_id: snapshot.id(),
+    })
+}
+
 fn actor_id(context: &OperationContext) -> Result<UserId, IngestWoocommerceProductError> {
     match &context.principal {
         Principal::User(user_id) => Ok(*user_id),
@@ -520,6 +588,86 @@ impl From<PartnerShopReadError> for IngestWoocommerceProductError {
                 Self::InvalidPartnerMembershipReadModel { source }
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+struct MissingFxRateSnapshotFactory;
+
+#[cfg(test)]
+struct MissingFxRateSnapshotRepository;
+
+#[cfg(test)]
+impl<Tx> FxRateSnapshotRepositoryFactory<Tx> for MissingFxRateSnapshotFactory {
+    fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl FxRateSnapshotRepository + 'tx {
+        MissingFxRateSnapshotRepository
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl FxRateSnapshotRepository for MissingFxRateSnapshotRepository {
+    async fn find_latest(
+        &mut self,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_latest_at_or_before(
+        &mut self,
+        _timestamp: time::OffsetDateTime,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_by_id(
+        &mut self,
+        _id: common::fx_rate_id::FxRateId,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_by_ids(
+        &mut self,
+        _ids: &[common::fx_rate_id::FxRateId],
+    ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(Vec::new())
+    }
+
+    async fn insert(
+        &mut self,
+        _snapshot: &fxrate_core::NewFxRateSnapshot,
+        _source_event_id: &str,
+    ) -> Result<fxrate_service::ports::FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>
+    {
+        Ok(fxrate_service::ports::FxRateSnapshotInsertOutcome::Duplicate)
+    }
+}
+
+#[cfg(test)]
+impl<U, M, S, V, R, E, A>
+    IngestWoocommerceProductHandler<U, M, S, V, R, E, A, MissingFxRateSnapshotFactory>
+{
+    fn new(
+        unit_of_work: U,
+        memberships: M,
+        shops: S,
+        signature_verifier: V,
+        products: R,
+        events: E,
+        authorizer: A,
+    ) -> Self {
+        Self::new_with_fx_rates(
+            unit_of_work,
+            memberships,
+            shops,
+            signature_verifier,
+            products,
+            events,
+            authorizer,
+            MissingFxRateSnapshotFactory,
+        )
     }
 }
 
@@ -904,6 +1052,7 @@ mod tests {
         FakeProductRepositoryFactory,
         FakeProductEventStoreFactory,
         FakeAuthorizerFactory,
+        MissingFxRateSnapshotFactory,
     > {
         IngestWoocommerceProductHandler::new(
             FakeUnitOfWork {

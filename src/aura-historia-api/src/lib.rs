@@ -33,6 +33,7 @@ use billing_service::use_cases::{
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{GoogleGeocoder, GoogleGeocoderConfig};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
@@ -749,23 +750,26 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxProductDetailsReaderFactory::new(),
         DynamoDbProductNotificationsReader::new(dynamodb_client, table_name_ref),
     );
-    let create_product = CreateProductHandler::new(
+    let create_product = CreateProductHandler::new_with_fx_rates(
         unit_of_work.clone(),
         SqlxProductRepositoryFactory::new(),
         SqlxProductEventStoreFactory::new(),
         SqlxPartnerProductAuthorizerFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
     );
-    let update_product = UpdateProductHandler::new(
+    let update_product = UpdateProductHandler::new_with_fx_rates(
         unit_of_work.clone(),
         SqlxProductRepositoryFactory::new(),
         SqlxProductEventStoreFactory::new(),
         SqlxPartnerProductAuthorizerFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
     );
-    let upsert_product = UpsertProductHandler::new(
+    let upsert_product = UpsertProductHandler::new_with_fx_rates(
         unit_of_work.clone(),
         SqlxProductRepositoryFactory::new(),
         SqlxProductEventStoreFactory::new(),
         SqlxPartnerProductAuthorizerFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
     );
     let delete_product = DeleteProductHandler::new(
         unit_of_work.clone(),
@@ -773,7 +777,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxProductEventStoreFactory::new(),
         SqlxPartnerProductAuthorizerFactory::new(),
     );
-    let ingest_woocommerce_product = IngestWoocommerceProductHandler::new(
+    let ingest_woocommerce_product = IngestWoocommerceProductHandler::new_with_fx_rates(
         unit_of_work.clone(),
         SqlxPartnerShopReaderFactory::new(),
         SqlxWoocommerceWebhookShopReaderFactory::new(),
@@ -781,6 +785,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxProductRepositoryFactory::new(),
         SqlxProductEventStoreFactory::new(),
         SqlxPartnerProductAuthorizerFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
     );
     let list_watchlist = ListWatchlistHandler::new(
         unit_of_work.clone(),

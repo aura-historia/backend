@@ -2,7 +2,6 @@ use common::{
     currency::domain::Currency,
     error::boxed::{BoxError, box_error, static_error},
     event_id::EventId,
-    fx_rate_id::FxRateId,
     language::domain::Language,
     localized::Localized,
     postgres::SqlxTransaction,
@@ -77,7 +76,6 @@ struct SourceRow {
     price_estimate_min_currency: Option<String>,
     price_estimate_max_amount: Option<i64>,
     price_estimate_max_currency: Option<String>,
-    fx_rate_id: Option<uuid::Uuid>,
     state: String,
     lifecycle: String,
     url: String,
@@ -187,7 +185,6 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
                 product.price_estimate_min_currency,
                 product.price_estimate_max_amount,
                 product.price_estimate_max_currency,
-                product.fx_rate_id,
                 product.state,
                 product.lifecycle,
                 product.url,
@@ -250,7 +247,6 @@ fn source_from_rows(rows: Vec<SourceRow>) -> Result<Option<ProductSearchFilterMa
             row.price_estimate_max_amount,
             row.price_estimate_max_currency.as_deref(),
         )?,
-        fx_rate_id: row.fx_rate_id.map(FxRateId::from),
     };
     let images = images(&row.product_images)?;
     let url = Url::parse(&row.url).map_err(|_| ())?;

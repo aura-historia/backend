@@ -3,7 +3,6 @@
 use common::currency::domain::Currency;
 use common::error::boxed::box_error;
 use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
@@ -18,7 +17,8 @@ use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use product_core::description::Description;
 use product_core::product::{
-    Product, ProductAddress, ProductAuction, ProductPricing, RehydratedProductState,
+    Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
+    RehydratedProductState,
 };
 use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
@@ -64,7 +64,8 @@ struct ProductRow {
     price_estimate_min_currency: Option<String>,
     price_estimate_max_amount: Option<i64>,
     price_estimate_max_currency: Option<String>,
-    fx_rate_id: Option<uuid::Uuid>,
+    sale_fx_rate_id: Option<uuid::Uuid>,
+    sold_at: Option<OffsetDateTime>,
     state: String,
     lifecycle: String,
     url: String,
@@ -121,8 +122,8 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, fx_rate_id, state, lifecycle, url, product_images,
-                embedding, auction_start, auction_end, created, updated
+                price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url,
+                product_images, embedding, auction_start, auction_end, created, updated
             FROM products
             WHERE product_id = $1
             "#,
@@ -149,8 +150,8 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, fx_rate_id, state, lifecycle, url, product_images,
-                embedding, auction_start, auction_end, created, updated
+                price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url,
+                product_images, embedding, auction_start, auction_end, created, updated
             FROM products
             WHERE shop_id = $1
               AND shops_product_id = $2
@@ -202,11 +203,11 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 title_language, description_text, description_language,
                 price_amount, price_currency, price_estimate_min_amount,
                 price_estimate_min_currency, price_estimate_max_amount,
-                price_estimate_max_currency, fx_rate_id, state, lifecycle, url, product_images,
-                auction_start, auction_end
+                price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url,
+                product_images, auction_start, auction_end
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31
+                $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32
             )
             "#,
         )
@@ -242,7 +243,8 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 .price_estimate_max
                 .map(|value| value.currency.as_str().to_owned()),
         )
-        .bind(pricing.fx_rate_id.map(uuid::Uuid::from))
+        .bind(product.sale_valuation().map(|value| uuid::Uuid::from(value.fx_rate_id)))
+        .bind(product.sale_valuation().map(|value| value.sold_at))
         .bind(product_state_as_str(product.state()))
         .bind(product_lifecycle_as_str(product.lifecycle()))
         .bind(product.url().to_string())
@@ -311,15 +313,16 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 price_estimate_min_currency = $21,
                 price_estimate_max_amount = $22,
                 price_estimate_max_currency = $23,
-                fx_rate_id = $24,
-                state = $25,
-                lifecycle = $26,
-                url = $27,
-                product_images = $28,
-                auction_start = $29,
-                auction_end = $30,
+                sale_fx_rate_id = $24,
+                sold_at = $25,
+                state = $26,
+                lifecycle = $27,
+                url = $28,
+                product_images = $29,
+                auction_start = $30,
+                auction_end = $31,
                 updated = now()
-            WHERE product_id = $31 AND event_id = $32
+            WHERE product_id = $32 AND event_id = $33
             "#,
         )
         .bind(product.slug_id().as_ref().to_owned())
@@ -387,7 +390,12 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 .price_estimate_max
                 .map(|value| value.currency.as_str().to_owned()),
         )
-        .bind(pricing.fx_rate_id.map(uuid::Uuid::from))
+        .bind(
+            product
+                .sale_valuation()
+                .map(|value| uuid::Uuid::from(value.fx_rate_id)),
+        )
+        .bind(product.sale_valuation().map(|value| value.sold_at))
         .bind(product_state_as_str(product.state()))
         .bind(product_lifecycle_as_str(product.lifecycle()))
         .bind(product.url().to_string())
@@ -440,8 +448,8 @@ impl TryFrom<ProductRow> for Versioned<Product, EventId> {
                     row.price_estimate_max_amount,
                     row.price_estimate_max_currency,
                 )?,
-                fx_rate_id: row.fx_rate_id.map(FxRateId::from),
             },
+            sale_valuation: sale_valuation_from_parts(row.sold_at, row.sale_fx_rate_id)?,
             state: parse_product_state(&row.state)?,
             lifecycle: parse_product_lifecycle(&row.lifecycle)?,
             url: Url::parse(&row.url)
@@ -458,6 +466,20 @@ impl TryFrom<ProductRow> for Versioned<Product, EventId> {
             value: product,
             version: EventId::from(row.event_id),
         })
+    }
+}
+
+fn sale_valuation_from_parts(
+    sold_at: Option<OffsetDateTime>,
+    fx_rate_id: Option<uuid::Uuid>,
+) -> Result<Option<ProductSaleValuation>, ProductRepositoryError> {
+    match (sold_at, fx_rate_id) {
+        (Some(sold_at), Some(fx_rate_id)) => Ok(Some(ProductSaleValuation {
+            sold_at,
+            fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+        })),
+        (None, None) => Ok(None),
+        _ => Err(ProductRepositoryError::InvalidAggregateStatePersisted),
     }
 }
 
@@ -963,7 +985,8 @@ mod tests {
             price_estimate_min_currency: None,
             price_estimate_max_amount: None,
             price_estimate_max_currency: None,
-            fx_rate_id: None,
+            sale_fx_rate_id: None,
+            sold_at: None,
             state: "LISTED".to_owned(),
             lifecycle: "ACTIVE".to_owned(),
             url: "https://example.com/unit-product".to_owned(),

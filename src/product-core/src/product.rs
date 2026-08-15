@@ -30,6 +30,7 @@ pub struct Product {
     title: Option<Localized<Language, Title>>,
     description: Option<Localized<Language, Description>>,
     pricing: ProductPricing,
+    sale_valuation: Option<ProductSaleValuation>,
     state: ProductState,
     lifecycle: ProductLifecycle,
     url: Url,
@@ -48,6 +49,7 @@ pub struct NewProduct {
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductPricing,
+    pub sale_valuation: Option<ProductSaleValuation>,
     pub state: ProductState,
     pub url: Url,
     pub images: IndexSet<ProductImage>,
@@ -66,6 +68,7 @@ pub struct RehydratedProductState {
     pub title: Option<Localized<Language, Title>>,
     pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductPricing,
+    pub sale_valuation: Option<ProductSaleValuation>,
     pub state: ProductState,
     pub lifecycle: ProductLifecycle,
     pub url: Url,
@@ -84,7 +87,12 @@ pub struct ProductPricing {
     pub price: Option<Price>,
     pub price_estimate_min: Option<Price>,
     pub price_estimate_max: Option<Price>,
-    pub fx_rate_id: Option<FxRateId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ProductSaleValuation {
+    pub sold_at: OffsetDateTime,
+    pub fx_rate_id: FxRateId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -128,6 +136,7 @@ pub struct ProductCreated {
     pub description: Option<Localized<Language, Description>>,
     pub address: ProductAddress,
     pub pricing: ProductPricing,
+    pub sale_valuation: Option<ProductSaleValuation>,
     pub state: ProductState,
     pub url: Url,
     pub images: IndexSet<ProductImage>,
@@ -138,6 +147,7 @@ pub struct ProductCreated {
 pub struct ProductStateChanged {
     pub old_state: ProductState,
     pub new_state: ProductState,
+    pub sale_valuation: Option<ProductSaleValuation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -175,10 +185,20 @@ pub struct ProductDeleted {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum RehydrateProductError {
+    #[error("sold product requires a sale valuation")]
+    SoldProductRequiresSaleValuation,
+    #[error("sale valuation is only valid for sold or removed products")]
+    SaleValuationRequiresSoldOrRemovedState,
     #[error("product geo latitude out of range")]
     GeoLatitudeOutOfRange,
     #[error("product geo longitude out of range")]
     GeoLongitudeOutOfRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
+pub enum ProductStateTransitionError {
+    #[error("a sold product cannot be reopened without an explicit sale correction")]
+    SoldProductReopenRequiresExplicitOperation,
 }
 
 impl Product {
@@ -194,6 +214,7 @@ impl Product {
             title: input.title.clone(),
             description: input.description.clone(),
             pricing: input.pricing,
+            sale_valuation: input.sale_valuation,
             state: input.state,
             lifecycle: ProductLifecycle::Active,
             url: input.url.clone(),
@@ -207,6 +228,7 @@ impl Product {
                 description: input.description,
                 address: input.address,
                 pricing: input.pricing,
+                sale_valuation: input.sale_valuation,
                 state: input.state,
                 url: input.url,
                 images: input.images,
@@ -221,6 +243,7 @@ impl Product {
     #[allow(dead_code)]
     pub fn rehydrate(state: RehydratedProductState) -> Result<Self, RehydrateProductError> {
         validate_geo_address(state.address.geo)?;
+        validate_sale_valuation(state.state, state.sale_valuation)?;
 
         Ok(Self {
             id: state.id,
@@ -232,6 +255,7 @@ impl Product {
             title: state.title,
             description: state.description,
             pricing: state.pricing,
+            sale_valuation: state.sale_valuation,
             state: state.state,
             lifecycle: state.lifecycle,
             url: state.url,
@@ -252,20 +276,80 @@ impl Product {
         ChangeOutcome::Changed
     }
 
-    pub fn change_state(&mut self, new_state: ProductState) -> ChangeOutcome {
-        if self.state == new_state {
-            return ChangeOutcome::Unchanged;
+    pub fn mark_listed(&mut self) -> Result<ChangeOutcome, ProductStateTransitionError> {
+        self.transition_to(ProductState::Listed)
+    }
+
+    pub fn mark_available(&mut self) -> Result<ChangeOutcome, ProductStateTransitionError> {
+        self.transition_to(ProductState::Available)
+    }
+
+    pub fn mark_reserved(&mut self) -> Result<ChangeOutcome, ProductStateTransitionError> {
+        self.transition_to(ProductState::Reserved)
+    }
+
+    pub fn mark_sold(
+        &mut self,
+        sale_valuation: ProductSaleValuation,
+    ) -> Result<ChangeOutcome, ProductStateTransitionError> {
+        if self.state == ProductState::Sold {
+            return Ok(ChangeOutcome::Unchanged);
         }
 
+        self.ensure_transition_allowed(ProductState::Sold)?;
+        self.sale_valuation = Some(sale_valuation);
+        self.record_state_change(ProductState::Sold);
+        Ok(ChangeOutcome::Changed)
+    }
+
+    pub fn mark_removed(&mut self) -> Result<ChangeOutcome, ProductStateTransitionError> {
+        self.transition_to(ProductState::Removed)
+    }
+
+    pub fn mark_unknown(&mut self) -> Result<ChangeOutcome, ProductStateTransitionError> {
+        self.transition_to(ProductState::Unknown)
+    }
+
+    fn transition_to(
+        &mut self,
+        new_state: ProductState,
+    ) -> Result<ChangeOutcome, ProductStateTransitionError> {
+        if self.state == new_state {
+            return Ok(ChangeOutcome::Unchanged);
+        }
+
+        self.ensure_transition_allowed(new_state)?;
+        self.record_state_change(new_state);
+        Ok(ChangeOutcome::Changed)
+    }
+
+    fn ensure_transition_allowed(
+        &self,
+        new_state: ProductState,
+    ) -> Result<(), ProductStateTransitionError> {
+        if self.sale_valuation.is_some()
+            && self.state != ProductState::Sold
+            && new_state != ProductState::Removed
+        {
+            return Err(ProductStateTransitionError::SoldProductReopenRequiresExplicitOperation);
+        }
+        if self.state == ProductState::Sold && new_state != ProductState::Removed {
+            return Err(ProductStateTransitionError::SoldProductReopenRequiresExplicitOperation);
+        }
+
+        Ok(())
+    }
+
+    fn record_state_change(&mut self, new_state: ProductState) {
         let old_state = self.state;
         self.state = new_state;
         self.push_event(ProductDomainEventPayload::StateChanged(
             ProductStateChanged {
                 old_state,
                 new_state,
+                sale_valuation: self.sale_valuation,
             },
         ));
-        ChangeOutcome::Changed
     }
 
     pub fn replace_pricing(&mut self, pricing: ProductPricing) -> ChangeOutcome {
@@ -380,6 +464,10 @@ impl Product {
         self.pricing
     }
 
+    pub fn sale_valuation(&self) -> Option<ProductSaleValuation> {
+        self.sale_valuation
+    }
+
     pub fn state(&self) -> ProductState {
         self.state
     }
@@ -421,6 +509,17 @@ fn product_slug_id(
     match title {
         Some(title) => ProductSlugId::from(title.payload.as_ref()),
         None => ProductSlugId::from(product_id.to_string()),
+    }
+}
+
+fn validate_sale_valuation(
+    state: ProductState,
+    sale_valuation: Option<ProductSaleValuation>,
+) -> Result<(), RehydrateProductError> {
+    match (state, sale_valuation) {
+        (ProductState::Sold, None) => Err(RehydrateProductError::SoldProductRequiresSaleValuation),
+        (ProductState::Sold | ProductState::Removed, _) | (_, None) => Ok(()),
+        _ => Err(RehydrateProductError::SaleValuationRequiresSoldOrRemovedState),
     }
 }
 
@@ -472,8 +571,8 @@ mod tests {
                 price: Some(Price::new(MonetaryAmount::from(1_500_u64), Currency::Eur)),
                 price_estimate_min: None,
                 price_estimate_max: None,
-                fx_rate_id: Some(FxRateId::new()),
             },
+            sale_valuation: None,
             state: ProductState::Listed,
             url: test_url(),
             images: IndexSet::new(),
@@ -486,6 +585,111 @@ mod tests {
             Ok(product) => product,
             Err(error) => panic!("create failed: {error}"),
         }
+    }
+
+    fn sale_valuation() -> ProductSaleValuation {
+        ProductSaleValuation {
+            sold_at: OffsetDateTime::UNIX_EPOCH,
+            fx_rate_id: FxRateId::new(),
+        }
+    }
+
+    #[test]
+    fn should_reject_sold_product_creation_without_sale_valuation() {
+        let mut input = new_product();
+        input.state = ProductState::Sold;
+
+        let result = Product::create(input);
+
+        assert_eq!(
+            Err(RehydrateProductError::SoldProductRequiresSaleValuation),
+            result
+        );
+    }
+
+    #[test]
+    fn should_create_sold_product_with_sale_valuation() {
+        let valuation = sale_valuation();
+        let mut input = new_product();
+        input.state = ProductState::Sold;
+        input.sale_valuation = Some(valuation);
+
+        let product = Product::create(input);
+
+        assert!(matches!(
+            product,
+            Ok(ref product) if product.state() == ProductState::Sold
+                && product.sale_valuation() == Some(valuation)
+        ));
+    }
+
+    #[test]
+    fn should_store_sale_valuation_in_state_change_event_when_transitioning_to_sold() {
+        let valuation = sale_valuation();
+        let mut product = created_product();
+        product.take_pending_events();
+
+        let result = product.mark_sold(valuation);
+
+        assert_eq!(Ok(ChangeOutcome::Changed), result);
+        assert_eq!(Some(valuation), product.sale_valuation());
+        assert!(matches!(
+            product.pending_events(),
+            [ProductDomainEvent {
+                payload: ProductDomainEventPayload::StateChanged(ProductStateChanged {
+                    old_state: ProductState::Listed,
+                    new_state: ProductState::Sold,
+                    sale_valuation: Some(event_valuation),
+                }),
+                ..
+            }] if *event_valuation == valuation
+        ));
+    }
+
+    #[test]
+    fn should_preserve_sale_valuation_when_transitioning_from_sold_to_removed() {
+        let valuation = sale_valuation();
+        let mut product = created_product();
+        let sold = product.mark_sold(valuation);
+        product.take_pending_events();
+
+        let removed = product.mark_removed();
+
+        assert_eq!(Ok(ChangeOutcome::Changed), sold);
+        assert_eq!(Ok(ChangeOutcome::Changed), removed);
+        assert_eq!(ProductState::Removed, product.state());
+        assert_eq!(Some(valuation), product.sale_valuation());
+    }
+
+    #[test]
+    fn should_reject_generic_reopen_of_sold_product() {
+        let mut product = created_product();
+        let sold = product.mark_sold(sale_valuation());
+        product.take_pending_events();
+
+        let result = product.mark_available();
+
+        assert_eq!(Ok(ChangeOutcome::Changed), sold);
+        assert_eq!(
+            Err(ProductStateTransitionError::SoldProductReopenRequiresExplicitOperation),
+            result
+        );
+        assert_eq!(ProductState::Sold, product.state());
+        assert!(product.pending_events().is_empty());
+    }
+
+    #[test]
+    fn should_preserve_sale_valuation_when_pricing_changes() {
+        let valuation = sale_valuation();
+        let mut product = created_product();
+        let sold = product.mark_sold(valuation);
+        product.take_pending_events();
+
+        let outcome = product.replace_pricing(ProductPricing::default());
+
+        assert_eq!(Ok(ChangeOutcome::Changed), sold);
+        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(Some(valuation), product.sale_valuation());
     }
 
     #[test]
@@ -524,6 +728,7 @@ mod tests {
             title: input.title,
             description: input.description,
             pricing: input.pricing,
+            sale_valuation: input.sale_valuation,
             state: input.state,
             lifecycle: ProductLifecycle::Active,
             url: input.url,
@@ -539,9 +744,9 @@ mod tests {
         let mut product = created_product();
         product.take_pending_events();
 
-        let outcome = product.change_state(ProductState::Listed);
+        let outcome = product.mark_listed();
 
-        assert_eq!(ChangeOutcome::Unchanged, outcome);
+        assert_eq!(Ok(ChangeOutcome::Unchanged), outcome);
         assert!(product.pending_events().is_empty());
     }
 
@@ -550,15 +755,16 @@ mod tests {
         let mut product = created_product();
         product.take_pending_events();
 
-        let outcome = product.change_state(ProductState::Available);
+        let outcome = product.mark_available();
 
-        assert_eq!(ChangeOutcome::Changed, outcome);
+        assert_eq!(Ok(ChangeOutcome::Changed), outcome);
         assert!(matches!(
             product.pending_events(),
             [ProductDomainEvent {
                 payload: ProductDomainEventPayload::StateChanged(ProductStateChanged {
                     old_state: ProductState::Listed,
                     new_state: ProductState::Available,
+                    sale_valuation: None,
                 }),
                 ..
             }]
@@ -595,6 +801,7 @@ mod tests {
             title: input.title,
             description: input.description,
             pricing: input.pricing,
+            sale_valuation: input.sale_valuation,
             state: input.state,
             lifecycle: ProductLifecycle::Active,
             url: input.url,
@@ -624,6 +831,7 @@ mod tests {
             title: input.title,
             description: input.description,
             pricing: input.pricing,
+            sale_valuation: input.sale_valuation,
             state: input.state,
             lifecycle: ProductLifecycle::Active,
             url: input.url,
@@ -653,6 +861,7 @@ mod tests {
             title: input.title,
             description: input.description,
             pricing: input.pricing,
+            sale_valuation: input.sale_valuation,
             state: input.state,
             lifecycle: ProductLifecycle::Active,
             url: input.url,
@@ -882,12 +1091,13 @@ mod tests {
         description: None,
         address: ProductAddress::default(),
         pricing: ProductPricing::default(),
+        sale_valuation: None,
         state: ProductState::Listed,
         url: test_url(),
         images: IndexSet::new(),
         auction: ProductAuction::default(),
     })), "PRODUCT_CREATED")]
-    #[case(ProductDomainEventPayload::StateChanged(ProductStateChanged { old_state: ProductState::Listed, new_state: ProductState::Available }), "PRODUCT_STATE_CHANGED")]
+    #[case(ProductDomainEventPayload::StateChanged(ProductStateChanged { old_state: ProductState::Listed, new_state: ProductState::Available, sale_valuation: None }), "PRODUCT_STATE_CHANGED")]
     #[case(ProductDomainEventPayload::AddressChanged(ProductAddressChanged { address: ProductAddress::default() }), "PRODUCT_ADDRESS_CHANGED")]
     #[case(ProductDomainEventPayload::PriceChanged(ProductPriceChanged { old_pricing: ProductPricing::default(), new_pricing: ProductPricing::default() }), "PRODUCT_PRICE_CHANGED")]
     #[case(ProductDomainEventPayload::UrlChanged(ProductUrlChanged { old_url: test_url(), new_url: test_url() }), "PRODUCT_URL_CHANGED")]

@@ -10,7 +10,7 @@ use common::product_state::domain::ProductState;
 use common::fx_rate_id::FxRateId;
 use indexmap::IndexSet;
 use product_core::description::Description;
-use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
@@ -139,6 +139,7 @@ pub(crate) fn parse_payload(
                 description: localized_description(payload.get("description"))?,
                 address: address(payload.get("address"))?,
                 pricing: pricing(payload.get("pricing"))?,
+                sale_valuation: sale_valuation(payload.get("saleValuation"))?,
                 state: state(string(payload, "state")?)?,
                 url: url(string(payload, "url")?)?,
                 images: images(payload.get("images"))?,
@@ -150,6 +151,7 @@ pub(crate) fn parse_payload(
             ProductEventPayload::StateChanged(ProductStateChangedEventPayload {
                 old_state: state(string(payload, "oldState")?)?,
                 new_state: state(string(payload, "newState")?)?,
+                sale_valuation: sale_valuation(payload.get("saleValuation"))?,
             }),
         )),
         "PRODUCT_ADDRESS_CHANGED" => Ok((
@@ -269,11 +271,31 @@ fn pricing(value: Option<&Value>) -> Result<ProductPricing, ProductEventReadErro
         price: price(value.get("price"))?,
         price_estimate_min: price(value.get("priceEstimateMin"))?,
         price_estimate_max: price(value.get("priceEstimateMax"))?,
-        fx_rate_id: optional_string(value, "fxRateId")?
-            .map(|value| value.parse::<uuid::Uuid>().map(FxRateId::from))
-            .transpose()
-            .map_err(|_| ProductEventReadError::ProductEventReadModelInvalid)?,
     })
+}
+
+fn sale_valuation(
+    value: Option<&Value>,
+) -> Result<Option<ProductSaleValuation>, ProductEventReadError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let value = object(Some(value))?;
+    let sold_at = optional_string(value, "soldAt")?
+        .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?;
+    let fx_rate_id = optional_string(value, "fxRateId")?
+        .ok_or(ProductEventReadError::ProductEventReadModelInvalid)?
+        .parse::<uuid::Uuid>()
+        .map(FxRateId::from)
+        .map_err(|_| ProductEventReadError::ProductEventReadModelInvalid)?;
+    Ok(Some(ProductSaleValuation {
+        sold_at: OffsetDateTime::parse(sold_at, &Rfc3339)
+            .map_err(|_| ProductEventReadError::ProductEventReadModelInvalid)?,
+        fx_rate_id,
+    }))
 }
 
 fn price(value: Option<&Value>) -> Result<Option<Price>, ProductEventReadError> {

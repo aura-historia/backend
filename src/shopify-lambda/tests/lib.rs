@@ -7,6 +7,7 @@ use common::postgres::SqlxUnitOfWork;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::transaction::{Transaction, UnitOfWork};
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::{Context, LambdaEvent};
 use product_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
@@ -308,11 +309,12 @@ async fn invoke(
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let ingestion = IngestShopifyProductHandler::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductHandler::new(
+        UpsertProductHandler::new_with_fx_rates(
             unit_of_work,
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         ),
     );
     invoke_with_ingestion(
@@ -327,11 +329,12 @@ async fn invoke_event(event: LambdaEvent<SqsEvent>) -> aws_lambda_events::sqs::S
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let ingestion = IngestShopifyProductHandler::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductHandler::new(
+        UpsertProductHandler::new_with_fx_rates(
             unit_of_work,
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         ),
     );
     invoke_with_ingestion(event, &ingestion).await

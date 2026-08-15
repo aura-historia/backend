@@ -6,6 +6,9 @@ use crate::ports::{
 use crate::use_cases::commands::create_product::CreateProductResult;
 use crate::use_cases::commands::update_product::UpdateProductResult;
 use common::error::boxed::{BoxError, box_error};
+use fxrate_service::ports::{
+    FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
+};
 
 use common::language::domain::Language;
 use common::localized::Localized;
@@ -23,7 +26,8 @@ use common::user_id::UserId;
 use indexmap::IndexSet;
 use product_core::description::Description;
 use product_core::product::{
-    NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, RehydrateProductError,
+    NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
+    ProductStateTransitionError, RehydrateProductError,
 };
 use product_core::product_image::ProductImage;
 use product_core::title::Title;
@@ -71,6 +75,20 @@ pub enum UpsertProductError {
     ProductSlugAlreadyExists,
     #[error("product state is invalid")]
     InvalidProductState,
+    #[error("no persisted FX snapshot is available for product sale")]
+    SaleFxSnapshotMissing,
+    #[error("persisted FX snapshot is invalid for product sale")]
+    SaleFxSnapshotInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("FX snapshot lookup is temporarily unavailable for product sale")]
+    SaleFxSnapshotUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("generic upsert cannot reopen a sold product")]
+    SoldProductReopenRequiresExplicitOperation,
     #[error("partner product authorization is temporarily unavailable")]
     PartnerProductAuthorizationTemporarilyUnavailable {
         #[source]
@@ -111,30 +129,39 @@ pub trait UpsertProductUseCase: Send + Sync {
     ) -> Result<UpsertProductResult, UpsertProductError>;
 }
 
-pub struct UpsertProductHandler<U, R, E, A> {
+pub struct UpsertProductHandler<U, R, E, A, F> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
+    fx_rates: F,
 }
 
-impl<U, R, E, A> UpsertProductHandler<U, R, E, A> {
-    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
+impl<U, R, E, A, F> UpsertProductHandler<U, R, E, A, F> {
+    pub fn new_with_fx_rates(
+        unit_of_work: U,
+        products: R,
+        events: E,
+        authorizer: A,
+        fx_rates: F,
+    ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
+            fx_rates,
         }
     }
 }
 
-impl<U, R, E, A> UpsertProductHandler<U, R, E, A>
+impl<U, R, E, A, F> UpsertProductHandler<U, R, E, A, F>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     async fn persist(
         &self,
@@ -156,7 +183,14 @@ where
             Some(loaded) => {
                 let expected_event_id = loaded.version;
                 let mut product = loaded.value;
-                apply_update(&mut product, &command);
+                let sale_valuation = if command.state == Some(ProductState::Sold)
+                    && product.state() != ProductState::Sold
+                {
+                    Some(sale_valuation(&self.fx_rates, tx).await?)
+                } else {
+                    None
+                };
+                apply_update(&mut product, &command, sale_valuation)?;
                 let events = product.take_pending_events();
                 let event_id = events.last().map(|event| event.event_id);
 
@@ -178,7 +212,11 @@ where
                 })
             }
             None => {
-                let product = Product::create(command.into_new_product(ProductId::new())?)?;
+                let mut input = command.into_new_product(ProductId::new())?;
+                if input.state == ProductState::Sold {
+                    input.sale_valuation = Some(sale_valuation(&self.fx_rates, tx).await?);
+                }
+                let product = Product::create(input)?;
                 let event_id = product
                     .pending_events()
                     .last()
@@ -223,12 +261,13 @@ where
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, A> UpsertProductUseCase for UpsertProductHandler<U, R, E, A>
+impl<U, R, E, A, F> UpsertProductUseCase for UpsertProductHandler<U, R, E, A, F>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "upsert_product",
@@ -300,8 +339,8 @@ impl UpsertProductCommand {
                 price: self.price,
                 price_estimate_min: self.price_estimate_min,
                 price_estimate_max: self.price_estimate_max,
-                fx_rate_id: None,
             },
+            sale_valuation: None,
             state: self.state.unwrap_or(ProductState::Listed),
             url,
             images: self.images,
@@ -313,7 +352,11 @@ impl UpsertProductCommand {
     }
 }
 
-fn apply_update(product: &mut Product, command: &UpsertProductCommand) {
+fn apply_update(
+    product: &mut Product,
+    command: &UpsertProductCommand,
+    sale_valuation: Option<ProductSaleValuation>,
+) -> Result<(), UpsertProductError> {
     let mut pricing = product.pricing();
     let mut pricing_changed = false;
     if let Some(price) = command.price {
@@ -332,7 +375,7 @@ fn apply_update(product: &mut Product, command: &UpsertProductCommand) {
         product.replace_pricing(pricing);
     }
     if let Some(state) = command.state {
-        product.change_state(state);
+        apply_state(product, state, sale_valuation)?;
     }
     if let Some(url) = &command.url {
         product.change_url(url.clone());
@@ -349,6 +392,45 @@ fn apply_update(product: &mut Product, command: &UpsertProductCommand) {
         }
         product.replace_auction(auction);
     }
+
+    Ok(())
+}
+
+fn apply_state(
+    product: &mut Product,
+    state: ProductState,
+    sale_valuation: Option<ProductSaleValuation>,
+) -> Result<(), UpsertProductError> {
+    match state {
+        ProductState::Listed => product.mark_listed()?,
+        ProductState::Available => product.mark_available()?,
+        ProductState::Reserved => product.mark_reserved()?,
+        ProductState::Sold => {
+            product.mark_sold(sale_valuation.ok_or(UpsertProductError::SaleFxSnapshotMissing)?)?
+        }
+        ProductState::Removed => product.mark_removed()?,
+        ProductState::Unknown => product.mark_unknown()?,
+    };
+    Ok(())
+}
+
+async fn sale_valuation<Tx, F>(
+    fx_rates: &F,
+    tx: &mut Tx,
+) -> Result<ProductSaleValuation, UpsertProductError>
+where
+    F: FxRateSnapshotRepositoryFactory<Tx>,
+{
+    let mut repository = fx_rates.in_transaction(tx);
+    let snapshot = repository
+        .find_latest()
+        .await
+        .map_err(UpsertProductError::from)?
+        .ok_or(UpsertProductError::SaleFxSnapshotMissing)?;
+    Ok(ProductSaleValuation {
+        sold_at: time::OffsetDateTime::now_utc(),
+        fx_rate_id: snapshot.id(),
+    })
 }
 
 fn partner_actor(principal: &Principal) -> Option<UserId> {
@@ -380,6 +462,30 @@ impl From<PartnerProductAuthorizationError> for UpsertProductError {
             }
             PartnerProductAuthorizationError::Internal { source } => {
                 Self::PartnerProductAuthorizationInternal { source }
+            }
+        }
+    }
+}
+
+impl From<ProductStateTransitionError> for UpsertProductError {
+    fn from(error: ProductStateTransitionError) -> Self {
+        match error {
+            ProductStateTransitionError::SoldProductReopenRequiresExplicitOperation => {
+                Self::SoldProductReopenRequiresExplicitOperation
+            }
+        }
+    }
+}
+
+impl From<FxRateSnapshotRepositoryError> for UpsertProductError {
+    fn from(error: FxRateSnapshotRepositoryError) -> Self {
+        match error {
+            FxRateSnapshotRepositoryError::InsertFailed { source }
+            | FxRateSnapshotRepositoryError::ReadFailed { source } => {
+                Self::SaleFxSnapshotUnavailable { source }
+            }
+            FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
+                Self::SaleFxSnapshotInvalid { source }
             }
         }
     }
@@ -429,6 +535,73 @@ impl From<ProductRepositoryError> for UpsertProductError {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+struct MissingFxRateSnapshotFactory;
+
+#[cfg(test)]
+struct MissingFxRateSnapshotRepository;
+
+#[cfg(test)]
+impl<Tx> FxRateSnapshotRepositoryFactory<Tx> for MissingFxRateSnapshotFactory {
+    fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl FxRateSnapshotRepository + 'tx {
+        MissingFxRateSnapshotRepository
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl FxRateSnapshotRepository for MissingFxRateSnapshotRepository {
+    async fn find_latest(
+        &mut self,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_latest_at_or_before(
+        &mut self,
+        _timestamp: time::OffsetDateTime,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_by_id(
+        &mut self,
+        _id: common::fx_rate_id::FxRateId,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_by_ids(
+        &mut self,
+        _ids: &[common::fx_rate_id::FxRateId],
+    ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(Vec::new())
+    }
+
+    async fn insert(
+        &mut self,
+        _snapshot: &fxrate_core::NewFxRateSnapshot,
+        _source_event_id: &str,
+    ) -> Result<fxrate_service::ports::FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>
+    {
+        Ok(fxrate_service::ports::FxRateSnapshotInsertOutcome::Duplicate)
+    }
+}
+
+#[cfg(test)]
+impl<U, R, E, A> UpsertProductHandler<U, R, E, A, MissingFxRateSnapshotFactory> {
+    fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
+        Self::new_with_fx_rates(
+            unit_of_work,
+            products,
+            events,
+            authorizer,
+            MissingFxRateSnapshotFactory,
+        )
     }
 }
 
@@ -673,6 +846,7 @@ mod tests {
         FakeRepositoryFactory,
         FakeEventStoreFactory,
         FakeAuthorizerFactory,
+        MissingFxRateSnapshotFactory,
     > {
         UpsertProductHandler::new(
             FakeUnitOfWork {
@@ -736,6 +910,7 @@ mod tests {
                 price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 ..Default::default()
             },
+            sale_valuation: None,
             state: ProductState::Listed,
             url: Url::parse("https://shop.example/products/1")?,
             images: IndexSet::from([ProductImage {

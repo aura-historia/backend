@@ -8,7 +8,7 @@
 
 - Capture fetches provider quotes before a short PostgreSQL transaction.
 - Write port inserts one immutable snapshot idempotently by source event ID.
-- Reader port returns persisted snapshots only.
+- Repository rehydrates immutable snapshots and inserts them; its factory binds all aggregate lookups and writes to a caller transaction.
 
 ## Ownership
 

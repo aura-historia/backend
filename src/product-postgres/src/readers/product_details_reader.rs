@@ -1,7 +1,6 @@
 use common::currency::domain::Currency;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::personalized::Personalized;
@@ -79,7 +78,6 @@ pub(super) struct ProductDetailsRow {
     price_estimate_min_currency: Option<String>,
     price_estimate_max_amount: Option<i64>,
     price_estimate_max_currency: Option<String>,
-    fx_rate_id: Option<uuid::Uuid>,
     state: String,
     lifecycle: String,
     url: String,
@@ -180,7 +178,7 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
         selected_text.description_text, selected_text.description_language,
         p.price_amount, p.price_currency, p.price_estimate_min_amount,
         p.price_estimate_min_currency, p.price_estimate_max_amount,
-        p.price_estimate_max_currency, p.fx_rate_id, p.state, p.lifecycle, p.url,
+        p.price_estimate_max_currency, p.state, p.lifecycle, p.url,
         p.product_images, p.auction_start, p.auction_end, p.created, p.updated,
         $2::uuid AS personalization_user_id,
         authenticated_user.prohibited_content_consent AS user_prohibited_content_consent,
@@ -378,7 +376,6 @@ impl TryFrom<ProductDetailsRow> for PersonalizedProductDetailsView {
                     price: product_price,
                     price_estimate_min: product_price_estimate_min,
                     price_estimate_max: product_price_estimate_max,
-                    fx_rate_id: row.fx_rate_id.map(FxRateId::from),
                 },
                 price: product_price,
                 price_estimate_min: product_price_estimate_min,

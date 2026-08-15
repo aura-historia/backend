@@ -153,8 +153,6 @@ struct ProductPricingData {
     price_estimate_min: Option<PriceData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     price_estimate_max: Option<PriceData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    fx_rate_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -223,10 +221,6 @@ impl ProductDetailsData {
                 price: view.pricing.price.map(Into::into),
                 price_estimate_min: view.pricing.price_estimate_min.map(Into::into),
                 price_estimate_max: view.pricing.price_estimate_max.map(Into::into),
-                fx_rate_id: view
-                    .pricing
-                    .fx_rate_id
-                    .map(|fx_rate_id| fx_rate_id.to_string()),
             },
             price: view.price.map(Into::into),
             price_estimate_min: view.price_estimate_min.map(Into::into),

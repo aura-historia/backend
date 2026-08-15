@@ -1,5 +1,3 @@
-mod fx_rate_snapshot_reader;
 mod fx_rate_snapshot_repository;
 
-pub use fx_rate_snapshot_reader::SqlxFxRateSnapshotReader;
 pub use fx_rate_snapshot_repository::SqlxFxRateSnapshotRepositoryFactory;

@@ -471,7 +471,6 @@ mod tests {
                     price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                     price_estimate_min: None,
                     price_estimate_max: None,
-                    fx_rate_id: None,
                 },
                 price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 price_estimate_min: None,

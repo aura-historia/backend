@@ -29,6 +29,7 @@ use common::user_id::UserId;
 use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
 };
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{Geocoder, GeocodingError};
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
@@ -513,23 +514,26 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     )));
 
     let partner_products_state = PartnerProductsState::new(
-        Arc::new(CreateProductHandler::new(
+        Arc::new(CreateProductHandler::new_with_fx_rates(
             unit_of_work.clone(),
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         )),
-        Arc::new(UpdateProductHandler::new(
+        Arc::new(UpdateProductHandler::new_with_fx_rates(
             unit_of_work.clone(),
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         )),
-        Arc::new(UpsertProductHandler::new(
+        Arc::new(UpsertProductHandler::new_with_fx_rates(
             unit_of_work.clone(),
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         )),
         Arc::new(DeleteProductHandler::new(
             unit_of_work.clone(),
@@ -541,7 +545,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     );
 
     let webhooks_state = WebhooksState::new(
-        Arc::new(IngestWoocommerceProductHandler::new(
+        Arc::new(IngestWoocommerceProductHandler::new_with_fx_rates(
             unit_of_work.clone(),
             SqlxPartnerShopReaderFactory::new(),
             SqlxWoocommerceWebhookShopReaderFactory::new(),
@@ -549,6 +553,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

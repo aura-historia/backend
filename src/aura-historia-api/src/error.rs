@@ -587,7 +587,9 @@ impl From<CreateProductError> for ApiError {
             CreateProductError::InvalidProductState => {
                 ApiError::bad_request(BAD_BODY_VALUE).with_detail("Product create is invalid.")
             }
-            CreateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
+            CreateProductError::SaleFxSnapshotMissing
+            | CreateProductError::SaleFxSnapshotUnavailable { .. }
+            | CreateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
             | CreateProductError::ProductLookupByIdFailed
             | CreateProductError::ProductLookupByKeyFailed { .. }
             | CreateProductError::ProductInsertFailed
@@ -598,6 +600,10 @@ impl From<CreateProductError> for ApiError {
             | CreateProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product create is temporarily unavailable.")
+            }
+            CreateProductError::SaleFxSnapshotInvalid { .. } => {
+                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                    .with_detail("Product sale FX snapshot is invalid.")
             }
             _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
                 .with_detail("Product create failed internally."),
@@ -623,6 +629,7 @@ impl From<UpdateProductError> for ApiError {
                 ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
             }
             UpdateProductError::ProductCurrentEventIdConflict
+            | UpdateProductError::SoldProductReopenRequiresExplicitOperation
             | UpdateProductError::ShopProductAlreadyExists
             | UpdateProductError::ProductSlugAlreadyExists
             | UpdateProductError::ProductEventAlreadyExists => {
@@ -631,7 +638,9 @@ impl From<UpdateProductError> for ApiError {
             UpdateProductError::StateRequired | UpdateProductError::UrlRequired => {
                 ApiError::bad_request(BAD_BODY_VALUE).with_detail("Product update is invalid.")
             }
-            UpdateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
+            UpdateProductError::SaleFxSnapshotMissing
+            | UpdateProductError::SaleFxSnapshotUnavailable { .. }
+            | UpdateProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
             | UpdateProductError::ProductLookupByIdFailed
             | UpdateProductError::ProductLookupByKeyFailed { .. }
             | UpdateProductError::ProductInsertFailed
@@ -642,6 +651,10 @@ impl From<UpdateProductError> for ApiError {
             | UpdateProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product update is temporarily unavailable.")
+            }
+            UpdateProductError::SaleFxSnapshotInvalid { .. } => {
+                ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
+                    .with_detail("Product sale FX snapshot is invalid.")
             }
             _ => ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
                 .with_detail("Product update failed internally."),
@@ -762,6 +775,7 @@ impl From<UpsertProductError> for ApiError {
                 ApiError::not_found(SHOP_NOT_FOUND).with_detail("Shop was not found.")
             }
             UpsertProductError::ProductCurrentEventIdConflict
+            | UpsertProductError::SoldProductReopenRequiresExplicitOperation
             | UpsertProductError::ProductKeyAlreadyExists
             | UpsertProductError::ProductSlugAlreadyExists => {
                 ApiError::conflict(CONFLICT).with_detail("Product conflicts with current state.")
@@ -769,7 +783,9 @@ impl From<UpsertProductError> for ApiError {
             UpsertProductError::InvalidProductState => {
                 ApiError::bad_request(BAD_BODY_VALUE).with_detail("Product upsert is invalid.")
             }
-            UpsertProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
+            UpsertProductError::SaleFxSnapshotMissing
+            | UpsertProductError::SaleFxSnapshotUnavailable { .. }
+            | UpsertProductError::PartnerProductAuthorizationTemporarilyUnavailable { .. }
             | UpsertProductError::ProductPersistenceTemporarilyUnavailable { .. }
             | UpsertProductError::ProductEventStoreTemporarilyUnavailable { .. }
             | UpsertProductError::BeginTransactionFailed
@@ -777,7 +793,8 @@ impl From<UpsertProductError> for ApiError {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product upsert is temporarily unavailable.")
             }
-            UpsertProductError::PartnerProductAuthorizationInternal { .. }
+            UpsertProductError::SaleFxSnapshotInvalid { .. }
+            | UpsertProductError::PartnerProductAuthorizationInternal { .. }
             | UpsertProductError::InvalidPersistedProductState { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
                     .with_detail("Product upsert failed internally.")

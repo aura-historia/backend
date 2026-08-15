@@ -7,6 +7,7 @@ edition = "2024"
 async-trait = { workspace = true }
 aws_lambda_events = { workspace = true, features = ["eventbridge", "sqs"] }
 common = { workspace = true, features = ["postgres"] }
+fxrate-postgres = { workspace = true }
 indexmap = { workspace = true }
 lambda_runtime = { workspace = true }
 product-core = { workspace = true }

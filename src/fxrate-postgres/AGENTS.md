@@ -2,13 +2,13 @@
 
 ## Purpose
 
-- Own `fxrate-postgres` SQLx FX snapshot repository and reader.
+- Own `fxrate-postgres` SQLx FX snapshot repository.
 
 ## Core Design
 
 - PostgreSQL is authoritative for immutable snapshots and quotes.
 - Rows and SQL stay private. Insert and all quote rows use one caller transaction.
-- Reader maps checked persisted rows into core snapshots.
+- Repository maps checked persisted rows into core snapshots; its factory binds all aggregate work to caller transactions.
 
 ## Ownership
 

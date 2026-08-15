@@ -154,7 +154,8 @@ CREATE TABLE products (
     price_estimate_min_currency text,
     price_estimate_max_amount bigint,
     price_estimate_max_currency text,
-    fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
+    sale_fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
+    sold_at timestamptz,
     state text NOT NULL,
     lifecycle text NOT NULL,
     url text NOT NULL,
@@ -181,6 +182,8 @@ CREATE TABLE products (
     CONSTRAINT products_price_currency_check CHECK (price_currency IS NULL OR price_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT products_price_estimate_min_currency_check CHECK (price_estimate_min_currency IS NULL OR price_estimate_min_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT products_price_estimate_max_currency_check CHECK (price_estimate_max_currency IS NULL OR price_estimate_max_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT products_sale_valuation_pair_check CHECK ((sale_fx_rate_id IS NULL) = (sold_at IS NULL)),
+    CONSTRAINT products_sold_sale_valuation_check CHECK (state <> 'SOLD' OR sale_fx_rate_id IS NOT NULL),
     CONSTRAINT products_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
     CONSTRAINT products_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
     CONSTRAINT products_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
@@ -191,7 +194,7 @@ CREATE TABLE products (
 
 CREATE INDEX products_seller_id_idx ON products (seller_id);
 CREATE INDEX products_lifecycle_updated_idx ON products (lifecycle, updated DESC);
-CREATE INDEX products_fx_rate_id_idx ON products (fx_rate_id);
+CREATE INDEX products_sale_fx_rate_id_idx ON products (sale_fx_rate_id);
 
 CREATE TABLE product_translations (
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,

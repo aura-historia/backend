@@ -674,6 +674,7 @@ mod tests {
                 price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 ..Default::default()
             },
+            sale_valuation: None,
             state: ProductState::Listed,
             url: url("https://shop.example/products/1")?,
             images: IndexSet::new(),
@@ -693,6 +694,7 @@ mod tests {
             title: input.title,
             description: input.description,
             pricing: input.pricing,
+            sale_valuation: input.sale_valuation,
             state: input.state,
             lifecycle: ProductLifecycle::Active,
             url: input.url,

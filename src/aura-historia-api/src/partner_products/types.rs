@@ -156,7 +156,6 @@ impl CreateProductData {
                 price: self.price.map(price),
                 price_estimate_min: self.price_estimate_min.map(price),
                 price_estimate_max: self.price_estimate_max.map(price),
-                fx_rate_id: None,
             },
             state: self.state.into(),
             url: self.url,

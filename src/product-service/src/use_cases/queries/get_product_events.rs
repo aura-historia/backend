@@ -9,7 +9,7 @@ use common::shop_slug_id::ShopSlugId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::{language::domain::Language, localized::Localized};
 use indexmap::IndexSet;
-use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_image::ProductImage;
 use product_core::{description::Description, title::Title};
 use time::OffsetDateTime;
@@ -69,6 +69,7 @@ pub struct ProductCreatedEventPayload {
     pub description: Option<Localized<Language, Description>>,
     pub address: ProductAddress,
     pub pricing: ProductPricing,
+    pub sale_valuation: Option<ProductSaleValuation>,
     pub state: ProductState,
     pub url: Url,
     pub images: IndexSet<ProductImage>,
@@ -78,6 +79,7 @@ pub struct ProductCreatedEventPayload {
 pub struct ProductStateChangedEventPayload {
     pub old_state: ProductState,
     pub new_state: ProductState,
+    pub sale_valuation: Option<ProductSaleValuation>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductAddressChangedEventPayload {
