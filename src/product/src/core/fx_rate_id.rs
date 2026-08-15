@@ -1,7 +1,1 @@
-common::uuid_v4_newtype!(FxRateId);
-
-impl From<FxRateId> for uuid::Uuid {
-    fn from(id: FxRateId) -> Self {
-        id.0
-    }
-}
+pub use common::fx_rate_id::FxRateId;

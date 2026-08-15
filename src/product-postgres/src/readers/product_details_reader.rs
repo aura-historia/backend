@@ -1,6 +1,7 @@
 use common::currency::domain::Currency;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::personalized::Personalized;
@@ -18,7 +19,6 @@ use common::user_search_filter_name::UserSearchFilterName;
 use common::utm::append_utm_params;
 use indexmap::IndexSet;
 use product_core::description::Description;
-use product_core::fx_rate_id::FxRateId;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
 use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;

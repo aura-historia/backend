@@ -232,6 +232,7 @@ fn auction_json(auction: ProductAuction) -> Value {
 mod tests {
     use super::*;
     use common::currency::domain::Currency;
+    use common::fx_rate_id::FxRateId;
     use common::language::domain::Language;
     use common::localized::Localized;
     use common::price::domain::{MonetaryAmount, Price};
@@ -239,7 +240,6 @@ mod tests {
     use common::product_state::domain::ProductState;
     use indexmap::IndexSet;
     use product_core::description::Description;
-    use product_core::fx_rate_id::FxRateId;
     use product_core::product::{
         ProductAddressChanged, ProductAuctionChanged, ProductCreated, ProductDeleted,
         ProductImagesChanged, ProductPriceChanged, ProductStateChanged, ProductUrlChanged,

@@ -1,15 +1,16 @@
 use crate::ports::{
-    FxRateQuoteProvider, FxRateQuoteProviderError, FxRateSnapshotInsertOutcome,
+    FxRateQuote, FxRateQuoteProvider, FxRateQuoteProviderError, FxRateSnapshotInsertOutcome,
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use common::{
+    currency::domain::Currency,
     error::boxed::{BoxError, box_error},
+    fx_rate_id::FxRateId,
     operation_context::{OperationAuthorizationError, OperationContext},
     transaction::{Transaction, UnitOfWork},
 };
-use product_core::{
-    fx_rate_id::FxRateId,
-    fx_rate_snapshot::{FxRateSnapshot, FxRateSource},
+use fxrate_core::{
+    FX_RATE_SCALE, FxRateGeneration, FxRateQuote as SnapshotQuote, FxRateSource, NewFxRateSnapshot,
 };
 use time::OffsetDateTime;
 
@@ -21,7 +22,10 @@ pub struct CaptureFxRateSnapshotCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureFxRateSnapshotOutcome {
-    Captured { fx_rate_id: FxRateId },
+    Captured {
+        fx_rate_id: FxRateId,
+        generation: FxRateGeneration,
+    },
     Duplicate,
 }
 
@@ -127,15 +131,16 @@ where
                 source: box_error(source),
             }
         })?;
-        let snapshot = FxRateSnapshot::capture_eur(
+        let snapshot = NewFxRateSnapshot::capture_eur(
             FxRateId::new(),
             command.captured_at,
             FxRateSource::FxRatesApi,
             quotes.base,
-            quotes
-                .quotes
-                .into_iter()
-                .map(|quote| (quote.currency, quote.rate)),
+            std::iter::once(SnapshotQuote::new(Currency::Eur, FX_RATE_SCALE)).chain(
+                quotes.quotes.into_iter().map(|quote: FxRateQuote| {
+                    SnapshotQuote::new(quote.currency, quote.units_per_eur)
+                }),
+            ),
         )
         .map_err(|source| CaptureFxRateSnapshotError::InvalidQuotes {
             source: box_error(source),
@@ -161,16 +166,18 @@ where
         })?;
 
         let outcome = match outcome {
-            FxRateSnapshotInsertOutcome::Inserted => {
+            FxRateSnapshotInsertOutcome::Inserted(snapshot) => {
                 tracing::info!(
-                    event = "product.fx_rate_snapshot.captured",
+                    event = "fxrate.snapshot.captured",
                     actor_type = context.principal.kind(),
                     fx_rate_id = %snapshot.id(),
+                    generation = snapshot.generation().as_i64(),
                     source_event_id = %command.source_event_id,
                     outcome = "success",
                 );
                 CaptureFxRateSnapshotOutcome::Captured {
                     fx_rate_id: snapshot.id(),
+                    generation: snapshot.generation(),
                 }
             }
             FxRateSnapshotInsertOutcome::Duplicate => CaptureFxRateSnapshotOutcome::Duplicate,
@@ -205,23 +212,22 @@ impl From<FxRateSnapshotRepositoryError> for CaptureFxRateSnapshotError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::{FxRateQuote, FxRateQuoteSet, FxRateSnapshotRepository};
+    use crate::ports::{FxRateQuoteSet, FxRateSnapshotRepository};
     use common::{
-        currency::domain::Currency,
         error::boxed::static_error,
         operation_context::{CorrelationId, Principal, RequestId},
         transaction::TransactionError,
     };
+
     use std::sync::{Arc, Mutex};
     use strum::IntoEnumIterator;
 
     #[derive(Default)]
     struct State {
         fail_quotes: bool,
-        insert_outcome: Option<FxRateSnapshotInsertOutcome>,
+        duplicate: bool,
         begins: usize,
         commits: usize,
-        stored_snapshot: Option<FxRateSnapshot>,
     }
     type SharedState = Arc<Mutex<State>>;
     struct Provider(SharedState);
@@ -230,21 +236,10 @@ mod tests {
     struct RepositoryFactory(SharedState);
     struct Repository(SharedState);
 
-    fn state() -> SharedState {
-        Arc::new(Mutex::new(State {
-            insert_outcome: Some(FxRateSnapshotInsertOutcome::Inserted),
-            ..Default::default()
-        }))
-    }
-
-    fn handler(
-        state: &SharedState,
-    ) -> CaptureFxRateSnapshotHandler<Provider, Uow, RepositoryFactory> {
-        CaptureFxRateSnapshotHandler::new(
-            Provider(Arc::clone(state)),
-            Uow(Arc::clone(state)),
-            RepositoryFactory(Arc::clone(state)),
-        )
+    fn lock(state: &SharedState) -> std::sync::MutexGuard<'_, State> {
+        state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn context(principal: Principal) -> OperationContext {
@@ -262,12 +257,6 @@ mod tests {
         }
     }
 
-    fn lock(state: &SharedState) -> std::sync::MutexGuard<'_, State> {
-        state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
     #[async_trait::async_trait]
     impl FxRateQuoteProvider for Provider {
         async fn fetch_eur_quotes(&self) -> Result<FxRateQuoteSet, FxRateQuoteProviderError> {
@@ -282,7 +271,7 @@ mod tests {
                     .filter(|currency| *currency != Currency::Eur)
                     .map(|currency| FxRateQuote {
                         currency,
-                        rate: 1_250_000,
+                        units_per_eur: 1_250_000,
                     })
                     .collect(),
             })
@@ -317,77 +306,98 @@ mod tests {
     impl FxRateSnapshotRepository for Repository {
         async fn insert(
             &mut self,
-            snapshot: &FxRateSnapshot,
+            snapshot: &NewFxRateSnapshot,
             _: &str,
         ) -> Result<FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError> {
-            let mut state = lock(&self.0);
-            state.stored_snapshot = Some(snapshot.clone());
-            Ok(state
-                .insert_outcome
-                .unwrap_or(FxRateSnapshotInsertOutcome::Inserted))
+            if lock(&self.0).duplicate {
+                return Ok(FxRateSnapshotInsertOutcome::Duplicate);
+            }
+            let generation = FxRateGeneration::try_from(1).map_err(|source| {
+                FxRateSnapshotRepositoryError::InsertFailed {
+                    source: box_error(source),
+                }
+            })?;
+            Ok(FxRateSnapshotInsertOutcome::Inserted(
+                snapshot.clone().into_persisted(generation),
+            ))
         }
     }
 
     #[tokio::test]
     async fn should_fetch_validate_store_and_commit_snapshot_for_system() {
-        let state = state();
-        let result = handler(&state)
+        let state = Arc::new(Mutex::new(State::default()));
+        let handler = CaptureFxRateSnapshotHandler::new(
+            Provider(Arc::clone(&state)),
+            Uow(Arc::clone(&state)),
+            RepositoryFactory(Arc::clone(&state)),
+        );
+
+        let result = handler
             .execute(&context(Principal::System), command())
             .await;
 
-        assert!(matches!(
-            result,
-            Ok(CaptureFxRateSnapshotResult {
-                outcome: CaptureFxRateSnapshotOutcome::Captured { .. }
-            })
-        ));
-        let state = lock(&state);
-        assert_eq!(1, state.begins);
-        assert_eq!(1, state.commits);
         assert!(
-            matches!(state.stored_snapshot, Some(ref snapshot) if snapshot.conversions().len() == 17)
+            matches!(result, Ok(CaptureFxRateSnapshotResult { outcome: CaptureFxRateSnapshotOutcome::Captured { generation, .. } }) if generation.as_i64() == 1)
         );
+        assert_eq!(1, lock(&state).begins);
+        assert_eq!(1, lock(&state).commits);
     }
 
     #[tokio::test]
-    async fn should_not_open_transaction_when_provider_fails_or_principal_is_user() {
-        let provider_failure = state();
-        lock(&provider_failure).fail_quotes = true;
-        let provider_result = handler(&provider_failure)
-            .execute(&context(Principal::System), command())
-            .await;
+    async fn should_not_open_transaction_when_quote_fetch_fails_or_actor_is_unauthorized() {
+        let failed = Arc::new(Mutex::new(State {
+            fail_quotes: true,
+            ..Default::default()
+        }));
+        let handler = CaptureFxRateSnapshotHandler::new(
+            Provider(Arc::clone(&failed)),
+            Uow(Arc::clone(&failed)),
+            RepositoryFactory(Arc::clone(&failed)),
+        );
         assert!(matches!(
-            provider_result,
+            handler
+                .execute(&context(Principal::System), command())
+                .await,
             Err(CaptureFxRateSnapshotError::QuoteFetchFailed { .. })
         ));
-        assert_eq!(0, lock(&provider_failure).begins);
+        assert_eq!(0, lock(&failed).begins);
 
-        let unauthorized = state();
-        let authorization_result = handler(&unauthorized)
-            .execute(
-                &context(Principal::User(common::user_id::UserId::new())),
-                command(),
-            )
-            .await;
+        let unauthorized = Arc::new(Mutex::new(State::default()));
+        let handler = CaptureFxRateSnapshotHandler::new(
+            Provider(Arc::clone(&unauthorized)),
+            Uow(Arc::clone(&unauthorized)),
+            RepositoryFactory(Arc::clone(&unauthorized)),
+        );
         assert!(matches!(
-            authorization_result,
+            handler
+                .execute(
+                    &context(Principal::User(common::user_id::UserId::new())),
+                    command()
+                )
+                .await,
             Err(CaptureFxRateSnapshotError::ServiceOrSystemPrincipalRequired)
         ));
         assert_eq!(0, lock(&unauthorized).begins);
     }
 
     #[tokio::test]
-    async fn should_commit_duplicate_snapshot_without_reporting_new_id() {
-        let state = state();
-        lock(&state).insert_outcome = Some(FxRateSnapshotInsertOutcome::Duplicate);
-        let result = handler(&state)
-            .execute(&context(Principal::System), command())
-            .await;
+    async fn should_commit_duplicate_capture_without_reporting_a_new_generation() {
+        let state = Arc::new(Mutex::new(State {
+            duplicate: true,
+            ..Default::default()
+        }));
+        let handler = CaptureFxRateSnapshotHandler::new(
+            Provider(Arc::clone(&state)),
+            Uow(Arc::clone(&state)),
+            RepositoryFactory(Arc::clone(&state)),
+        );
 
         assert!(matches!(
-            result,
+            handler
+                .execute(&context(Principal::System), command())
+                .await,
             Ok(CaptureFxRateSnapshotResult {
-                outcome: CaptureFxRateSnapshotOutcome::Duplicate,
+                outcome: CaptureFxRateSnapshotOutcome::Duplicate
             })
         ));
         assert_eq!(1, lock(&state).commits);

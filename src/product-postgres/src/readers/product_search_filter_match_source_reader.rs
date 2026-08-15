@@ -2,6 +2,7 @@ use common::{
     currency::domain::Currency,
     error::boxed::{BoxError, box_error, static_error},
     event_id::EventId,
+    fx_rate_id::FxRateId,
     language::domain::Language,
     localized::Localized,
     postgres::SqlxTransaction,
@@ -21,7 +22,6 @@ use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use product_core::{
     description::Description,
-    fx_rate_id::FxRateId,
     product::{ProductAddress, ProductAuction, ProductPricing},
     product_image::ProductImage,
     prohibited_content::ProhibitedContent,

@@ -7,9 +7,9 @@ edition = "2024"
 aws_lambda_events = { workspace = true, features = ["eventbridge"] }
 common = { workspace = true, features = ["postgres"] }
 lambda_runtime = { workspace = true }
-product-fxratesapi = { workspace = true }
-product-postgres = { workspace = true }
-product-service = { workspace = true }
+fxrate-fxratesapi = { workspace = true }
+fxrate-postgres = { workspace = true }
+fxrate-service = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }

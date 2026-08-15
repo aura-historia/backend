@@ -3,6 +3,7 @@
 use common::currency::domain::Currency;
 use common::error::boxed::box_error;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::{MonetaryAmount, Price};
@@ -16,7 +17,6 @@ use common::versioned::Versioned;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use product_core::description::Description;
-use product_core::fx_rate_id::FxRateId;
 use product_core::product::{
     Product, ProductAddress, ProductAuction, ProductPricing, RehydratedProductState,
 };

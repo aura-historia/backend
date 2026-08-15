@@ -7,9 +7,9 @@ use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_state::domain::ProductState;
 
+use common::fx_rate_id::FxRateId;
 use indexmap::IndexSet;
 use product_core::description::Description;
-use product_core::fx_rate_id::FxRateId;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
 use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;

@@ -19,6 +19,7 @@ pub mod error;
 pub mod event;
 pub mod event_id;
 pub mod execution_state;
+pub mod fx_rate_id;
 
 #[cfg(feature = "test-data")]
 pub mod fake;

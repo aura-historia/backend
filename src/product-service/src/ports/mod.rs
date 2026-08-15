@@ -1,5 +1,3 @@
-pub mod fx_rate_quote_provider;
-pub mod fx_rate_snapshot_repository;
 pub mod partner_product_authorizer;
 pub mod product_details_batch_reader;
 pub mod product_details_reader;
@@ -19,13 +17,6 @@ pub mod product_user_state_reader;
 pub mod product_watchlist_details_reader;
 pub mod product_watchlist_notification_source_reader;
 pub mod watchlist_notification_recipient_reader;
-pub use fx_rate_quote_provider::{
-    FxRateQuote, FxRateQuoteProvider, FxRateQuoteProviderError, FxRateQuoteSet,
-};
-pub use fx_rate_snapshot_repository::{
-    FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryError,
-    FxRateSnapshotRepositoryFactory,
-};
 pub use partner_product_authorizer::{
     PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,
 };

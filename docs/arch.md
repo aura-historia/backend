@@ -1703,7 +1703,7 @@ PostgreSQL owns business truth for:
 * partner-shop applications;
 * products;
 * product events;
-* product FX snapshots plus EUR-based conversion rows;
+* immutable canonical FX snapshots with generation and EUR-base `units_per_eur` quotes;
 * product translations;
 * product watchlists;
 * search filters;

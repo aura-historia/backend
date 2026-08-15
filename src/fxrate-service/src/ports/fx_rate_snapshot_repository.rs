@@ -1,9 +1,9 @@
 use common::error::boxed::BoxError;
-use product_core::fx_rate_snapshot::FxRateSnapshot;
+use fxrate_core::{FxRateSnapshot, NewFxRateSnapshot};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FxRateSnapshotInsertOutcome {
-    Inserted,
+    Inserted(FxRateSnapshot),
     Duplicate,
 }
 
@@ -20,7 +20,7 @@ pub enum FxRateSnapshotRepositoryError {
 pub trait FxRateSnapshotRepository: Send {
     async fn insert(
         &mut self,
-        snapshot: &FxRateSnapshot,
+        snapshot: &NewFxRateSnapshot,
         source_event_id: &str,
     ) -> Result<FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>;
 }

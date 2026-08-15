@@ -1,10 +1,10 @@
 use crate::description::Description;
-use crate::fx_rate_id::FxRateId;
 use crate::product_image::ProductImage;
 use crate::title::Title;
 use common::change_outcome::ChangeOutcome;
 use common::event::Event;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::Price;

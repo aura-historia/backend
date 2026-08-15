@@ -1,6 +1,6 @@
 use common::{error::boxed::box_error, postgres::SqlxTransaction};
-use product_core::fx_rate_snapshot::FxRateSnapshot;
-use product_service::ports::{
+use fxrate_core::{FxRateGeneration, NewFxRateSnapshot};
+use fxrate_service::ports::{
     FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryError,
     FxRateSnapshotRepositoryFactory,
 };
@@ -38,48 +38,41 @@ impl FxRateSnapshotRepositoryFactory<SqlxTransaction> for SqlxFxRateSnapshotRepo
 impl FxRateSnapshotRepository for SqlxFxRateSnapshotRepository<'_> {
     async fn insert(
         &mut self,
-        snapshot: &FxRateSnapshot,
+        snapshot: &NewFxRateSnapshot,
         source_event_id: &str,
     ) -> Result<FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError> {
-        let inserted = sqlx::query(
+        let generation = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (source_event_id) DO NOTHING
+            RETURNING generation
             "#,
         )
         .bind(uuid::Uuid::from(snapshot.id()))
         .bind(snapshot.captured_at())
         .bind(snapshot.source().as_str())
         .bind(source_event_id)
-        .execute(&mut *self.connection)
+        .fetch_optional(&mut *self.connection)
         .await
         .map_err(FxRateSnapshotInsertSqlxError)?;
 
-        if inserted.rows_affected() == 0 {
+        let Some(generation) = generation else {
             return Ok(FxRateSnapshotInsertOutcome::Duplicate);
-        }
-
-        if snapshot
-            .conversions()
-            .iter()
-            .any(|conversion| conversion.rate() > i64::MAX as u64)
-        {
-            return Err(FxRateSnapshotRepositoryError::InsertFailed {
-                source: common::error::boxed::static_error(
-                    "FX rate conversion exceeds PostgreSQL bigint range",
-                ),
-            });
-        }
+        };
+        let generation = FxRateGeneration::try_from(generation).map_err(|source| {
+            FxRateSnapshotRepositoryError::InsertFailed {
+                source: box_error(source),
+            }
+        })?;
 
         let mut query = QueryBuilder::<Postgres>::new(
-            "INSERT INTO fx_rate_conversions (fx_rate_id, from_currency, to_currency, rate) ",
+            "INSERT INTO fx_rate_quotes (fx_rate_id, currency, units_per_eur) ",
         );
-        query.push_values(snapshot.conversions(), |mut row, conversion| {
+        query.push_values(snapshot.quotes(), |mut row, quote| {
             row.push_bind(uuid::Uuid::from(snapshot.id()))
-                .push_bind(conversion.from_currency().as_str())
-                .push_bind(conversion.to_currency().as_str())
-                .push_bind(conversion.rate() as i64);
+                .push_bind(quote.currency().as_str())
+                .push_bind(quote.units_per_eur() as i64);
         });
         query
             .build()
@@ -87,7 +80,9 @@ impl FxRateSnapshotRepository for SqlxFxRateSnapshotRepository<'_> {
             .await
             .map_err(FxRateSnapshotInsertSqlxError)?;
 
-        Ok(FxRateSnapshotInsertOutcome::Inserted)
+        Ok(FxRateSnapshotInsertOutcome::Inserted(
+            snapshot.clone().into_persisted(generation),
+        ))
     }
 }
 

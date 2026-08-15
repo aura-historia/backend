@@ -1,0 +1,13 @@
+[package]
+name = "fxrate-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { workspace = true }
+strum = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

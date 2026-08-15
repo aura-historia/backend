@@ -1,4 +1,3 @@
-pub mod capture_fx_rate_snapshot;
 pub mod create_product;
 pub mod delete_product;
 pub mod embed_product_event;

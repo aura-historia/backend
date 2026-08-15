@@ -8,9 +8,9 @@
 ## Core Design
 
 - Domain-only crate.
-- Root modules: `description`, `fx_rate_id`, `fx_rate_snapshot`, `heuristics`, `product`, `product_event`, `product_image`, `product_search`, `prohibited_content`, `sanitize`, `sort_product_field`, `title`, `user_state`.
+- Root modules: `description`, `heuristics`, `product`, `product_event`, `product_image`, `product_search`, `prohibited_content`, `sanitize`, `sort_product_field`, `title`, `user_state`.
 - `product::Product` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
-- Product translations, embeddings, and read joins stay outside aggregate. Immutable EUR FX snapshots validate complete positive scaled-`Rate` quotes here.
+- Product translations, embeddings, read joins, and FX snapshots stay outside this aggregate.
 - No dependency on `product-service`, legacy `product`, or adapters.
 
 ## Ownership

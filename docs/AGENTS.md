@@ -36,4 +36,5 @@
 
 ## Child DOX Index
 
-- None.
+- `storage.md` — canonical storage contracts.
+- `events/flow.md` — durable event and scheduled-flow contracts.

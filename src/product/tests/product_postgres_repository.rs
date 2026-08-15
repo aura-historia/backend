@@ -307,28 +307,18 @@ async fn seed_fx_rate(pool: &sqlx::PgPool, fx_rate_id: FxRateId) {
     };
     let insert_rate = sqlx::query(
         r#"
-        INSERT INTO fx_rates (fx_rate_id, captured_at, source)
-        VALUES ($1, now(), 'test')
+        INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id)
+        VALUES ($1, now(), 'fxratesapi', $2)
         "#,
     )
     .bind(uuid::Uuid::from(fx_rate_id))
+    .bind(fx_rate_id.to_string())
     .execute(&mut *tx)
     .await;
     if let Err(error) = insert_rate {
         panic!("failed to seed fx rate: {error}");
     }
-    let insert_conversion = sqlx::query(
-        r#"
-        INSERT INTO fx_rate_conversions (fx_rate_id, from_currency, to_currency, rate)
-        VALUES ($1, 'EUR', 'USD', 1100000)
-        "#,
-    )
-    .bind(uuid::Uuid::from(fx_rate_id))
-    .execute(&mut *tx)
-    .await;
-    if let Err(error) = insert_conversion {
-        panic!("failed to seed fx conversion: {error}");
-    }
+
     if let Err(error) = tx.commit().await {
         panic!("failed to commit fx seed: {error}");
     }

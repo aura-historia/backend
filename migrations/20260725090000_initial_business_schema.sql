@@ -111,23 +111,22 @@ CREATE INDEX partner_shop_applications_shop_id_idx ON partner_shop_applications 
 
 CREATE TABLE fx_rates (
     fx_rate_id uuid PRIMARY KEY,
+    generation bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
     captured_at timestamptz NOT NULL,
     source text NOT NULL,
     source_event_id text NOT NULL UNIQUE,
     created timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX fx_rates_captured_at_idx ON fx_rates (captured_at DESC);
+CREATE INDEX fx_rates_captured_at_generation_idx
+    ON fx_rates (captured_at DESC, generation DESC);
 
-CREATE TABLE fx_rate_conversions (
+CREATE TABLE fx_rate_quotes (
     fx_rate_id uuid NOT NULL REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
-    from_currency text NOT NULL,
-    to_currency text NOT NULL,
-    rate bigint NOT NULL,
-    PRIMARY KEY (fx_rate_id, from_currency, to_currency),
-    CONSTRAINT fx_rate_conversions_from_currency_check CHECK (from_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT fx_rate_conversions_to_currency_check CHECK (to_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT fx_rate_conversions_rate_nonnegative CHECK (rate >= 0)
+    currency text NOT NULL,
+    units_per_eur bigint NOT NULL CHECK (units_per_eur > 0),
+    PRIMARY KEY (fx_rate_id, currency),
+    CONSTRAINT fx_rate_quotes_currency_check CHECK (currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF'))
 );
 
 CREATE TABLE products (

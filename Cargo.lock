@@ -294,7 +294,11 @@ dependencies = [
  "cognito-post-confirmation",
  "common",
  "embedding",
+ "fxrate-core",
+ "fxrate-fxratesapi",
  "fxrate-lambda",
+ "fxrate-postgres",
+ "fxrate-service",
  "geo",
  "image-fetcher",
  "large-language-model",
@@ -317,7 +321,6 @@ dependencies = [
  "product-api",
  "product-api-partner",
  "product-core",
- "product-fxratesapi",
  "product-lambda",
  "product-lambda-delete-product",
  "product-opensearch",
@@ -2972,16 +2975,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "fxrate-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "rstest",
+ "strum 0.28.0",
+ "thiserror 2.0.20",
+ "time",
+]
+
+[[package]]
+name = "fxrate-fxratesapi"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fxrate-core",
+ "fxrate-service",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "strum 0.28.0",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "fxrate-lambda"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws_lambda_events",
  "common",
+ "fxrate-fxratesapi",
+ "fxrate-postgres",
+ "fxrate-service",
  "lambda_runtime",
- "product-fxratesapi",
- "product-postgres",
- "product-service",
  "reqwest 0.12.28",
  "serde_json",
  "serial_test",
@@ -2992,6 +3021,38 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "fxrate-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fxrate-core",
+ "fxrate-service",
+ "serial_test",
+ "sqlx",
+ "strum 0.28.0",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "fxrate-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fxrate-core",
+ "strum 0.28.0",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5903,20 +5964,6 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "product-fxratesapi"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "common",
- "product-service",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "strum 0.28.0",
- "thiserror 2.0.20",
 ]
 
 [[package]]

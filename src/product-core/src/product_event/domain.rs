@@ -1,7 +1,7 @@
 use crate::description::Description;
-use crate::fx_rate_id::FxRateId;
 use crate::product_image::ProductImage;
 use crate::title::Title;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::price::domain::Price;
