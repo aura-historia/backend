@@ -4,11 +4,10 @@ use crate::product_state_document::ProductStateDocument;
 use crate::shop_type_document::ShopTypeDocument;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
-
 use common::localized::Localized;
 use common::opensearch::search_response::{SearchHit, SearchResponse};
 use common::pagination::cursor::{Cursor, CursoredResult};
-use common::price::domain::{MonetaryAmount, Price};
+use common::price::domain::Price;
 use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::text_query::TextQuery;
@@ -21,15 +20,17 @@ use opensearch::{OpenSearch, SearchParts};
 use product_core::product_search::ProductSearch;
 use product_core::sort_product_field::SortProductField;
 use product_core::title::Title;
-use product_service::ports::{ProductSearchReadError, ProductSearchReader};
+use product_service::ports::{
+    CompiledProductSearch, ProductPriceFilterPlan, ProductSearchReadError,
+    ProductSearchReadRequest, ProductSearchReader,
+};
 use product_service::use_cases::queries::search_products::{
-    ProductSearchReadResult, ProductSummary, SearchProductsRequest,
+    ProductSearchReadResult, ProductSummary,
 };
 use serde::ser::Error;
 use serde_json::json;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::ops::Deref;
 use strum::EnumCount;
 use time::format_description::well_known;
 
@@ -65,13 +66,13 @@ impl ProductSearchReader for OpenSearchProductSearchReader {
     #[tracing::instrument(name = "opensearch_product_search", skip_all)]
     async fn search(
         &self,
-        request: &SearchProductsRequest,
+        request: &ProductSearchReadRequest,
     ) -> Result<ProductSearchReadResult, ProductSearchReadError> {
         let sort = request.sort.unwrap_or(Sort {
             sort: SortProductField::Score,
             order: SortOrder::Desc,
         });
-        let body = build_search_request(&request.search, &sort, &request.cursor)
+        let body = build_search_request(request, &sort)
             .map_err(|_| ProductSearchReadError::ProductSearchReadModelInvalid)?;
         let response = self
             .client
@@ -91,16 +92,16 @@ impl ProductSearchReader for OpenSearchProductSearchReader {
             .into_non_timed_out("product search")
             .map_err(|_| ProductSearchReadError::ProductSearchQueryFailed)?;
 
-        Ok(map_search_response(&request.search, search_response))
+        map_search_response(&request.compiled_search, search_response)
     }
 
     #[tracing::instrument(name = "opensearch_product_hybrid_search", skip_all)]
     async fn search_hybrid(
         &self,
-        request: &SearchProductsRequest,
+        request: &ProductSearchReadRequest,
         embedding: &[f32],
     ) -> Result<ProductSearchReadResult, ProductSearchReadError> {
-        let body = build_hybrid_search_request(&request.search, embedding, &request.cursor)
+        let body = build_hybrid_search_request(request, embedding)
             .map_err(|_| ProductSearchReadError::ProductSearchReadModelInvalid)?;
         let pipeline = [("search_pipeline", HYBRID_SEARCH_PIPELINE_NAME)];
         let response = self
@@ -127,42 +128,92 @@ impl ProductSearchReader for OpenSearchProductSearchReader {
             .into_non_timed_out("product hybrid search")
             .map_err(|_| ProductSearchReadError::ProductSearchQueryFailed)?;
 
-        Ok(map_hybrid_search_response(
-            &request.search,
-            search_response,
-            &request.cursor,
-        ))
+        map_hybrid_search_response(&request.compiled_search, search_response, &request.cursor)
     }
 }
 
 pub(crate) fn map_search_response(
-    search: &ProductSearch,
+    compiled_search: &CompiledProductSearch,
     search_response: SearchResponse<ProductDocument>,
-) -> ProductSearchReadResult {
-    CursoredResult {
-        cursor: Cursor {
-            size: search_response.hits.hits.len() as u64,
-            search_after: search_response
-                .hits
-                .hits
-                .last()
-                .and_then(|last| last.sort.clone()),
-        },
-        items: search_response
+) -> Result<ProductSearchReadResult, ProductSearchReadError> {
+    let search = &compiled_search.search;
+    let cursor = Cursor {
+        size: search_response.hits.hits.len() as u64,
+        search_after: search_response
             .hits
             .hits
-            .into_iter()
-            .map(|hit| map_summary(search, hit))
-            .collect(),
+            .last()
+            .and_then(|last| last.sort.clone()),
+    };
+    let items = search_response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| map_summary(search, &compiled_search.price_filter_plan, hit))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(CursoredResult {
+        cursor,
+        items,
         total: Some(search_response.hits.total.value),
-    }
+    })
 }
 
-fn map_summary(search: &ProductSearch, hit: SearchHit<ProductDocument>) -> ProductSummary {
+pub(crate) fn map_search_response_without_price(
+    search: &ProductSearch,
+    search_response: SearchResponse<ProductDocument>,
+) -> Result<ProductSearchReadResult, ProductSearchReadError> {
+    let cursor = Cursor {
+        size: search_response.hits.hits.len() as u64,
+        search_after: search_response
+            .hits
+            .hits
+            .last()
+            .and_then(|last| last.sort.clone()),
+    };
+    let items = search_response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| map_summary_without_price(search, hit))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(CursoredResult {
+        cursor,
+        items,
+        total: Some(search_response.hits.total.value),
+    })
+}
+
+fn map_summary(
+    search: &ProductSearch,
+    price_filter: &ProductPriceFilterPlan,
+    hit: SearchHit<ProductDocument>,
+) -> Result<ProductSummary, ProductSearchReadError> {
     let document = hit.source;
-    let title = resolve_title(&document, search.language);
-    let price = resolve_price(&document, search.currency);
-    ProductSummary {
+    let price = resolve_price(&document, price_filter)?;
+    map_summary_fields(document, search.language, price)
+}
+
+fn map_summary_without_price(
+    search: &ProductSearch,
+    hit: SearchHit<ProductDocument>,
+) -> Result<ProductSummary, ProductSearchReadError> {
+    let document = hit.source;
+    document
+        .validate()
+        .map_err(|_| ProductSearchReadError::ProductSearchReadModelInvalid)?;
+    map_summary_fields(document, search.language, None)
+}
+
+fn map_summary_fields(
+    document: ProductDocument,
+    preferred_language: Language,
+    price: Option<Price>,
+) -> Result<ProductSummary, ProductSearchReadError> {
+    let title = resolve_title(&document, preferred_language);
+
+    Ok(ProductSummary {
         product_id: document.product_id,
         product_slug_id: document.product_slug_id,
         event_id: document.event_id,
@@ -179,7 +230,7 @@ fn map_summary(search: &ProductSearch, hit: SearchHit<ProductDocument>) -> Produ
         view_url: document.view_url,
         images: document.images.into_iter().map(Into::into).collect(),
         updated: document.updated,
-    }
+    })
 }
 
 fn resolve_title(
@@ -204,44 +255,41 @@ fn insert_title(titles: &mut HashMap<Language, Title>, language: Language, title
     }
 }
 
-fn resolve_price(document: &ProductDocument, preferred_currency: Currency) -> Option<Price> {
-    let mut prices = HashMap::new();
-    insert_price(&mut prices, Currency::Eur, document.price_eur);
-    insert_price(&mut prices, Currency::Usd, document.price_usd);
-    insert_price(&mut prices, Currency::Gbp, document.price_gbp);
-    insert_price(&mut prices, Currency::Aud, document.price_aud);
-    insert_price(&mut prices, Currency::Cad, document.price_cad);
-    insert_price(&mut prices, Currency::Nzd, document.price_nzd);
-    insert_price(&mut prices, Currency::Cny, document.price_cny);
-    insert_price(&mut prices, Currency::Brl, document.price_brl);
-    insert_price(&mut prices, Currency::Pln, document.price_pln);
-    insert_price(&mut prices, Currency::Try, document.price_try);
-    insert_price(&mut prices, Currency::Jpy, document.price_jpy);
-    insert_price(&mut prices, Currency::Czk, document.price_czk);
-    insert_price(&mut prices, Currency::Rub, document.price_rub);
-    insert_price(&mut prices, Currency::Aed, document.price_aed);
-    insert_price(&mut prices, Currency::Sar, document.price_sar);
-    insert_price(&mut prices, Currency::Hkd, document.price_hkd);
-    insert_price(&mut prices, Currency::Sgd, document.price_sgd);
-    insert_price(&mut prices, Currency::Chf, document.price_chf);
-    Currency::resolve(&[preferred_currency], prices)
-}
+fn resolve_price(
+    document: &ProductDocument,
+    price_filter: &ProductPriceFilterPlan,
+) -> Result<Option<Price>, ProductSearchReadError> {
+    document
+        .validate()
+        .map_err(|_| ProductSearchReadError::ProductSearchReadModelInvalid)?;
 
-fn insert_price(
-    prices: &mut HashMap<Currency, MonetaryAmount>,
-    currency: Currency,
-    amount: Option<u64>,
-) {
-    if let Some(amount) = amount {
-        prices.insert(currency, MonetaryAmount::from(amount));
+    if document.has_sale_valuation() {
+        let amount = document
+            .sale_price(price_filter.target_currency)
+            .ok_or(ProductSearchReadError::ProductSearchReadModelInvalid)?;
+        return Ok(Some(Price::new(
+            amount.into(),
+            price_filter.target_currency,
+        )));
     }
+
+    document
+        .source_price()
+        .map(|(amount, currency)| {
+            price_filter
+                .convert_active_source_amount(currency, amount)
+                .map(|amount| Price::new(amount.into(), price_filter.target_currency))
+                .map_err(|_| ProductSearchReadError::ProductSearchReadModelInvalid)
+        })
+        .transpose()
 }
 
 fn map_hybrid_search_response(
-    search: &ProductSearch,
+    compiled_search: &CompiledProductSearch,
     search_response: SearchResponse<ProductDocument>,
     cursor: &Option<Cursor<serde_json::Value>>,
-) -> ProductSearchReadResult {
+) -> Result<ProductSearchReadResult, ProductSearchReadError> {
+    let search = &compiled_search.search;
     let requested_size = cursor
         .as_ref()
         .map(|cursor| cursor.size)
@@ -256,31 +304,32 @@ fn map_hybrid_search_response(
                 .and_then(|hit| hit.sort.clone())
         })
         .flatten();
+    let items = search_response
+        .hits
+        .hits
+        .into_iter()
+        .map(|hit| map_summary(search, &compiled_search.price_filter_plan, hit))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    ProductSearchReadResult {
+    Ok(ProductSearchReadResult {
         cursor: Cursor {
             size: item_count,
             search_after,
         },
-        items: search_response
-            .hits
-            .hits
-            .into_iter()
-            .map(|hit| map_summary(search, hit))
-            .collect(),
+        items,
         total: None,
-    }
+    })
 }
 
 pub(crate) fn build_search_request(
-    search: &ProductSearch,
+    request: &ProductSearchReadRequest,
     sort: &Sort<SortProductField>,
-    cursor: &Option<Cursor<serde_json::Value>>,
 ) -> Result<serde_json::Value, serde_json::Error> {
     let mut body = json!({
         "_source": { "excludes": [ProductDocumentSerdeField::Embedding] },
-        "query": build_search_query(search)?
+        "query": build_search_query(&request.compiled_search)?
     });
+    let cursor = &request.cursor;
 
     if let Some(cursor) = cursor {
         body["size"] = json!(cursor.size);
@@ -291,7 +340,6 @@ pub(crate) fn build_search_request(
 
     let sort_field = match sort.sort {
         SortProductField::Score => "_score",
-        SortProductField::Price => price_field_for(&search.currency),
         SortProductField::Created => ProductDocumentSerdeField::Created.as_str(),
         SortProductField::Updated => ProductDocumentSerdeField::Updated.as_str(),
     };
@@ -313,15 +361,16 @@ pub(crate) fn build_search_request(
 }
 
 pub(crate) fn build_search_query(
-    search: &ProductSearch,
+    compiled_search: &CompiledProductSearch,
 ) -> Result<serde_json::Value, serde_json::Error> {
+    let search = &compiled_search.search;
     let mut must = Vec::with_capacity(1);
     if let Some(product_query_clause) =
         build_product_query_clause(&search.product_query, title_field(&search.language))
     {
         must.push(product_query_clause);
     }
-    let (must_not, filter) = build_filter_clauses(search)?;
+    let (must_not, filter) = build_filter_clauses(search, &compiled_search.price_filter_plan)?;
 
     Ok(json!({
         "bool": {
@@ -333,11 +382,13 @@ pub(crate) fn build_search_query(
 }
 
 pub(crate) fn build_hybrid_search_request(
-    search: &ProductSearch,
+    request: &ProductSearchReadRequest,
     embedding: &[f32],
-    cursor: &Option<Cursor<serde_json::Value>>,
 ) -> Result<serde_json::Value, serde_json::Error> {
-    let (must_not, filter) = build_filter_clauses(search)?;
+    let search = &request.compiled_search.search;
+    let cursor = &request.cursor;
+    let (must_not, filter) =
+        build_filter_clauses(search, &request.compiled_search.price_filter_plan)?;
     let title_field = title_field(&search.language);
     let bm25_text = build_product_query_clause(&search.product_query, title_field)
         .unwrap_or_else(|| json!({ "match_all": {} }));
@@ -503,6 +554,7 @@ fn build_text_match_clause(
 
 pub(crate) fn build_filter_clauses(
     search: &ProductSearch,
+    price_filter: &ProductPriceFilterPlan,
 ) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), serde_json::Error> {
     let mut must_not = Vec::new();
     let mut filter = Vec::new();
@@ -558,12 +610,8 @@ pub(crate) fn build_filter_clauses(
         }));
     }
 
-    let price_field = price_field_for(&search.currency);
-    if let Some(min) = search.price_query.and_then(|query| query.min) {
-        filter.push(json!({ "range": { price_field: { "gte": min.deref() } } }));
-    }
-    if let Some(max) = search.price_query.and_then(|query| query.max) {
-        filter.push(json!({ "range": { price_field: { "lte": max.deref() } } }));
+    if let Some(price_clause) = build_price_filter_clause(price_filter) {
+        filter.push(price_clause);
     }
 
     if !search.country_query.is_empty() {
@@ -671,26 +719,122 @@ pub(crate) fn build_filter_clauses(
     Ok((must_not, filter))
 }
 
-fn price_field_for(currency: &Currency) -> &'static str {
+/// Renders the one price clause shared by ordinary and percolator product queries.
+pub(crate) fn build_price_filter_clause(
+    price_filter: &ProductPriceFilterPlan,
+) -> Option<serde_json::Value> {
+    if !price_filter.has_price_filter() {
+        return None;
+    }
+
+    let active_ranges = price_filter
+        .active_native_ranges
+        .iter()
+        .map(|range| {
+            json!({
+                "bool": {
+                    "filter": [
+                        { "term": { "sourcePrice.currency": currency_code(range.source_currency) } },
+                        { "range": { "sourcePrice.amount": range_query(range.lower, range.upper) } }
+                    ]
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let active = (!active_ranges.is_empty()).then(|| {
+        json!({
+            "bool": {
+                "must_not": [{ "exists": { "field": "saleFxRateId" } }],
+                "filter": [{
+                    "bool": {
+                        "should": active_ranges,
+                        "minimum_should_match": 1
+                    }
+                }]
+            }
+        })
+    });
+    let sold = json!({
+        "bool": {
+            "filter": [
+                { "exists": { "field": "saleFxRateId" } },
+                { "range": {
+                    sale_price_field_for(price_filter.target_currency): display_range_query(price_filter)
+                } }
+            ]
+        }
+    });
+    let should = active.into_iter().chain([sold]).collect::<Vec<_>>();
+
+    Some(json!({
+        "bool": {
+            "should": should,
+            "minimum_should_match": 1
+        }
+    }))
+}
+
+fn range_query(lower: u64, upper: Option<u64>) -> serde_json::Value {
+    match upper {
+        Some(upper) => json!({ "gte": lower, "lte": upper }),
+        None => json!({ "gte": lower }),
+    }
+}
+
+fn display_range_query(price_filter: &ProductPriceFilterPlan) -> serde_json::Value {
+    let mut range = serde_json::Map::new();
+    if let Some(lower) = price_filter.sold_display_range.min {
+        range.insert("gte".to_owned(), json!(u64::from(lower)));
+    }
+    if let Some(upper) = price_filter.sold_display_range.max {
+        range.insert("lte".to_owned(), json!(u64::from(upper)));
+    }
+    serde_json::Value::Object(range)
+}
+
+fn currency_code(currency: Currency) -> &'static str {
     match currency {
-        Currency::Eur => ProductDocumentSerdeField::PriceEur.as_str(),
-        Currency::Gbp => ProductDocumentSerdeField::PriceGbp.as_str(),
-        Currency::Usd => ProductDocumentSerdeField::PriceUsd.as_str(),
-        Currency::Aud => ProductDocumentSerdeField::PriceAud.as_str(),
-        Currency::Cad => ProductDocumentSerdeField::PriceCad.as_str(),
-        Currency::Nzd => ProductDocumentSerdeField::PriceNzd.as_str(),
-        Currency::Cny => ProductDocumentSerdeField::PriceCny.as_str(),
-        Currency::Brl => ProductDocumentSerdeField::PriceBrl.as_str(),
-        Currency::Pln => ProductDocumentSerdeField::PricePln.as_str(),
-        Currency::Try => ProductDocumentSerdeField::PriceTry.as_str(),
-        Currency::Jpy => ProductDocumentSerdeField::PriceJpy.as_str(),
-        Currency::Czk => ProductDocumentSerdeField::PriceCzk.as_str(),
-        Currency::Rub => ProductDocumentSerdeField::PriceRub.as_str(),
-        Currency::Aed => ProductDocumentSerdeField::PriceAed.as_str(),
-        Currency::Sar => ProductDocumentSerdeField::PriceSar.as_str(),
-        Currency::Hkd => ProductDocumentSerdeField::PriceHkd.as_str(),
-        Currency::Sgd => ProductDocumentSerdeField::PriceSgd.as_str(),
-        Currency::Chf => ProductDocumentSerdeField::PriceChf.as_str(),
+        Currency::Eur => "EUR",
+        Currency::Gbp => "GBP",
+        Currency::Usd => "USD",
+        Currency::Aud => "AUD",
+        Currency::Cad => "CAD",
+        Currency::Nzd => "NZD",
+        Currency::Cny => "CNY",
+        Currency::Brl => "BRL",
+        Currency::Pln => "PLN",
+        Currency::Try => "TRY",
+        Currency::Jpy => "JPY",
+        Currency::Czk => "CZK",
+        Currency::Rub => "RUB",
+        Currency::Aed => "AED",
+        Currency::Sar => "SAR",
+        Currency::Hkd => "HKD",
+        Currency::Sgd => "SGD",
+        Currency::Chf => "CHF",
+    }
+}
+
+fn sale_price_field_for(currency: Currency) -> &'static str {
+    match currency {
+        Currency::Eur => "salePrices.eur",
+        Currency::Gbp => "salePrices.gbp",
+        Currency::Usd => "salePrices.usd",
+        Currency::Aud => "salePrices.aud",
+        Currency::Cad => "salePrices.cad",
+        Currency::Nzd => "salePrices.nzd",
+        Currency::Cny => "salePrices.cny",
+        Currency::Brl => "salePrices.brl",
+        Currency::Pln => "salePrices.pln",
+        Currency::Try => "salePrices.try",
+        Currency::Jpy => "salePrices.jpy",
+        Currency::Czk => "salePrices.czk",
+        Currency::Rub => "salePrices.rub",
+        Currency::Aed => "salePrices.aed",
+        Currency::Sar => "salePrices.sar",
+        Currency::Hkd => "salePrices.hkd",
+        Currency::Sgd => "salePrices.sgd",
+        Currency::Chf => "salePrices.chf",
     }
 }
 
@@ -709,47 +853,72 @@ fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::product_image_document::ProductImageDocument;
-    use crate::prohibited_content_document::ProhibitedContentDocument;
-    use common::event_id::EventId;
-    use common::language::document::{LanguageDocument, TextDocument};
-    use common::opensearch::search_response::{HitsMetadata, ShardStats, TotalHits};
-    use common::product_id::ProductId;
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::query::range_query::RangeQuery;
-    use common::seller_slug_id::SellerSlugId;
-    use common::shop_id::ShopId;
-    use common::shop_slug_id::ShopSlugId;
-    use common::shops_product_id::ShopsProductId;
-    use geo::core::continent::Continent;
+    use crate::product_document::{SalePricesDocument, SourcePriceDocument};
+    use common::{
+        event_id::EventId,
+        fx_rate_id::FxRateId,
+        language::document::{LanguageDocument, TextDocument},
+        price::domain::MonetaryAmount,
+        product_id::ProductId,
+        product_lifecycle::document::ProductLifecycleDocument,
+        product_slug_id::ProductSlugId,
+        shop_id::ShopId,
+        shop_slug_id::ShopSlugId,
+        shops_product_id::ShopsProductId,
+    };
+    use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
-    use isocountry::CountryCode;
-
-    use serde_json::Value;
-    use shop_core::shop_type::ShopType;
-    use std::collections::HashSet;
-    use time::macros::datetime;
+    use strum::IntoEnumIterator;
+    use time::{OffsetDateTime, macros::datetime};
     use url::Url;
 
-    fn text_query(value: &str) -> Result<TextQuery<1>, Box<dyn std::error::Error>> {
-        Ok(value.try_into()?)
+    fn price_filter(
+        target_currency: Currency,
+        display_amount: Option<u64>,
+    ) -> Result<ProductPriceFilterPlan, Box<dyn std::error::Error>> {
+        price_filter_range(
+            target_currency,
+            display_amount.map(|amount| common::query::range_query::RangeQuery {
+                min: Some(MonetaryAmount::from(amount)),
+                max: Some(MonetaryAmount::from(amount)),
+            }),
+        )
     }
 
-    fn search_with_product_query(
-        product_query: &str,
-    ) -> Result<ProductSearch, Box<dyn std::error::Error>> {
-        Ok(ProductSearch::new(Language::En, Currency::Eur)
-            .with_product_query(text_query(product_query)?))
+    fn price_filter_range(
+        target_currency: Currency,
+        display_range: Option<common::query::range_query::RangeQuery<MonetaryAmount>>,
+    ) -> Result<ProductPriceFilterPlan, Box<dyn std::error::Error>> {
+        let snapshot = NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| {
+                FxRateQuote::new(
+                    currency,
+                    if currency == Currency::Usd {
+                        1_100_000
+                    } else {
+                        FX_RATE_SCALE
+                    },
+                )
+            }),
+        )?
+        .into_persisted(1_i64.try_into()?);
+        Ok(ProductPriceFilterPlan::compile(
+            snapshot,
+            target_currency,
+            display_range,
+        )?)
     }
 
-    fn product_document() -> Result<ProductDocument, url::ParseError> {
+    fn document() -> Result<ProductDocument, url::ParseError> {
         Ok(ProductDocument {
             product_id: ProductId::new(),
             product_slug_id: ProductSlugId::from("vase-abcdef"),
             shop_slug_id: ShopSlugId::from("shop"),
-            seller_slug_id: SellerSlugId::from("seller"),
+            seller_slug_id: common::seller_slug_id::SellerSlugId::from("seller"),
             event_id: EventId::new(),
             shop_id: ShopId::new(),
             seller_id: ShopId::new(),
@@ -766,75 +935,23 @@ mod tests {
             structured_address_continent: None,
             geo_address: None,
             title: TextDocument::new("Vase", LanguageDocument::En),
-            title_de: Some("Deutsche Vase".to_owned()),
-            title_en: Some("English vase".to_owned()),
+            title_de: None,
+            title_en: Some("Vase".to_owned()),
             title_fr: None,
             title_es: None,
             title_it: None,
-            price_eur: Some(100),
-            price_usd: Some(125),
-            price_gbp: None,
-            price_aud: None,
-            price_cad: None,
-            price_nzd: None,
-            price_cny: None,
-            price_brl: None,
-            price_pln: None,
-            price_try: None,
-            price_jpy: None,
-            price_czk: None,
-            price_rub: None,
-            price_aed: None,
-            price_sar: None,
-            price_hkd: None,
-            price_sgd: None,
-            price_chf: None,
-            price_estimate_min_eur: None,
-            price_estimate_min_usd: None,
-            price_estimate_min_gbp: None,
-            price_estimate_min_aud: None,
-            price_estimate_min_cad: None,
-            price_estimate_min_nzd: None,
-            price_estimate_min_cny: None,
-            price_estimate_min_brl: None,
-            price_estimate_min_pln: None,
-            price_estimate_min_try: None,
-            price_estimate_min_jpy: None,
-            price_estimate_min_czk: None,
-            price_estimate_min_rub: None,
-            price_estimate_min_aed: None,
-            price_estimate_min_sar: None,
-            price_estimate_min_hkd: None,
-            price_estimate_min_sgd: None,
-            price_estimate_min_chf: None,
-            price_estimate_max_eur: None,
-            price_estimate_max_usd: None,
-            price_estimate_max_gbp: None,
-            price_estimate_max_aud: None,
-            price_estimate_max_cad: None,
-            price_estimate_max_nzd: None,
-            price_estimate_max_cny: None,
-            price_estimate_max_brl: None,
-            price_estimate_max_pln: None,
-            price_estimate_max_try: None,
-            price_estimate_max_jpy: None,
-            price_estimate_max_czk: None,
-            price_estimate_max_rub: None,
-            price_estimate_max_aed: None,
-            price_estimate_max_sar: None,
-            price_estimate_max_hkd: None,
-            price_estimate_max_sgd: None,
-            price_estimate_max_chf: None,
+            source_price: Some(SourcePriceDocument {
+                amount: 100,
+                currency: common::currency::data::CurrencyData::Eur,
+            }),
+            sale_prices: None,
+            sale_fx_rate_id: None,
+            sold_at: None,
             state: ProductStateDocument::Available,
             lifecycle: ProductLifecycleDocument::Active,
             url: Url::parse("https://shop.example/products/sku-1")?,
             view_url: Url::parse("https://aura.example/products/vase-abcdef")?,
-            images: [ProductImageDocument {
-                url: Url::parse("https://example.com/image.jpg")?,
-                prohibited_content: ProhibitedContentDocument::None,
-            }]
-            .into_iter()
-            .collect(),
+            images: IndexSet::new(),
             embedding: None,
             auction_start: None,
             auction_end: None,
@@ -843,489 +960,159 @@ mod tests {
         })
     }
 
-    fn search_response(
-        document: ProductDocument,
-        sort: Option<Value>,
-    ) -> SearchResponse<ProductDocument> {
-        SearchResponse {
-            took: 1,
-            timed_out: false,
-            shards: ShardStats {
-                total: 1,
-                successful: 1,
-                skipped: 0,
-                failed: 0,
-            },
-            hits: HitsMetadata {
-                total: TotalHits {
-                    value: 1,
-                    relation: "eq".to_owned(),
-                },
-                max_score: None,
-                hits: vec![SearchHit {
-                    index: "products".to_owned(),
-                    id: document.product_id.to_string(),
-                    score: None,
-                    sort,
-                    matched_queries: Vec::new(),
-                    source: document,
-                }],
-            },
-        }
-    }
-
     #[test]
-    fn should_build_search_request_with_default_filters_sort_and_source_excludes()
-    -> Result<(), serde_json::Error> {
-        let search = ProductSearch::new(Language::En, Currency::Eur);
-        let sort = Sort {
-            sort: SortProductField::Score,
-            order: SortOrder::Desc,
-        };
-
-        let actual = build_search_request(&search, &sort, &None)?;
-
-        assert_eq!(
-            actual.pointer("/_source/excludes/0"),
-            Some(&json!("embedding"))
-        );
-        assert_eq!(
-            actual.pointer("/query/bool/filter/0/terms/lifecycle"),
-            Some(&json!(["ACTIVE"]))
-        );
-        assert_eq!(actual.pointer("/sort/0/_score/order"), Some(&json!("desc")));
-        assert_eq!(
-            actual.pointer("/sort/1/productId/order"),
-            Some(&json!("asc"))
-        );
-        assert!(actual.get("size").is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn should_build_hybrid_search_request_with_text_filters_and_cursor()
+    fn should_render_active_and_sold_price_branches_from_plan()
     -> Result<(), Box<dyn std::error::Error>> {
-        let search = ProductSearch::new(Language::En, Currency::Usd)
-            .with_product_query("vintage brass lamp".try_into()?)
-            .with_state_query([ProductState::Available].into_iter().collect());
-        let cursor = Some(Cursor {
-            size: 10,
-            search_after: Some(json!([0.123])),
-        });
+        let clause = build_price_filter_clause(&price_filter(Currency::Usd, Some(110))?)
+            .ok_or("missing price clause")?;
 
-        let actual = build_hybrid_search_request(&search, &[1.0; 3], &cursor)?;
-
-        assert_eq!(actual.pointer("/size"), Some(&json!(10)));
         assert_eq!(
-            actual.pointer(
-                "/query/hybrid/queries/0/bool/must/0/bool/must/0/bool/should/0/multi_match/query"
+            clause.pointer("/bool/should/0/bool/must_not/0/exists/field"),
+            Some(&json!("saleFxRateId"))
+        );
+        assert_eq!(
+            clause.pointer(
+                "/bool/should/0/bool/filter/0/bool/should/0/bool/filter/0/term/sourcePrice.currency"
             ),
-            Some(&json!("vintage brass lamp"))
+            Some(&json!("EUR"))
         );
         assert_eq!(
-            actual.pointer("/query/hybrid/queries/0/bool/filter/1/terms/state"),
-            Some(&json!(["AVAILABLE"]))
-        );
-        assert_eq!(
-            actual.pointer("/query/hybrid/queries/1/knn/embedding/vector"),
-            Some(&json!([1.0, 1.0, 1.0]))
-        );
-        assert_eq!(
-            actual
-                .pointer("/query/hybrid/queries/1/knn/embedding/filter/bool/filter/1/terms/state"),
-            Some(&json!(["AVAILABLE"]))
-        );
-        assert_eq!(actual.pointer("/search_after"), Some(&json!([0.123])));
-        assert_eq!(
-            actual.pointer("/sort/0/_script/order"),
-            Some(&json!("desc"))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_build_search_request_with_price_sort_cursor_and_search_after()
-    -> Result<(), serde_json::Error> {
-        let search = ProductSearch::new(Language::En, Currency::Usd);
-        let sort = Sort {
-            sort: SortProductField::Price,
-            order: SortOrder::Asc,
-        };
-        let cursor = Some(Cursor {
-            size: 10,
-            search_after: Some(json!(123)),
-        });
-
-        let actual = build_search_request(&search, &sort, &cursor)?;
-
-        assert_eq!(actual.pointer("/size"), Some(&json!(10)));
-        assert_eq!(actual.pointer("/search_after"), Some(&json!([123])));
-        assert_eq!(
-            actual.pointer("/sort/0/priceUsd/order"),
-            Some(&json!("asc"))
-        );
-        assert_eq!(
-            actual.pointer("/sort/0/priceUsd/missing"),
-            Some(&json!("_last"))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_keep_array_search_after_when_cursor_value_is_array() -> Result<(), serde_json::Error>
-    {
-        let search = ProductSearch::new(Language::En, Currency::Usd);
-        let sort = Sort {
-            sort: SortProductField::Score,
-            order: SortOrder::Desc,
-        };
-        let cursor = Some(Cursor {
-            size: 10,
-            search_after: Some(json!([123, "abc"])),
-        });
-
-        let actual = build_search_request(&search, &sort, &cursor)?;
-
-        assert_eq!(actual.pointer("/search_after"), Some(&json!([123, "abc"])));
-        Ok(())
-    }
-
-    #[test]
-    fn should_build_live_search_query_with_or_over_multiple_product_queries()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let search = ["Madonna oil painting", "Virgin Mary oil painting"]
-            .into_iter()
-            .try_fold(
-                ProductSearch::new(Language::En, Currency::Eur),
-                |search, query| {
-                    Ok::<_, Box<dyn std::error::Error>>(
-                        search.with_product_query(text_query(query)?),
-                    )
-                },
-            )?;
-
-        let actual = build_search_query(&search)?;
-
-        assert_eq!(
-            actual.pointer("/bool/must/0/bool/minimum_should_match"),
-            Some(&json!(1))
-        );
-        assert_eq!(
-            actual
-                .pointer("/bool/must/0/bool/should/0/bool/must/0/bool/should/0/multi_match/query"),
-            Some(&json!("Madonna oil painting"))
-        );
-        assert_eq!(
-            actual
-                .pointer("/bool/must/0/bool/should/1/bool/must/0/bool/should/0/multi_match/query"),
-            Some(&json!("Virgin Mary oil painting"))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_build_query_for_exclusions_filters_ranges_and_dates()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let excluded_product_id = ProductId::new();
-        let excluded_shop_slug_id = ShopSlugId::from("bad-shop");
-        let excluded_seller_slug_id = SellerSlugId::from("bad-seller");
-        let shop_slug_id = ShopSlugId::from("shop");
-        let seller_slug_id = SellerSlugId::from("seller");
-        let search = ProductSearch::new(Language::De, Currency::Eur)
-            .with_exclude_product_id_query(HashSet::from([excluded_product_id]).into())
-            .with_exclude_shop_name_query(HashSet::from([ShopName::from("Bad Shop")]).into())
-            .with_exclude_seller_name_query(HashSet::from([ShopName::from("Bad Seller")]).into())
-            .with_exclude_shop_slug_id_query(HashSet::from([excluded_shop_slug_id.clone()]).into())
-            .with_exclude_seller_slug_id_query(
-                HashSet::from([excluded_seller_slug_id.clone()]).into(),
-            )
-            .with_price_query(RangeQuery {
-                min: Some(100_u64.into()),
-                max: Some(999_u64.into()),
-            })
-            .with_country_query(HashSet::from([CountryCode::DEU]).into())
-            .with_continent_query(HashSet::from([Continent::Europe]).into())
-            .with_shop_name_query(HashSet::from([ShopName::from("Shop")]).into())
-            .with_seller_name_query(HashSet::from([ShopName::from("Seller")]).into())
-            .with_shop_slug_id_query(HashSet::from([shop_slug_id.clone()]).into())
-            .with_seller_slug_id_query(HashSet::from([seller_slug_id.clone()]).into())
-            .with_state_query(HashSet::from([ProductState::Available]).into())
-            .with_shop_type_query(HashSet::from([ShopType::CommercialDealer]).into())
-            .with_lifecycle_query(HashSet::from([ProductLifecycle::Deleted]).into())
-            .with_created_query(RangeQuery {
-                min: Some(datetime!(2025-01-01 0:00 UTC)),
-                max: None,
-            })
-            .with_updated_query(RangeQuery {
-                min: None,
-                max: Some(datetime!(2025-01-02 0:00 UTC)),
-            });
-
-        let actual = build_search_query(&search)?;
-
-        assert_eq!(
-            actual.pointer("/bool/must_not/0/terms/productId"),
-            Some(&json!([excluded_product_id.to_string()]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/must_not/3/terms/shopSlugId"),
-            Some(&json!([excluded_shop_slug_id.to_string()]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/must_not/4/terms/sellerSlugId"),
-            Some(&json!([excluded_seller_slug_id.to_string()]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/0/terms/lifecycle"),
-            Some(&json!(["DELETED"]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/1/range/priceEur/gte"),
+            clause.pointer("/bool/should/0/bool/filter/0/bool/should/0/bool/filter/1/range/sourcePrice.amount/gte"),
             Some(&json!(100))
         );
         assert_eq!(
-            actual.pointer("/bool/filter/2/range/priceEur/lte"),
-            Some(&json!(999))
+            clause.pointer("/bool/should/1/bool/filter/0/exists/field"),
+            Some(&json!("saleFxRateId"))
         );
         assert_eq!(
-            actual.pointer("/bool/filter/3/terms/structuredAddressCountry"),
-            Some(&json!(["DE"]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/4/terms/structuredAddressContinent"),
-            Some(&json!(["EUROPE"]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/7/terms/shopSlugId"),
-            Some(&json!([shop_slug_id.to_string()]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/8/terms/sellerSlugId"),
-            Some(&json!([seller_slug_id.to_string()]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/9/terms/state"),
-            Some(&json!(["AVAILABLE"]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/10/terms/shopType"),
-            Some(&json!(["COMMERCIAL_DEALER"]))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/11/range/created/gte"),
-            Some(&json!("2025-01-01T00:00:00Z"))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/12/range/updated/lte"),
-            Some(&json!("2025-01-02T00:00:00Z"))
+            clause.pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/lte"),
+            Some(&json!(110))
         );
         Ok(())
     }
 
     #[test]
-    fn should_preserve_open_search_hit_order_when_mapping_product_summaries()
+    fn should_not_render_price_clause_without_price_filter()
     -> Result<(), Box<dyn std::error::Error>> {
-        let first = product_document()?;
-        let second = ProductDocument {
-            product_id: ProductId::new(),
-            ..product_document()?
-        };
-        let first_product_id = first.product_id;
-        let second_product_id = second.product_id;
-        let response = SearchResponse {
-            took: 1,
-            timed_out: false,
-            shards: ShardStats {
-                total: 1,
-                successful: 1,
-                skipped: 0,
-                failed: 0,
-            },
-            hits: HitsMetadata {
-                total: TotalHits {
-                    value: 2,
-                    relation: "eq".to_owned(),
-                },
-                max_score: None,
-                hits: vec![
-                    SearchHit {
-                        index: "products".to_owned(),
-                        id: first_product_id.to_string(),
-                        score: Some(0.9),
-                        sort: None,
-                        matched_queries: Vec::new(),
-                        source: first,
-                    },
-                    SearchHit {
-                        index: "products".to_owned(),
-                        id: second_product_id.to_string(),
-                        score: Some(0.8),
-                        sort: None,
-                        matched_queries: Vec::new(),
-                        source: second,
-                    },
-                ],
-            },
-        };
-
-        let actual =
-            map_search_response(&ProductSearch::new(Language::En, Currency::Eur), response);
-
-        assert_eq!(
-            vec![first_product_id, second_product_id],
-            actual
-                .items
-                .into_iter()
-                .map(|item| item.product_id)
-                .collect::<Vec<_>>()
-        );
+        assert!(build_price_filter_clause(&price_filter(Currency::Usd, None)?).is_none());
         Ok(())
     }
 
     #[test]
-    fn should_map_search_response_to_product_summaries() -> Result<(), Box<dyn std::error::Error>> {
-        let document = ProductDocument {
-            images: IndexSet::from([ProductImageDocument {
-                url: Url::parse("https://example.com/other.jpg")?,
-                prohibited_content: ProhibitedContentDocument::None,
-            }]),
-            ..product_document()?
-        };
-        let expected_product_id = document.product_id;
-        let expected_event_id = document.event_id;
-        let expected_shop_id = document.shop_id;
-        let expected_seller_id = document.seller_id;
-        let expected_shops_product_id = document.shops_product_id.clone();
-        let response = search_response(
-            document,
-            Some(json!([125, expected_product_id.to_string()])),
-        );
-        let search = ProductSearch::new(Language::De, Currency::Usd);
-
-        let actual = map_search_response(&search, response);
-
-        assert_eq!(Some(1), actual.total);
-        assert_eq!(1, actual.cursor.size);
-        assert_eq!(
-            Some(json!([125, expected_product_id.to_string()])),
-            actual.cursor.search_after
-        );
-        assert_eq!(expected_product_id, actual.items[0].product_id);
-        assert_eq!(expected_event_id, actual.items[0].event_id);
-        assert_eq!(expected_shop_id, actual.items[0].shop_id);
-        assert_eq!(expected_seller_id, actual.items[0].seller_id);
-        assert_eq!(expected_shops_product_id, actual.items[0].shops_product_id);
-        assert_eq!(ShopName::from("Shop"), actual.items[0].shop_name);
-        assert_eq!(
-            Some(Language::De),
-            actual.items[0]
-                .title
-                .as_ref()
-                .map(|title| title.localization)
-        );
-        assert_eq!(
-            Some("Deutsche Vase"),
-            actual.items[0]
-                .title
-                .as_ref()
-                .map(|title| title.payload.as_ref())
-        );
-        assert_eq!(
-            Some(Price::new(MonetaryAmount::from(125_u64), Currency::Usd)),
-            actual.items[0].price
-        );
-        assert_eq!(ProductState::Available, actual.items[0].state);
-        assert_eq!(ProductLifecycle::Active, actual.items[0].lifecycle);
-        assert_eq!(1, actual.items[0].images.len());
-        Ok(())
-    }
-
-    #[test]
-    fn should_fallback_title_and_price_when_preferred_missing() -> Result<(), url::ParseError> {
-        let document = ProductDocument {
-            title_de: None,
-            title_en: Some("English vase".to_owned()),
-            price_usd: None,
-            price_eur: Some(100),
-            ..product_document()?
-        };
-
-        let title = resolve_title(&document, Language::De);
-        let price = resolve_price(&document, Currency::Usd);
-
-        assert_eq!(
-            Some(Language::En),
-            title.as_ref().map(|title| title.localization)
-        );
-        assert_eq!(
-            Some("English vase"),
-            title.as_ref().map(|title| title.payload.as_ref())
-        );
-        assert_eq!(
-            Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
-            price
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_build_query_with_geo_distance_filter() -> Result<(), serde_json::Error> {
-        let search = ProductSearch::new(Language::En, Currency::Eur)
-            .with_geo_address_distance_query(common::distance::domain::GeoDistanceQuery {
-                lat: 52.52,
-                lon: 13.405,
-                distance: common::distance::domain::Distance {
-                    amount: 10.0,
-                    unit: common::distance::domain::DistanceUnit::Kilometers,
-                },
-            });
-
-        let actual = build_search_query(&search)?;
-
-        assert_eq!(
-            actual.pointer("/bool/filter/1/geo_distance/distance"),
-            Some(&json!("10km"))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/1/geo_distance/geoAddress/lat"),
-            Some(&json!(52.52))
-        );
-        assert_eq!(
-            actual.pointer("/bool/filter/1/geo_distance/geoAddress/lon"),
-            Some(&json!(13.405))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_use_english_title_field_for_ingestion_only_languages()
+    fn should_render_open_price_bounds_without_inventing_limits()
     -> Result<(), Box<dyn std::error::Error>> {
-        let search = ProductSearch::new(Language::Zh, Currency::Eur)
-            .with_product_query(text_query("porcelain")?);
+        let max_only = build_price_filter_clause(&price_filter_range(
+            Currency::Usd,
+            Some(common::query::range_query::RangeQuery {
+                min: None,
+                max: Some(MonetaryAmount::from(110_u64)),
+            }),
+        )?)
+        .ok_or("missing max-only clause")?;
+        let min_only = build_price_filter_clause(&price_filter_range(
+            Currency::Usd,
+            Some(common::query::range_query::RangeQuery {
+                min: Some(MonetaryAmount::from(110_u64)),
+                max: None,
+            }),
+        )?)
+        .ok_or("missing min-only clause")?;
 
-        let actual = build_search_query(&search)?;
-
+        assert!(
+            max_only
+                .pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/gte")
+                .is_none()
+        );
         assert_eq!(
-            actual.pointer("/bool/must/0/bool/must/0/bool/should/0/multi_match/fields/0"),
-            Some(&json!("titleEn^5"))
+            Some(&json!(110)),
+            max_only.pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/lte")
+        );
+        assert_eq!(
+            Some(&json!(110)),
+            min_only.pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/gte")
+        );
+        assert!(
+            min_only
+                .pointer("/bool/should/1/bool/filter/1/range/salePrices.usd/lte")
+                .is_none()
         );
         Ok(())
     }
 
     #[test]
-    fn should_build_query_with_single_product_query() -> Result<(), Box<dyn std::error::Error>> {
-        let search = search_with_product_query("Ming dynasty blue white porcelain vase")?;
+    fn should_render_the_same_price_clause_for_search_and_percolation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let compiled_search = CompiledProductSearch {
+            search: ProductSearch::new(Language::En, Currency::Usd),
+            price_filter_plan: price_filter(Currency::Usd, Some(110))?,
+        };
 
-        let actual = build_search_query(&search)?;
+        let search = build_search_query(&compiled_search)?;
+        let percolator = crate::percolator_query::build_percolator_query(&compiled_search)?;
 
         assert_eq!(
-            actual.pointer("/bool/must/0/bool/must/0/bool/should/0/multi_match/query"),
-            Some(&json!("Ming dynasty blue white porcelain vase"))
+            search.pointer("/bool/filter/1"),
+            percolator.pointer("/bool/filter/1")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_convert_active_price_with_pinned_plan() -> Result<(), Box<dyn std::error::Error>> {
+        let price = resolve_price(&document()?, &price_filter(Currency::Usd, Some(110))?)?;
+
         assert_eq!(
-            actual.pointer("/bool/must/0/bool/should/2/match/titleEn/minimum_should_match"),
-            Some(&json!("2<75%"))
+            price,
+            Some(Price::new(MonetaryAmount::from(110_u64), Currency::Usd))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_use_exact_target_sale_price() -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.sale_prices = Some(SalePricesDocument {
+            eur: 100,
+            gbp: 80,
+            usd: 777,
+            aud: 100,
+            cad: 100,
+            nzd: 100,
+            cny: 100,
+            brl: 100,
+            pln: 100,
+            r#try: 100,
+            jpy: 100,
+            czk: 100,
+            rub: 100,
+            aed: 100,
+            sar: 100,
+            hkd: 100,
+            sgd: 100,
+            chf: 100,
+        });
+        document.sale_fx_rate_id = Some(FxRateId::new());
+        document.sold_at = Some(OffsetDateTime::UNIX_EPOCH);
+
+        let price = resolve_price(&document, &price_filter(Currency::Usd, Some(110))?)?;
+
+        assert_eq!(
+            price,
+            Some(Price::new(MonetaryAmount::from(777_u64), Currency::Usd))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_invalid_sale_projection_when_mapping_price()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.sale_fx_rate_id = Some(FxRateId::new());
+
+        assert!(matches!(
+            resolve_price(&document, &price_filter(Currency::Usd, None)?),
+            Err(ProductSearchReadError::ProductSearchReadModelInvalid)
+        ));
         Ok(())
     }
 }

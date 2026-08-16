@@ -374,6 +374,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "common",
  "embedding",
+ "fxrate-postgres",
  "google-cloud-auth",
  "indexmap 2.14.0",
  "large-language-model",
@@ -6095,6 +6096,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "fxrate-core",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
@@ -7225,6 +7227,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "fxrate-core",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
@@ -7238,6 +7241,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "shop-core",
+ "strum 0.28.0",
  "test-api",
  "thiserror 2.0.20",
  "time",

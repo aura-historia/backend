@@ -1,7 +1,9 @@
 use crate::product_image_document::ProductImageDocument;
 use crate::product_state_document::ProductStateDocument;
 use crate::shop_type_document::ShopTypeDocument;
+use common::currency::{data::CurrencyData, domain::Currency};
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::document::TextDocument;
 use common::product_id::ProductId;
 use common::product_lifecycle::document::ProductLifecycleDocument;
@@ -16,6 +18,66 @@ use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::OffsetDateTime;
 use url::Url;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SourcePriceDocument {
+    pub(crate) amount: u64,
+    pub(crate) currency: CurrencyData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct SalePricesDocument {
+    pub(crate) eur: u64,
+    pub(crate) gbp: u64,
+    pub(crate) usd: u64,
+    pub(crate) aud: u64,
+    pub(crate) cad: u64,
+    pub(crate) nzd: u64,
+    pub(crate) cny: u64,
+    pub(crate) brl: u64,
+    pub(crate) pln: u64,
+    pub(crate) r#try: u64,
+    pub(crate) jpy: u64,
+    pub(crate) czk: u64,
+    pub(crate) rub: u64,
+    pub(crate) aed: u64,
+    pub(crate) sar: u64,
+    pub(crate) hkd: u64,
+    pub(crate) sgd: u64,
+    pub(crate) chf: u64,
+}
+
+impl SalePricesDocument {
+    fn amount_in(&self, currency: Currency) -> u64 {
+        match currency {
+            Currency::Eur => self.eur,
+            Currency::Gbp => self.gbp,
+            Currency::Usd => self.usd,
+            Currency::Aud => self.aud,
+            Currency::Cad => self.cad,
+            Currency::Nzd => self.nzd,
+            Currency::Cny => self.cny,
+            Currency::Brl => self.brl,
+            Currency::Pln => self.pln,
+            Currency::Try => self.r#try,
+            Currency::Jpy => self.jpy,
+            Currency::Czk => self.czk,
+            Currency::Rub => self.rub,
+            Currency::Aed => self.aed,
+            Currency::Sar => self.sar,
+            Currency::Hkd => self.hkd,
+            Currency::Sgd => self.sgd,
+            Currency::Chf => self.chf,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum ProductDocumentValidationError {
+    #[error("product sale projection fields must be all present or all absent")]
+    PartialSaleProjection,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 #[serde(rename_all = "camelCase")]
@@ -59,113 +121,17 @@ pub(crate) struct ProductDocument {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub title_it: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_eur: Option<u64>,
+    pub(crate) source_price: Option<SourcePriceDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_usd: Option<u64>,
+    pub(crate) sale_prices: Option<SalePricesDocument>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_gbp: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_aud: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_cad: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_nzd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_cny: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_brl: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_pln: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_try: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_jpy: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_czk: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_rub: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_aed: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_sar: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_hkd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_sgd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_chf: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_eur: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_usd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_gbp: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_aud: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_cad: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_nzd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_cny: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_brl: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_pln: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_try: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_jpy: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_czk: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_rub: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_aed: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_sar: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_hkd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_sgd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_min_chf: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_eur: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_usd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_gbp: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_aud: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_cad: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_nzd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_cny: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_brl: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_pln: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_try: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_jpy: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_czk: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_rub: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_aed: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_sar: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_hkd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_sgd: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub price_estimate_max_chf: Option<u64>,
+    pub(crate) sale_fx_rate_id: Option<FxRateId>,
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub(crate) sold_at: Option<OffsetDateTime>,
     pub state: ProductStateDocument,
     pub lifecycle: ProductLifecycleDocument,
     pub url: Url,
@@ -196,14 +162,34 @@ impl ProductDocument {
     pub(crate) fn _id(&self) -> ProductId {
         self.product_id
     }
+
+    pub(crate) fn validate(&self) -> Result<(), ProductDocumentValidationError> {
+        match (&self.sale_prices, self.sale_fx_rate_id, self.sold_at) {
+            (None, None, None) | (Some(_), Some(_), Some(_)) => Ok(()),
+            _ => Err(ProductDocumentValidationError::PartialSaleProjection),
+        }
+    }
+
+    pub(crate) fn source_price(&self) -> Option<(u64, Currency)> {
+        self.source_price
+            .as_ref()
+            .map(|price| (price.amount, Currency::from(price.currency)))
+    }
+
+    pub(crate) fn sale_price(&self, currency: Currency) -> Option<u64> {
+        self.sale_prices
+            .as_ref()
+            .map(|prices| prices.amount_in(currency))
+    }
+
+    pub(crate) fn has_sale_valuation(&self) -> bool {
+        self.sale_fx_rate_id.is_some()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::product_state_document::ProductStateDocument;
-    use crate::prohibited_content_document::ProhibitedContentDocument;
-    use crate::shop_type_document::ShopTypeDocument;
     use common::language::document::LanguageDocument;
     use time::macros::datetime;
 
@@ -220,120 +206,75 @@ mod tests {
             shop_name: "Shop".to_owned(),
             seller_name: "Seller".to_owned(),
             shop_type: ShopTypeDocument::CommercialDealer,
-            structured_address_addressline: Some("Street 1".to_owned()),
+            structured_address_addressline: None,
             structured_address_addressline_extra: None,
-            structured_address_locality: Some("Berlin".to_owned()),
+            structured_address_locality: None,
             structured_address_region: None,
-            structured_address_postal_code: Some("10115".to_owned()),
-            structured_address_country: Some(CountryCode::DEU),
-            structured_address_continent: Some(
-                crate::continent_document::ContinentDocument::Europe,
-            ),
-            geo_address: Some("52.52,13.405".to_owned()),
+            structured_address_postal_code: None,
+            structured_address_country: None,
+            structured_address_continent: None,
+            geo_address: None,
             title: TextDocument::new("Vase", LanguageDocument::En),
-            title_de: Some("Vase".to_owned()),
+            title_de: None,
             title_en: Some("Vase".to_owned()),
             title_fr: None,
             title_es: None,
             title_it: None,
-            price_eur: Some(100),
-            price_usd: Some(110),
-            price_gbp: None,
-            price_aud: None,
-            price_cad: None,
-            price_nzd: None,
-            price_cny: None,
-            price_brl: None,
-            price_pln: None,
-            price_try: None,
-            price_jpy: None,
-            price_czk: None,
-            price_rub: None,
-            price_aed: None,
-            price_sar: None,
-            price_hkd: None,
-            price_sgd: None,
-            price_chf: None,
-            price_estimate_min_eur: None,
-            price_estimate_min_usd: None,
-            price_estimate_min_gbp: None,
-            price_estimate_min_aud: None,
-            price_estimate_min_cad: None,
-            price_estimate_min_nzd: None,
-            price_estimate_min_cny: None,
-            price_estimate_min_brl: None,
-            price_estimate_min_pln: None,
-            price_estimate_min_try: None,
-            price_estimate_min_jpy: None,
-            price_estimate_min_czk: None,
-            price_estimate_min_rub: None,
-            price_estimate_min_aed: None,
-            price_estimate_min_sar: None,
-            price_estimate_min_hkd: None,
-            price_estimate_min_sgd: None,
-            price_estimate_min_chf: None,
-            price_estimate_max_eur: None,
-            price_estimate_max_usd: None,
-            price_estimate_max_gbp: None,
-            price_estimate_max_aud: None,
-            price_estimate_max_cad: None,
-            price_estimate_max_nzd: None,
-            price_estimate_max_cny: None,
-            price_estimate_max_brl: None,
-            price_estimate_max_pln: None,
-            price_estimate_max_try: None,
-            price_estimate_max_jpy: None,
-            price_estimate_max_czk: None,
-            price_estimate_max_rub: None,
-            price_estimate_max_aed: None,
-            price_estimate_max_sar: None,
-            price_estimate_max_hkd: None,
-            price_estimate_max_sgd: None,
-            price_estimate_max_chf: None,
+            source_price: Some(SourcePriceDocument {
+                amount: 100,
+                currency: CurrencyData::Eur,
+            }),
+            sale_prices: None,
+            sale_fx_rate_id: None,
+            sold_at: None,
             state: ProductStateDocument::Available,
             lifecycle: ProductLifecycleDocument::Active,
             url: Url::parse("https://shop.example/products/sku-1")?,
             view_url: Url::parse("https://aura.example/products/vase-abcdef")?,
-            images: [ProductImageDocument {
-                url: Url::parse("https://example.com/image.jpg")?,
-                prohibited_content: ProhibitedContentDocument::None,
-            }]
-            .into_iter()
-            .collect(),
-            embedding: Some(vec![0.1, 0.2]),
+            images: IndexSet::new(),
+            embedding: None,
             auction_start: None,
-            auction_end: Some(datetime!(2026-01-01 0:00 UTC)),
+            auction_end: None,
             created: datetime!(2025-01-01 0:00 UTC),
             updated: datetime!(2025-01-02 0:00 UTC),
         })
     }
 
     #[test]
-    fn should_serialize_without_actor_fields() -> Result<(), Box<dyn std::error::Error>> {
+    fn should_serialize_only_source_price_for_active_product()
+    -> Result<(), Box<dyn std::error::Error>> {
         let value = serde_json::to_value(document()?)?;
 
-        assert!(value.get("createdBy").is_none());
-        assert!(value.get("updatedBy").is_none());
-        assert!(value.get("created").is_some());
-        assert!(value.get("updated").is_some());
+        assert_eq!(
+            Some(&serde_json::json!(100)),
+            value.pointer("/sourcePrice/amount")
+        );
+        assert_eq!(
+            Some(&serde_json::json!("EUR")),
+            value.pointer("/sourcePrice/currency")
+        );
+        assert!(value.get("salePrices").is_none());
+        assert!(value.get("priceEur").is_none());
+        assert!(value.get("priceUsd").is_none());
+        assert!(value.get("priceEstimateMinEur").is_none());
+        assert!(value.get("priceEstimateMaxUsd").is_none());
+        assert!(value.as_object().is_some_and(|fields| {
+            fields.keys().all(|field| {
+                !field.starts_with("priceEstimate") && field != "priceEur" && field != "priceUsd"
+            })
+        }));
         Ok(())
     }
 
     #[test]
-    fn should_roundtrip_product_document() -> Result<(), Box<dyn std::error::Error>> {
-        let expected = document()?;
+    fn should_reject_partial_sale_projection() -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.sale_fx_rate_id = Some(FxRateId::new());
 
-        let actual = serde_json::from_value::<ProductDocument>(serde_json::to_value(&expected)?)?;
-
-        assert_eq!(expected, actual);
-        Ok(())
-    }
-
-    #[test]
-    fn should_return_product_document_id() -> Result<(), url::ParseError> {
-        let document = document()?;
-
-        assert_eq!(document.product_id, document._id());
+        assert_eq!(
+            Err(ProductDocumentValidationError::PartialSaleProjection),
+            document.validate()
+        );
         Ok(())
     }
 }

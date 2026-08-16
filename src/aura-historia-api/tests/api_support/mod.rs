@@ -541,7 +541,9 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(SearchProductsHandler::new(
+            unit_of_work.clone(),
             OpenSearchProductSearchReader::new(opensearch_client.clone()),
+            SqlxFxRateSnapshotRepositoryFactory,
             search_embeddings,
             SqlxProductUserStateReader::new(get_postgres_client().await),
             DynamoDbAllNotificationsReader::new(client, "table_1"),

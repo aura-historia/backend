@@ -608,6 +608,7 @@ mod tests {
             titles: Default::default(),
             descriptions: Default::default(),
             pricing: ProductPricing::default(),
+            sale_valuation: None,
             state: ProductState::Available,
             lifecycle: ProductLifecycle::Active,
             url: url.clone(),

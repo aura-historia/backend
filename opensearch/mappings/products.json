@@ -221,167 +221,46 @@
                 "analyzer": "italian",
                 "search_analyzer": "italian_with_synonyms"
             },
-            "priceEur": {
-                "type": "unsigned_long"
+            "sourcePrice": {
+                "type": "object",
+                "properties": {
+                    "amount": {
+                        "type": "unsigned_long"
+                    },
+                    "currency": {
+                        "type": "keyword"
+                    }
+                }
             },
-            "priceUsd": {
-                "type": "unsigned_long"
+            "salePrices": {
+                "type": "object",
+                "properties": {
+                    "eur": { "type": "unsigned_long" },
+                    "gbp": { "type": "unsigned_long" },
+                    "usd": { "type": "unsigned_long" },
+                    "aud": { "type": "unsigned_long" },
+                    "cad": { "type": "unsigned_long" },
+                    "nzd": { "type": "unsigned_long" },
+                    "cny": { "type": "unsigned_long" },
+                    "brl": { "type": "unsigned_long" },
+                    "pln": { "type": "unsigned_long" },
+                    "try": { "type": "unsigned_long" },
+                    "jpy": { "type": "unsigned_long" },
+                    "czk": { "type": "unsigned_long" },
+                    "rub": { "type": "unsigned_long" },
+                    "aed": { "type": "unsigned_long" },
+                    "sar": { "type": "unsigned_long" },
+                    "hkd": { "type": "unsigned_long" },
+                    "sgd": { "type": "unsigned_long" },
+                    "chf": { "type": "unsigned_long" }
+                }
             },
-            "priceGbp": {
-                "type": "unsigned_long"
+            "saleFxRateId": {
+                "type": "keyword"
             },
-            "priceAud": {
-                "type": "unsigned_long"
-            },
-            "priceCad": {
-                "type": "unsigned_long"
-            },
-            "priceNzd": {
-                "type": "unsigned_long"
-            },
-            "priceCny": {
-                "type": "unsigned_long"
-            },
-            "priceBrl": {
-                "type": "unsigned_long"
-            },
-            "pricePln": {
-                "type": "unsigned_long"
-            },
-            "priceTry": {
-                "type": "unsigned_long"
-            },
-            "priceJpy": {
-                "type": "unsigned_long"
-            },
-            "priceCzk": {
-                "type": "unsigned_long"
-            },
-            "priceRub": {
-                "type": "unsigned_long"
-            },
-            "priceAed": {
-                "type": "unsigned_long"
-            },
-            "priceSar": {
-                "type": "unsigned_long"
-            },
-            "priceHkd": {
-                "type": "unsigned_long"
-            },
-            "priceSgd": {
-                "type": "unsigned_long"
-            },
-            "priceChf": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinEur": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinUsd": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinGbp": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinAud": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinCad": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinNzd": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinCny": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinBrl": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinPln": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinTry": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinJpy": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinCzk": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinRub": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinAed": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinSar": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinHkd": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinSgd": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMinChf": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxEur": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxUsd": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxGbp": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxAud": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxCad": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxNzd": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxCny": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxBrl": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxPln": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxTry": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxJpy": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxCzk": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxRub": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxAed": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxSar": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxHkd": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxSgd": {
-                "type": "unsigned_long"
-            },
-            "priceEstimateMaxChf": {
-                "type": "unsigned_long"
+            "soldAt": {
+                "type": "date",
+                "format": "strict_date_time"
             },
             "state": {
                 "type": "keyword"

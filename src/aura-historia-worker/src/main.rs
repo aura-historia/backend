@@ -13,6 +13,7 @@ use aura_historia_worker::{
 };
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
 use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
@@ -114,7 +115,9 @@ async fn run_search_filter_projection(
 ) -> Result<(), MainError> {
     let handler: Arc<dyn ProjectSearchFilterChangeUseCase> =
         Arc::new(ProjectSearchFilterChangeHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
             SqlxSearchFilterIndexReader::new(pool),
+            SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
         ));
     let (runtime, receiver) = composition.into_parts();
@@ -132,6 +135,7 @@ async fn run_search_filter_percolator(
     let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
         OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
         vertex_ai_large_language_model(vertex_ai)?,
         SqlxActiveSearchFilterMatchCandidateReaderFactory,

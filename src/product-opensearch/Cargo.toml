@@ -7,6 +7,7 @@ edition = "2024"
 async-trait = { workspace = true }
 common = { workspace = true, features = ["opensearch"] }
 geo = { workspace = true }
+fxrate-core = { workspace = true }
 indexmap = { workspace = true }
 isocountry = { workspace = true }
 opensearch = { workspace = true }

@@ -29,7 +29,7 @@
 - `oauth/` owns OAuth REST controllers for client registration, authorization code, token, revoke, and introspection flows.
 - Runtime shop and partner-shop structured-address writes use one shared Google geocoder adapter. `GOOGLE_GEOCODING_API_KEY` is required at startup.
 - Newsletter runtime requires `ZOHO_LIST_KEY`, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`, `ZOHO_ACCOUNTS_URL`, and `ZOHO_CAMPAIGNS_URL`; credentials and contact payloads are never logged.
-- Product text search uses native OpenSearch hybrid BM25 plus KNN when relevance-sorted query embedding succeeds; embedding failure and explicit non-score sorts use BM25. Product search runtime needs `OPENSEARCH_ENDPOINT_URL`; outside `STAGE=ephemeral`, it also needs `OPENSEARCH_USERNAME` and `OPENSEARCH_PASSWORD`.
+- Product text search first uses a short repository read transaction for the latest persisted FX snapshot, then uses native OpenSearch hybrid BM25 plus KNN when relevance-sorted query embedding succeeds; embedding failure and explicit non-score sorts use BM25. Product search runtime needs `OPENSEARCH_ENDPOINT_URL`; outside `STAGE=ephemeral`, it also needs `OPENSEARCH_USERNAME` and `OPENSEARCH_PASSWORD`.
 - Search-filter create/update embeddings use Vertex AI Gemini through typed API config. `VERTEX_AI_PROJECT_ID` and `VERTEX_AI_LOCATION` may override the legacy project and `eu` defaults; Google ADC supplies credentials (normally `GOOGLE_APPLICATION_CREDENTIALS`).
 
 ## Ownership

@@ -8,7 +8,7 @@
 
 - PostgreSQL is authoritative for immutable snapshots and quotes.
 - Rows and SQL stay private. Insert and all quote rows use one caller transaction.
-- Repository maps checked persisted rows into core snapshots; its factory binds all aggregate work to caller transactions.
+- Repository maps checked persisted rows into core snapshots; its factory binds all aggregate work to caller-owned short or write transactions. No pooled latest-snapshot reader exists.
 
 ## Ownership
 

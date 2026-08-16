@@ -10,8 +10,8 @@ use opensearch::{
     params::VersionType,
 };
 use search_filter_service::ports::{
-    SearchFilterIndex, SearchFilterIndexError, SearchFilterIndexQuery, SearchFilterProjection,
-    SearchFilterProjectionWriteOutcome, SearchFilterView,
+    CompiledSearchFilterProjection, SearchFilterIndex, SearchFilterIndexError,
+    SearchFilterIndexQuery, SearchFilterProjectionWriteOutcome, SearchFilterView,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -246,7 +246,7 @@ fn build_percolate_body(
 impl SearchFilterIndex for OpenSearchSearchFilterIndex {
     async fn upsert(
         &self,
-        projection: &SearchFilterProjection,
+        projection: &CompiledSearchFilterProjection,
     ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError> {
         let document = SearchFilterDocument::try_from(projection).map_err(|source| {
             SearchFilterIndexError::WriteFailed {
@@ -295,13 +295,14 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
     async fn percolate(
         &self,
         product: &product_service::ports::ProductSearchFilterMatchSource,
+        sale_snapshot: Option<&fxrate_core::FxRateSnapshot>,
     ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
         let product_document =
-            product_opensearch::product_percolation_document(product).map_err(|source| {
-                SearchFilterIndexError::PercolateFailed {
+            product_opensearch::product_percolation_document(product, sale_snapshot).map_err(
+                |source| SearchFilterIndexError::PercolateFailed {
                     source: box_error(source),
-                }
-            })?;
+                },
+            )?;
         let pit_id = self.open_point_in_time().await?;
         let percolation_result = self.percolate_all(&product_document, &pit_id).await;
         let close_result = self.close_point_in_time(&pit_id).await;

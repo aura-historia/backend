@@ -161,6 +161,9 @@
             "sourceVersion": {
                 "type": "long"
             },
+            "compiledFxRateId": {
+                "type": "keyword"
+            },
             "name": {
                 "type": "keyword"
             },

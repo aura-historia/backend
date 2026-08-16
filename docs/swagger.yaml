@@ -10819,15 +10819,14 @@ components:
 
     SortProductFieldData:
       type: string
-      enum: [score, price, updated, created]
+      enum: [score, updated, created]
       description: |
         Fields available for sorting:
         - score: Sort by relevance score (default, only available when searching with text query)
-        - price: Sort by product price
         - updated: Sort by last updated timestamp
         - created: Sort by creation timestamp
       default: score
-      example: price
+      example: updated
 
     ProductEventTypeData:
       type: string

@@ -1,6 +1,29 @@
 #![allow(dead_code)]
 
-use crate::use_cases::queries::search_products::{ProductSearchReadResult, SearchProductsRequest};
+use crate::{
+    ports::ProductPriceFilterPlan, use_cases::queries::search_products::ProductSearchReadResult,
+};
+use common::{pagination::cursor::Cursor, sort::Sort};
+use product_core::{product_search::ProductSearch, sort_product_field::SortProductField};
+use serde_json::Value;
+
+/// A Product search compiled against one persisted FX snapshot.
+///
+/// The raw `ProductSearch` is retained for non-price filters. OpenSearch adapters must render
+/// price clauses only from `price_filter_plan`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompiledProductSearch {
+    pub search: ProductSearch,
+    pub price_filter_plan: ProductPriceFilterPlan,
+}
+
+/// One adapter-facing Product search request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductSearchReadRequest {
+    pub compiled_search: CompiledProductSearch,
+    pub sort: Option<Sort<SortProductField>>,
+    pub cursor: Option<Cursor<Value>>,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductSearchReadError {
@@ -14,12 +37,12 @@ pub enum ProductSearchReadError {
 pub trait ProductSearchReader: Send + Sync {
     async fn search(
         &self,
-        request: &SearchProductsRequest,
+        request: &ProductSearchReadRequest,
     ) -> Result<ProductSearchReadResult, ProductSearchReadError>;
 
     async fn search_hybrid(
         &self,
-        request: &SearchProductsRequest,
+        request: &ProductSearchReadRequest,
         embedding: &[f32],
     ) -> Result<ProductSearchReadResult, ProductSearchReadError>;
 }

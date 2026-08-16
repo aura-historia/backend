@@ -117,7 +117,6 @@ enum ShopTypeData {
 #[derive(Debug, Clone, Copy)]
 enum SortProductFieldData {
     Score,
-    Price,
     Updated,
     Created,
 }
@@ -128,10 +127,9 @@ impl TryFrom<&str> for SortProductFieldData {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "score" => Ok(Self::Score),
-            "price" => Ok(Self::Price),
             "updated" => Ok(Self::Updated),
             "created" => Ok(Self::Created),
-            _ => Err("Expected any of: 'score', 'price', 'updated', 'created'.".to_owned()),
+            _ => Err("Expected any of: 'score', 'updated', 'created'.".to_owned()),
         }
     }
 }
@@ -140,7 +138,6 @@ impl From<SortProductFieldData> for SortProductField {
     fn from(value: SortProductFieldData) -> Self {
         match value {
             SortProductFieldData::Score => Self::Score,
-            SortProductFieldData::Price => Self::Price,
             SortProductFieldData::Updated => Self::Updated,
             SortProductFieldData::Created => Self::Created,
         }
@@ -481,7 +478,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(
-                    "/api/v1/products?language=de&currency=USD&productQuery=cabinet&sort=price&order=desc&size=200&searchAfter=next",
+                    "/api/v1/products?language=de&currency=USD&productQuery=cabinet&sort=updated&order=desc&size=200&searchAfter=next",
                 )
                 .body(Body::empty())?,
             )
@@ -501,7 +498,7 @@ mod tests {
         assert!(matches!(
             request.sort,
             Some(Sort {
-                sort: SortProductField::Price,
+                sort: SortProductField::Updated,
                 order: SortOrder::Desc,
             })
         ));
@@ -512,6 +509,19 @@ mod tests {
             }),
             request.cursor
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_reject_price_sort() -> Result<(), Box<dyn std::error::Error>> {
+        let (app, calls) = app();
+
+        let response = app
+            .oneshot(Request::get("/api/v1/products?sort=price&order=asc").body(Body::empty())?)
+            .await?;
+
+        assert_eq!(StatusCode::BAD_REQUEST, response.status());
+        assert!(lock(&calls).is_empty());
         Ok(())
     }
 

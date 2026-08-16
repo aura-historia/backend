@@ -1,25 +1,47 @@
 use crate::{
-    continent_document::ContinentDocument, product_document::ProductDocument,
-    product_image_document::ProductImageDocument, product_state_document::ProductStateDocument,
+    continent_document::ContinentDocument,
+    product_document::{ProductDocument, SourcePriceDocument},
+    product_image_document::ProductImageDocument,
+    product_state_document::ProductStateDocument,
     shop_type_document::ShopTypeDocument,
 };
 use common::{
-    currency::domain::Currency,
+    currency::{data::CurrencyData, domain::Currency},
+    fx_rate_id::FxRateId,
     language::{
         document::{LanguageDocument, TextDocument},
         domain::Language,
     },
-    price::domain::Price,
     product_lifecycle::document::ProductLifecycleDocument,
 };
+use fxrate_core::{FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use product_service::ports::{ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource};
 use serde_json::Value;
 
-/// Builds the canonical Product JSON consumed by search-filter percolation.
+/// Builds canonical Product JSON consumed by search-filter percolation.
 ///
-/// This is intentionally JSON-only. `ProductDocument` stays private to this adapter.
+/// Source pricing stays native. Sale pricing is rendered only from the exact
+/// immutable sale snapshot; percolation never invents converted values.
 #[derive(Debug, thiserror::Error)]
 pub enum ProductPercolationDocumentError {
+    #[error("sold product source is missing immutable sale valuation")]
+    MissingSaleValuation,
+    #[error("sale valuation is missing its immutable FX snapshot")]
+    MissingSaleSnapshot,
+    #[error("active product source must not receive a sale FX snapshot")]
+    UnexpectedSaleSnapshot,
+    #[error("sale valuation FX snapshot ID does not match the supplied snapshot")]
+    SaleSnapshotMismatch {
+        valuation_fx_rate_id: FxRateId,
+        snapshot_fx_rate_id: FxRateId,
+    },
+    #[error("sale valuation cannot be projected without a native source price")]
+    MissingSalePrice,
+    #[error("sale FX snapshot cannot convert the native source price")]
+    InvalidSaleSnapshot {
+        #[source]
+        source: FxRateSnapshotError,
+    },
     #[error("product percolation document serialization failed")]
     Serialize {
         #[source]
@@ -29,232 +51,149 @@ pub enum ProductPercolationDocumentError {
 
 pub fn product_percolation_document(
     product: &ProductSearchFilterMatchSource,
+    sale_snapshot: Option<&FxRateSnapshot>,
 ) -> Result<Value, ProductPercolationDocumentError> {
-    serde_json::to_value(ProductDocument::from(product))
+    serde_json::to_value(product_document(product, sale_snapshot)?)
         .map_err(|source| ProductPercolationDocumentError::Serialize { source })
 }
 
-impl From<&ProductSearchFilterMatchSource> for ProductDocument {
-    fn from(product: &ProductSearchFilterMatchSource) -> Self {
-        let (title, language) = selected_title(product);
-        let structured_address = product.address.structured.as_ref();
+fn product_document(
+    product: &ProductSearchFilterMatchSource,
+    sale_snapshot: Option<&FxRateSnapshot>,
+) -> Result<ProductDocument, ProductPercolationDocumentError> {
+    let (sale_prices, sale_fx_rate_id, sold_at) = sale_projection(product, sale_snapshot)?;
+    let (title, language) = selected_title(product);
+    let structured_address = product.address.structured.as_ref();
 
-        Self {
-            product_id: product.product_id,
-            product_slug_id: product.product_slug_id.clone(),
-            shop_slug_id: product.shop_slug_id.clone(),
-            seller_slug_id: product.seller_slug_id.clone(),
-            event_id: product.current_event_id,
-            shop_id: product.shop_id,
-            seller_id: product.seller_id,
-            shops_product_id: product.shops_product_id.clone(),
-            shop_name: product.shop_name.to_string(),
-            seller_name: product.seller_name.to_string(),
-            shop_type: product.shop_type.into(),
-            structured_address_addressline: structured_address
-                .and_then(|address| address.addressline.clone()),
-            structured_address_addressline_extra: structured_address
-                .and_then(|address| address.addressline_extra.clone()),
-            structured_address_locality: structured_address
-                .and_then(|address| address.locality.clone()),
-            structured_address_region: structured_address
-                .and_then(|address| address.region.clone()),
-            structured_address_postal_code: structured_address
-                .and_then(|address| address.postal_code.clone()),
-            structured_address_country: structured_address.and_then(|address| address.country),
-            structured_address_continent: structured_address
-                .and_then(|address| address.continent)
-                .map(ContinentDocument::from),
-            geo_address: product
-                .address
-                .geo
-                .as_ref()
-                .map(|geo| format!("{},{}", geo.lat, geo.lon)),
-            title: TextDocument::new(title, LanguageDocument::from(language)),
-            title_de: translated_title(product, Language::De),
-            title_en: translated_title(product, Language::En),
-            title_fr: translated_title(product, Language::Fr),
-            title_es: translated_title(product, Language::Es),
-            title_it: translated_title(product, Language::It),
-            price_eur: price_amount_in(product.pricing.price, Currency::Eur),
-            price_usd: price_amount_in(product.pricing.price, Currency::Usd),
-            price_gbp: price_amount_in(product.pricing.price, Currency::Gbp),
-            price_aud: price_amount_in(product.pricing.price, Currency::Aud),
-            price_cad: price_amount_in(product.pricing.price, Currency::Cad),
-            price_nzd: price_amount_in(product.pricing.price, Currency::Nzd),
-            price_cny: price_amount_in(product.pricing.price, Currency::Cny),
-            price_brl: price_amount_in(product.pricing.price, Currency::Brl),
-            price_pln: price_amount_in(product.pricing.price, Currency::Pln),
-            price_try: price_amount_in(product.pricing.price, Currency::Try),
-            price_jpy: price_amount_in(product.pricing.price, Currency::Jpy),
-            price_czk: price_amount_in(product.pricing.price, Currency::Czk),
-            price_rub: price_amount_in(product.pricing.price, Currency::Rub),
-            price_aed: price_amount_in(product.pricing.price, Currency::Aed),
-            price_sar: price_amount_in(product.pricing.price, Currency::Sar),
-            price_hkd: price_amount_in(product.pricing.price, Currency::Hkd),
-            price_sgd: price_amount_in(product.pricing.price, Currency::Sgd),
-            price_chf: price_amount_in(product.pricing.price, Currency::Chf),
-            price_estimate_min_eur: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Eur,
-            ),
-            price_estimate_min_usd: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Usd,
-            ),
-            price_estimate_min_gbp: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Gbp,
-            ),
-            price_estimate_min_aud: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Aud,
-            ),
-            price_estimate_min_cad: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Cad,
-            ),
-            price_estimate_min_nzd: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Nzd,
-            ),
-            price_estimate_min_cny: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Cny,
-            ),
-            price_estimate_min_brl: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Brl,
-            ),
-            price_estimate_min_pln: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Pln,
-            ),
-            price_estimate_min_try: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Try,
-            ),
-            price_estimate_min_jpy: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Jpy,
-            ),
-            price_estimate_min_czk: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Czk,
-            ),
-            price_estimate_min_rub: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Rub,
-            ),
-            price_estimate_min_aed: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Aed,
-            ),
-            price_estimate_min_sar: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Sar,
-            ),
-            price_estimate_min_hkd: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Hkd,
-            ),
-            price_estimate_min_sgd: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Sgd,
-            ),
-            price_estimate_min_chf: price_amount_in(
-                product.pricing.price_estimate_min,
-                Currency::Chf,
-            ),
-            price_estimate_max_eur: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Eur,
-            ),
-            price_estimate_max_usd: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Usd,
-            ),
-            price_estimate_max_gbp: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Gbp,
-            ),
-            price_estimate_max_aud: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Aud,
-            ),
-            price_estimate_max_cad: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Cad,
-            ),
-            price_estimate_max_nzd: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Nzd,
-            ),
-            price_estimate_max_cny: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Cny,
-            ),
-            price_estimate_max_brl: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Brl,
-            ),
-            price_estimate_max_pln: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Pln,
-            ),
-            price_estimate_max_try: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Try,
-            ),
-            price_estimate_max_jpy: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Jpy,
-            ),
-            price_estimate_max_czk: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Czk,
-            ),
-            price_estimate_max_rub: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Rub,
-            ),
-            price_estimate_max_aed: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Aed,
-            ),
-            price_estimate_max_sar: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Sar,
-            ),
-            price_estimate_max_hkd: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Hkd,
-            ),
-            price_estimate_max_sgd: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Sgd,
-            ),
-            price_estimate_max_chf: price_amount_in(
-                product.pricing.price_estimate_max,
-                Currency::Chf,
-            ),
-            state: ProductStateDocument::from(product.state),
-            lifecycle: ProductLifecycleDocument::from(product.lifecycle),
-            url: product.url.clone(),
-            view_url: product.view_url.clone(),
-            images: product
-                .images
-                .iter()
-                .cloned()
-                .map(ProductImageDocument::from)
-                .collect(),
-            embedding: None,
-            auction_start: product.auction.start,
-            auction_end: product.auction.end,
-            created: product.created,
-            updated: product.updated,
+    Ok(ProductDocument {
+        product_id: product.product_id,
+        product_slug_id: product.product_slug_id.clone(),
+        shop_slug_id: product.shop_slug_id.clone(),
+        seller_slug_id: product.seller_slug_id.clone(),
+        event_id: product.current_event_id,
+        shop_id: product.shop_id,
+        seller_id: product.seller_id,
+        shops_product_id: product.shops_product_id.clone(),
+        shop_name: product.shop_name.to_string(),
+        seller_name: product.seller_name.to_string(),
+        shop_type: product.shop_type.into(),
+        structured_address_addressline: structured_address
+            .and_then(|address| address.addressline.clone()),
+        structured_address_addressline_extra: structured_address
+            .and_then(|address| address.addressline_extra.clone()),
+        structured_address_locality: structured_address
+            .and_then(|address| address.locality.clone()),
+        structured_address_region: structured_address.and_then(|address| address.region.clone()),
+        structured_address_postal_code: structured_address
+            .and_then(|address| address.postal_code.clone()),
+        structured_address_country: structured_address.and_then(|address| address.country),
+        structured_address_continent: structured_address
+            .and_then(|address| address.continent)
+            .map(ContinentDocument::from),
+        geo_address: product
+            .address
+            .geo
+            .as_ref()
+            .map(|geo| format!("{},{}", geo.lat, geo.lon)),
+        title: TextDocument::new(title, LanguageDocument::from(language)),
+        title_de: translated_title(product, Language::De),
+        title_en: translated_title(product, Language::En),
+        title_fr: translated_title(product, Language::Fr),
+        title_es: translated_title(product, Language::Es),
+        title_it: translated_title(product, Language::It),
+        source_price: product.pricing.price.map(|price| SourcePriceDocument {
+            amount: price.monetary_amount.into(),
+            currency: CurrencyData::from(price.currency),
+        }),
+        sale_prices,
+        sale_fx_rate_id,
+        sold_at,
+        state: ProductStateDocument::from(product.state),
+        lifecycle: ProductLifecycleDocument::from(product.lifecycle),
+        url: product.url.clone(),
+        view_url: product.view_url.clone(),
+        images: product
+            .images
+            .iter()
+            .cloned()
+            .map(ProductImageDocument::from)
+            .collect(),
+        embedding: None,
+        auction_start: product.auction.start,
+        auction_end: product.auction.end,
+        created: product.created,
+        updated: product.updated,
+    })
+}
+
+type SaleProjection = (
+    Option<crate::product_document::SalePricesDocument>,
+    Option<FxRateId>,
+    Option<time::OffsetDateTime>,
+);
+
+fn sale_projection(
+    product: &ProductSearchFilterMatchSource,
+    sale_snapshot: Option<&FxRateSnapshot>,
+) -> Result<SaleProjection, ProductPercolationDocumentError> {
+    match (product.sale_valuation, sale_snapshot) {
+        (None, None) if product.state != common::product_state::domain::ProductState::Sold => {
+            Ok((None, None, None))
         }
+        (None, None) => Err(ProductPercolationDocumentError::MissingSaleValuation),
+        (None, Some(_)) => Err(ProductPercolationDocumentError::UnexpectedSaleSnapshot),
+        (Some(_), None) => Err(ProductPercolationDocumentError::MissingSaleSnapshot),
+        (Some(valuation), Some(snapshot)) if valuation.fx_rate_id != snapshot.id() => {
+            Err(ProductPercolationDocumentError::SaleSnapshotMismatch {
+                valuation_fx_rate_id: valuation.fx_rate_id,
+                snapshot_fx_rate_id: snapshot.id(),
+            })
+        }
+        (Some(valuation), Some(snapshot)) => Ok((
+            Some(sale_prices(
+                snapshot,
+                product
+                    .pricing
+                    .price
+                    .ok_or(ProductPercolationDocumentError::MissingSalePrice)?,
+            )?),
+            Some(valuation.fx_rate_id),
+            Some(valuation.sold_at),
+        )),
     }
+}
+
+fn sale_prices(
+    snapshot: &FxRateSnapshot,
+    source_price: common::price::domain::Price,
+) -> Result<crate::product_document::SalePricesDocument, ProductPercolationDocumentError> {
+    let amount_in = |currency| {
+        snapshot
+            .convert(source_price, currency, RoundingMode::HalfUp)
+            .map(|price| u64::from(price.monetary_amount))
+            .map_err(|source| ProductPercolationDocumentError::InvalidSaleSnapshot { source })
+    };
+
+    Ok(crate::product_document::SalePricesDocument {
+        eur: amount_in(Currency::Eur)?,
+        gbp: amount_in(Currency::Gbp)?,
+        usd: amount_in(Currency::Usd)?,
+        aud: amount_in(Currency::Aud)?,
+        cad: amount_in(Currency::Cad)?,
+        nzd: amount_in(Currency::Nzd)?,
+        cny: amount_in(Currency::Cny)?,
+        brl: amount_in(Currency::Brl)?,
+        pln: amount_in(Currency::Pln)?,
+        r#try: amount_in(Currency::Try)?,
+        jpy: amount_in(Currency::Jpy)?,
+        czk: amount_in(Currency::Czk)?,
+        rub: amount_in(Currency::Rub)?,
+        aed: amount_in(Currency::Aed)?,
+        sar: amount_in(Currency::Sar)?,
+        hkd: amount_in(Currency::Hkd)?,
+        sgd: amount_in(Currency::Sgd)?,
+        chf: amount_in(Currency::Chf)?,
+    })
 }
 
 impl From<ProductSearchFilterMatchShopType> for ShopTypeDocument {
@@ -299,16 +238,11 @@ fn translated_title(
         .map(|title| title.as_ref().to_owned())
 }
 
-fn price_amount_in(price: Option<Price>, currency: Currency) -> Option<u64> {
-    price
-        .filter(|price| price.currency == currency)
-        .map(|price| u64::from(price.monetary_amount))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use common::{
+        currency::domain::Currency,
         event_id::EventId,
         localized::Localized,
         price::domain::{MonetaryAmount, Price},
@@ -320,14 +254,18 @@ mod tests {
         shop_slug_id::ShopSlugId,
         shops_product_id::ShopsProductId,
     };
+    use fxrate_core::{
+        FX_RATE_SCALE, FxRateQuote, FxRateSnapshot, FxRateSource, NewFxRateSnapshot,
+    };
     use indexmap::IndexSet;
     use product_core::{
-        product::{ProductAddress, ProductAuction, ProductPricing},
+        product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
         title::Title,
     };
     use product_service::ports::ProductSearchFilterMatchSourceEventKind;
     use serde_json::json;
     use std::collections::HashMap;
+    use strum::IntoEnumIterator;
     use url::Url;
 
     fn source() -> Result<ProductSearchFilterMatchSource, url::ParseError> {
@@ -357,6 +295,7 @@ mod tests {
                 price: Some(Price::new(MonetaryAmount::from(125_u64), Currency::Eur)),
                 ..Default::default()
             },
+            sale_valuation: None,
             state: ProductState::Available,
             lifecycle: ProductLifecycle::Active,
             url: url.clone(),
@@ -369,21 +308,106 @@ mod tests {
         })
     }
 
+    fn snapshot(fx_rate_id: FxRateId) -> Result<FxRateSnapshot, fxrate_core::FxRateSnapshotError> {
+        let snapshot = NewFxRateSnapshot::capture_eur(
+            fx_rate_id,
+            time::OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| {
+                FxRateQuote::new(
+                    currency,
+                    match currency {
+                        Currency::Eur => FX_RATE_SCALE,
+                        Currency::Usd => 1_250_000,
+                        _ => FX_RATE_SCALE,
+                    },
+                )
+            }),
+        )?;
+        Ok(snapshot.into_persisted(1_i64.try_into()?))
+    }
+
     #[test]
-    fn should_map_typed_product_source_to_canonical_percolation_json()
+    fn should_map_native_source_price_without_converted_sale_values()
     -> Result<(), Box<dyn std::error::Error>> {
         let source = source()?;
 
-        let document = product_percolation_document(&source)?;
+        let document = product_percolation_document(&source, None)?;
 
-        assert_eq!(document["productId"], json!(source.product_id));
-        assert_eq!(document["title"]["text"], json!("Blue vase"));
-        assert_eq!(document["title"]["language"], json!("EN"));
-        assert_eq!(document["titleEn"], json!("Blue vase"));
-        assert_eq!(document["priceEur"], json!(125));
-        assert_eq!(document["shopType"], json!("MARKETPLACE"));
-        assert_eq!(document["state"], json!("AVAILABLE"));
-        assert_eq!(document["lifecycle"], json!("ACTIVE"));
+        assert_eq!(
+            document["sourcePrice"],
+            json!({ "amount": 125, "currency": "EUR" })
+        );
+        assert!(document.get("salePrices").is_none());
+        assert!(document.get("priceEur").is_none());
+        assert!(document.get("priceEstimateMinEur").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn should_render_all_sale_prices_from_the_immutable_sale_snapshot()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source()?;
+        let fx_rate_id = FxRateId::new();
+        source.sale_valuation = Some(ProductSaleValuation {
+            fx_rate_id,
+            sold_at: time::OffsetDateTime::UNIX_EPOCH,
+        });
+        source.state = ProductState::Sold;
+        let sale_snapshot = snapshot(fx_rate_id)?;
+
+        let document = product_percolation_document(&source, Some(&sale_snapshot))?;
+
+        for currency in Currency::iter() {
+            assert!(
+                document["salePrices"]
+                    .get(currency.as_str().to_lowercase())
+                    .is_some(),
+                "missing sale price for {currency}"
+            );
+        }
+        assert_eq!(json!(156), document["salePrices"]["usd"]);
+        assert_eq!(json!(fx_rate_id), document["saleFxRateId"]);
+        assert_eq!(json!("1970-01-01T00:00:00Z"), document["soldAt"]);
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_missing_sale_snapshot() -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source()?;
+        source.sale_valuation = Some(ProductSaleValuation {
+            fx_rate_id: FxRateId::new(),
+            sold_at: time::OffsetDateTime::UNIX_EPOCH,
+        });
+        source.state = ProductState::Sold;
+
+        assert!(matches!(
+            product_percolation_document(&source, None),
+            Err(ProductPercolationDocumentError::MissingSaleSnapshot)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_mismatched_sale_snapshot() -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source()?;
+        let valuation_fx_rate_id = FxRateId::new();
+        let snapshot_fx_rate_id = FxRateId::new();
+        source.sale_valuation = Some(ProductSaleValuation {
+            fx_rate_id: valuation_fx_rate_id,
+            sold_at: time::OffsetDateTime::UNIX_EPOCH,
+        });
+        source.state = ProductState::Sold;
+        let sale_snapshot = snapshot(snapshot_fx_rate_id)?;
+
+        assert!(matches!(
+            product_percolation_document(&source, Some(&sale_snapshot)),
+            Err(ProductPercolationDocumentError::SaleSnapshotMismatch {
+                valuation_fx_rate_id: actual_valuation,
+                snapshot_fx_rate_id: actual_snapshot,
+            }) if actual_valuation == valuation_fx_rate_id && actual_snapshot == snapshot_fx_rate_id
+        ));
         Ok(())
     }
 }

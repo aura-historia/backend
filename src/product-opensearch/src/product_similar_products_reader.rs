@@ -1,5 +1,5 @@
 use crate::product_document::{ProductDocument, ProductDocumentSerdeField};
-use crate::product_search_reader::map_search_response;
+use crate::product_search_reader::map_search_response_without_price;
 use common::error::boxed::box_error;
 use common::opensearch::search_response::SearchResponse;
 use opensearch::{OpenSearch, SearchParts};
@@ -78,7 +78,13 @@ impl ProductSimilarProductsReader for OpenSearchProductSimilarProductsReader {
             )?;
         let search = ProductSearch::new(request.language, request.currency);
 
-        Ok(map_search_response(&search, search_response).items)
+        map_search_response_without_price(&search, search_response)
+            .map(|result| result.items)
+            .map_err(
+                |error| ProductSimilarProductsReadError::SimilarProductsQueryFailed {
+                    source: box_error(error),
+                },
+            )
     }
 }
 

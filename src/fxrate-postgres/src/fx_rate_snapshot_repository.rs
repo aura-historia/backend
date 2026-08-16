@@ -22,15 +22,15 @@ struct SqlxFxRateSnapshotRepository<'tx> {
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct SnapshotRow {
-    fx_rate_id: uuid::Uuid,
+pub(crate) struct SnapshotRow {
+    pub(crate) fx_rate_id: uuid::Uuid,
     generation: i64,
     captured_at: OffsetDateTime,
     source: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct QuoteRow {
+pub(crate) struct QuoteRow {
     fx_rate_id: uuid::Uuid,
     currency: String,
     units_per_eur: i64,
@@ -211,7 +211,7 @@ impl FxRateSnapshotRepository for SqlxFxRateSnapshotRepository<'_> {
     }
 }
 
-fn map_snapshots(
+pub(crate) fn map_snapshots(
     snapshots: Vec<SnapshotRow>,
     quotes: Vec<QuoteRow>,
 ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError> {

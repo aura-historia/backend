@@ -21,7 +21,7 @@ use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use product_core::{
     description::Description,
-    product::{ProductAddress, ProductAuction, ProductPricing},
+    product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
     product_image::ProductImage,
     prohibited_content::ProhibitedContent,
     title::Title,
@@ -76,6 +76,8 @@ struct SourceRow {
     price_estimate_min_currency: Option<String>,
     price_estimate_max_amount: Option<i64>,
     price_estimate_max_currency: Option<String>,
+    sale_fx_rate_id: Option<uuid::Uuid>,
+    sold_at: Option<OffsetDateTime>,
     state: String,
     lifecycle: String,
     url: String,
@@ -185,6 +187,8 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
                 product.price_estimate_min_currency,
                 product.price_estimate_max_amount,
                 product.price_estimate_max_currency,
+                product.sale_fx_rate_id,
+                product.sold_at,
                 product.state,
                 product.lifecycle,
                 product.url,
@@ -248,6 +252,7 @@ fn source_from_rows(rows: Vec<SourceRow>) -> Result<Option<ProductSearchFilterMa
             row.price_estimate_max_currency.as_deref(),
         )?,
     };
+    let sale_valuation = sale_valuation(row.sale_fx_rate_id, row.sold_at)?;
     let images = images(&row.product_images)?;
     let url = Url::parse(&row.url).map_err(|_| ())?;
     let shop_slug_id = ShopSlugId::raw(&row.shop_slug_id).map_err(|_| ())?;
@@ -272,6 +277,7 @@ fn source_from_rows(rows: Vec<SourceRow>) -> Result<Option<ProductSearchFilterMa
         titles,
         descriptions,
         pricing,
+        sale_valuation,
         state: product_state(&row.state)?,
         lifecycle: lifecycle(&row.lifecycle)?,
         view_url: append_utm_params(url.clone()),
@@ -422,6 +428,20 @@ fn price(amount: Option<i64>, currency_value: Option<&str>) -> Result<Option<Pri
             MonetaryAmount::from(u64::try_from(amount).map_err(|_| ())?),
             currency(currency_value)?,
         ))),
+        (None, None) => Ok(None),
+        _ => Err(()),
+    }
+}
+
+fn sale_valuation(
+    fx_rate_id: Option<uuid::Uuid>,
+    sold_at: Option<OffsetDateTime>,
+) -> Result<Option<ProductSaleValuation>, ()> {
+    match (fx_rate_id, sold_at) {
+        (Some(fx_rate_id), Some(sold_at)) => Ok(Some(ProductSaleValuation {
+            fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+            sold_at,
+        })),
         (None, None) => Ok(None),
         _ => Err(()),
     }
@@ -578,6 +598,24 @@ mod tests {
             ProductSearchFilterMatchSourceEventKind::Ignored,
             event_kind("POLICY")
         );
+    }
+
+    #[test]
+    fn should_map_sale_valuation_only_when_both_persisted_columns_are_present() {
+        assert_eq!(Ok(None), sale_valuation(None, None));
+
+        let fx_rate_id = uuid::Uuid::new_v4();
+        let sold_at = OffsetDateTime::UNIX_EPOCH;
+        assert_eq!(
+            Ok(Some(ProductSaleValuation {
+                fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+                sold_at,
+            })),
+            sale_valuation(Some(fx_rate_id), Some(sold_at))
+        );
+
+        assert!(sale_valuation(Some(uuid::Uuid::new_v4()), None).is_err());
+        assert!(sale_valuation(None, Some(sold_at)).is_err());
     }
 
     #[test]

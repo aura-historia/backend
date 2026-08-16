@@ -7,9 +7,14 @@ use crate::ports::{
 };
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
+use fxrate_core::FxRateSnapshot;
+use fxrate_service::ports::{
+    FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
+};
 use large_language_model::{
     BatchGenerationOptions, GenerationOptions, LargeLanguageModel, LargeLanguageModelError,
     StructuredGenerationRequest,
@@ -73,6 +78,18 @@ pub enum MatchProductEventError {
     },
     #[error("product source does not match requested event or product")]
     ProductSourceMismatch,
+    #[error("sale FX snapshot is missing from canonical persisted storage")]
+    SaleSnapshotNotFound { fx_rate_id: FxRateId },
+    #[error("sale FX snapshot read failed")]
+    SaleSnapshotReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("sale FX snapshot persisted state is invalid")]
+    SaleSnapshotStateInvalid {
+        #[source]
+        source: BoxError,
+    },
     #[error("failed to commit product source read transaction")]
     CommitSourceReadTransactionFailed {
         #[source]
@@ -130,19 +147,21 @@ pub trait MatchProductEventUseCase: Send + Sync {
     ) -> Result<MatchProductEventResult, MatchProductEventError>;
 }
 
-pub struct MatchProductEventHandler<U, S, I, E, R, W> {
+pub struct MatchProductEventHandler<U, S, F, I, E, R, W> {
     unit_of_work: U,
     sources: S,
+    fx_rates: F,
     index: I,
     evaluator: E,
     candidates: R,
     matches: W,
 }
 
-impl<U, S, I, E, R, W> MatchProductEventHandler<U, S, I, E, R, W> {
+impl<U, S, F, I, E, R, W> MatchProductEventHandler<U, S, F, I, E, R, W> {
     pub fn new(
         unit_of_work: U,
         sources: S,
+        fx_rates: F,
         index: I,
         evaluator: E,
         candidates: R,
@@ -151,6 +170,7 @@ impl<U, S, I, E, R, W> MatchProductEventHandler<U, S, I, E, R, W> {
         Self {
             unit_of_work,
             sources,
+            fx_rates,
             index,
             evaluator,
             candidates,
@@ -160,10 +180,11 @@ impl<U, S, I, E, R, W> MatchProductEventHandler<U, S, I, E, R, W> {
 }
 
 #[async_trait::async_trait]
-impl<U, S, I, E, R, W> MatchProductEventUseCase for MatchProductEventHandler<U, S, I, E, R, W>
+impl<U, S, F, I, E, R, W> MatchProductEventUseCase for MatchProductEventHandler<U, S, F, I, E, R, W>
 where
     U: UnitOfWork,
     S: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
     I: SearchFilterIndex,
     E: LargeLanguageModel,
     R: ActiveSearchFilterMatchCandidateReaderFactory<U::Tx>,
@@ -181,7 +202,9 @@ where
         &self,
         command: MatchProductEventCommand,
     ) -> Result<MatchProductEventResult, MatchProductEventError> {
-        let product = load_product_source(&self.unit_of_work, &self.sources, &command).await?;
+        let product =
+            load_product_source(&self.unit_of_work, &self.sources, &self.fx_rates, &command)
+                .await?;
         let product = match product {
             ProductSourceReadOutcome::Missing => {
                 return Ok(MatchProductEventResult {
@@ -212,11 +235,11 @@ where
 
         let percolated = self
             .index
-            .percolate(&product)
+            .percolate(&product.product, product.sale_snapshot.as_ref())
             .await
             .map_err(percolation_error)?;
         let percolated_count = percolated.len();
-        let evaluated = evaluate_candidates(&self.evaluator, &product, percolated).await;
+        let evaluated = evaluate_candidates(&self.evaluator, &product.product, percolated).await;
         let candidates = evaluated.candidates;
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             MatchProductEventError::BeginTransactionFailed {
@@ -285,17 +308,24 @@ enum ProductSourceReadOutcome {
     Missing,
     IgnoredEventType,
     Stale,
-    Current(Box<ProductSearchFilterMatchSource>),
+    Current(Box<ProductPercolationSource>),
 }
 
-async fn load_product_source<U, S>(
+struct ProductPercolationSource {
+    product: ProductSearchFilterMatchSource,
+    sale_snapshot: Option<FxRateSnapshot>,
+}
+
+async fn load_product_source<U, S, F>(
     unit_of_work: &U,
     sources: &S,
+    fx_rates: &F,
     command: &MatchProductEventCommand,
 ) -> Result<ProductSourceReadOutcome, MatchProductEventError>
 where
     U: UnitOfWork,
     S: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     let mut tx = unit_of_work.begin().await.map_err(|source| {
         MatchProductEventError::BeginSourceReadTransactionFailed {
@@ -321,7 +351,24 @@ where
         Some(product) if product.current_event_id != command.origin_event_id => {
             ProductSourceReadOutcome::Stale
         }
-        Some(product) => ProductSourceReadOutcome::Current(Box::new(product)),
+        Some(product) => {
+            let sale_snapshot = match product.sale_valuation {
+                Some(valuation) => fx_rates
+                    .in_transaction(&mut tx)
+                    .find_by_id(valuation.fx_rate_id)
+                    .await
+                    .map_err(sale_snapshot_read_error)?
+                    .ok_or(MatchProductEventError::SaleSnapshotNotFound {
+                        fx_rate_id: valuation.fx_rate_id,
+                    })
+                    .map(Some)?,
+                None => None,
+            };
+            ProductSourceReadOutcome::Current(Box::new(ProductPercolationSource {
+                product,
+                sale_snapshot,
+            }))
+        }
     };
     tx.commit().await.map_err(|source| {
         MatchProductEventError::CommitSourceReadTransactionFailed {
@@ -450,6 +497,17 @@ fn product_source_read_error(
             MatchProductEventError::ProductSourceStateInvalid { source }
         }
         error => MatchProductEventError::ProductSourceReadFailed {
+            source: box_error(error),
+        },
+    }
+}
+
+fn sale_snapshot_read_error(error: FxRateSnapshotRepositoryError) -> MatchProductEventError {
+    match error {
+        FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
+            MatchProductEventError::SaleSnapshotStateInvalid { source }
+        }
+        error => MatchProductEventError::SaleSnapshotReadFailed {
             source: box_error(error),
         },
     }
@@ -595,8 +653,7 @@ fn match_write_error(error: SearchFilterMatchWriteError) -> MatchProductEventErr
 mod tests {
     use super::*;
     use crate::ports::{
-        SearchFilterIndexQuery, SearchFilterProjection, SearchFilterProjectionWriteOutcome,
-        SearchFilterView,
+        SearchFilterIndexQuery, SearchFilterProjectionWriteOutcome, SearchFilterView,
     };
     use common::{
         currency::domain::Currency, language::domain::Language,
@@ -605,6 +662,11 @@ mod tests {
         shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId, transaction::TransactionError,
         user_id::UserId, user_search_filter_id::UserSearchFilterId,
         user_search_filter_name::UserSearchFilterName,
+    };
+    use fxrate_core::NewFxRateSnapshot;
+    use fxrate_service::ports::{
+        FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryError,
+        FxRateSnapshotRepositoryFactory,
     };
     use indexmap::IndexSet;
     use product_core::{
@@ -616,6 +678,7 @@ mod tests {
         ProductSearchFilterMatchSourceEventKind,
     };
     use std::sync::{Arc, Mutex};
+
     use time::OffsetDateTime;
     use url::Url;
 
@@ -624,6 +687,7 @@ mod tests {
         committed: usize,
         persisted: Vec<SearchFilterProductMatch>,
         active_reads: usize,
+        sale_snapshot_reads: usize,
     }
 
     #[derive(Clone, Default)]
@@ -686,7 +750,7 @@ mod tests {
     impl SearchFilterIndex for Index {
         async fn upsert(
             &self,
-            _projection: &SearchFilterProjection,
+            _projection: &crate::ports::CompiledSearchFilterProjection,
         ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError> {
             Ok(SearchFilterProjectionWriteOutcome::Applied)
         }
@@ -702,6 +766,7 @@ mod tests {
         async fn percolate(
             &self,
             _product: &ProductSearchFilterMatchSource,
+            _sale_snapshot: Option<&FxRateSnapshot>,
         ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
             Ok(self.filters.clone())
         }
@@ -714,6 +779,64 @@ mod tests {
             SearchFilterIndexError,
         > {
             Ok(Default::default())
+        }
+    }
+
+    #[derive(Clone)]
+    struct FxRates(Arc<Mutex<State>>);
+
+    struct ReadingFxRates<'a>(&'a Arc<Mutex<State>>);
+
+    #[async_trait::async_trait]
+    impl FxRateSnapshotRepository for ReadingFxRates<'_> {
+        async fn find_latest(
+            &mut self,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_latest_at_or_before(
+            &mut self,
+            _timestamp: OffsetDateTime,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_by_id(
+            &mut self,
+            _id: FxRateId,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            self.0
+                .lock()
+                .map_err(|_| FxRateSnapshotRepositoryError::ReadFailed {
+                    source: box_error(std::io::Error::other("test mutex poisoned")),
+                })?
+                .sale_snapshot_reads += 1;
+            Ok(None)
+        }
+
+        async fn find_by_ids(
+            &mut self,
+            _ids: &[FxRateId],
+        ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Vec::new())
+        }
+
+        async fn insert(
+            &mut self,
+            _snapshot: &NewFxRateSnapshot,
+            _source_event_id: &str,
+        ) -> Result<FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError> {
+            Ok(FxRateSnapshotInsertOutcome::Duplicate)
+        }
+    }
+
+    impl FxRateSnapshotRepositoryFactory<FakeTransaction> for FxRates {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl FxRateSnapshotRepository + 'tx {
+            ReadingFxRates(&self.0)
         }
     }
 
@@ -853,6 +976,7 @@ mod tests {
             titles: std::collections::HashMap::new(),
             descriptions: std::collections::HashMap::new(),
             pricing: ProductPricing::default(),
+            sale_valuation: None,
             state: ProductState::Available,
             lifecycle: ProductLifecycle::Active,
             url: url.clone(),
@@ -884,11 +1008,19 @@ mod tests {
         state: Arc<Mutex<State>>,
         sources: Vec<ProductSearchFilterMatchSource>,
         search_filter: SearchFilterView,
-    ) -> MatchProductEventHandler<FakeUnitOfWork, Sources, Index, Evaluator, Candidates, Matches>
-    {
+    ) -> MatchProductEventHandler<
+        FakeUnitOfWork,
+        Sources,
+        FxRates,
+        Index,
+        Evaluator,
+        Candidates,
+        Matches,
+    > {
         MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(sources),
+            FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![search_filter],
             },
@@ -907,6 +1039,7 @@ mod tests {
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
+            FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![
                     filter(user_id, UserSearchFilterId::new()),
@@ -932,6 +1065,7 @@ mod tests {
         assert_eq!(2, result.persisted_match_count);
         assert_eq!(2, state.committed);
         assert_eq!(1, state.active_reads);
+        assert_eq!(0, state.sale_snapshot_reads);
         assert_eq!(2, state.persisted.len());
         Ok(())
     }
@@ -973,6 +1107,7 @@ mod tests {
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
+            FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![plain.clone(), enhanced],
             },
@@ -1012,6 +1147,7 @@ mod tests {
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
+            FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![enhanced],
             },
@@ -1182,6 +1318,7 @@ mod tests {
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
+            FxRates(Arc::clone(&state)),
             Index {
                 filters: Vec::new(),
             },

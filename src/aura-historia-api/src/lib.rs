@@ -740,7 +740,9 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
     );
     let search_products = SearchProductsHandler::new(
+        unit_of_work.clone(),
         OpenSearchProductSearchReader::new(opensearch_client.clone()),
+        SqlxFxRateSnapshotRepositoryFactory,
         Arc::clone(&embeddings),
         product_user_states,
         DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),

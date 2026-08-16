@@ -5,6 +5,7 @@ use aura_historia_worker::search_filter_projection::consume_search_filter_projec
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use common::currency::domain::Currency;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::postgres::SqlxUnitOfWork;
 use common::product_id::ProductId;
@@ -21,6 +22,7 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use product_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
     title::Title,
@@ -189,10 +191,13 @@ struct ProjectionWorker {
 impl ProjectionWorker {
     async fn start() -> Result<Self, Box<dyn std::error::Error>> {
         let pool = get_postgres_client().await;
+        seed_current_fx_snapshot(&pool).await?;
         let index = OpenSearchSearchFilterIndex::new(get_opensearch_client().await.clone());
         let handler: Arc<dyn ProjectSearchFilterChangeUseCase> =
             Arc::new(ProjectSearchFilterChangeHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
                 SqlxSearchFilterIndexReader::new(pool.clone()),
+                SqlxFxRateSnapshotRepositoryFactory,
                 index.clone(),
             ));
         let (runtime, mut receivers) =
@@ -318,7 +323,7 @@ async fn assert_not_percolated_for(
     loop {
         refresh_index("user_search_filters").await;
         let product = product_source(title)?;
-        let matches = index.percolate(&product).await?;
+        let matches = index.percolate(&product, None).await?;
         if matches
             .iter()
             .any(|search_filter| search_filter.search_filter_id == filter_id)
@@ -344,7 +349,7 @@ async fn wait_for_percolation(
     for _ in 0..POLL_ATTEMPTS {
         refresh_index("user_search_filters").await;
         let product = product_source(title)?;
-        let matches = index.percolate(&product).await?;
+        let matches = index.percolate(&product, None).await?;
         let found = matches
             .iter()
             .any(|search_filter| search_filter.search_filter_id == filter_id);
@@ -390,6 +395,7 @@ fn product_source(
         titles: std::collections::HashMap::from([(Language::En, title)]),
         descriptions: std::collections::HashMap::new(),
         pricing: ProductPricing::default(),
+        sale_valuation: None,
         state: ProductState::Listed,
         lifecycle: ProductLifecycle::Active,
         url: url.clone(),
@@ -413,6 +419,37 @@ fn search_filter(user_id: UserId, query: &str) -> Result<SearchFilter, Box<dyn s
             .with_product_query(query.try_into()?),
         embedding: None,
     }))
+}
+
+async fn seed_current_fx_snapshot(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    let fx_rate_id = FxRateId::new();
+    sqlx::query(
+        "INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id) VALUES ($1, now(), $2, $3)",
+    )
+    .bind(uuid::Uuid::from(fx_rate_id))
+    .bind("fxratesapi")
+    .bind(fx_rate_id.to_string())
+    .execute(pool)
+    .await?;
+
+    for currency in [
+        "EUR", "GBP", "USD", "AUD", "CAD", "NZD", "CNY", "BRL", "PLN", "TRY", "JPY", "CZK", "RUB",
+        "AED", "SAR", "HKD", "SGD", "CHF",
+    ] {
+        sqlx::query(
+            "INSERT INTO fx_rate_quotes (fx_rate_id, currency, units_per_eur) VALUES ($1, $2, $3)",
+        )
+        .bind(uuid::Uuid::from(fx_rate_id))
+        .bind(currency)
+        .bind(if currency == "EUR" {
+            1_000_000_i64
+        } else {
+            1_250_000_i64
+        })
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
 }
 
 async fn seed_user(pool: &sqlx::PgPool) -> Result<UserId, sqlx::Error> {

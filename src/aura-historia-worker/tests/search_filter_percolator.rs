@@ -4,6 +4,7 @@ use aura_historia_worker::search_filter_percolator::consume_search_filter_percol
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use common::currency::domain::Currency;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::postgres::SqlxUnitOfWork;
 use common::resource_state::domain::ResourceState;
@@ -11,6 +12,7 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
@@ -611,12 +613,14 @@ struct FullFlowWorker {
 impl FullFlowWorker {
     async fn start() -> Result<Self, Box<dyn std::error::Error>> {
         let pool = get_postgres_client().await;
+        seed_current_fx_snapshot(&pool).await?;
         let index = OpenSearchSearchFilterIndex::new(get_opensearch_client().await.clone());
         let dynamodb = get_dynamodb_client().await;
         let percolator_handler: Arc<dyn MatchProductEventUseCase> =
             Arc::new(MatchProductEventHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+                SqlxFxRateSnapshotRepositoryFactory,
                 index.clone(),
                 NonMatchingLargeLanguageModel,
                 SqlxActiveSearchFilterMatchCandidateReaderFactory,
@@ -678,7 +682,9 @@ impl FullFlowWorker {
         version: i64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         ProjectSearchFilterChangeHandler::new(
+            SqlxUnitOfWork::new(self.pool.clone()),
             SqlxSearchFilterIndexReader::new(self.pool.clone()),
+            SqlxFxRateSnapshotRepositoryFactory,
             self.index.clone(),
         )
         .execute(ProjectSearchFilterChangeCommand {
@@ -730,10 +736,12 @@ struct PercolatorWorker {
 impl PercolatorWorker {
     async fn start() -> Result<Self, Box<dyn std::error::Error>> {
         let pool = get_postgres_client().await;
+        seed_current_fx_snapshot(&pool).await?;
         let index = OpenSearchSearchFilterIndex::new(get_opensearch_client().await.clone());
         let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
             index.clone(),
             NonMatchingLargeLanguageModel,
             SqlxActiveSearchFilterMatchCandidateReaderFactory,
@@ -761,7 +769,9 @@ impl PercolatorWorker {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let version = insert_filter(&self.pool, filter).await?;
         ProjectSearchFilterChangeHandler::new(
+            SqlxUnitOfWork::new(self.pool.clone()),
             SqlxSearchFilterIndexReader::new(self.pool.clone()),
+            SqlxFxRateSnapshotRepositoryFactory,
             self.index.clone(),
         )
         .execute(ProjectSearchFilterChangeCommand {
@@ -831,6 +841,37 @@ impl ScopedWorkerServer {
         self.server.await??;
         Ok(())
     }
+}
+
+async fn seed_current_fx_snapshot(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    let fx_rate_id = FxRateId::new();
+    sqlx::query(
+        "INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id) VALUES ($1, now(), $2, $3)",
+    )
+    .bind(uuid::Uuid::from(fx_rate_id))
+    .bind("fxratesapi")
+    .bind(fx_rate_id.to_string())
+    .execute(pool)
+    .await?;
+
+    for currency in [
+        "EUR", "GBP", "USD", "AUD", "CAD", "NZD", "CNY", "BRL", "PLN", "TRY", "JPY", "CZK", "RUB",
+        "AED", "SAR", "HKD", "SGD", "CHF",
+    ] {
+        sqlx::query(
+            "INSERT INTO fx_rate_quotes (fx_rate_id, currency, units_per_eur) VALUES ($1, $2, $3)",
+        )
+        .bind(uuid::Uuid::from(fx_rate_id))
+        .bind(currency)
+        .bind(if currency == "EUR" {
+            1_000_000_i64
+        } else {
+            1_250_000_i64
+        })
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
 }
 
 async fn seed_user(pool: &sqlx::PgPool, tier: &str) -> Result<UserId, sqlx::Error> {

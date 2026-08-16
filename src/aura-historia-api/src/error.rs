@@ -886,12 +886,17 @@ impl From<SearchProductsError> for ApiError {
     fn from(error: SearchProductsError) -> Self {
         match error {
             SearchProductsError::ProductSearchQueryFailed
+            | SearchProductsError::FxRateSnapshotMissing
+            | SearchProductsError::BeginFxRateSnapshotTransactionFailed { .. }
+            | SearchProductsError::FxRateSnapshotReadFailed { .. }
+            | SearchProductsError::CommitFxRateSnapshotTransactionFailed { .. }
             | SearchProductsError::ProductUserStateQueryFailed { .. }
             | SearchProductsError::ProductNotificationReadFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product search is temporarily unavailable.")
             }
             SearchProductsError::ProductSearchReadModelInvalid
+            | SearchProductsError::FxRateSnapshotInvalid { .. }
             | SearchProductsError::ProductUserStateReadModelInvalid { .. }
             | SearchProductsError::ProductUserStateMissing
             | SearchProductsError::HiddenProductSummaryInvalid { .. } => {

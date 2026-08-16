@@ -1,8 +1,11 @@
-use crate::ports::{ProductSearchReadError, ProductSearchReader, ProductUserStateReader};
+use crate::ports::{
+    CompiledProductSearch, ProductPriceFilterPlan, ProductSearchReadError,
+    ProductSearchReadRequest, ProductSearchReader, ProductUserStateReader,
+};
 use crate::use_cases::queries::product_summary_personalization::{
     ProductSummaryPersonalizationError, hydrate_product_summaries,
 };
-use common::error::boxed::BoxError;
+use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
 use common::language::domain::Language;
 use common::localized::Localized;
@@ -19,7 +22,12 @@ use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
+use common::transaction::{Transaction, UnitOfWork};
 use embedding::{EmbeddingGenerator, EmbeddingText};
+use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
+use fxrate_service::ports::{
+    FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
+};
 
 use indexmap::IndexSet;
 use notification_service::ports::all_notifications_reader::AllNotificationsReader;
@@ -69,6 +77,28 @@ pub enum SearchProductsError {
     ProductSearchQueryFailed,
     #[error("product search read model is invalid")]
     ProductSearchReadModelInvalid,
+    #[error("latest FX rate snapshot is missing")]
+    FxRateSnapshotMissing,
+    #[error("failed to begin latest FX rate snapshot transaction")]
+    BeginFxRateSnapshotTransactionFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("latest FX rate snapshot read failed")]
+    FxRateSnapshotReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("latest FX rate snapshot is invalid")]
+    FxRateSnapshotInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("failed to commit latest FX rate snapshot transaction")]
+    CommitFxRateSnapshotTransactionFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product user state query failed")]
     ProductUserStateQueryFailed {
         #[source]
@@ -102,17 +132,28 @@ pub trait SearchProductsUseCase: Send + Sync {
     ) -> Result<SearchProductsResult, SearchProductsError>;
 }
 
-pub struct SearchProductsHandler<R, E, U, N> {
+pub struct SearchProductsHandler<UoW, R, F, E, U, N> {
+    unit_of_work: UoW,
     reader: R,
+    fx_rates: F,
     embeddings: E,
     user_states: U,
     notifications: N,
 }
 
-impl<R, E, U, N> SearchProductsHandler<R, E, U, N> {
-    pub fn new(reader: R, embeddings: E, user_states: U, notifications: N) -> Self {
+impl<UoW, R, F, E, U, N> SearchProductsHandler<UoW, R, F, E, U, N> {
+    pub fn new(
+        unit_of_work: UoW,
+        reader: R,
+        fx_rates: F,
+        embeddings: E,
+        user_states: U,
+        notifications: N,
+    ) -> Self {
         Self {
+            unit_of_work,
             reader,
+            fx_rates,
             embeddings,
             user_states,
             notifications,
@@ -121,9 +162,11 @@ impl<R, E, U, N> SearchProductsHandler<R, E, U, N> {
 }
 
 #[async_trait::async_trait]
-impl<R, E, U, N> SearchProductsUseCase for SearchProductsHandler<R, E, U, N>
+impl<UoW, R, F, E, U, N> SearchProductsUseCase for SearchProductsHandler<UoW, R, F, E, U, N>
 where
+    UoW: UnitOfWork,
     R: ProductSearchReader,
+    F: FxRateSnapshotRepositoryFactory<UoW::Tx>,
     E: EmbeddingGenerator,
     U: ProductUserStateReader,
     N: AllNotificationsReader,
@@ -142,16 +185,27 @@ where
         context: &OperationContext,
         request: SearchProductsRequest,
     ) -> Result<SearchProductsResult, SearchProductsError> {
-        let result = match hybrid_embedding_query(&request) {
+        let snapshot = load_latest_fx_rate_snapshot(&self.unit_of_work, &self.fx_rates).await?;
+        let price_filter = compile_price_filter(snapshot, &request)?;
+        let embedding_query = hybrid_embedding_query(&request);
+        let read_request = ProductSearchReadRequest {
+            compiled_search: CompiledProductSearch {
+                search: request.search,
+                price_filter_plan: price_filter,
+            },
+            sort: request.sort,
+            cursor: request.cursor,
+        };
+        let result = match embedding_query {
             Some(query) => match self.embeddings.embed_search_query(&query).await {
                 Ok(embedding) => {
                     self.reader
-                        .search_hybrid(&request, embedding.values())
+                        .search_hybrid(&read_request, embedding.values())
                         .await?
                 }
-                Err(_) => self.reader.search(&request).await?,
+                Err(_) => self.reader.search(&read_request).await?,
             },
-            None => self.reader.search(&request).await?,
+            None => self.reader.search(&read_request).await?,
         };
         let mut result = result.map_item(|item| Personalized {
             item,
@@ -167,6 +221,60 @@ where
             .await?;
         }
         Ok(result)
+    }
+}
+
+async fn load_latest_fx_rate_snapshot<UoW, F>(
+    unit_of_work: &UoW,
+    fx_rates: &F,
+) -> Result<FxRateSnapshot, SearchProductsError>
+where
+    UoW: UnitOfWork,
+    F: FxRateSnapshotRepositoryFactory<UoW::Tx>,
+{
+    let mut tx = unit_of_work.begin().await.map_err(|source| {
+        SearchProductsError::BeginFxRateSnapshotTransactionFailed {
+            source: box_error(source),
+        }
+    })?;
+    let snapshot = fx_rates
+        .in_transaction(&mut tx)
+        .find_latest()
+        .await
+        .map_err(fx_rate_snapshot_read_error)?;
+    tx.commit().await.map_err(|source| {
+        SearchProductsError::CommitFxRateSnapshotTransactionFailed {
+            source: box_error(source),
+        }
+    })?;
+    snapshot.ok_or(SearchProductsError::FxRateSnapshotMissing)
+}
+
+fn compile_price_filter(
+    snapshot: FxRateSnapshot,
+    request: &SearchProductsRequest,
+) -> Result<ProductPriceFilterPlan, SearchProductsError> {
+    ProductPriceFilterPlan::compile(
+        snapshot,
+        request.search.currency,
+        request.search.price_query,
+    )
+    .map_err(
+        |error: FxRateSnapshotError| SearchProductsError::FxRateSnapshotInvalid {
+            source: box_error(error),
+        },
+    )
+}
+
+fn fx_rate_snapshot_read_error(error: FxRateSnapshotRepositoryError) -> SearchProductsError {
+    match error {
+        FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
+            SearchProductsError::FxRateSnapshotInvalid { source }
+        }
+        FxRateSnapshotRepositoryError::InsertFailed { source }
+        | FxRateSnapshotRepositoryError::ReadFailed { source } => {
+            SearchProductsError::FxRateSnapshotReadFailed { source }
+        }
     }
 }
 
@@ -241,11 +349,17 @@ mod tests {
     use common::currency::domain::Currency;
     use common::error::boxed::box_error;
     use common::event_id::EventId;
+    use common::fx_rate_id::FxRateId;
     use common::language::domain::Language;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::MonetaryAmount;
+    use common::transaction::{TransactionError, UnitOfWork};
     use common::user_id::UserId;
     use embedding::{EmbeddingError, EmbeddingVector};
+    use fxrate_core::{
+        FX_RATE_SCALE, FxRateQuote, FxRateSnapshot, FxRateSource, NewFxRateSnapshot,
+    };
+    use fxrate_service::ports::FxRateSnapshotRepositoryFactory;
 
     use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
     use notification_core::notification_id::NotificationId;
@@ -254,11 +368,18 @@ mod tests {
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
+    use strum::IntoEnumIterator;
 
     #[derive(Debug, Default)]
     struct FakeState {
         search_result: Option<Result<ProductSearchReadResult, ProductSearchReadError>>,
         hybrid_search_result: Option<Result<ProductSearchReadResult, ProductSearchReadError>>,
+        read_requests: Vec<ProductSearchReadRequest>,
+        reader_observed_commit_counts: Vec<usize>,
+        begin_error: bool,
+        commit_error: bool,
+        commit_count: usize,
+        fx_rate_snapshot: Option<Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>>,
         embedding_result: Option<Result<EmbeddingVector, EmbeddingError>>,
         embedding_queries: Vec<String>,
         used_hybrid_search: bool,
@@ -274,6 +395,24 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeSearchReader {
+        state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct FakeUnitOfWork {
+        state: SharedState,
+    }
+
+    struct FakeTx {
+        state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct FakeFxRateSnapshotRepositoryFactory {
+        state: SharedState,
+    }
+
+    struct FakeFxRateSnapshotRepository {
         state: SharedState,
     }
 
@@ -308,9 +447,12 @@ mod tests {
     impl ProductSearchReader for FakeSearchReader {
         async fn search(
             &self,
-            _request: &SearchProductsRequest,
+            request: &ProductSearchReadRequest,
         ) -> Result<ProductSearchReadResult, ProductSearchReadError> {
             let mut state = lock_state(&self.state);
+            state.read_requests.push(request.clone());
+            let commit_count = state.commit_count;
+            state.reader_observed_commit_counts.push(commit_count);
             match state.search_result.take() {
                 Some(result) => result,
                 None => Ok(CursoredResult::default()),
@@ -319,15 +461,103 @@ mod tests {
 
         async fn search_hybrid(
             &self,
-            _request: &SearchProductsRequest,
+            request: &ProductSearchReadRequest,
             _embedding: &[f32],
         ) -> Result<ProductSearchReadResult, ProductSearchReadError> {
             let mut state = lock_state(&self.state);
+            state.read_requests.push(request.clone());
+            let commit_count = state.commit_count;
+            state.reader_observed_commit_counts.push(commit_count);
             state.used_hybrid_search = true;
             match state.hybrid_search_result.take() {
                 Some(result) => result,
                 None => Ok(CursoredResult::default()),
             }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl UnitOfWork for FakeUnitOfWork {
+        type Tx = FakeTx;
+
+        async fn begin(&self) -> Result<Self::Tx, TransactionError> {
+            if lock_state(&self.state).begin_error {
+                return Err(TransactionError::BeginFailed);
+            }
+            Ok(FakeTx {
+                state: Arc::clone(&self.state),
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl common::transaction::Transaction for FakeTx {
+        async fn commit(self) -> Result<(), TransactionError> {
+            let mut state = lock_state(&self.state);
+            state.commit_count += 1;
+            if state.commit_error {
+                Err(TransactionError::CommitFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl FxRateSnapshotRepositoryFactory<FakeTx> for FakeFxRateSnapshotRepositoryFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl FxRateSnapshotRepository + 'tx {
+            FakeFxRateSnapshotRepository {
+                state: Arc::clone(&self.state),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FxRateSnapshotRepository for FakeFxRateSnapshotRepository {
+        async fn find_latest(
+            &mut self,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            let mut state = lock_state(&self.state);
+            match state.fx_rate_snapshot.take() {
+                Some(result) => result,
+                None => snapshot().map(Some).map_err(|source| {
+                    FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
+                        source: box_error(source),
+                    }
+                }),
+            }
+        }
+
+        async fn find_latest_at_or_before(
+            &mut self,
+            _timestamp: OffsetDateTime,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_by_id(
+            &mut self,
+            _id: FxRateId,
+        ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_by_ids(
+            &mut self,
+            _ids: &[FxRateId],
+        ) -> Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Vec::new())
+        }
+
+        async fn insert(
+            &mut self,
+            _snapshot: &NewFxRateSnapshot,
+            _source_event_id: &str,
+        ) -> Result<fxrate_service::ports::FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>
+        {
+            Ok(fxrate_service::ports::FxRateSnapshotInsertOutcome::Duplicate)
         }
     }
 
@@ -395,13 +625,21 @@ mod tests {
     fn handler(
         state: &SharedState,
     ) -> SearchProductsHandler<
+        FakeUnitOfWork,
         FakeSearchReader,
+        FakeFxRateSnapshotRepositoryFactory,
         FakeEmbeddingGenerator,
         FakeUserStatesReader,
         FakeNotificationsReader,
     > {
         SearchProductsHandler::new(
+            FakeUnitOfWork {
+                state: Arc::clone(state),
+            },
             search_reader(state),
+            FakeFxRateSnapshotRepositoryFactory {
+                state: Arc::clone(state),
+            },
             FakeEmbeddingGenerator {
                 state: Arc::clone(state),
             },
@@ -496,6 +734,17 @@ mod tests {
         })
     }
 
+    fn snapshot() -> Result<FxRateSnapshot, fxrate_core::FxRateSnapshotError> {
+        NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE)),
+        )
+        .and_then(|snapshot| Ok(snapshot.into_persisted(1_i64.try_into()?)))
+    }
+
     fn request() -> SearchProductsRequest {
         SearchProductsRequest {
             search: ProductSearch::new(Language::En, Currency::Eur),
@@ -584,29 +833,107 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_skip_embedding_for_non_score_sort() -> Result<(), Box<dyn std::error::Error>> {
+    async fn should_pass_one_compiled_request_with_a_pinned_price_filter_plan_to_the_reader()
+    -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
-        let expected = search_result()?;
-        lock_state(&state).search_result = Some(Ok(expected.clone()));
-        let mut request = request_with_text_query()?;
-        request.sort = Some(Sort {
-            sort: SortProductField::Price,
-            order: common::sort::SortOrder::Asc,
+        let snapshot = snapshot()?;
+        lock_state(&state).fx_rate_snapshot = Some(Ok(Some(snapshot.clone())));
+        lock_state(&state).search_result = Some(Ok(search_result()?));
+        let mut request = request();
+        request.search.price_query = Some(common::query::range_query::RangeQuery {
+            min: Some(100_u64.into()),
+            max: Some(200_u64.into()),
         });
 
-        let result = handler(&state).execute(&context(), request).await?;
+        handler(&state).execute(&context(), request).await?;
 
-        assert_eq!(
-            expected.map_item(|item| Personalized {
-                item,
-                user_state: None
-            }),
-            result
-        );
         let state = lock_state(&state);
-        assert!(state.embedding_queries.is_empty());
-        assert!(!state.used_hybrid_search);
+        assert!(matches!(
+            state.read_requests.as_slice(),
+            [request] if request.compiled_search.price_filter_plan.fx_rate_id == snapshot.id()
+                && request.compiled_search.price_filter_plan.target_currency == Currency::Eur
+                && request.compiled_search.price_filter_plan.sold_display_range.min == Some(100_u64.into())
+                && request.compiled_search.price_filter_plan.sold_display_range.max == Some(200_u64.into())
+                && request.compiled_search.search.price_query.is_some()
+        ));
+        assert_eq!(vec![1], state.reader_observed_commit_counts);
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_latest_fx_rate_snapshot_is_missing() {
+        let state = state();
+        lock_state(&state).fx_rate_snapshot = Some(Ok(None));
+
+        let result = handler(&state).execute(&context(), request()).await;
+
+        assert!(matches!(
+            result,
+            Err(SearchProductsError::FxRateSnapshotMissing)
+        ));
+        assert_eq!(1, lock_state(&state).commit_count);
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_latest_fx_rate_snapshot_transaction_cannot_begin() {
+        let state = state();
+        lock_state(&state).begin_error = true;
+
+        let result = handler(&state).execute(&context(), request()).await;
+
+        assert!(matches!(
+            result,
+            Err(SearchProductsError::BeginFxRateSnapshotTransactionFailed { .. })
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_latest_fx_rate_snapshot_transaction_cannot_commit() {
+        let state = state();
+        lock_state(&state).commit_error = true;
+
+        let result = handler(&state).execute(&context(), request()).await;
+
+        assert!(matches!(
+            result,
+            Err(SearchProductsError::CommitFxRateSnapshotTransactionFailed { .. })
+        ));
+        assert_eq!(1, lock_state(&state).commit_count);
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_latest_fx_rate_snapshot_is_invalid() {
+        let state = state();
+        lock_state(&state).fx_rate_snapshot = Some(Err(
+            FxRateSnapshotRepositoryError::InvalidPersistedSnapshot {
+                source: box_error(std::io::Error::other("invalid persisted snapshot")),
+            },
+        ));
+
+        let result = handler(&state).execute(&context(), request()).await;
+
+        assert!(matches!(
+            result,
+            Err(SearchProductsError::FxRateSnapshotInvalid { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_latest_fx_rate_snapshot_read_fails() {
+        let state = state();
+        lock_state(&state).fx_rate_snapshot =
+            Some(Err(FxRateSnapshotRepositoryError::ReadFailed {
+                source: box_error(std::io::Error::other("postgres unavailable")),
+            }));
+
+        let result = handler(&state).execute(&context(), request()).await;
+
+        assert!(matches!(
+            result,
+            Err(SearchProductsError::FxRateSnapshotReadFailed { .. })
+        ));
+        assert_eq!(0, lock_state(&state).commit_count);
     }
 
     #[tokio::test]

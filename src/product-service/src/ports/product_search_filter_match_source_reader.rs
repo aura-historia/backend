@@ -7,7 +7,7 @@ use common::{
 use indexmap::IndexSet;
 use product_core::{
     description::Description,
-    product::{ProductAddress, ProductAuction, ProductPricing},
+    product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
     product_image::ProductImage,
     title::Title,
 };
@@ -61,8 +61,10 @@ pub struct ProductSearchFilterMatchSource {
     pub titles: HashMap<Language, Title>,
     /// Translations take precedence over the original text for the same language.
     pub descriptions: HashMap<Language, Description>,
-    /// Native persisted prices and their FX snapshot identifier.
+    /// Native persisted prices.
     pub pricing: ProductPricing,
+    /// Immutable valuation captured when the Product was sold.
+    pub sale_valuation: Option<ProductSaleValuation>,
     pub state: ProductState,
     pub lifecycle: ProductLifecycle,
     pub url: Url,

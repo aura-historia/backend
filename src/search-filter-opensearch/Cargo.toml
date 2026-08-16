@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true, features = ["opensearch"] }
+fxrate-core = { workspace = true }
 geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
 opensearch = { workspace = true }
@@ -23,6 +24,7 @@ thiserror = { workspace = true }
 [dev-dependencies]
 indexmap = { workspace = true }
 serial_test = { workspace = true }
+strum = { workspace = true }
 test-api = { workspace = true, features = ["opensearch"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 url = { workspace = true }
