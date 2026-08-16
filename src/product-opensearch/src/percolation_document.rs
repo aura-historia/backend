@@ -57,7 +57,7 @@ pub fn product_percolation_document(
         .map_err(|source| ProductPercolationDocumentError::Serialize { source })
 }
 
-fn product_document(
+pub(crate) fn product_document(
     product: &ProductSearchFilterMatchSource,
     sale_snapshot: Option<&FxRateSnapshot>,
 ) -> Result<ProductDocument, ProductPercolationDocumentError> {
@@ -118,7 +118,7 @@ fn product_document(
             .cloned()
             .map(ProductImageDocument::from)
             .collect(),
-        embedding: None,
+        embedding: product.embedding.clone(),
         auction_start: product.auction.start,
         auction_end: product.auction.end,
         created: product.created,
@@ -276,6 +276,7 @@ mod tests {
             event_id,
             event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
             current_event_id: event_id,
+            projection_version: 1,
             product_id: common::product_id::ProductId::new(),
             product_slug_id: ProductSlugId::from("blue-vase"),
             shop_id: ShopId::new(),
@@ -302,6 +303,7 @@ mod tests {
             view_url: url,
             image: None,
             images: IndexSet::new(),
+            embedding: None,
             auction: ProductAuction::default(),
             created: time::OffsetDateTime::UNIX_EPOCH,
             updated: time::OffsetDateTime::UNIX_EPOCH,
@@ -309,6 +311,13 @@ mod tests {
     }
 
     fn snapshot(fx_rate_id: FxRateId) -> Result<FxRateSnapshot, fxrate_core::FxRateSnapshotError> {
+        snapshot_with_usd_quote(fx_rate_id, 1_250_000)
+    }
+
+    fn snapshot_with_usd_quote(
+        fx_rate_id: FxRateId,
+        usd_quote: u64,
+    ) -> Result<FxRateSnapshot, fxrate_core::FxRateSnapshotError> {
         let snapshot = NewFxRateSnapshot::capture_eur(
             fx_rate_id,
             time::OffsetDateTime::UNIX_EPOCH,
@@ -319,7 +328,7 @@ mod tests {
                     currency,
                     match currency {
                         Currency::Eur => FX_RATE_SCALE,
-                        Currency::Usd => 1_250_000,
+                        Currency::Usd => usd_quote,
                         _ => FX_RATE_SCALE,
                     },
                 )
@@ -370,6 +379,44 @@ mod tests {
         assert_eq!(json!(156), document["salePrices"]["usd"]);
         assert_eq!(json!(fx_rate_id), document["saleFxRateId"]);
         assert_eq!(json!("1970-01-01T00:00:00Z"), document["soldAt"]);
+        Ok(())
+    }
+
+    #[test]
+    fn should_round_sale_prices_half_up_from_immutable_snapshot()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source()?;
+        source.pricing.price = Some(Price::new(MonetaryAmount::from(101_u64), Currency::Eur));
+        let fx_rate_id = FxRateId::new();
+        source.sale_valuation = Some(ProductSaleValuation {
+            fx_rate_id,
+            sold_at: time::OffsetDateTime::UNIX_EPOCH,
+        });
+        source.state = ProductState::Sold;
+        let sale_snapshot = snapshot_with_usd_quote(fx_rate_id, 1_500_000)?;
+
+        let document = product_percolation_document(&source, Some(&sale_snapshot))?;
+
+        assert_eq!(json!(152), document["salePrices"]["usd"]);
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_missing_sale_source_price() -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source()?;
+        let fx_rate_id = FxRateId::new();
+        source.pricing.price = None;
+        source.sale_valuation = Some(ProductSaleValuation {
+            fx_rate_id,
+            sold_at: time::OffsetDateTime::UNIX_EPOCH,
+        });
+        source.state = ProductState::Sold;
+        let sale_snapshot = snapshot(fx_rate_id)?;
+
+        assert!(matches!(
+            product_percolation_document(&source, Some(&sale_snapshot)),
+            Err(ProductPercolationDocumentError::MissingSalePrice)
+        ));
         Ok(())
     }
 

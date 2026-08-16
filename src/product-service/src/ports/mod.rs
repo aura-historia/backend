@@ -9,6 +9,7 @@ pub mod product_event_store;
 pub mod product_price_filter_plan;
 pub mod product_repository;
 pub mod product_search_filter_match_source_reader;
+pub mod product_search_projection;
 pub mod product_search_reader;
 pub mod product_similar_products_reader;
 pub mod product_title_translator;
@@ -52,6 +53,9 @@ pub use product_search_filter_match_source_reader::{
     ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
     ProductSearchFilterMatchSourceEventKind, ProductSearchFilterMatchSourceReadError,
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
+};
+pub use product_search_projection::{
+    ProductSearchProjection, ProductSearchProjectionWriteError, ProductSearchProjectionWriteOutcome,
 };
 pub use product_search_reader::{
     CompiledProductSearch, ProductSearchReadError, ProductSearchReadRequest, ProductSearchReader,

@@ -10,6 +10,7 @@ use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use common::currency::data::CurrencyData;
 use common::distance::data::GeoDistanceQueryData;
+use common::fx_rate_id::FxRateId;
 use common::language::data::LanguageData;
 use common::operation_context::Principal;
 use common::pagination::cursor::Cursor;
@@ -27,7 +28,7 @@ use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use product_core::sort_product_field::SortProductField;
-use product_service::use_cases::SearchProductsRequest;
+use product_service::use_cases::{ProductSearchCursor, SearchProductsRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use shop_core::shop_type::ShopType;
@@ -216,9 +217,35 @@ struct CursoredProductsData {
     items: Vec<PersonalizedProductSummaryData>,
     size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    search_after: Option<Value>,
+    search_after: Option<ProductSearchCursorData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     total: Option<u64>,
+}
+
+/// HTTP encoding of the Product-owned opaque continuation cursor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductSearchCursorData {
+    fx_rate_id: uuid::Uuid,
+    search_after: Value,
+}
+
+impl From<ProductSearchCursor> for ProductSearchCursorData {
+    fn from(cursor: ProductSearchCursor) -> Self {
+        Self {
+            fx_rate_id: cursor.fx_rate_id.into(),
+            search_after: cursor.search_after,
+        }
+    }
+}
+
+impl From<ProductSearchCursorData> for ProductSearchCursor {
+    fn from(cursor: ProductSearchCursorData) -> Self {
+        Self {
+            fx_rate_id: FxRateId::from(cursor.fx_rate_id),
+            search_after: cursor.search_after,
+        }
+    }
 }
 
 pub async fn get_products(
@@ -281,7 +308,7 @@ async fn handle_search(
                     .map(personalized_product_summary_data)
                     .collect(),
                 size: result.cursor.size,
-                search_after: result.cursor.search_after,
+                search_after: result.cursor.search_after.map(Into::into),
                 total: result.total,
             })
             .into_response();
@@ -326,7 +353,7 @@ fn parse_sort(raw_query: Option<&str>) -> Result<Option<Sort<SortProductField>>,
     }
 }
 
-fn parse_cursor(raw_query: Option<&str>) -> Result<Option<Cursor<Value>>, ApiError> {
+fn parse_cursor(raw_query: Option<&str>) -> Result<Option<Cursor<ProductSearchCursor>>, ApiError> {
     let size = query_value(raw_query, "size")
         .map(|value| value.parse::<u64>())
         .transpose()
@@ -337,20 +364,19 @@ fn parse_cursor(raw_query: Option<&str>) -> Result<Option<Cursor<Value>>, ApiErr
         })?
         .map(|size| size.clamp(1, 100));
     let values = query_values(raw_query, "searchAfter");
-    let search_after = match values.len() {
-        0 => None,
-        1 => Some(parse_search_after(&values[0])?),
-        _ => Some(Value::Array(
-            values
-                .iter()
-                .map(|value| parse_search_after(value))
-                .collect::<Result<Vec<_>, _>>()?,
-        )),
+    let search_after = match values.as_slice() {
+        [] => None,
+        [value] => Some(parse_search_after(value)?),
+        _ => {
+            return Err(ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                .with_query_field("searchAfter")
+                .with_detail("Product search cursor must be supplied once."));
+        }
     };
 
     if size.is_some() || search_after.is_some() {
         Ok(Some(Cursor {
-            size: size.unwrap_or_else(|| Cursor::<Value>::default().size),
+            size: size.unwrap_or_else(|| Cursor::<ProductSearchCursor>::default().size),
             search_after,
         }))
     } else {
@@ -358,21 +384,14 @@ fn parse_cursor(raw_query: Option<&str>) -> Result<Option<Cursor<Value>>, ApiErr
     }
 }
 
-fn parse_search_after(value: &str) -> Result<Value, ApiError> {
-    let json = match value {
-        "null" | "true" | "false" => value.to_owned(),
-        _ if value.starts_with('[') || value.starts_with('{') || value.parse::<f64>().is_ok() => {
-            value.to_owned()
-        }
-        _ => serde_json::to_string(value).map_err(|error| {
-            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE).with_detail(error.to_string())
-        })?,
-    };
-    serde_json::from_str(&json).map_err(|error| {
-        ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
-            .with_query_field("searchAfter")
-            .with_detail(error.to_string())
-    })
+fn parse_search_after(value: &str) -> Result<ProductSearchCursor, ApiError> {
+    serde_json::from_str::<ProductSearchCursorData>(value)
+        .map(Into::into)
+        .map_err(|error| {
+            ApiError::bad_request(BAD_QUERY_PARAMETER_VALUE)
+                .with_query_field("searchAfter")
+                .with_detail(error.to_string())
+        })
 }
 
 fn query_value(raw_query: Option<&str>, key: &str) -> Option<String> {
@@ -478,7 +497,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::get(
-                    "/api/v1/products?language=de&currency=USD&productQuery=cabinet&sort=updated&order=desc&size=200&searchAfter=next",
+                    "/api/v1/products?language=de&currency=USD&productQuery=cabinet&sort=updated&order=desc&size=200&searchAfter=%7B%22fxRateId%22%3A%2210000000-0000-0000-0000-000000000001%22%2C%22searchAfter%22%3A%5B%22next%22%5D%7D",
                 )
                 .body(Body::empty())?,
             )
@@ -505,7 +524,10 @@ mod tests {
         assert_eq!(
             Some(Cursor {
                 size: 100,
-                search_after: Some(Value::String("next".to_owned())),
+                search_after: Some(ProductSearchCursor {
+                    fx_rate_id: FxRateId::from(uuid::uuid!("10000000-0000-0000-0000-000000000001")),
+                    search_after: Value::Array(vec![Value::String("next".to_owned())]),
+                }),
             }),
             request.cursor
         );

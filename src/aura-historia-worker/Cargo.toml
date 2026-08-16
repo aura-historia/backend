@@ -17,6 +17,7 @@ notification-dynamodb = { workspace = true }
 notification-service = { workspace = true }
 opensearch = { workspace = true }
 product-core = { workspace = true }
+product-opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
 reqwest = { workspace = true }

@@ -1843,12 +1843,12 @@ paths:
           in: query
           required: false
           description: |
-            Cursor value for pagination (search-after pattern).
-            This is a JSON value returned as `searchAfter` in the previous response.
+            Opaque Product cursor for pagination. Pass the complete JSON object returned as
+            `searchAfter` in the previous response as one query value. It pins the FX snapshot
+            for the full cursor chain.
           schema:
-            type: array
-            items: {}
-          example: '[2999, "6ba7b810-9dad-11d1-80b4-00c04fd430c8"]'
+            $ref: "#/components/schemas/ProductSearchCursorData"
+          example: '{"fxRateId":"6ba7b810-9dad-11d1-80b4-00c04fd430c8","searchAfter":[2999,"550e8400-e29b-41d4-a716-446655440000"]}'
         - name: size
           in: query
           required: false
@@ -10258,11 +10258,28 @@ components:
           description: Total matching products for BM25 search when the backend provides it. Hybrid BM25 plus KNN search omits this value because its fused candidate pool is not a reliable total.
           example: 127
         searchAfter:
+          allOf:
+            - $ref: "#/components/schemas/ProductSearchCursorData"
+          nullable: true
+          description: Opaque cursor for the next page. It must be sent back as one JSON-encoded `searchAfter` query value.
+
+    ProductSearchCursorData:
+      type: object
+      required:
+        - fxRateId
+        - searchAfter
+      properties:
+        fxRateId:
+          type: string
+          format: uuid
+          description: Persisted FX snapshot used for active Product filtering and display values in this cursor chain.
+        searchAfter:
           type: array
           items: {}
-          nullable: true
-          description: Cursor for the next page. Pass it back as `searchAfter` query values.
-          example: [2999, "550e8400-e29b-41d4-a716-446655440000"]
+          description: Internal OpenSearch continuation token.
+      example:
+        fxRateId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+        searchAfter: [2999, "550e8400-e29b-41d4-a716-446655440000"]
 
     PersonalizedProductSearchResultData:
       type: object

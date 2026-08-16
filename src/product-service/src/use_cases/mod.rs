@@ -26,6 +26,10 @@ pub use commands::ingest_woocommerce_product::{
     IngestWoocommerceProductHandler, IngestWoocommerceProductResult,
     IngestWoocommerceProductUseCase, WoocommerceProductEventKind,
 };
+pub use commands::project_product::{
+    ProjectProductCommand, ProjectProductError, ProjectProductHandler, ProjectProductOutcome,
+    ProjectProductResult, ProjectProductUseCase,
+};
 pub use commands::translate_product_event::{
     TranslateProductCommand, TranslateProductEventError, TranslateProductEventHandler,
     TranslateProductEventOutcome, TranslateProductEventResult, TranslateProductEventUseCase,
@@ -57,6 +61,7 @@ pub use queries::get_similar_products::{
     GetSimilarProductsResult, GetSimilarProductsUseCase,
 };
 pub use queries::search_products::{
-    PersonalizedProductSummary, ProductSearchReadResult, ProductSummary, SearchProductsError,
-    SearchProductsHandler, SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
+    PersonalizedProductSummary, ProductSearchCursor, ProductSearchReadResult, ProductSummary,
+    SearchProductsError, SearchProductsHandler, SearchProductsRequest, SearchProductsResult,
+    SearchProductsUseCase,
 };

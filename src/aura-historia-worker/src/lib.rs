@@ -1,5 +1,6 @@
 pub mod cdc;
 pub mod product_embedding;
+pub mod product_opensearch;
 pub mod product_translation;
 pub mod retry;
 pub mod search_filter_match_notifications;
@@ -48,6 +49,7 @@ pub enum WorkerScope {
     WatchlistNotification,
     ProductTranslation,
     ProductEmbedding,
+    ProductOpenSearch,
 }
 
 impl WorkerScope {
@@ -75,6 +77,7 @@ impl WorkerScope {
             "watchlist-notification" => Ok(Self::WatchlistNotification),
             "product-translation" => Ok(Self::ProductTranslation),
             "product-embedding" => Ok(Self::ProductEmbedding),
+            "product-opensearch" => Ok(Self::ProductOpenSearch),
             _ => Err(WorkerStartupConfigError::InvalidScope { value }),
         }
     }
@@ -87,6 +90,7 @@ impl WorkerScope {
             Self::WatchlistNotification => WorkerQueue::WatchlistNotification,
             Self::ProductTranslation => WorkerQueue::ProductTranslate,
             Self::ProductEmbedding => WorkerQueue::ProductEmbed,
+            Self::ProductOpenSearch => WorkerQueue::ProductOpenSearch,
         }
     }
 }
@@ -207,7 +211,7 @@ impl WorkerStartupConfig {
         let worker = WorkerConfig::from_getter(&mut get)?;
         let postgres = PostgresPoolConfig::from_getter(&mut get)?;
         let (opensearch, dynamodb, vertex_ai) = match scope {
-            WorkerScope::SearchFilterProjection => (
+            WorkerScope::SearchFilterProjection | WorkerScope::ProductOpenSearch => (
                 Some(opensearch_config(&mut get, stage.as_deref())?),
                 None,
                 None,
@@ -474,6 +478,20 @@ impl WorkerRuntime {
         ))
     }
 
+    pub fn with_product_opensearch_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::ProductOpenSearch, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::ProductOpenSearch, receiver);
+        Ok((
+            Self::new(CdcFanout::product_opensearch(registry)),
+            receivers,
+        ))
+    }
+
     pub fn with_product_embedding_queue(
         config: QueueConfig,
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
@@ -544,6 +562,7 @@ impl WorkerRuntimeComposition {
                 WorkerRuntime::with_product_translation_queue(config)?
             }
             WorkerScope::ProductEmbedding => WorkerRuntime::with_product_embedding_queue(config)?,
+            WorkerScope::ProductOpenSearch => WorkerRuntime::with_product_opensearch_queue(config)?,
         };
         let consumer_queue = scope.consumer_queue();
         let receiver =
@@ -783,7 +802,9 @@ mod tests {
 
     fn add_scope_dependencies(values: &mut HashMap<&'static str, String>, scope: WorkerScope) {
         match scope {
-            WorkerScope::SearchFilterProjection | WorkerScope::SearchFilterPercolator => {
+            WorkerScope::SearchFilterProjection
+            | WorkerScope::SearchFilterPercolator
+            | WorkerScope::ProductOpenSearch => {
                 values.insert(
                     OPENSEARCH_ENDPOINT_URL_ENV,
                     "http://opensearch:9200".to_owned(),

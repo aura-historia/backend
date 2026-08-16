@@ -42,8 +42,10 @@ pub struct ProductSearchFilterMatchSource {
     pub event_id: EventId,
     /// Whether this event type is routed to search-filter percolation.
     pub event_kind: ProductSearchFilterMatchSourceEventKind,
-    /// Current Product version for a rebuilt OpenSearch document.
+    /// Current Product event identity. This rejects stale CDC triggers.
     pub current_event_id: EventId,
+    /// Monotonic authoritative version for external OpenSearch writes.
+    pub projection_version: i64,
     pub product_id: ProductId,
     pub product_slug_id: ProductSlugId,
     pub shop_id: ShopId,
@@ -71,6 +73,8 @@ pub struct ProductSearchFilterMatchSource {
     pub view_url: Url,
     pub image: Option<ProductImage>,
     pub images: IndexSet<ProductImage>,
+    /// Authoritative embedding, when enrichment completed.
+    pub embedding: Option<Vec<f32>>,
     pub auction: ProductAuction,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,

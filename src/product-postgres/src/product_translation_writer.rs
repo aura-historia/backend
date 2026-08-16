@@ -113,7 +113,7 @@ impl ProductTranslationWriter for SqlxProductTranslationWriter<'_> {
         .map_err(ProductTranslationWriteSqlxError)?;
 
         let update = sqlx::query(
-            "UPDATE products SET event_id = $1, updated = now() WHERE product_id = $2 AND event_id = $3",
+            "UPDATE products SET event_id = $1, projection_version = projection_version + 1, updated = now() WHERE product_id = $2 AND event_id = $3",
         )
         .bind(uuid::Uuid::from(write.enrichment_event_id))
         .bind(uuid::Uuid::from(write.product_id))

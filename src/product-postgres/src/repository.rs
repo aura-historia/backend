@@ -321,6 +321,7 @@ impl ProductRepository for SqlxProductRepository<'_> {
                 product_images = $29,
                 auction_start = $30,
                 auction_end = $31,
+                projection_version = projection_version + 1,
                 updated = now()
             WHERE product_id = $32 AND event_id = $33
             "#,

@@ -169,7 +169,13 @@ Examples:
 | User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
 | Periodic matcher | ECS periodic matcher | Scheduled job | OpenSearch product search, Postgres matches, DynamoDB notifications. |
 
-The canonical search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, Product embedding worker, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+The canonical Product OpenSearch projector, search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, Product embedding worker, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+
+## Canonical Product OpenSearch projection
+
+PostgreSQL `products`, `product_translations`, and immutable `fx_rates` are authoritative. The `products` alias in OpenSearch is a rebuildable projection only. Each committed `product_events` insert creates a Product projection job with stable `(event_id, product_id)` IDs. The handler rereads full current Product state, rejects a trigger whose event ID is no longer current, loads the exact sale snapshot when `sale_fx_rate_id` exists, commits its PostgreSQL read transaction, then writes the complete private document with `products.projection_version` as OpenSearch external version. A `LIFECYCLE_DELETED` current Product produces a versioned target delete. Duplicate and older writes return a stale no-op; missing sale snapshots fail the job for retry.
+
+The document stores native `sourcePrice`, all immutable HalfUp `salePrices` only for sold valuations, all existing search fields, and the authoritative embedding. It never stores estimates. Run the `product-opensearch` scope with `POSTGRES_*`, `OPENSEARCH_ENDPOINT_URL`, and OpenSearch credentials outside local development. Its Sequin subscription must contain only `product_events` inserts.
 
 ## Canonical Product embedding
 

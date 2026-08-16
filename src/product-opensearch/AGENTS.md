@@ -8,7 +8,7 @@
 ## Core Design
 
 - Depends on `product-core`, `product-service`, `shop-core`, `geo`, and `common` OpenSearch response types.
-- Exports public OpenSearch reader factory/type, compiled-Product-search percolator JSON builder, and typed-source-to-percolation JSON mapper.
+- Exports public OpenSearch reader factory/type, external-versioned Product projection writer, compiled-Product-search percolator JSON builder, and typed-source-to-percolation JSON mapper.
 - Keeps OpenSearch documents and mappings private; public percolation helpers expose no document type. Source prices stay native; active percolation receives no FX snapshot, while sale percolation renders every display Currency from the exact immutable sale snapshot using HalfUp.
 - OpenSearch reads are ordinary readers. No transaction or unit of work.
 
@@ -30,7 +30,7 @@
 - Search documents do not escape this adapter.
 - Map OpenSearch payloads into `product-service` read models.
 - Preserve query-building tests for filters, cursors, canonical percolator semantics, pinned price conversion, and invalid sale documents.
-- Price sorting is unsupported; readers consume one compiled request. Active prices use its pinned plan and sold prices use exact indexed target values.
+- Price sorting is unsupported; readers consume one compiled request. Active prices use its pinned plan and sold prices use exact indexed target values. Product projection writes use `products.projection_version` with OpenSearch external versioning; conflicts are stale no-ops.
 
 ## Verification
 

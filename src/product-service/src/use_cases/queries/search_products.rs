@@ -7,6 +7,7 @@ use crate::use_cases::queries::product_summary_personalization::{
 };
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::operation_context::{OperationContext, Principal};
@@ -44,7 +45,17 @@ use url::Url;
 pub struct SearchProductsRequest {
     pub search: ProductSearch,
     pub sort: Option<Sort<SortProductField>>,
-    pub cursor: Option<Cursor<Value>>,
+    pub cursor: Option<Cursor<ProductSearchCursor>>,
+}
+
+/// Opaque Product-owned continuation state.
+///
+/// The OpenSearch sort token is scoped to one immutable persisted FX snapshot, so active
+/// Product presentation and price-range membership cannot change within a cursor chain.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductSearchCursor {
+    pub fx_rate_id: FxRateId,
+    pub search_after: Value,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,7 +80,7 @@ pub struct ProductSummary {
 
 pub type PersonalizedProductSummary = Personalized<ProductSummary, ProductUserState>;
 pub type ProductSearchReadResult = CursoredResult<ProductSummary, Value>;
-pub type SearchProductsResult = CursoredResult<PersonalizedProductSummary, Value>;
+pub type SearchProductsResult = CursoredResult<PersonalizedProductSummary, ProductSearchCursor>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SearchProductsError {
@@ -77,24 +88,24 @@ pub enum SearchProductsError {
     ProductSearchQueryFailed,
     #[error("product search read model is invalid")]
     ProductSearchReadModelInvalid,
-    #[error("latest FX rate snapshot is missing")]
+    #[error("pinned FX rate snapshot is missing")]
     FxRateSnapshotMissing,
-    #[error("failed to begin latest FX rate snapshot transaction")]
+    #[error("failed to begin FX rate snapshot transaction")]
     BeginFxRateSnapshotTransactionFailed {
         #[source]
         source: BoxError,
     },
-    #[error("latest FX rate snapshot read failed")]
+    #[error("FX rate snapshot read failed")]
     FxRateSnapshotReadFailed {
         #[source]
         source: BoxError,
     },
-    #[error("latest FX rate snapshot is invalid")]
+    #[error("FX rate snapshot is invalid")]
     FxRateSnapshotInvalid {
         #[source]
         source: BoxError,
     },
-    #[error("failed to commit latest FX rate snapshot transaction")]
+    #[error("failed to commit FX rate snapshot transaction")]
     CommitFxRateSnapshotTransactionFailed {
         #[source]
         source: BoxError,
@@ -185,8 +196,16 @@ where
         context: &OperationContext,
         request: SearchProductsRequest,
     ) -> Result<SearchProductsResult, SearchProductsError> {
-        let snapshot = load_latest_fx_rate_snapshot(&self.unit_of_work, &self.fx_rates).await?;
+        let pinned_fx_rate_id = request.cursor.as_ref().and_then(|cursor| {
+            cursor
+                .search_after
+                .as_ref()
+                .map(|search_after| search_after.fx_rate_id)
+        });
+        let snapshot =
+            load_fx_rate_snapshot(&self.unit_of_work, &self.fx_rates, pinned_fx_rate_id).await?;
         let price_filter = compile_price_filter(snapshot, &request)?;
+        let fx_rate_id = price_filter.fx_rate_id;
         let embedding_query = hybrid_embedding_query(&request);
         let read_request = ProductSearchReadRequest {
             compiled_search: CompiledProductSearch {
@@ -194,7 +213,10 @@ where
                 price_filter_plan: price_filter,
             },
             sort: request.sort,
-            cursor: request.cursor,
+            cursor: request.cursor.map(|cursor| Cursor {
+                size: cursor.size,
+                search_after: cursor.search_after.map(|value| value.search_after),
+            }),
         };
         let result = match embedding_query {
             Some(query) => match self.embeddings.embed_search_query(&query).await {
@@ -207,10 +229,27 @@ where
             },
             None => self.reader.search(&read_request).await?,
         };
-        let mut result = result.map_item(|item| Personalized {
-            item,
-            user_state: None,
-        });
+        let mut result = CursoredResult {
+            cursor: Cursor {
+                size: result.cursor.size,
+                search_after: result
+                    .cursor
+                    .search_after
+                    .map(|search_after| ProductSearchCursor {
+                        fx_rate_id,
+                        search_after,
+                    }),
+            },
+            items: result
+                .items
+                .into_iter()
+                .map(|item| Personalized {
+                    item,
+                    user_state: None,
+                })
+                .collect(),
+            total: result.total,
+        };
         if let Some(user_id) = personalization_user_id(&context.principal) {
             hydrate_product_summaries(
                 &mut result.items,
@@ -224,9 +263,10 @@ where
     }
 }
 
-async fn load_latest_fx_rate_snapshot<UoW, F>(
+async fn load_fx_rate_snapshot<UoW, F>(
     unit_of_work: &UoW,
     fx_rates: &F,
+    pinned_fx_rate_id: Option<FxRateId>,
 ) -> Result<FxRateSnapshot, SearchProductsError>
 where
     UoW: UnitOfWork,
@@ -237,11 +277,18 @@ where
             source: box_error(source),
         }
     })?;
-    let snapshot = fx_rates
-        .in_transaction(&mut tx)
-        .find_latest()
-        .await
-        .map_err(fx_rate_snapshot_read_error)?;
+    let snapshot = match pinned_fx_rate_id {
+        Some(fx_rate_id) => fx_rates
+            .in_transaction(&mut tx)
+            .find_by_id(fx_rate_id)
+            .await
+            .map_err(fx_rate_snapshot_read_error)?,
+        None => fx_rates
+            .in_transaction(&mut tx)
+            .find_latest()
+            .await
+            .map_err(fx_rate_snapshot_read_error)?,
+    };
     tx.commit().await.map_err(|source| {
         SearchProductsError::CommitFxRateSnapshotTransactionFailed {
             source: box_error(source),
@@ -380,6 +427,8 @@ mod tests {
         commit_error: bool,
         commit_count: usize,
         fx_rate_snapshot: Option<Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>>,
+        fx_rate_snapshot_by_id:
+            Option<Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>>,
         embedding_result: Option<Result<EmbeddingVector, EmbeddingError>>,
         embedding_queries: Vec<String>,
         used_hybrid_search: bool,
@@ -541,7 +590,11 @@ mod tests {
             &mut self,
             _id: FxRateId,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
+            let mut state = lock_state(&self.state);
+            match state.fx_rate_snapshot_by_id.take() {
+                Some(result) => result,
+                None => Ok(None),
+            }
         }
 
         async fn find_by_ids(
@@ -763,18 +816,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_search_products_when_reader_succeeds() -> Result<(), url::ParseError> {
+    async fn should_search_products_when_reader_succeeds() -> Result<(), Box<dyn std::error::Error>>
+    {
         let state = state();
         let expected = search_result()?;
         lock_state(&state).search_result = Some(Ok(expected.clone()));
 
-        let result = handler(&state).execute(&context(), request()).await;
+        let result = handler(&state).execute(&context(), request()).await?;
 
-        let expected = expected.map_item(|item| Personalized {
-            item,
-            user_state: None,
-        });
-        assert!(matches!(result, Ok(actual) if actual == expected));
+        assert_eq!(expected.items[0], result.items[0].item);
+        assert_eq!(None, result.items[0].user_state);
+        assert!(matches!(
+            result.cursor.search_after,
+            Some(ProductSearchCursor { search_after: Value::String(value), .. }) if value == "next"
+        ));
         Ok(())
     }
 
@@ -789,13 +844,12 @@ mod tests {
             .execute(&context(), request_with_text_query()?)
             .await?;
 
-        assert_eq!(
-            expected.map_item(|item| Personalized {
-                item,
-                user_state: None
-            }),
-            result
-        );
+        assert_eq!(expected.items[0], result.items[0].item);
+        assert_eq!(None, result.items[0].user_state);
+        assert!(matches!(
+            result.cursor.search_after,
+            Some(ProductSearchCursor { search_after: Value::String(value), .. }) if value == "next"
+        ));
         let state = lock_state(&state);
         assert!(state.used_hybrid_search);
         assert!(matches!(
@@ -819,16 +873,52 @@ mod tests {
             .execute(&context(), request_with_text_query()?)
             .await?;
 
-        assert_eq!(
-            expected.map_item(|item| Personalized {
-                item,
-                user_state: None
-            }),
-            result
-        );
+        assert_eq!(expected.items[0], result.items[0].item);
+        assert_eq!(None, result.items[0].user_state);
+        assert!(matches!(
+            result.cursor.search_after,
+            Some(ProductSearchCursor { search_after: Value::String(value), .. }) if value == "next"
+        ));
         let state = lock_state(&state);
         assert!(!state.used_hybrid_search);
         assert_eq!(1, state.embedding_queries.len());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_keep_cursor_fx_snapshot_for_the_next_page()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let snapshot = snapshot()?;
+        lock_state(&state).fx_rate_snapshot =
+            Some(Err(FxRateSnapshotRepositoryError::ReadFailed {
+                source: box_error(std::io::Error::other("latest snapshot must not be read")),
+            }));
+        lock_state(&state).fx_rate_snapshot_by_id = Some(Ok(Some(snapshot.clone())));
+        lock_state(&state).search_result = Some(Ok(search_result()?));
+        let mut request = request();
+        request.cursor = Some(Cursor {
+            size: 21,
+            search_after: Some(ProductSearchCursor {
+                fx_rate_id: snapshot.id(),
+                search_after: Value::Array(vec![Value::String("previous".to_owned())]),
+            }),
+        });
+
+        let result = handler(&state).execute(&context(), request).await?;
+
+        assert!(matches!(
+            result.cursor.search_after,
+            Some(ProductSearchCursor { fx_rate_id, search_after: Value::String(value) })
+                if fx_rate_id == snapshot.id() && value == "next"
+        ));
+        let state = lock_state(&state);
+        assert!(matches!(
+            state.read_requests.as_slice(),
+            [request] if request.cursor.as_ref().and_then(|cursor| cursor.search_after.as_ref())
+                == Some(&Value::Array(vec![Value::String("previous".to_owned())]))
+                && request.compiled_search.price_filter_plan.fx_rate_id == snapshot.id()
+        ));
         Ok(())
     }
 

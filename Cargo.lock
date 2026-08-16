@@ -383,6 +383,7 @@ dependencies = [
  "notification-service",
  "opensearch",
  "product-core",
+ "product-opensearch",
  "product-postgres",
  "product-service",
  "reqwest 0.12.28",

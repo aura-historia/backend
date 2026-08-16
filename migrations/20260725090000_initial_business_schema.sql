@@ -161,6 +161,7 @@ CREATE TABLE products (
     url text NOT NULL,
     product_images jsonb NOT NULL DEFAULT '[]',
     embedding real[],
+    projection_version bigint NOT NULL DEFAULT 1,
     auction_start timestamptz,
     auction_end timestamptz,
     created timestamptz NOT NULL DEFAULT now(),
@@ -189,6 +190,7 @@ CREATE TABLE products (
     CONSTRAINT products_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
     CONSTRAINT products_images_array CHECK (jsonb_typeof(product_images) = 'array'),
     CONSTRAINT products_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
+    CONSTRAINT products_projection_version_positive CHECK (projection_version >= 1),
     CONSTRAINT products_auction_order_check CHECK (auction_start IS NULL OR auction_end IS NULL OR auction_start <= auction_end)
 );
 
