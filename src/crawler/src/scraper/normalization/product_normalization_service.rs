@@ -906,18 +906,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_prefer_explicit_currency_over_default_currency_fallback() {
+    async fn should_use_zar_default_currency_when_price_has_no_currency_symbol() {
         let svc = make_available_service();
         let mut raw = minimal_raw();
-        raw.price = Some("1,200.00 USD".into());
+        raw.price = Some("5500".into());
         let result = svc
-            .normalize(raw, base_url(), Currency::Eur)
+            .normalize(raw, base_url(), Currency::Zar)
             .await
             .unwrap()
             .product;
         assert_eq!(
             result.price.unwrap(),
-            Price::new(MonetaryAmount::from(120000u64), Currency::Usd)
+            Price::new(MonetaryAmount::from(550000u64), Currency::Zar)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_use_explicit_zar_currency_over_default_currency_when_present_in_raw_price() {
+        let svc = make_available_service();
+        let mut raw = minimal_raw();
+        raw.price = Some("5500 ZAR".into());
+        let result = svc
+            .normalize(raw, base_url(), Currency::Zar)
+            .await
+            .unwrap()
+            .product;
+        assert_eq!(
+            result.price.unwrap(),
+            Price::new(MonetaryAmount::from(550000u64), Currency::Zar)
+        );
+    }
+
+    #[tokio::test]
+    async fn should_prefer_explicit_currency_over_default_currency_fallback() {
+        let svc = make_available_service();
+        let mut raw = minimal_raw();
+        raw.price = Some("5500 USD".into());
+        let result = svc
+            .normalize(raw, base_url(), Currency::Zar)
+            .await
+            .unwrap()
+            .product;
+        assert_eq!(
+            result.price.unwrap(),
+            Price::new(MonetaryAmount::from(550000u64), Currency::Usd)
         );
     }
 }

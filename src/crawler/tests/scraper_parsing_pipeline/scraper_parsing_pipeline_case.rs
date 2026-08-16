@@ -121,6 +121,7 @@ fn parse_currency(code: &str) -> Currency {
         "EUR" => Currency::Eur,
         "USD" => Currency::Usd,
         "GBP" => Currency::Gbp,
+        "ZAR" => Currency::Zar,
         "AUD" => Currency::Aud,
         "CAD" => Currency::Cad,
         "NZD" => Currency::Nzd,

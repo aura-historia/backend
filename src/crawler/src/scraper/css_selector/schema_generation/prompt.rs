@@ -3,7 +3,8 @@ use super::projection::html_to_schema_prompt_dsl;
 const SAMPLE_LABEL: &str = "YAML";
 const SAMPLE_DESCRIPTION: &str = "The samples below are compact YAML projections of the original HTML. Derive CSS selectors from the tags, attrs, text, and tree context, and target the original raw HTML.";
 const SELECTOR_GROUNDING_INSTRUCTION: &str = "Only use CSS selectors that can be derived from tags, attrs, text, and tree context visible in the YAML projection. Never invent class names, ids, attributes, or selector paths that are not present in the YAML. Every non-null selector must be product-specific and must apply to every sample covered by that schema. Optional fields must be null unless an exact selector is visible in the YAML and clearly extracts non-empty product-specific content from the page or template. Prefer null over guessed selectors, generic wrappers, layout containers, or whole-page content selectors. For description, use null unless a precise product-description selector is visible; do not use generic selectors such as .description-wrapper or .HTMLPageContent unless those exact classes appear in the YAML on nodes containing product description text.";
-const CONFIDENCE_INSTRUCTION: &str = "Use confidence HIGH only when selectors are product-specific and likely safe for unattended approval after deterministic validation. Use MEDIUM for plausible schemas with ambiguity. Use LOW when selectors or fields are uncertain. MEDIUM and LOW require human review.";
+const CONFIDENCE_INSTRUCTION: &str = "Use confidence HIGH only when selectors are product-specific, likely safe for unattended approval after deterministic validation, and default_currency is supported by reliable currency evidence from the page or stable shop context. Use MEDIUM for plausible schemas with ambiguity. Use LOW when selectors, fields, or currency evidence are uncertain. MEDIUM and LOW require human review.";
+const DEFAULT_CURRENCY_INSTRUCTION: &str = "Every product schema must include default_currency.\nDetermine default_currency only from reliable evidence such as explicit product-price currency, currency metadata, page-level labels, or other stable shop context.\nNever guess a currency and never use EUR or another arbitrary currency as a generic fallback.\nExplicit currency contained in an extracted price is authoritative and overrides default_currency.\nIf the shop currency cannot be determined reliably, do not claim a valid high-confidence product schema.";
 
 struct RawAttributeDefinition {
     key: &'static str,
@@ -264,7 +265,7 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
          If an applicable field differs by template, availability state, layout, DOM presence, or selector, split the samples into multiple schemas and preserve the applicable rules in each schema.\n\
          One schema is valid only when all applicable fields and every non-null selector apply across all samples that schema covers.\n\
          {selector_grounding_instruction}\n\
-         Every product schema must include default_currency as a supported ISO-4217 code. This is required even when some price strings include explicit currency. Use it only as fallback when a raw price string has no explicit currency; explicit currency in the price text remains authoritative.\n\
+         {default_currency_instruction}\n\
          Return schemas ordered by specificity and completeness: first the schema with the most non-null extraction rules, then fallback templates with fewer applicable rules. When rule counts tie, put the schema with more specific product-focused selectors first.\n\
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
@@ -274,6 +275,7 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
          {sample_description}\n\
          Here are the page {sample_label} samples:{samples}",
         selector_grounding_instruction = SELECTOR_GROUNDING_INSTRUCTION,
+        default_currency_instruction = DEFAULT_CURRENCY_INSTRUCTION,
         raw_attributes_instruction = raw_attributes_instruction(),
         confidence_instruction = CONFIDENCE_INSTRUCTION,
         sample_description = SAMPLE_DESCRIPTION,
@@ -291,7 +293,8 @@ pub(super) fn build_append_schema_instruction(html: &str) -> String {
           Choose page_kind = removed when the page is a removed, gone, not-found, deleted, or 404-like page for a product URL served with HTTP 200. Return no product schemas and set removed_schema to selector-bound evidence that proves the removed state.\n\
           Choose page_kind = not_product when the page is clearly a category, search, home, info, navigation, listing, or other non-product page, and not a removed product page. Return no schemas and include a short reason.\n\
           For removed, removed_schema must include selector and exactly one of text or regex. Use text for stable exact visible text. Use regex for variable removed messages like \"the table from 2020 is not available anymore\"; regex must be valid Rust regex syntax and match the selected normalized text after trimming, whitespace collapse, and lowercasing.\n\
-          For product, this schema will be appended to a set of existing schemas from the same shop. Focus on this specific layout and make the selectors resilient. Product responses must include default_currency as a supported ISO-4217 code. Use it only as fallback when a raw price string has no explicit currency; explicit currency in the price text remains authoritative.\n\
+          For product, this schema will be appended to a set of existing schemas from the same shop. Focus on this specific layout and make the selectors resilient.\n\
+          {default_currency_instruction}\n\
           {selector_grounding_instruction}\n\
           {raw_attributes_instruction}\n\
           Return ONLY ProductSchemaGenerationResponse JSON.\n\
@@ -300,6 +303,7 @@ pub(super) fn build_append_schema_instruction(html: &str) -> String {
           Here is the page {sample_label}:\n\
           {prompt_page}",
         selector_grounding_instruction = SELECTOR_GROUNDING_INSTRUCTION,
+        default_currency_instruction = DEFAULT_CURRENCY_INSTRUCTION,
         raw_attributes_instruction = raw_attributes_instruction(),
         confidence_instruction = CONFIDENCE_INSTRUCTION,
         sample_description = SAMPLE_DESCRIPTION,

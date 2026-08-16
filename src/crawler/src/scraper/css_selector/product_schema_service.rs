@@ -131,6 +131,7 @@ fn build_create_schema_generation_llm(
             Return only JSON matching ProductSchemaGenerationResponse.
             The response must include schemas plus confidence LOW, MEDIUM, or HIGH.
             HIGH means the selectors are product-specific, deterministic, and safe to auto-approve when local validation passes.
+            Never guess default_currency. Never use EUR or another arbitrary currency as a generic fallback. If currency evidence is unreliable, the response must not be high confidence.
             MEDIUM means the schema is plausible but needs human review. LOW means uncertain or weak selectors and needs human review.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
             ProductSchemaGenerationResponse schema:\n\n {response_schema}",
@@ -157,6 +158,7 @@ fn build_append_schema_generation_llm(
         "You are an e-commerce scraper-assistant for antiques repairing extraction-schemas for one HTML page.
             Return only JSON matching Append ProductSchemaGenerationResponse.
             The response may classify the page as product, removed, or not_product.
+            Never guess default_currency. Never use EUR or another arbitrary currency as a generic fallback. If currency evidence is unreliable, the response must not be high confidence.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
             Append ProductSchemaGenerationResponse schema:\n\n {append_response_schema}",
     );
@@ -414,6 +416,13 @@ mod tests {
             auction_end: None,
             default_currency: CurrencyDto::Eur,
             raw_attributes: Default::default(),
+        }
+    }
+
+    fn sample_zar_css_schema() -> ProductCssSelectorSchema {
+        ProductCssSelectorSchema {
+            default_currency: CurrencyDto::Zar,
+            ..sample_css_schema()
         }
     }
 
@@ -1109,6 +1118,16 @@ mod tests {
     }
 
     #[test]
+    fn should_accept_generated_product_schema_with_zar_default_currency() {
+        let payload = generated_response_json(vec![sample_zar_css_schema()]);
+
+        let parsed = parse_product_schemas_response(&payload).unwrap();
+
+        assert_eq!(parsed.schemas[0].default_currency, CurrencyDto::Zar);
+        assert!(validate_create_schema_response(&payload).is_ok());
+    }
+
+    #[test]
     fn should_parse_generated_schemas_response_with_raw_attributes() {
         let payload = generated_response_json(vec![sample_schema_with_raw_attributes()]);
 
@@ -1350,6 +1369,32 @@ mod tests {
         let result = validate_create_schema_response(&payload);
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn should_require_reliable_currency_language_in_create_prompt() {
+        let instruction = build_create_schemas_instruction(&[
+            r#"<html><body><h1>Chair</h1></body></html>"#.to_string(),
+        ]);
+
+        assert!(instruction.contains("Every product schema must include default_currency."));
+        assert!(instruction.contains("Determine default_currency only from reliable evidence"));
+        assert!(instruction.contains("Never guess a currency"));
+        assert!(
+            instruction
+                .contains("Explicit currency contained in an extracted price is authoritative")
+        );
+        assert!(instruction.contains("do not claim a valid high-confidence product schema"));
+    }
+
+    #[test]
+    fn should_require_reliable_currency_language_in_append_prompt() {
+        let instruction =
+            build_append_schema_instruction(r#"<html><body><h1>Chair</h1></body></html>"#);
+
+        assert!(instruction.contains("Every product schema must include default_currency."));
+        assert!(instruction.contains("Never guess a currency"));
+        assert!(instruction.contains("do not claim a valid high-confidence product schema"));
     }
 
     #[test]

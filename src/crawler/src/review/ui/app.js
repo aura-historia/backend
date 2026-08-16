@@ -742,6 +742,9 @@ function defaultRuleFor(field) {
 }
 
 function defaultSchema() {
+    const inheritedDefaultCurrency = currentSchemas()[selectedSchemaIndex]?.default_currency
+        || currentSchemas()[0]?.default_currency
+        || null;
     return {
         shops_product_id: defaultRuleFor('shops_product_id'),
         title: defaultRuleFor('title'),
@@ -754,7 +757,7 @@ function defaultSchema() {
         images: defaultRuleFor('images'),
         auction_start: null,
         auction_end: null,
-        default_currency: 'EUR',
+        default_currency: inheritedDefaultCurrency,
         raw_attributes: {}
     };
 }

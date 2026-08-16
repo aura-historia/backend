@@ -31,18 +31,22 @@ pub(super) enum PriceError {
 /// Multi-character symbols (`NZD`, `AUD`, `CAD`) are checked before the plain
 /// `$` to avoid false matches.
 pub(super) fn detect_currency(raw: &str) -> Option<Currency> {
-    if raw.contains("NZD") || raw.contains("NZ$") {
+    let raw_upper = raw.to_ascii_uppercase();
+
+    if raw_upper.contains("NZD") || raw.contains("NZ$") {
         Some(Currency::Nzd)
-    } else if raw.contains("AUD") || raw.contains("A$") {
+    } else if raw_upper.contains("AUD") || raw.contains("A$") {
         Some(Currency::Aud)
-    } else if raw.contains("CAD") || raw.contains("C$") {
+    } else if raw_upper.contains("CAD") || raw.contains("C$") {
         Some(Currency::Cad)
-    } else if raw.contains("USD") || raw.contains('$') {
+    } else if raw_upper.contains("USD") || raw.contains('$') {
         Some(Currency::Usd)
-    } else if raw.contains("GBP") || raw.contains('£') {
+    } else if raw_upper.contains("GBP") || raw.contains('£') {
         Some(Currency::Gbp)
-    } else if raw.contains("EUR") || raw.contains('€') {
+    } else if raw_upper.contains("EUR") || raw.contains('€') {
         Some(Currency::Eur)
+    } else if raw_upper.contains("ZAR") {
+        Some(Currency::Zar)
     } else {
         None
     }
@@ -374,7 +378,7 @@ fn first_currency_marker_span(raw: &str) -> Option<(usize, usize)> {
 }
 
 fn currency_marker_spans(raw: &str) -> Vec<(usize, usize)> {
-    regex!(r"(?i)(EUR|USD|GBP|AUD|CAD|NZD|NZ\$|A\$|C\$|\$|\x{00A3}|\x{20AC})")
+    regex!(r"(?i)(EUR|USD|GBP|ZAR|AUD|CAD|NZD|NZ\$|A\$|C\$|\$|\x{00A3}|\x{20AC})")
         .find_iter(raw)
         .map(|m| (m.start(), m.end()))
         .collect()
@@ -504,6 +508,7 @@ mod tests {
     #[case("GBP 100", Some(Currency::Gbp))]
     #[case("€ 100", Some(Currency::Eur))]
     #[case("EUR 100", Some(Currency::Eur))]
+    #[case("ZAR 100", Some(Currency::Zar))]
     #[case("A$100", Some(Currency::Aud))]
     #[case("AUD 100", Some(Currency::Aud))]
     #[case("C$100", Some(Currency::Cad))]
@@ -553,6 +558,7 @@ mod tests {
     #[case("GBP 1234", 123400, Currency::Gbp)]
     #[case("0.50 USD", 50, Currency::Usd)]
     #[case("1.5 EUR", 150, Currency::Eur)]
+    #[case("5500 ZAR", 550000, Currency::Zar)]
     #[case("1'234.56 USD", 123456, Currency::Usd)]
     #[case("£ 0.01", 1, Currency::Gbp)]
     // UK/US comma-thousands prices (the comma is a thousands separator, not decimal)
@@ -607,6 +613,7 @@ mod tests {
     #[case("")]
     #[case("   ")]
     #[case("no numbers here")]
+    #[case("5500")]
     #[case("1234.56 CHF")]
     fn should_return_unknown_currency_when_no_currency_symbol_or_known_code(#[case] raw: &str) {
         assert!(
@@ -624,6 +631,7 @@ mod tests {
     #[case("18,00", Currency::Eur, 1800u64)]
     #[case("1590", Currency::Eur, 159000u64)]
     #[case("1590", Currency::Gbp, 159000u64)]
+    #[case("5500", Currency::Zar, 550000u64)]
     #[case("1.234,56", Currency::Eur, 123456u64)]
     #[case("680,00 inkl. MwSt.", Currency::Eur, 68000u64)]
     fn should_parse_bare_price_when_fallback_currency_provided(
