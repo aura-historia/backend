@@ -1,5 +1,6 @@
 use super::*;
 use crate::network::policy::NetworkErrorKind;
+use crate::scraper::css_selector::currency_dto::CurrencyDto;
 use crate::scraper::scraper_service::service::FetchError;
 
 #[tokio::test]
@@ -40,7 +41,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
             images: attr_rule_all("img", "src"),
             auction_start: None,
             auction_end: None,
-            default_currency: None,
+            default_currency: CurrencyDto::Eur,
             raw_attributes: Default::default(),
         }
     };

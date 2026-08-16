@@ -128,9 +128,7 @@ impl ScraperServiceImpl {
             .normalize(
                 raw,
                 url.clone(),
-                selected_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
+                common::currency::domain::Currency::from(selected_schema.default_currency),
             )
             .await
         {
@@ -189,9 +187,7 @@ impl ScraperServiceImpl {
             .normalize(
                 raw,
                 ctx.url.clone(),
-                ctx.selected_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
+                common::currency::domain::Currency::from(ctx.selected_schema.default_currency),
             )
             .await
         {
@@ -328,9 +324,7 @@ impl ScraperServiceImpl {
             .normalize(
                 reapplied,
                 ctx.url.clone(),
-                generated_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
+                common::currency::domain::Currency::from(generated_schema.default_currency),
             )
             .await
         {

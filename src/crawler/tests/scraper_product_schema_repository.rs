@@ -1,4 +1,5 @@
 use common::shop_id::ShopId;
+use crawler::scraper::css_selector::currency_dto::CurrencyDto;
 use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, ShopsProductSchema,
 };
@@ -50,7 +51,7 @@ fn minimal_css_schema() -> ProductCssSelectorSchema {
         },
         auction_start: None,
         auction_end: None,
-        default_currency: None,
+        default_currency: CurrencyDto::Eur,
         raw_attributes: Default::default(),
     }
 }
@@ -122,7 +123,7 @@ fn full_css_schema() -> ProductCssSelectorSchema {
             },
             cardinality: ExtractionCardinality::First,
         }),
-        default_currency: None,
+        default_currency: CurrencyDto::Eur,
         raw_attributes: Default::default(),
     }
 }

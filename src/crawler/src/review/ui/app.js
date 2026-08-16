@@ -754,7 +754,7 @@ function defaultSchema() {
         images: defaultRuleFor('images'),
         auction_start: null,
         auction_end: null,
-        default_currency: null,
+        default_currency: 'EUR',
         raw_attributes: {}
     };
 }

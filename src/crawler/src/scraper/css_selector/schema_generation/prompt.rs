@@ -264,6 +264,7 @@ pub(super) fn build_create_schemas_instruction(html_pages: &[String]) -> String 
          If an applicable field differs by template, availability state, layout, DOM presence, or selector, split the samples into multiple schemas and preserve the applicable rules in each schema.\n\
          One schema is valid only when all applicable fields and every non-null selector apply across all samples that schema covers.\n\
          {selector_grounding_instruction}\n\
+         Every product schema must include default_currency as a supported ISO-4217 code. This is required even when some price strings include explicit currency. Use it only as fallback when a raw price string has no explicit currency; explicit currency in the price text remains authoritative.\n\
          Return schemas ordered by specificity and completeness: first the schema with the most non-null extraction rules, then fallback templates with fewer applicable rules. When rule counts tie, put the schema with more specific product-focused selectors first.\n\
          Examples: if template A has price and template B has no price element, generate two schemas and put the priced schema first. If an auction template has estimate fields and a buy-now template has fixed price, generate separate schemas ordered by rule count. If a sold-item template lacks buy price but has sold state, split schemas when selectors differ.\n\
          Prefer high-precision selectors that represent semantic fields rather than layout wrappers.\n\
@@ -290,7 +291,7 @@ pub(super) fn build_append_schema_instruction(html: &str) -> String {
           Choose page_kind = removed when the page is a removed, gone, not-found, deleted, or 404-like page for a product URL served with HTTP 200. Return no product schemas and set removed_schema to selector-bound evidence that proves the removed state.\n\
           Choose page_kind = not_product when the page is clearly a category, search, home, info, navigation, listing, or other non-product page, and not a removed product page. Return no schemas and include a short reason.\n\
           For removed, removed_schema must include selector and exactly one of text or regex. Use text for stable exact visible text. Use regex for variable removed messages like \"the table from 2020 is not available anymore\"; regex must be valid Rust regex syntax and match the selected normalized text after trimming, whitespace collapse, and lowercasing.\n\
-          For product, this schema will be appended to a set of existing schemas from the same shop. Focus on this specific layout and make the selectors resilient.\n\
+          For product, this schema will be appended to a set of existing schemas from the same shop. Focus on this specific layout and make the selectors resilient. Product responses must include default_currency as a supported ISO-4217 code. Use it only as fallback when a raw price string has no explicit currency; explicit currency in the price text remains authoritative.\n\
           {selector_grounding_instruction}\n\
           {raw_attributes_instruction}\n\
           Return ONLY ProductSchemaGenerationResponse JSON.\n\

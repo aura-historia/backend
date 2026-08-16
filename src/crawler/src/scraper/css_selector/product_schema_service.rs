@@ -371,6 +371,7 @@ mod tests {
     use super::response::parse_append_schema_response;
     use super::response::parse_product_schemas_response;
     use super::*;
+    use crate::scraper::css_selector::currency_dto::CurrencyDto;
     use crate::scraper::css_selector::product_schema_repository::MockShopsProductSchemaRepository;
     use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
     use crate::scraper::css_selector::rule::{
@@ -411,7 +412,7 @@ mod tests {
             },
             auction_start: None,
             auction_end: None,
-            default_currency: None,
+            default_currency: CurrencyDto::Eur,
             raw_attributes: Default::default(),
         }
     }
@@ -1368,6 +1369,59 @@ mod tests {
     }
 
     #[test]
+    fn should_reject_generated_product_schema_missing_default_currency_for_create_validator() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "schemas": [{
+                "shops_product_id": null,
+                "title": {"selector": "h1", "additional_selectors": [], "type": "text", "cardinality": "first"},
+                "description": null,
+                "price": null,
+                "price_estimate_min": null,
+                "price_estimate_max": null,
+                "seller_name": null,
+                "state": {"selector": "#state", "additional_selectors": [], "type": "text", "cardinality": "first"},
+                "images": {"selector": "img", "additional_selectors": [], "type": "attribute", "name": "src", "cardinality": "all"},
+                "auction_start": null,
+                "auction_end": null,
+                "raw_attributes": {}
+            }],
+            "confidence": "HIGH",
+            "summary": "missing currency"
+        }))
+        .unwrap();
+
+        assert!(parse_product_schemas_response(&payload).is_err());
+        assert!(validate_create_schema_response(&payload).is_err());
+    }
+
+    #[test]
+    fn should_reject_generated_product_schema_null_default_currency_for_create_validator() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "schemas": [{
+                "shops_product_id": null,
+                "title": {"selector": "h1", "additional_selectors": [], "type": "text", "cardinality": "first"},
+                "description": null,
+                "price": null,
+                "price_estimate_min": null,
+                "price_estimate_max": null,
+                "seller_name": null,
+                "state": {"selector": "#state", "additional_selectors": [], "type": "text", "cardinality": "first"},
+                "images": {"selector": "img", "additional_selectors": [], "type": "attribute", "name": "src", "cardinality": "all"},
+                "auction_start": null,
+                "auction_end": null,
+                "default_currency": null,
+                "raw_attributes": {}
+            }],
+            "confidence": "HIGH",
+            "summary": "null currency"
+        }))
+        .unwrap();
+
+        assert!(parse_product_schemas_response(&payload).is_err());
+        assert!(validate_create_schema_response(&payload).is_err());
+    }
+
+    #[test]
     fn should_reject_removed_append_response_without_schema() {
         let payload = serde_json::to_string(&serde_json::json!({
             "page_kind": "removed",
@@ -1393,6 +1447,43 @@ mod tests {
 
         let parsed = parse_append_schema_response(&payload).unwrap();
         assert!(matches!(parsed, GeneratedAppendSchema::NotProduct { .. }));
+    }
+
+    #[test]
+    fn should_accept_removed_append_response_without_schemas_field() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "removed",
+            "removed_schema": {
+                "selector": "#mainCatCol h1",
+                "text": "Sorry, the page you're looking for couldn't be found"
+            },
+            "confidence": "HIGH",
+            "summary": "Soft 404 page."
+        }))
+        .unwrap();
+
+        assert!(validate_append_schema_response(&payload).is_ok());
+        assert!(matches!(
+            parse_append_schema_response(&payload).unwrap(),
+            GeneratedAppendSchema::Removed { .. }
+        ));
+    }
+
+    #[test]
+    fn should_accept_not_product_append_response_without_schemas_field() {
+        let payload = serde_json::to_string(&serde_json::json!({
+            "page_kind": "not_product",
+            "reason": "category page",
+            "confidence": "HIGH",
+            "summary": "Category page."
+        }))
+        .unwrap();
+
+        assert!(validate_append_schema_response(&payload).is_ok());
+        assert!(matches!(
+            parse_append_schema_response(&payload).unwrap(),
+            GeneratedAppendSchema::NotProduct { .. }
+        ));
     }
 
     #[test]

@@ -231,6 +231,7 @@ fn evaluate_rule(
 mod tests {
     use super::*;
     use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED};
+    use crate::scraper::css_selector::currency_dto::CurrencyDto;
     use crate::scraper::css_selector::rule::{
         CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
@@ -266,7 +267,7 @@ mod tests {
             images: image_rule("img"),
             auction_start: None,
             auction_end: None,
-            default_currency: None,
+            default_currency: CurrencyDto::Eur,
             raw_attributes: Default::default(),
         }
     }

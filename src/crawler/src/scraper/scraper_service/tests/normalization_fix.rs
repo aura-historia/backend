@@ -1,4 +1,5 @@
 use super::*;
+use crate::scraper::css_selector::currency_dto::CurrencyDto;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
@@ -514,7 +515,7 @@ async fn should_append_single_schema_without_failed_schema_context() {
         images: attr_rule_all("img", "src"),
         auction_start: None,
         auction_end: None,
-        default_currency: None,
+        default_currency: CurrencyDto::Eur,
         raw_attributes: Default::default(),
     };
 

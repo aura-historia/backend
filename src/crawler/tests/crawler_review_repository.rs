@@ -1,6 +1,7 @@
 use common::shop_id::ShopId;
 use crawler::review::model::{PAGE_ROLE_PRIMARY, STATUS_APPROVED, SchemaReviewPageInput};
 use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
+use crawler::scraper::css_selector::currency_dto::CurrencyDto;
 use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, ShopsProductSchema,
 };
@@ -51,7 +52,7 @@ fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         images: image_rule("img.product"),
         auction_start: None,
         auction_end: None,
-        default_currency: None,
+        default_currency: CurrencyDto::Eur,
         raw_attributes: Default::default(),
     }
 }

@@ -15,6 +15,7 @@ mod seed_pages;
 // ---------------------------------------------------------------------------
 
 use crate::scraper::candidate_service::MockScraperCandidateService;
+use crate::scraper::css_selector::currency_dto::CurrencyDto;
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, ShopsProductSchema};
 use crate::scraper::css_selector::product_schema_service::{
     GeneratedAppendSchema, GeneratedProductSchemas, MockProductSchemaService, SchemaLlmEvaluation,
@@ -99,7 +100,7 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
         images: attr_rule_all("img", "src"),
         auction_start: None,
         auction_end: None,
-        default_currency: None,
+        default_currency: CurrencyDto::Eur,
         raw_attributes: Default::default(),
     }
 }

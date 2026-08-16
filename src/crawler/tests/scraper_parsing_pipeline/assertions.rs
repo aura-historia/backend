@@ -129,7 +129,7 @@ pub async fn assert_normalized(
         ProductNormalizationServiceImpl::new(Box::new(FixedStateMappingService(mapping_record)));
 
     let product_url = Url::parse(url).expect("test URL must be valid");
-    let default_currency = schema.default_currency.map(Currency::from);
+    let default_currency = Currency::from(schema.default_currency);
     let result = norm_svc
         .normalize(raw, product_url, default_currency)
         .await
