@@ -39,8 +39,10 @@ pub use commands::upsert_product::{
     UpsertProductUseCase,
 };
 pub use queries::get_product::{
-    GetProductError, GetProductHandler, GetProductRequest, GetProductUseCase,
-    PersonalizedProductDetailsView, ProductDetailsView, ProductLookup, redact_hidden_product,
+    DisplayProductPricing, GetProductError, GetProductHandler, GetProductRequest,
+    GetProductUseCase, PersonalizedProductDetailsView, ProductDetailsView, ProductLookup,
+    ProductPricingPresentation, ProductPricingPresentationError, ProductPricingValuation,
+    present_product_details, present_product_pricing, redact_hidden_product,
 };
 pub use queries::get_product_events::{
     GetProductEventsError, GetProductEventsHandler, GetProductEventsRequest,

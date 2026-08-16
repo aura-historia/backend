@@ -1,6 +1,7 @@
 use common::currency::domain::Currency;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::pagination::cursor::{Cursor, CursoredResult};
@@ -19,7 +20,7 @@ use common::user_search_filter_name::UserSearchFilterName;
 use common::utm::append_utm_params;
 use indexmap::IndexSet;
 use product_core::description::Description;
-use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
@@ -27,11 +28,9 @@ use product_core::user_state::{
     ProductUserState, ProhibitedContentUserState, SearchFilterUserState, WatchlistUserState,
 };
 use product_service::ports::{
-    ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
+    PersonalizedProductDetailsReadModel, ProductDetailsReadModel, ProductWatchlistDetailsCursor,
+    ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
     ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
-};
-use product_service::use_cases::queries::get_product::{
-    PersonalizedProductDetailsView, ProductDetailsView,
 };
 use serde::Deserialize;
 use sqlx::PgConnection;
@@ -79,6 +78,8 @@ struct ProductDetailsRow {
     price_estimate_min_currency: Option<String>,
     price_estimate_max_amount: Option<i64>,
     price_estimate_max_currency: Option<String>,
+    sale_fx_rate_id: Option<uuid::Uuid>,
+    sold_at: Option<OffsetDateTime>,
     state: String,
     lifecycle: String,
     url: String,
@@ -130,7 +131,7 @@ impl ProductWatchlistDetailsReader for SqlxProductWatchlistDetailsReader<'_> {
         &mut self,
         request: &ProductWatchlistDetailsRequest,
     ) -> Result<
-        CursoredResult<PersonalizedProductDetailsView, ProductWatchlistDetailsCursor>,
+        CursoredResult<PersonalizedProductDetailsReadModel, ProductWatchlistDetailsCursor>,
         ProductWatchlistDetailsReadError,
     > {
         let page_size = usize::try_from(request.cursor.size)
@@ -235,7 +236,7 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
         selected_text.description_text, selected_text.description_language,
         p.price_amount, p.price_currency, p.price_estimate_min_amount,
         p.price_estimate_min_currency, p.price_estimate_max_amount,
-        p.price_estimate_max_currency, p.state, p.lifecycle, p.url,
+        p.price_estimate_max_currency, p.sale_fx_rate_id, p.sold_at, p.state, p.lifecycle, p.url,
         p.product_images, p.auction_start, p.auction_end, p.created, p.updated,
         $2::uuid AS personalization_user_id,
         authenticated_user.prohibited_content_consent AS user_prohibited_content_consent,
@@ -354,7 +355,7 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
     ) AS selected_text ON TRUE
 "#;
 
-impl TryFrom<ProductDetailsRow> for PersonalizedProductDetailsView {
+impl TryFrom<ProductDetailsRow> for PersonalizedProductDetailsReadModel {
     type Error = ();
 
     fn try_from(row: ProductDetailsRow) -> Result<Self, Self::Error> {
@@ -377,14 +378,11 @@ impl TryFrom<ProductDetailsRow> for PersonalizedProductDetailsView {
             row.price_estimate_max_amount,
             row.price_estimate_max_currency,
         )?;
+        let sale_valuation = sale_valuation(row.sold_at, row.sale_fx_rate_id)?;
         let url = Url::parse(&row.url).map_err(|_| ())?;
-        let currency = product_price
-            .or(product_price_estimate_min)
-            .or(product_price_estimate_max)
-            .map(|value| value.currency);
 
         Ok(Personalized {
-            item: ProductDetailsView {
+            item: ProductDetailsReadModel {
                 product_id: ProductId::from(row.product_id),
                 product_slug_id: ProductSlugId::raw(&row.product_slug_id).map_err(|_| ())?,
                 event_id: EventId::from(row.event_id),
@@ -405,10 +403,7 @@ impl TryFrom<ProductDetailsRow> for PersonalizedProductDetailsView {
                     price_estimate_min: product_price_estimate_min,
                     price_estimate_max: product_price_estimate_max,
                 },
-                price: product_price,
-                price_estimate_min: product_price_estimate_min,
-                price_estimate_max: product_price_estimate_max,
-                currency,
+                sale_valuation,
                 state: product_state(&row.state)?,
                 lifecycle: lifecycle(&row.lifecycle)?,
                 view_url: append_utm_params(url.clone()),
@@ -423,6 +418,20 @@ impl TryFrom<ProductDetailsRow> for PersonalizedProductDetailsView {
             },
             user_state,
         })
+    }
+}
+
+fn sale_valuation(
+    sold_at: Option<OffsetDateTime>,
+    fx_rate_id: Option<uuid::Uuid>,
+) -> Result<Option<ProductSaleValuation>, ()> {
+    match (sold_at, fx_rate_id) {
+        (Some(sold_at), Some(fx_rate_id)) => Ok(Some(ProductSaleValuation {
+            sold_at,
+            fx_rate_id: FxRateId::from(fx_rate_id),
+        })),
+        (None, None) => Ok(None),
+        _ => Err(()),
     }
 }
 
@@ -677,6 +686,29 @@ fn lifecycle(value: &str) -> Result<ProductLifecycle, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_map_complete_sale_valuation() {
+        let fx_rate_id = uuid::Uuid::from_u128(1);
+        let sold_at = OffsetDateTime::UNIX_EPOCH;
+
+        let result = sale_valuation(Some(sold_at), Some(fx_rate_id));
+
+        assert_eq!(
+            result,
+            Ok(Some(ProductSaleValuation {
+                sold_at,
+                fx_rate_id: FxRateId::from(fx_rate_id),
+            }))
+        );
+    }
+
+    #[test]
+    fn should_reject_incomplete_sale_valuation() {
+        let result = sale_valuation(Some(OffsetDateTime::UNIX_EPOCH), None);
+
+        assert!(result.is_err());
+    }
 
     #[test]
     fn should_reject_selected_title_when_text_is_not_canonical() {

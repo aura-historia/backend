@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- Product detail, watchlist, and saved-search match reads now accept optional `currency` (default `EUR`). Their breaking `pricing` response is `{ source, display, valuation }`: source retains seller amounts, display is converted with HalfUp rounding from a persisted FX snapshot, and valuation states `CURRENT` or `SALE` with `fxRateId`, `capturedAt`, and sale `soldAt` when applicable. Removed flat detail `price`, `priceEstimateMin`, `priceEstimateMax`, and `currency` fields. Missing, invalid, or mismatched FX data fails the whole read; no provider fallback occurs.
 - Product `pricing` and immutable Product event pricing snapshots no longer expose `fxRateId`; they contain source `price`, `priceEstimateMin`, and `priceEstimateMax` only. Product sale valuation is now a separate immutable fact captured from the latest persisted FX snapshot when a Product is created or transitions to `SOLD`. A generic Product update cannot reopen a sold Product; `SOLD` to `REMOVED` preserves the sale valuation. Missing or invalid persisted FX data rejects the sale write.
 - FX ownership now lives in the canonical `fxrate-core`, `fxrate-service`, `fxrate-postgres`, and `fxrate-fxratesapi` crate family. Immutable snapshots have a database-assigned generation and complete EUR-base `units_per_eur` quotes, including EUR at the fixed scale. Capture remains idempotent by EventBridge event ID; the public Product API is unchanged in this foundation step.
 - Canonical billing route implementations are now available in `aura-historia-api` for `POST /api/v1/me/billing/checkout`, `/portal`, and `/manage`; legacy `stripe-api` remains the deployed Gateway target during migration because the Axum runtime ingress cutover is not yet provisioned. The canonical routes use PostgreSQL User state and Stripe billing use cases. Cognito JWTs and Aura Historia access tokens are supported; delegated access tokens require `users:read`. Checkout customer association is committed before its Stripe session is created, so a later session failure leaves the customer association for safe management retry.
@@ -103,8 +104,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - Canonical Product detail, history, and similarity routes use either `productId` or the shop/product slug pair.
-- Product prices and event-price snapshots remain stored source amounts and currencies. `pricing`, `oldPricing`, and `newPricing` retain `fxRateId`; no response currency conversion occurs.
-- Source → EUR → requested-currency conversion is deferred to [#1466](https://github.com/aura-historia/backend/issues/1466). No new response parameters are exposed before that work ships.
+- Product prices and event-price snapshots remain stored source amounts and currencies. This historical entry predates the current detail, watchlist, and saved-match display-pricing contract documented under Unreleased.
 - Similar-product KNN retrieval returns ready matches when an embedding exists; only a missing embedding returns `202 Accepted` with a polling location.
 - Canonical Product detail and similar reads accept optional `language` (default `en`). Detail resolves current title/description from `product_translations`; similar reads resolve projected titles; immutable history stays in its recorded language.
 

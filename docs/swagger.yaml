@@ -40,13 +40,11 @@ info:
 
     ## Data and response conventions
 
-    - Product detail and similar-product reads accept an optional **`language`** parameter. Detail resolves
-      current title and description from persisted translations; similar reads resolve projected result titles.
-      Product history remains immutable and is not localized.
-      Detail and history prices remain their stored source amount and currency; their `pricing` snapshots
-      contain only source prices. Sale events may include a separate immutable `saleValuation` with `soldAt` and `fxRateId`.
-      No currency conversion is performed; source → EUR → requested-currency conversion is deferred to
-      [#1466](https://github.com/aura-historia/backend/issues/1466).
+    - Product detail, watchlist, and saved-search match reads accept optional **`language`** and
+      **`currency`** parameters. Currency defaults to `EUR`. Detail pricing contains the seller's source
+      amounts, converted display amounts, and FX valuation metadata. Active products use the latest persisted
+      snapshot; sold products use their immutable sale snapshot. Product history remains immutable, source-only,
+      and is not localized.
     - Errors are returned as **`application/problem+json`** using a consistent RFC 9457-style structure
       with `status`, `title`, `error`, optional `source`, and optional `detail`
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`
@@ -963,8 +961,9 @@ paths:
       description: |
         Retrieves a single product by its `productId`.
 
-        Product prices remain stored source amounts and currencies. The `pricing` snapshot contains
-        source prices only; this endpoint performs no currency conversion.
+        `pricing.source` preserves seller-supplied source amounts and currencies. `pricing.display` contains
+        HalfUp-converted amounts in the requested currency, and `pricing.valuation` identifies the persisted
+        snapshot used. Currency defaults to `EUR`.
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
         adds optional top-level `userState`; authenticated responses are not cached.
@@ -987,6 +986,12 @@ paths:
           description: Requested current title and description language. Defaults to `en`; unavailable translations fall back to stored content.
           schema:
             $ref: "#/components/schemas/LanguageData"
+        - name: currency
+          in: query
+          required: false
+          description: Display currency. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
       security:
         - BearerAuth: []
         - {}
@@ -1065,8 +1070,9 @@ paths:
       description: |
         Retrieves a single product by its shop slug ID and product slug ID.
 
-        Product prices remain stored source amounts and currencies. The `pricing` snapshot contains
-        source prices only; this endpoint performs no currency conversion.
+        `pricing.source` preserves seller-supplied source amounts and currencies. `pricing.display` contains
+        HalfUp-converted amounts in the requested currency, and `pricing.valuation` identifies the persisted
+        snapshot used. Currency defaults to `EUR`.
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
         adds optional top-level `userState`; authenticated responses are not cached.
@@ -1104,6 +1110,12 @@ paths:
           description: Requested current title and description language. Defaults to `en`; unavailable translations fall back to stored content.
           schema:
             $ref: "#/components/schemas/LanguageData"
+        - name: currency
+          in: query
+          required: false
+          description: Display currency. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
       security:
         - BearerAuth: []
         - {}
@@ -2828,6 +2840,12 @@ paths:
           schema:
             $ref: "#/components/schemas/LanguageData"
           example: de
+        - name: currency
+          in: query
+          required: false
+          description: Display currency. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
         - name: searchAfter
           in: query
           required: false
@@ -2879,7 +2897,15 @@ paths:
                       sellerName: "Golden Shop"
                       shopSlugId: "golden-shop"
                       sellerSlugId: "golden-shop"
-                      pricing: {}
+                      pricing:
+                        source:
+                          price: { amount: 12500, currency: GBP }
+                        display:
+                          price: { amount: 14780, currency: EUR }
+                        valuation:
+                          type: CURRENT
+                          fxRateId: "550e8400-e29b-41d4-a716-446655440444"
+                          capturedAt: "2026-08-15T10:00:00Z"
                       state: AVAILABLE
                       lifecycle: ACTIVE
                       url: "https://example.test/accessory-1"
@@ -2976,6 +3002,16 @@ paths:
                 status: 500
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
+        "503":
+          description: Product details, persisted FX snapshots, or notification state are temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "SEARCH_FILTER_TEMPORARILY_UNAVAILABLE"
 
   /api/v1/me/search-filters/{userSearchFilterId}/matches/{productId}:
     patch:
@@ -3192,6 +3228,12 @@ paths:
           schema:
             $ref: "#/components/schemas/LanguageData"
           example: de
+        - name: currency
+          in: query
+          required: false
+          description: Display currency. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
         - name: size
           in: query
           required: false
@@ -3305,6 +3347,16 @@ paths:
                 status: 500
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
+        "503":
+          description: Product details, persisted FX snapshots, or notification state are temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "WATCHLIST_TEMPORARILY_UNAVAILABLE"
     post:
       summary: Add product to watchlist
       description: |
@@ -10033,36 +10085,15 @@ components:
           nullable: true
         pricing:
           type: object
-          description: Stored source pricing. No FX snapshot is implied; no conversion occurs.
+          required: [source, display, valuation]
+          description: Source pricing, converted display pricing, and the persisted FX snapshot used.
           properties:
-            price:
-              allOf:
-                - $ref: "#/components/schemas/PriceData"
-              nullable: true
-            priceEstimateMin:
-              allOf:
-                - $ref: "#/components/schemas/PriceData"
-              nullable: true
-            priceEstimateMax:
-              allOf:
-                - $ref: "#/components/schemas/PriceData"
-              nullable: true
-        price:
-          allOf:
-            - $ref: "#/components/schemas/PriceData"
-          nullable: true
-        priceEstimateMin:
-          allOf:
-            - $ref: "#/components/schemas/PriceData"
-          nullable: true
-        priceEstimateMax:
-          allOf:
-            - $ref: "#/components/schemas/PriceData"
-          nullable: true
-        currency:
-          allOf:
-            - $ref: "#/components/schemas/CurrencyData"
-          nullable: true
+            source:
+              $ref: "#/components/schemas/ProductPricingSourceData"
+            display:
+              $ref: "#/components/schemas/ProductPricingSourceData"
+            valuation:
+              $ref: "#/components/schemas/ProductPricingValuationData"
         state:
           $ref: "#/components/schemas/ProductStateData"
         lifecycle:
@@ -10094,6 +10125,52 @@ components:
         updated:
           type: string
           format: date-time
+
+    ProductPricingSourceData:
+      type: object
+      properties:
+        price:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        priceEstimateMin:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        priceEstimateMax:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+
+    ProductPricingValuationData:
+      oneOf:
+        - type: object
+          required: [type, fxRateId, capturedAt]
+          properties:
+            type:
+              type: string
+              enum: [CURRENT]
+            fxRateId:
+              type: string
+              format: uuid
+            capturedAt:
+              type: string
+              format: date-time
+        - type: object
+          required: [type, fxRateId, capturedAt, soldAt]
+          properties:
+            type:
+              type: string
+              enum: [SALE]
+            fxRateId:
+              type: string
+              format: uuid
+            capturedAt:
+              type: string
+              format: date-time
+            soldAt:
+              type: string
+              format: date-time
 
     PersonalizedProductDetailsData:
       type: object

@@ -1,4 +1,4 @@
-use crate::use_cases::queries::get_product::PersonalizedProductDetailsView;
+use crate::ports::PersonalizedProductDetailsReadModel;
 use common::language::domain::Language;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::product_id::ProductId;
@@ -32,7 +32,7 @@ pub trait ProductWatchlistDetailsReader: Send {
         &mut self,
         request: &ProductWatchlistDetailsRequest,
     ) -> Result<
-        CursoredResult<PersonalizedProductDetailsView, ProductWatchlistDetailsCursor>,
+        CursoredResult<PersonalizedProductDetailsReadModel, ProductWatchlistDetailsCursor>,
         ProductWatchlistDetailsReadError,
     >;
 }

@@ -1,4 +1,4 @@
-use crate::use_cases::queries::get_product::PersonalizedProductDetailsView;
+use crate::ports::PersonalizedProductDetailsReadModel;
 use common::error::boxed::BoxError;
 use common::language::domain::Language;
 use common::product_id::ProductId;
@@ -33,7 +33,7 @@ pub trait ProductDetailsBatchReader: Send + Sync {
     async fn find_for_user(
         &self,
         request: &ProductDetailsBatchReadRequest,
-    ) -> Result<HashMap<ProductId, PersonalizedProductDetailsView>, ProductDetailsBatchReadError>;
+    ) -> Result<HashMap<ProductId, PersonalizedProductDetailsReadModel>, ProductDetailsBatchReadError>;
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@ use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
 use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
 use common::product_id::ProductId;
@@ -24,6 +25,8 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 struct ListSearchFilterMatchesQuery {
     #[serde(default)]
     language: LanguageData,
+    #[serde(default)]
+    currency: CurrencyData,
     #[serde(default)]
     size: Option<SearchFilterMatchPageSize>,
     #[serde(default)]
@@ -69,6 +72,7 @@ pub(super) async fn list_search_filter_matches(
                 user_id,
                 search_filter_id,
                 language: query.language.into(),
+                currency: query.currency.into(),
                 cursor: Some(cursor),
                 order: SortOrder::Asc,
             },
@@ -158,6 +162,18 @@ fn matches_cursor_value(cursor: SearchFilterMatchCursor) -> Result<Value, ApiErr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_default_match_currency_to_eur_and_parse_requested_currency()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let default_query: ListSearchFilterMatchesQuery = serde_qs::from_str("")?;
+        let requested_query: ListSearchFilterMatchesQuery = serde_qs::from_str("currency=USD")?;
+
+        assert_eq!(CurrencyData::Eur, default_query.currency);
+        assert_eq!(CurrencyData::Usd, requested_query.currency);
+        Ok(())
+    }
+
     #[test]
     fn should_parse_tie_safe_match_cursor() -> Result<(), Box<dyn std::error::Error>> {
         let product_id = ProductId::new();

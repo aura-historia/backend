@@ -5,6 +5,7 @@ use crate::state::ProductsState;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
 use common::product_id::ProductId;
 use product_service::use_cases::{GetProductRequest, ProductLookup};
@@ -14,6 +15,8 @@ use serde::Deserialize;
 struct ProductDetailsQuery {
     #[serde(default)]
     language: LanguageData,
+    #[serde(default)]
+    currency: CurrencyData,
 }
 
 pub async fn get_product_by_id(
@@ -57,6 +60,7 @@ pub async fn get_product_by_id(
             GetProductRequest {
                 lookup: ProductLookup::ById(product_id),
                 language: query.language.into(),
+                currency: query.currency.into(),
             },
         )
         .await
@@ -78,6 +82,7 @@ mod tests {
     use common::currency::domain::Currency;
     use common::enhanced_match_reason::EnhancedMatchReason;
     use common::event_id::EventId;
+    use common::fx_rate_id::FxRateId;
     use common::language::domain::Language;
     use common::localized::Localized;
     use common::operation_context::OperationContext;
@@ -100,9 +105,10 @@ mod tests {
         WatchlistUserState,
     };
     use product_service::use_cases::{
-        GetProductError, GetProductUseCase, GetSimilarProductsError, GetSimilarProductsRequest,
-        GetSimilarProductsResult, GetSimilarProductsUseCase, PersonalizedProductDetailsView,
-        ProductDetailsView, SearchProductsError, SearchProductsRequest, SearchProductsResult,
+        DisplayProductPricing, GetProductError, GetProductUseCase, GetSimilarProductsError,
+        GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
+        PersonalizedProductDetailsView, ProductDetailsView, ProductPricingPresentation,
+        ProductPricingValuation, SearchProductsError, SearchProductsRequest, SearchProductsResult,
         SearchProductsUseCase,
     };
     use serde_json::{Value, json};
@@ -211,12 +217,26 @@ mod tests {
         assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
         assert!(body["item"].get("createdBy").is_none());
         assert!(body["item"].get("updatedBy").is_none());
+        assert_eq!(
+            "EUR",
+            body["item"]["pricing"]["source"]["price"]["currency"]
+        );
+        assert_eq!(
+            "EUR",
+            body["item"]["pricing"]["display"]["price"]["currency"]
+        );
+        assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
+        assert!(body["item"].get("price").is_none());
+        assert!(body["item"].get("priceEstimateMin").is_none());
+        assert!(body["item"].get("priceEstimateMax").is_none());
+        assert!(body["item"].get("currency").is_none());
         assert!(body.get("userState").is_none());
         assert!(matches!(
             lock(&calls)[0].1,
             GetProductRequest {
                 lookup: ProductLookup::ById(actual),
                 language: Language::En,
+                currency: Currency::Eur,
             } if actual == product_id
         ));
         Ok(())
@@ -231,8 +251,10 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get(format!("/api/v1/products/{product_id}?language=de"))
-                    .body(Body::empty())?,
+                Request::get(format!(
+                    "/api/v1/products/{product_id}?language=de&currency=USD"
+                ))
+                .body(Body::empty())?,
             )
             .await?;
 
@@ -242,6 +264,7 @@ mod tests {
             GetProductRequest {
                 lookup: ProductLookup::ById(actual),
                 language: Language::De,
+                currency: Currency::Usd,
             } if actual == product_id
         ));
         Ok(())
@@ -427,11 +450,21 @@ mod tests {
                     payload: Title::from("Cabinet"),
                 }),
                 description: None,
-                pricing: ProductPricing::default(),
-                price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
-                price_estimate_min: None,
-                price_estimate_max: None,
-                currency: Some(Currency::Eur),
+                pricing: ProductPricingPresentation {
+                    source: ProductPricing {
+                        price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                        ..Default::default()
+                    },
+                    display: DisplayProductPricing {
+                        price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                        price_estimate_min: None,
+                        price_estimate_max: None,
+                    },
+                    valuation: ProductPricingValuation::Current {
+                        fx_rate_id: FxRateId::new(),
+                        captured_at: OffsetDateTime::UNIX_EPOCH,
+                    },
+                },
                 state: ProductState::Listed,
                 lifecycle: ProductLifecycle::Active,
                 url: Url::parse("https://shop.example/products/1")?,

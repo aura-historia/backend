@@ -514,12 +514,20 @@ impl From<ListSearchFilterMatchesError> for ApiError {
             }
             ListSearchFilterMatchesError::ProductDetailsInvalid { .. }
             | ListSearchFilterMatchesError::MatchedProductMissing { .. }
+            | ListSearchFilterMatchesError::PricingFxSnapshotInvalid { .. }
+            | ListSearchFilterMatchesError::SaleFxSnapshotMismatch { .. }
+            | ListSearchFilterMatchesError::ProductPriceConversionFailed { .. }
             | ListSearchFilterMatchesError::HiddenProductRedactionFailed { .. } => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
                     .with_detail("Search filter match product data is invalid.")
             }
             ListSearchFilterMatchesError::SearchFilterMatchReadFailed { .. }
             | ListSearchFilterMatchesError::ProductDetailsReadFailed { .. }
+            | ListSearchFilterMatchesError::CurrentPricingFxSnapshotMissing
+            | ListSearchFilterMatchesError::SalePricingFxSnapshotMissing { .. }
+            | ListSearchFilterMatchesError::PricingFxSnapshotUnavailable { .. }
+            | ListSearchFilterMatchesError::BeginPricingTransactionFailed
+            | ListSearchFilterMatchesError::CommitPricingTransactionFailed
             | ListSearchFilterMatchesError::NotificationReadFailed { .. } => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter matches are temporarily unavailable.")
@@ -810,13 +818,18 @@ impl From<GetProductError> for ApiError {
                 ApiError::not_found(PRODUCT_NOT_FOUND).with_detail("Product was not found.")
             }
             GetProductError::ProductDetailsQueryFailed
+            | GetProductError::PricingFxSnapshotMissing
+            | GetProductError::PricingFxSnapshotUnavailable { .. }
             | GetProductError::ProductNotificationReadFailed { .. }
             | GetProductError::BeginTransactionFailed
             | GetProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product details are temporarily unavailable.")
             }
-            GetProductError::ProductDetailsReadModelInvalid => {
+            GetProductError::ProductDetailsReadModelInvalid
+            | GetProductError::PricingFxSnapshotInvalid { .. }
+            | GetProductError::SaleFxSnapshotMismatch { .. }
+            | GetProductError::ProductPriceConversionFailed { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)
                     .with_detail("Product details failed internally.")
             }
@@ -1300,13 +1313,19 @@ impl From<ListWatchlistError> for ApiError {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
             ListWatchlistError::TemporarilyUnavailable
+            | ListWatchlistError::CurrentPricingFxSnapshotMissing
+            | ListWatchlistError::SalePricingFxSnapshotMissing { .. }
+            | ListWatchlistError::PricingFxSnapshotUnavailable { .. }
             | ListWatchlistError::NotificationReadFailed { .. }
             | ListWatchlistError::BeginTransactionFailed
             | ListWatchlistError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
-            ListWatchlistError::InvalidPersistedState => {
+            ListWatchlistError::InvalidPersistedState
+            | ListWatchlistError::PricingFxSnapshotInvalid { .. }
+            | ListWatchlistError::SaleFxSnapshotMismatch { .. }
+            | ListWatchlistError::ProductPriceConversionFailed { .. } => {
                 ApiError::internal_server_error(WATCHLIST_INTERNAL_ERROR)
                     .with_detail("Watchlist failed internally.")
             }

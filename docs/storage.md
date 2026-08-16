@@ -10,5 +10,6 @@ PostgreSQL is authoritative for canonical FX data.
 - OpenSearch does not store authoritative FX data and is rebuilt separately when later product projection work needs it.
 - Product reads, writes, search, and projections must use persisted snapshots. They must not call the FX provider.
 - Product source pricing never stores an FX ID. A `SOLD` Product stores one immutable `sale_fx_rate_id` and `sold_at`; both are null or both present. The product write transaction reads the latest persisted snapshot and rejects sale creation or transition when no valid snapshot exists.
+- Product detail, watchlist, and saved-match readers return source pricing plus the optional sale valuation. Their use cases choose exactly one persisted snapshot per product: the latest snapshot for a current valuation, or the stored sale snapshot for a sale valuation. They use scaled-integer HalfUp conversion to construct display pricing; missing, invalid, or mismatched snapshots fail explicitly.
 
 `fx_rates.source_event_id` is the scheduled-capture idempotency key. `generation` orders persisted snapshots; `captured_at` supports historical selection.

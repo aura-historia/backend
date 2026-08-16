@@ -24,8 +24,8 @@ pub use product_details_batch_reader::{
     ProductDetailsBatchReadError, ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
 };
 pub use product_details_reader::{
-    ProductDetailsReadError, ProductDetailsReadRequest, ProductDetailsReader,
-    ProductDetailsReaderFactory,
+    PersonalizedProductDetailsReadModel, ProductDetailsReadError, ProductDetailsReadModel,
+    ProductDetailsReadRequest, ProductDetailsReader, ProductDetailsReaderFactory,
 };
 pub use product_embedding_reader::{
     ProductEmbedding, ProductEmbeddingLookup, ProductEmbeddingReadError, ProductEmbeddingReader,

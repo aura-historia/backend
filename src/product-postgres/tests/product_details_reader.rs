@@ -20,14 +20,14 @@ use product_core::title::Title;
 use product_postgres::{
     SqlxProductDetailsReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
 };
-use product_service::ports::ProductDetailsReadRequest;
+use product_service::ports::{
+    PersonalizedProductDetailsReadModel, ProductDetailsReadModel, ProductDetailsReadRequest,
+};
 use product_service::ports::{
     ProductDetailsReader, ProductDetailsReaderFactory, ProductEventStore, ProductEventStoreFactory,
     ProductRepository, ProductRepositoryFactory,
 };
-use product_service::use_cases::queries::get_product::{
-    PersonalizedProductDetailsView, ProductDetailsView, ProductLookup,
-};
+use product_service::use_cases::queries::get_product::ProductLookup;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
@@ -75,6 +75,7 @@ async fn should_select_requested_translations_independently_and_preserve_origina
         Language::En,
         "Original description",
     );
+    assert!(view.sale_valuation.is_none());
     assert_localized_title(view.title.as_ref(), Language::De, "Deutscher Titel");
     assert_localized_description(
         view.description.as_ref(),
@@ -565,14 +566,14 @@ fn details_request(product_id: ProductId, user_id: Option<UserId>) -> ProductDet
 async fn find_details(
     pool: &sqlx::PgPool,
     request: ProductDetailsReadRequest,
-) -> ProductDetailsView {
+) -> ProductDetailsReadModel {
     find_personalized_details(pool, request).await.item
 }
 
 async fn find_personalized_details(
     pool: &sqlx::PgPool,
     request: ProductDetailsReadRequest,
-) -> PersonalizedProductDetailsView {
+) -> PersonalizedProductDetailsReadModel {
     match find_details_result(pool, request).await {
         Ok(Some(view)) => view,
         Ok(None) => panic!("missing product details"),
@@ -583,8 +584,10 @@ async fn find_personalized_details(
 async fn find_details_result(
     pool: &sqlx::PgPool,
     request: ProductDetailsReadRequest,
-) -> Result<Option<PersonalizedProductDetailsView>, product_service::ports::ProductDetailsReadError>
-{
+) -> Result<
+    Option<PersonalizedProductDetailsReadModel>,
+    product_service::ports::ProductDetailsReadError,
+> {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let details = SqlxProductDetailsReaderFactory::new();
     let mut tx = begin(&unit_of_work).await;

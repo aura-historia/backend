@@ -1,8 +1,8 @@
 use axum::Json;
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::data::LocalizedTextData;
 use common::operation_context::Principal;
 use common::personalized::api::PersonalizedData;
@@ -17,13 +17,15 @@ use common::shops_product_id::ShopsProductId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use product_core::product::ProductPricing;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::user_state::{
     NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
     WatchlistUserState,
 };
 use product_service::use_cases::{
-    PersonalizedProductDetailsView, PersonalizedProductSummary, ProductDetailsView, ProductSummary,
+    DisplayProductPricing, PersonalizedProductDetailsView, PersonalizedProductSummary,
+    ProductDetailsView, ProductPricingPresentation, ProductPricingValuation, ProductSummary,
 };
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -54,15 +56,7 @@ pub(crate) struct ProductDetailsData {
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<LocalizedTextData>,
-    pricing: ProductPricingData,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    price: Option<PriceData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    price_estimate_min: Option<PriceData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    price_estimate_max: Option<PriceData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    currency: Option<CurrencyData>,
+    pricing: ProductPricingPresentationData,
     state: ProductStateData,
     lifecycle: ProductLifecycleData,
     url: Url,
@@ -146,6 +140,14 @@ pub(crate) struct ProductSummaryData {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ProductPricingPresentationData {
+    source: ProductPricingData,
+    display: ProductPricingData,
+    valuation: ProductPricingValuationData,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProductPricingData {
     #[serde(skip_serializing_if = "Option::is_none")]
     price: Option<PriceData>,
@@ -153,6 +155,25 @@ struct ProductPricingData {
     price_estimate_min: Option<PriceData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     price_estimate_max: Option<PriceData>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+enum ProductPricingValuationData {
+    Current {
+        #[serde(rename = "fxRateId")]
+        fx_rate_id: FxRateId,
+        #[serde(rename = "capturedAt", with = "time::serde::rfc3339")]
+        captured_at: OffsetDateTime,
+    },
+    Sale {
+        #[serde(rename = "fxRateId")]
+        fx_rate_id: FxRateId,
+        #[serde(rename = "capturedAt", with = "time::serde::rfc3339")]
+        captured_at: OffsetDateTime,
+        #[serde(rename = "soldAt", with = "time::serde::rfc3339")]
+        sold_at: OffsetDateTime,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -217,15 +238,7 @@ impl ProductDetailsData {
             product_description: view.product_description.map(Into::into),
             title: view.title.map(Into::into),
             description: view.description.map(Into::into),
-            pricing: ProductPricingData {
-                price: view.pricing.price.map(Into::into),
-                price_estimate_min: view.pricing.price_estimate_min.map(Into::into),
-                price_estimate_max: view.pricing.price_estimate_max.map(Into::into),
-            },
-            price: view.price.map(Into::into),
-            price_estimate_min: view.price_estimate_min.map(Into::into),
-            price_estimate_max: view.price_estimate_max.map(Into::into),
-            currency: view.currency.map(Into::into),
+            pricing: view.pricing.into(),
             state: view.state.into(),
             lifecycle: view.lifecycle.into(),
             url: view.url,
@@ -248,6 +261,59 @@ impl ProductDetailsData {
 impl From<ProductDetailsView> for ProductDetailsData {
     fn from(view: ProductDetailsView) -> Self {
         Self::from_view(view, false)
+    }
+}
+
+impl From<ProductPricingPresentation> for ProductPricingPresentationData {
+    fn from(pricing: ProductPricingPresentation) -> Self {
+        Self {
+            source: pricing.source.into(),
+            display: pricing.display.into(),
+            valuation: pricing.valuation.into(),
+        }
+    }
+}
+
+impl From<ProductPricing> for ProductPricingData {
+    fn from(pricing: ProductPricing) -> Self {
+        Self {
+            price: pricing.price.map(Into::into),
+            price_estimate_min: pricing.price_estimate_min.map(Into::into),
+            price_estimate_max: pricing.price_estimate_max.map(Into::into),
+        }
+    }
+}
+
+impl From<DisplayProductPricing> for ProductPricingData {
+    fn from(pricing: DisplayProductPricing) -> Self {
+        Self {
+            price: pricing.price.map(Into::into),
+            price_estimate_min: pricing.price_estimate_min.map(Into::into),
+            price_estimate_max: pricing.price_estimate_max.map(Into::into),
+        }
+    }
+}
+
+impl From<ProductPricingValuation> for ProductPricingValuationData {
+    fn from(valuation: ProductPricingValuation) -> Self {
+        match valuation {
+            ProductPricingValuation::Current {
+                fx_rate_id,
+                captured_at,
+            } => Self::Current {
+                fx_rate_id,
+                captured_at,
+            },
+            ProductPricingValuation::Sale {
+                fx_rate_id,
+                captured_at,
+                sold_at,
+            } => Self::Sale {
+                fx_rate_id,
+                captured_at,
+                sold_at,
+            },
+        }
     }
 }
 
@@ -461,6 +527,27 @@ mod tests {
     use super::*;
     use product_core::product_image::ProductImage;
     use serde_json::json;
+
+    #[test]
+    fn should_serialize_sale_pricing_valuation() -> Result<(), Box<dyn std::error::Error>> {
+        let fx_rate_id = FxRateId::new();
+        let data = ProductPricingValuationData::Sale {
+            fx_rate_id,
+            captured_at: OffsetDateTime::UNIX_EPOCH,
+            sold_at: OffsetDateTime::UNIX_EPOCH,
+        };
+
+        assert_eq!(
+            serde_json::to_value(data)?,
+            json!({
+                "type": "SALE",
+                "fxRateId": fx_rate_id,
+                "capturedAt": "1970-01-01T00:00:00Z",
+                "soldAt": "1970-01-01T00:00:00Z"
+            })
+        );
+        Ok(())
+    }
 
     #[test]
     fn should_expose_safe_image_url_without_prohibited_content_consent()

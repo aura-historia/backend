@@ -748,6 +748,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let get_product = GetProductHandler::new(
         unit_of_work.clone(),
         SqlxProductDetailsReaderFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
         DynamoDbProductNotificationsReader::new(dynamodb_client, table_name_ref),
     );
     let create_product = CreateProductHandler::new_with_fx_rates(
@@ -790,6 +791,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let list_watchlist = ListWatchlistHandler::new(
         unit_of_work.clone(),
         SqlxProductWatchlistDetailsReaderFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
         DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
     );
     let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name_ref);
@@ -884,8 +886,10 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
             SqlxSearchFilterRepositoryFactory,
         )),
         Arc::new(ListSearchFilterMatchesHandler::new(
+            unit_of_work.clone(),
             search_filter_reader.clone(),
             SqlxProductDetailsBatchReader::new(pool.clone()),
+            SqlxFxRateSnapshotRepositoryFactory,
             DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(

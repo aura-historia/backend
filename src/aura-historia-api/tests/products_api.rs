@@ -34,6 +34,13 @@ async fn should_get_product_details_by_id() {
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
+    assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
+    assert!(body["item"]["pricing"].get("source").is_some());
+    assert!(body["item"]["pricing"].get("display").is_some());
+    assert!(body["item"].get("price").is_none());
+    assert!(body["item"].get("priceEstimateMin").is_none());
+    assert!(body["item"].get("priceEstimateMax").is_none());
+    assert!(body["item"].get("currency").is_none());
     assert!(body.get("userState").is_none());
     assert_eq!(
         Some("public, max-age=180, s-maxage=900".to_owned()),
