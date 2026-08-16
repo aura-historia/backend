@@ -1,47 +1,66 @@
 use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
-use crate::scraper::css_selector::product_schema::{
-    ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
-};
-use crate::scraper::css_selector::product_schema_service::GeneratedAppendSchema;
-use crate::scraper::css_selector::rule::ExtractionError;
+use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::{
     NormalizationFailure, NormalizationSuccess,
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::extraction::engine::{apply_schema, try_apply_schemas};
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
+use crate::scraper::scraper_service::extraction::schema_selection::{
+    collect_applicable_candidates, rank_candidates,
+};
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::html::normalization_error_to_schema_hint;
 use common::shop_id::ShopId;
 use serde_json::json;
-use tracing::info;
+use tracing::{debug, info};
 use url::Url;
 
 // ---------------------------------------------------------------------------
-// NormalizationRetryContext
+// ExistingSchemaSelection
 // ---------------------------------------------------------------------------
 
-pub(crate) struct NormalizationRetryContext<'a> {
+/// Why fresh schema generation was requested after cached selection failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FreshSchemaGenerationReason {
+    /// No cached schema could be applied to the current page.
+    NoCachedSchemaApplied,
+    /// One or more cached schemas applied, but none produced a valid
+    /// normalized product.
+    NoCachedSchemaNormalized,
+}
+
+impl FreshSchemaGenerationReason {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::NoCachedSchemaApplied => "no_cached_schema_applied",
+            Self::NoCachedSchemaNormalized => "no_cached_schema_normalized",
+        }
+    }
+}
+
+pub(crate) enum ExistingSchemaSelection {
+    Normalized(Box<NormalizedProduct>),
+    /// Cached selection cannot produce a valid product — generate a
+    /// completely new schema for the current page. Never carries a cached
+    /// schema as a repair source.
+    GenerateNewSchema {
+        reason: FreshSchemaGenerationReason,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// FreshSchemaGenerationContext
+// ---------------------------------------------------------------------------
+
+pub(crate) struct FreshSchemaGenerationContext<'a> {
     pub(crate) shop_id: &'a ShopId,
     pub(crate) domain: &'a str,
     pub(crate) url: &'a Url,
     pub(crate) html: &'a str,
     pub(crate) existing_schemas: &'a [ProductCssSelectorSchema],
-    pub(crate) selected_schema: ProductCssSelectorSchema,
-}
-
-pub(crate) enum ExistingSchemaSelection {
-    Normalized(Box<NormalizedProduct>),
-    NeedsRepair {
-        selected_schema: Box<ProductCssSelectorSchema>,
-        last_norm_error: NormalizationError,
-    },
-    NoSchemaApplied {
-        last_error: ApplySchemaError,
-    },
 }
 
 // ---------------------------------------------------------------------------
@@ -49,6 +68,15 @@ pub(crate) enum ExistingSchemaSelection {
 // ---------------------------------------------------------------------------
 
 impl ScraperServiceImpl {
+    /// Applies every cached schema to the current page, ranks successful
+    /// extractions by attribute completeness, and normalizes candidates from
+    /// richest to least rich.
+    ///
+    /// The first candidate that normalizes successfully wins. When no cached
+    /// candidate succeeds — either because none applied or none normalized —
+    /// returns [`ExistingSchemaSelection::GenerateNewSchema`] so the caller
+    /// falls back to fresh schema generation. No cached schema is ever
+    /// selected as a repair source.
     #[tracing::instrument(
         skip(self, schemas, html),
         fields(
@@ -64,49 +92,85 @@ impl ScraperServiceImpl {
         html: &str,
         schemas: &[ProductCssSelectorSchema],
     ) -> Result<ExistingSchemaSelection, ScraperError> {
-        let mut last_apply_error: Option<ApplySchemaError> = None;
-        let mut last_fixable_norm_failure: Option<(ProductCssSelectorSchema, NormalizationError)> =
-            None;
+        // `scraper::Html` is `!Send`: parse, apply every cached schema, score,
+        // and rank inside one synchronous block so the parsed document is
+        // dropped before any `.await`.
+        let mut candidates = {
+            let parsed = scraper::Html::parse_document(html);
+            let mut candidate_set = collect_applicable_candidates(schemas, &parsed);
 
-        for schema in schemas {
-            let raw = match apply_schema(schema, html) {
-                Ok(raw) => raw,
-                Err(err) => {
-                    last_apply_error = Some(err);
-                    continue;
-                }
-            };
+            debug!(
+                schema_candidates_total = schemas.len(),
+                schema_candidates_applied = candidate_set.candidates.len(),
+                schema_candidates_apply_failed = candidate_set.apply_failures.len(),
+                "Cached schema application complete"
+            );
+            for (schema_index, err) in &candidate_set.apply_failures {
+                debug!(
+                    candidate_schema_index = schema_index,
+                    candidate_apply_error = ?err,
+                    "Cached schema failed to apply"
+                );
+            }
 
+            rank_candidates(&mut candidate_set.candidates);
+            for candidate in &candidate_set.candidates {
+                debug!(
+                    candidate_schema_index = candidate.schema_index,
+                    candidate_schema_score = candidate.score.as_usize(),
+                    "Ranked cached schema candidate"
+                );
+            }
+
+            candidate_set.candidates
+        };
+
+        if candidates.is_empty() {
+            debug!(
+                fresh_schema_generation_reason =
+                    FreshSchemaGenerationReason::NoCachedSchemaApplied.as_str(),
+                "No cached schema applied; fresh schema generation required"
+            );
+            return Ok(ExistingSchemaSelection::GenerateNewSchema {
+                reason: FreshSchemaGenerationReason::NoCachedSchemaApplied,
+            });
+        }
+
+        for candidate in candidates.drain(..) {
             match self
-                .normalize_applied_schema(shop_id, url, schema, raw)
+                .normalize_applied_schema(shop_id, url, candidate.schema, candidate.raw)
                 .await
             {
-                Ok(product) => return Ok(ExistingSchemaSelection::Normalized(Box::new(product))),
+                Ok(product) => {
+                    debug!(
+                        selected_schema_index = candidate.schema_index,
+                        selected_schema_score = candidate.score.as_usize(),
+                        candidate_normalization_result = "success",
+                        "Cached schema selected"
+                    );
+                    return Ok(ExistingSchemaSelection::Normalized(Box::new(product)));
+                }
                 Err(ScraperError::NormalizationError(err))
                     if normalization_error_to_schema_hint(&err).is_some() =>
                 {
-                    last_fixable_norm_failure = Some((schema.clone(), err));
-                }
-                Err(ScraperError::NormalizationError(err)) => {
-                    return Err(ScraperError::NormalizationError(err));
+                    debug!(
+                        candidate_schema_index = candidate.schema_index,
+                        candidate_schema_score = candidate.score.as_usize(),
+                        candidate_normalization_result = "fixable_failure",
+                        "Cached candidate normalization failed; trying next candidate"
+                    );
                 }
                 Err(err) => return Err(err),
             }
         }
 
-        if let Some((selected_schema, last_norm_error)) = last_fixable_norm_failure {
-            return Ok(ExistingSchemaSelection::NeedsRepair {
-                selected_schema: Box::new(selected_schema),
-                last_norm_error,
-            });
-        }
-
-        Ok(ExistingSchemaSelection::NoSchemaApplied {
-            last_error: last_apply_error.unwrap_or_else(|| {
-                ApplySchemaError::Title(ExtractionError::NoElementMatched {
-                    selector: "title".to_string(),
-                })
-            }),
+        debug!(
+            fresh_schema_generation_reason =
+                FreshSchemaGenerationReason::NoCachedSchemaNormalized.as_str(),
+            "No cached schema normalized; fresh schema generation required"
+        );
+        Ok(ExistingSchemaSelection::GenerateNewSchema {
+            reason: FreshSchemaGenerationReason::NoCachedSchemaNormalized,
         })
     }
 
@@ -153,95 +217,23 @@ impl ScraperServiceImpl {
         }
     }
 
-    /// Thin dispatcher: run normalization once and branch on the result.
+    /// Generates a completely new schema from the current page HTML, applies
+    /// it, and normalizes the result.
     ///
-    /// - **Happy path** — charge normalization LLM calls and return the product.
-    /// - **Fixable normalization error** — delegate to
-    ///   [`Self::fix_normalization_with_schema_retry`] which will attempt to
-    ///   generate a better schema and re-normalize.
-    /// - **Non-fixable normalization error** — propagate immediately as
-    ///   [`ScraperError::NormalizationError`].
-    #[tracing::instrument(
-        skip(self, ctx, raw),
-        fields(
-            shop_id = %ctx.shop_id,
-            domain = ctx.domain,
-            url = %ctx.url,
-            schema_count = ctx.existing_schemas.len()
-        )
-    )]
-    pub(crate) async fn normalize_with_schema_fix_retry(
-        &self,
-        ctx: NormalizationRetryContext<'_>,
-        mut raw: crate::scraper::css_selector::product_schema::RawExtractedProduct,
-    ) -> Result<NormalizedProduct, ScraperError> {
-        raw.images =
-            match filter_valid_image_urls(raw.images, ctx.url, &*self.image_validator).await {
-                Ok(images) => images,
-                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-                Err(err) if normalization_error_to_schema_hint(&err).is_some() => {
-                    return self.fix_normalization_with_schema_retry(ctx, err).await;
-                }
-                Err(err) => return Err(ScraperError::NormalizationError(err)),
-            };
-        match self
-            .normalization_service
-            .normalize(
-                raw,
-                ctx.url.clone(),
-                ctx.selected_schema
-                    .default_currency
-                    .map(common::currency::domain::Currency::from),
-            )
-            .await
-        {
-            Ok(NormalizationSuccess {
-                product,
-                llm_calls_used,
-            }) => {
-                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
-                    .await?;
-                Ok(product)
-            }
-            Err(NormalizationFailure {
-                error,
-                llm_calls_used,
-            }) if normalization_error_to_schema_hint(&error).is_some() => {
-                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
-                    .await?;
-                self.fix_normalization_with_schema_retry(ctx, error).await
-            }
-            Err(NormalizationFailure {
-                error,
-                llm_calls_used,
-            }) => {
-                self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
-                    .await?;
-                Err(ScraperError::NormalizationError(error))
-            }
-        }
-    }
-
-    /// Attempt to repair a fixable normalization failure by generating and
-    /// applying improved schema variants.
+    /// Every call is an independent fresh-generation attempt:
     ///
-    /// Each iteration:
-    /// 1. Charges one schema-generation LLM call against the budget.
-    /// 2. Asks the schema service to append a single new schema from the
-    ///    current page HTML.
-    /// 3. Tries to apply the generated schema to the HTML.
-    ///    - Apply failure → loop with updated apply-error context.
-    /// 4. Re-normalizes the re-extracted product.
-    ///    - Success → charge normalization LLM calls, persist the new schema,
-    ///      return the product.
-    ///    - Fixable norm error → loop with updated norm-error context.
-    ///    - Non-fixable norm error → propagate immediately.
+    /// * no cached schema is passed as repair input;
+    /// * no localized, field-level, or selector-patching repair is performed;
+    /// * a failed generated candidate is discarded, never mutated;
+    /// * a successfully generated schema is reviewed and appended/persisted
+    ///   through the existing schema-generation flow.
     ///
     /// On exhaustion the terminal failure mode determines the error variant:
-    /// - Last failure was an apply error → [`ScraperError::SchemaRegenerationExhausted`].
-    /// - Last failure was a normalization error → [`ScraperError::NormalizationFixExhausted`].
+    /// - Generated schema failed to apply → [`ScraperError::SchemaRegenerationExhausted`].
+    /// - Generated schema applied but normalization kept failing →
+    ///   [`ScraperError::NormalizationFixExhausted`].
     #[tracing::instrument(
-        skip(self, ctx, first_norm_err),
+        skip(self, ctx),
         fields(
             shop_id = %ctx.shop_id,
             domain = ctx.domain,
@@ -249,61 +241,14 @@ impl ScraperServiceImpl {
             schema_count = ctx.existing_schemas.len()
         )
     )]
-    pub(crate) async fn fix_normalization_with_schema_retry(
+    pub(crate) async fn generate_fresh_schema_for_page(
         &self,
-        ctx: NormalizationRetryContext<'_>,
-        first_norm_err: NormalizationError,
+        ctx: FreshSchemaGenerationContext<'_>,
     ) -> Result<NormalizedProduct, ScraperError> {
-        if normalization_error_to_schema_hint(&first_norm_err).is_none() {
-            return Err(ScraperError::NormalizationError(first_norm_err));
-        };
+        let (generated_schema, mut reapplied, evaluation) = self
+            .generate_and_apply_fresh_schema(ctx.shop_id, ctx.url, ctx.html)
+            .await?;
 
-        if let Some(review_id) = self.pending_product_schema_review_id(ctx.shop_id).await? {
-            return Err(ScraperError::PendingSchemaReview {
-                url: ctx.url.clone(),
-                review_id,
-            });
-        }
-
-        self.consume_llm_budget_or_err(ctx.shop_id, ctx.url).await?;
-
-        let generated = self.schema_service.append_single_schema(ctx.html).await?;
-        let (generated_schema, evaluation) = match generated {
-            GeneratedAppendSchema::Product { schema, evaluation } => (*schema, evaluation),
-            GeneratedAppendSchema::Removed { schema, .. } => {
-                if !schema.matches(ctx.html) {
-                    return Err(crate::scraper::scraper_service::recovery::schema_retry::page_classification_did_not_match(
-                        ctx.url,
-                        &schema.selector,
-                    ));
-                }
-                self.save_removed_page_schema(ctx.shop_id, schema).await?;
-                self.mark_product_removed_best_effort(ctx.shop_id, ctx.url)
-                    .await;
-                return Err(ScraperError::ProductRemoved {
-                    url: ctx.url.clone(),
-                    details: "normalization schema repair classified page as removed".to_string(),
-                });
-            }
-            GeneratedAppendSchema::NotProduct { reason, .. } => {
-                self.mark_url_other_best_effort(ctx.shop_id, ctx.url).await;
-                return Err(ScraperError::NotProductPage {
-                    url: ctx.url.clone(),
-                    details: reason,
-                });
-            }
-        };
-
-        let mut reapplied = match try_apply_schemas(std::iter::once(&generated_schema), ctx.html) {
-            Ok((_, raw)) => raw,
-            Err(apply_err) => {
-                return Err(ScraperError::SchemaRegenerationExhausted {
-                    url: ctx.url.clone(),
-                    attempts: 1,
-                    last_error: apply_err,
-                });
-            }
-        };
         reapplied.images = match filter_valid_image_urls(
             reapplied.images,
             ctx.url,
@@ -351,13 +296,13 @@ impl ScraperServiceImpl {
                 match self
                     .handle_generated_schema_review(
                         ctx.shop_id,
-                        "normalization_schema_repair",
+                        "fresh_schema_generation",
                         persisted_schemas,
                         evaluation,
                         pages,
                         json!({
                             "schema_applied": true,
-                            "normalization_fixed": true,
+                            "fresh_generation": true,
                         }),
                     )
                     .await?
@@ -366,7 +311,7 @@ impl ScraperServiceImpl {
                         info!(
                             domain = ctx.domain,
                             url = %ctx.url,
-                            "Schema fixed normalization failure"
+                            "Freshly generated schema produced valid product"
                         );
                         Ok(product)
                     }
