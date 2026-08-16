@@ -28,73 +28,68 @@ impl ExtractionCompletenessScore {
     }
 }
 
-/// Scores a [`RawExtractedProduct`] by counting distinct populated logical
+/// Returns true when an extracted value carries real page data, i.e. a
+/// non-empty trimmed string. `None` is empty.
+fn is_populated(value: Option<&str>) -> bool {
+    value.is_some_and(|s| !s.trim().is_empty())
+}
+
+/// Returns true when at least one extracted value in the list is populated.
+fn any_populated(values: &[String]) -> bool {
+    values.iter().any(|v| !v.trim().is_empty())
+}
+
+/// Score a [`RawExtractedProduct`] by counting distinct populated logical
 /// fields. Pure function — no LLM calls, no I/O.
+///
+/// Each field is encoded exactly once across the four category arrays below;
+/// the final score is a single sum over them. Adding a new scored field is a
+/// one-line change in the relevant array.
 pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionCompletenessScore {
-    let mut score = 0;
-
-    if !raw.shops_product_id.trim().is_empty() {
-        score += 1;
-    }
-    if !raw.title.trim().is_empty() {
-        score += 1;
-    }
-    if raw.description.iter().any(|d| !d.trim().is_empty()) {
-        score += 1;
-    }
-    if raw.price.as_deref().is_some_and(|p| !p.trim().is_empty()) {
-        score += 1;
-    }
-    if raw
-        .price_estimate_min
-        .as_deref()
-        .is_some_and(|p| !p.trim().is_empty())
-    {
-        score += 1;
-    }
-    if raw
-        .price_estimate_max
-        .as_deref()
-        .is_some_and(|p| !p.trim().is_empty())
-    {
-        score += 1;
-    }
-    if raw
-        .seller_name
-        .as_deref()
-        .is_some_and(|s| !s.trim().is_empty())
-    {
-        score += 1;
-    }
-    if !raw.state.trim().is_empty() {
-        score += 1;
-    }
-    if !raw.images.is_empty() {
-        score += 1;
-    }
-    if raw
-        .auction_start
-        .as_deref()
-        .is_some_and(|a| !a.trim().is_empty())
-    {
-        score += 1;
-    }
-    if raw
-        .auction_end
-        .as_deref()
-        .is_some_and(|a| !a.trim().is_empty())
-    {
-        score += 1;
-    }
-
-    // Every populated raw-attribute key counts as one distinct attribute.
-    score += raw
-        .raw_attributes
-        .values()
-        .filter(|values| values.iter().any(|v| !v.trim().is_empty()))
+    // Mandatory `String` fields: populated when the trimmed value is non-empty.
+    let scalar_strings: [&str; 3] = [
+        raw.shops_product_id.as_str(),
+        raw.title.as_str(),
+        raw.state.as_str(),
+    ];
+    let populated_scalar_strings = scalar_strings
+        .iter()
+        .filter(|s| !s.trim().is_empty())
         .count();
 
-    ExtractionCompletenessScore(score)
+    // Optional `Option<String>` fields: populated when `Some` and trimmed-non-empty.
+    let optional_strings: [Option<&str>; 6] = [
+        raw.price.as_deref(),
+        raw.price_estimate_min.as_deref(),
+        raw.price_estimate_max.as_deref(),
+        raw.seller_name.as_deref(),
+        raw.auction_start.as_deref(),
+        raw.auction_end.as_deref(),
+    ];
+    let populated_optionals = optional_strings
+        .iter()
+        .copied()
+        .filter(|v| is_populated(*v))
+        .count();
+
+    // Multi-valued fields: counted as 1 each, regardless of how many values they hold.
+    let populated_descriptions = usize::from(any_populated(&raw.description));
+    let populated_images = usize::from(!raw.images.is_empty());
+
+    // Raw attributes: one point per populated key.
+    let populated_raw_attribute_keys = raw
+        .raw_attributes
+        .values()
+        .filter(|values| any_populated(values))
+        .count();
+
+    ExtractionCompletenessScore(
+        populated_scalar_strings
+            + populated_optionals
+            + populated_descriptions
+            + populated_images
+            + populated_raw_attribute_keys,
+    )
 }
 
 // ---------------------------------------------------------------------------
