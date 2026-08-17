@@ -60,6 +60,10 @@ pub enum CaptureFxRateSnapshotError {
         #[source]
         source: BoxError,
     },
+    #[error(
+        "FX rate snapshot captured-at timestamp is not strictly newer than the canonical snapshot"
+    )]
+    CapturedAtNotMonotonic,
     #[error("failed to commit FX rate snapshot transaction")]
     CommitTransactionFailed {
         #[source]
@@ -156,9 +160,7 @@ where
             .in_transaction(&mut transaction)
             .insert(&snapshot, &command.source_event_id)
             .await
-            .map_err(|source| CaptureFxRateSnapshotError::SnapshotInsertFailed {
-                source: box_error(source),
-            })?;
+            .map_err(CaptureFxRateSnapshotError::from)?;
         transaction.commit().await.map_err(|source| {
             CaptureFxRateSnapshotError::CommitTransactionFailed {
                 source: box_error(source),
@@ -203,8 +205,11 @@ impl From<FxRateQuoteProviderError> for CaptureFxRateSnapshotError {
 
 impl From<FxRateSnapshotRepositoryError> for CaptureFxRateSnapshotError {
     fn from(source: FxRateSnapshotRepositoryError) -> Self {
-        Self::SnapshotInsertFailed {
-            source: box_error(source),
+        match source {
+            FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => Self::CapturedAtNotMonotonic,
+            source => Self::SnapshotInsertFailed {
+                source: box_error(source),
+            },
         }
     }
 }

@@ -211,6 +211,9 @@ fn fx_rate_error(error: FxRateSnapshotRepositoryError) -> ProjectProductError {
         | FxRateSnapshotRepositoryError::ReadFailed { source } => {
             ProjectProductError::SaleFxSnapshotReadFailed { source }
         }
+        FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => {
+            ProjectProductError::SaleFxSnapshotMissing
+        }
     }
 }
 

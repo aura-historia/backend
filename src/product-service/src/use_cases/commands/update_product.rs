@@ -270,7 +270,8 @@ where
         let sale_valuation = if matches!(command.state, PatchField::Set(ProductState::Sold))
             && product.state() != ProductState::Sold
         {
-            Some(sale_valuation(&self.fx_rates, tx).await?)
+            let sold_at = time::OffsetDateTime::now_utc();
+            Some(sale_valuation(&self.fx_rates, tx, sold_at).await?)
         } else {
             None
         };
@@ -458,6 +459,9 @@ fn apply_state(
     state: ProductState,
     sale_valuation: Option<ProductSaleValuation>,
 ) -> Result<(), UpdateProductError> {
+    if product.state() == state {
+        return Ok(());
+    }
     match state {
         ProductState::Listed => product.mark_listed()?,
         ProductState::Available => product.mark_available()?,
@@ -514,18 +518,19 @@ fn apply_auction_patch(
 async fn sale_valuation<Tx, F>(
     fx_rates: &F,
     tx: &mut Tx,
+    sold_at: time::OffsetDateTime,
 ) -> Result<ProductSaleValuation, UpdateProductError>
 where
     F: FxRateSnapshotRepositoryFactory<Tx>,
 {
     let mut repository = fx_rates.in_transaction(tx);
     let snapshot = repository
-        .find_latest()
+        .find_latest_at_or_before(sold_at)
         .await
         .map_err(UpdateProductError::from)?
         .ok_or(UpdateProductError::SaleFxSnapshotMissing)?;
     Ok(ProductSaleValuation {
-        sold_at: time::OffsetDateTime::now_utc(),
+        sold_at,
         fx_rate_id: snapshot.id(),
     })
 }
@@ -550,6 +555,7 @@ impl From<FxRateSnapshotRepositoryError> for UpdateProductError {
             FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
                 Self::SaleFxSnapshotInvalid { source }
             }
+            FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => Self::SaleFxSnapshotMissing,
         }
     }
 }

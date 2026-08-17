@@ -71,7 +71,7 @@ flowchart TD
 
 ## Product write flow
 
-Product writes are synchronous and persist full immutable payload snapshots. Pricing retains only source `price`, `price_estimate_min`, and `price_estimate_max`; it never carries an FX ID. Creating or transitioning a Product to `SOLD` reads the latest persisted FX snapshot in the Product transaction and records immutable `sale_fx_rate_id` plus `sold_at`. Missing or invalid persisted FX data rejects the write. A sold Product can move only to `REMOVED` through generic writes, preserving its sale valuation. FX snapshots are a separate canonical context: each persisted generation stores one checked EUR-base `units_per_eur` quote for every supported currency, including EUR at scale. Capture fetches the provider before its short Postgres transaction and deduplicates by EventBridge event ID.
+Product writes are synchronous and persist full immutable payload snapshots. Pricing retains only source `price`, `price_estimate_min`, and `price_estimate_max`; it never carries an FX ID. Creating or transitioning a Product to `SOLD` captures one `sold_at`, then selects latest persisted `captured_at <= sold_at` in the Product transaction and records immutable `sale_fx_rate_id` plus `sold_at`. Missing or invalid persisted FX data rejects the write. A sold Product can move only to `REMOVED` through generic writes, preserving its sale valuation. FX snapshots are a separate canonical context: each persisted generation stores one checked EUR-base `units_per_eur` quote for every supported currency, including EUR at scale. Capture fetches the provider before its short Postgres transaction, deduplicates by source event ID, and rejects retroactive or tied canonical captures.
 
 ```mermaid
 sequenceDiagram
@@ -230,7 +230,7 @@ These AWS event flows stay:
 | Source | Route | Target |
 |---|---|---|
 | DynamoDB notification insert | Stream/EventBridge/SQS | `notification-send` Lambda |
-| EventBridge schedule | cron | `fxrate-lambda`; captures one idempotent canonical FX snapshot in Postgres per EventBridge event ID |
+| Compute-stack creation or EventBridge schedule | bootstrap or cron | `fxrate-lambda`; captures one idempotent canonical FX snapshot in Postgres per source event ID |
 | Shopify partner EventBridge/SQS | Shopify product events | `shopify-lambda`; this is external intake buffering before sync Postgres product/event writes, not the removed product command queue. |
 | Stripe partner EventBridge | subscription events | `stripe-lambda`; Lambda invokes canonical User service handlers with direct Postgres adapters for atomic user tier/customer updates. |
 | Step Functions | partner app workflow | `partner-shop-application-lambda`; Lambda writes Postgres business rows directly. |
@@ -247,7 +247,7 @@ Minimum unique keys:
 | Product event | `product_events.event_id` |
 | Product materialized state | `products.event_id` |
 | Product worker job | `product_events.event_id` |
-| Scheduled FX snapshot | `fx_rates.source_event_id` |
+| Scheduled or deployment-bootstrap FX snapshot | `fx_rates.source_event_id` |
 | Shop worker job | `(shop_id, version, op)` |
 | Search-filter worker job | `(user_search_filter_id, version, op)` |
 | User tier worker job | `(user_id, version)` |

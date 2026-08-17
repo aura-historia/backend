@@ -25,6 +25,10 @@ pub enum FxRateSnapshotRepositoryError {
         #[source]
         source: BoxError,
     },
+    #[error(
+        "FX rate snapshot captured-at timestamp is not strictly newer than the canonical snapshot"
+    )]
+    CapturedAtNotMonotonic,
 }
 
 #[async_trait::async_trait]

@@ -7,7 +7,8 @@ use common::{
 use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use fxrate_service::ports::{
-    FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryFactory,
+    FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryError,
+    FxRateSnapshotRepositoryFactory,
 };
 use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -119,5 +120,59 @@ async fn should_insert_idempotently_and_rehydrate_persisted_snapshots() {
     assert!(
         result.is_ok(),
         "FX snapshot repository test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_retroactive_or_tied_canonical_capture_except_duplicate_source_event() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let captured_at = OffsetDateTime::UNIX_EPOCH + Duration::hours(2);
+        let canonical = snapshot(captured_at);
+        assert!(matches!(
+            insert(pool.clone(), &canonical, "event-canonical").await?,
+            FxRateSnapshotInsertOutcome::Inserted(_)
+        ));
+
+        let mut transaction = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+        let retroactive = SqlxFxRateSnapshotRepositoryFactory::new()
+            .in_transaction(&mut transaction)
+            .insert(
+                &snapshot(captured_at - Duration::seconds(1)),
+                "event-retroactive",
+            )
+            .await;
+        assert!(matches!(
+            retroactive,
+            Err(FxRateSnapshotRepositoryError::CapturedAtNotMonotonic)
+        ));
+        drop(transaction);
+
+        let mut transaction = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+        let tied = SqlxFxRateSnapshotRepositoryFactory::new()
+            .in_transaction(&mut transaction)
+            .insert(&snapshot(captured_at), "event-tied")
+            .await;
+        assert!(matches!(
+            tied,
+            Err(FxRateSnapshotRepositoryError::CapturedAtNotMonotonic)
+        ));
+        drop(transaction);
+
+        assert!(matches!(
+            insert(
+                pool,
+                &snapshot(captured_at - Duration::hours(1)),
+                "event-canonical"
+            )
+            .await?,
+            FxRateSnapshotInsertOutcome::Duplicate
+        ));
+        Ok(())
+    }
+    .await;
+    assert!(
+        result.is_ok(),
+        "FX canonical capture monotonicity test failed: {result:?}"
     );
 }

@@ -30,6 +30,7 @@ use product_service::use_cases::{
     redact_hidden_product,
 };
 use std::collections::{HashMap, HashSet};
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListSearchFilterMatchesRequest {
@@ -212,13 +213,14 @@ where
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        let valuation_at = OffsetDateTime::now_utc();
         let mut tx = self
             .unit_of_work
             .begin()
             .await
             .map_err(|_| ListSearchFilterMatchesError::BeginPricingTransactionFailed)?;
         let pricing_snapshots =
-            pricing_snapshots(&self.fx_rates, &mut tx, &factual_details).await?;
+            pricing_snapshots(&self.fx_rates, &mut tx, &factual_details, valuation_at).await?;
         let mut products = factual_details
             .into_iter()
             .map(|factual_details| {
@@ -271,6 +273,7 @@ async fn pricing_snapshots<Tx, F>(
     fx_rates: &F,
     tx: &mut Tx,
     factual_details: &[PersonalizedProductDetailsReadModel],
+    valuation_at: OffsetDateTime,
 ) -> Result<PricingSnapshots, ListSearchFilterMatchesError>
 where
     F: FxRateSnapshotRepositoryFactory<Tx>,
@@ -291,7 +294,7 @@ where
         Some(
             fx_rates
                 .in_transaction(tx)
-                .find_latest()
+                .find_latest_at_or_before(valuation_at)
                 .await?
                 .ok_or(ListSearchFilterMatchesError::CurrentPricingFxSnapshotMissing)?,
         )
@@ -406,6 +409,9 @@ impl From<FxRateSnapshotRepositoryError> for ListSearchFilterMatchesError {
             }
             FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
                 Self::PricingFxSnapshotInvalid { source }
+            }
+            FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => {
+                Self::CurrentPricingFxSnapshotMissing
             }
         }
     }
@@ -596,7 +602,9 @@ mod tests {
             &mut self,
             _timestamp: OffsetDateTime,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
+            let mut state = lock(&self.0);
+            state.latest_snapshot_requests += 1;
+            Ok(state.latest_snapshot.clone())
         }
 
         async fn find_by_id(

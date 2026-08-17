@@ -209,14 +209,20 @@ where
         context: &OperationContext,
         request: SearchProductsRequest,
     ) -> Result<SearchProductsResult, SearchProductsError> {
+        let valuation_at = OffsetDateTime::now_utc();
         let pinned_fx_rate_id = request.cursor.as_ref().and_then(|cursor| {
             cursor
                 .search_after
                 .as_ref()
                 .map(|search_after| search_after.fx_rate_id)
         });
-        let snapshot =
-            load_fx_rate_snapshot(&self.unit_of_work, &self.fx_rates, pinned_fx_rate_id).await?;
+        let snapshot = load_fx_rate_snapshot(
+            &self.unit_of_work,
+            &self.fx_rates,
+            pinned_fx_rate_id,
+            valuation_at,
+        )
+        .await?;
         let price_filter = compile_price_filter(snapshot, &request)?;
         let fx_rate_id = price_filter.fx_rate_id;
         let embedding_query = hybrid_embedding_query(&request);
@@ -280,6 +286,7 @@ async fn load_fx_rate_snapshot<UoW, F>(
     unit_of_work: &UoW,
     fx_rates: &F,
     pinned_fx_rate_id: Option<FxRateId>,
+    valuation_at: OffsetDateTime,
 ) -> Result<FxRateSnapshot, SearchProductsError>
 where
     UoW: UnitOfWork,
@@ -298,7 +305,7 @@ where
             .map_err(fx_rate_snapshot_read_error)?,
         None => fx_rates
             .in_transaction(&mut tx)
-            .find_latest()
+            .find_latest_at_or_before(valuation_at)
             .await
             .map_err(fx_rate_snapshot_read_error)?,
     };
@@ -334,6 +341,9 @@ fn fx_rate_snapshot_read_error(error: FxRateSnapshotRepositoryError) -> SearchPr
         FxRateSnapshotRepositoryError::InsertFailed { source }
         | FxRateSnapshotRepositoryError::ReadFailed { source } => {
             SearchProductsError::FxRateSnapshotReadFailed { source }
+        }
+        FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => {
+            SearchProductsError::FxRateSnapshotMissing
         }
     }
 }
@@ -596,7 +606,7 @@ mod tests {
             &mut self,
             _timestamp: OffsetDateTime,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
+            self.find_latest().await
         }
 
         async fn find_by_id(

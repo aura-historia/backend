@@ -231,7 +231,8 @@ where
 
         let mut input = command.into_new_product(ProductId::new());
         if input.state == ProductState::Sold {
-            input.sale_valuation = Some(sale_valuation(&self.fx_rates, &mut tx).await?);
+            let sold_at = time::OffsetDateTime::now_utc();
+            input.sale_valuation = Some(sale_valuation(&self.fx_rates, &mut tx, sold_at).await?);
         }
         let product = Product::create(input)?;
         let event_id = product
@@ -306,18 +307,19 @@ impl TryFrom<&Product> for CreateProductResult {
 async fn sale_valuation<Tx, F>(
     fx_rates: &F,
     tx: &mut Tx,
+    sold_at: time::OffsetDateTime,
 ) -> Result<ProductSaleValuation, CreateProductError>
 where
     F: FxRateSnapshotRepositoryFactory<Tx>,
 {
     let mut repository = fx_rates.in_transaction(tx);
     let snapshot = repository
-        .find_latest()
+        .find_latest_at_or_before(sold_at)
         .await
         .map_err(CreateProductError::from)?
         .ok_or(CreateProductError::SaleFxSnapshotMissing)?;
     Ok(ProductSaleValuation {
-        sold_at: time::OffsetDateTime::now_utc(),
+        sold_at,
         fx_rate_id: snapshot.id(),
     })
 }
@@ -338,6 +340,7 @@ impl From<FxRateSnapshotRepositoryError> for CreateProductError {
             FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
                 Self::SaleFxSnapshotInvalid { source }
             }
+            FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => Self::SaleFxSnapshotMissing,
         }
     }
 }
@@ -606,7 +609,12 @@ mod tests {
             &mut self,
             _timestamp: time::OffsetDateTime,
         ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
+            let mut count = match self.latest_count.lock() {
+                Ok(count) => count,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            *count += 1;
+            Ok(Some(self.snapshot.clone()))
         }
 
         async fn find_by_id(

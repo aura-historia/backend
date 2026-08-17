@@ -18,6 +18,7 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use notification_service::ports::all_notifications_reader::AllNotificationsReader;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetSimilarProductsRequest {
@@ -145,6 +146,7 @@ where
         context: &OperationContext,
         request: GetSimilarProductsRequest,
     ) -> Result<GetSimilarProductsResult, GetSimilarProductsError> {
+        let valuation_at = OffsetDateTime::now_utc();
         let mut tx = self
             .unit_of_work
             .begin()
@@ -168,7 +170,7 @@ where
         let snapshot = self
             .fx_rates
             .in_transaction(&mut tx)
-            .find_latest()
+            .find_latest_at_or_before(valuation_at)
             .await?
             .ok_or(GetSimilarProductsError::PricingFxSnapshotMissing)?;
         let price_filter_plan = ProductPriceFilterPlan::compile(snapshot, request.currency, None)
@@ -245,6 +247,7 @@ impl From<FxRateSnapshotRepositoryError> for GetSimilarProductsError {
             FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
                 Self::PricingFxSnapshotInvalid { source }
             }
+            FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => Self::PricingFxSnapshotMissing,
         }
     }
 }

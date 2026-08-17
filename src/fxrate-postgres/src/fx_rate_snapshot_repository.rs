@@ -166,11 +166,36 @@ impl FxRateSnapshotRepository for SqlxFxRateSnapshotRepository<'_> {
         snapshot: &NewFxRateSnapshot,
         source_event_id: &str,
     ) -> Result<FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError> {
+        sqlx::query("LOCK TABLE fx_rates IN SHARE ROW EXCLUSIVE MODE")
+            .execute(&mut *self.connection)
+            .await
+            .map_err(FxRateSnapshotInsertSqlxError)?;
+
+        let duplicate = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM fx_rates WHERE source_event_id = $1)",
+        )
+        .bind(source_event_id)
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(FxRateSnapshotInsertSqlxError)?;
+        if duplicate {
+            return Ok(FxRateSnapshotInsertOutcome::Duplicate);
+        }
+
+        let latest_captured_at = sqlx::query_scalar::<_, OffsetDateTime>(
+            "SELECT captured_at FROM fx_rates ORDER BY captured_at DESC, generation DESC LIMIT 1",
+        )
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(FxRateSnapshotInsertSqlxError)?;
+        if latest_captured_at.is_some_and(|latest| snapshot.captured_at() <= latest) {
+            return Err(FxRateSnapshotRepositoryError::CapturedAtNotMonotonic);
+        }
+
         let generation = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (source_event_id) DO NOTHING
             RETURNING generation
             "#,
         )
@@ -178,13 +203,9 @@ impl FxRateSnapshotRepository for SqlxFxRateSnapshotRepository<'_> {
         .bind(snapshot.captured_at())
         .bind(snapshot.source().as_str())
         .bind(source_event_id)
-        .fetch_optional(&mut *self.connection)
+        .fetch_one(&mut *self.connection)
         .await
         .map_err(FxRateSnapshotInsertSqlxError)?;
-
-        let Some(generation) = generation else {
-            return Ok(FxRateSnapshotInsertOutcome::Duplicate);
-        };
         let generation = FxRateGeneration::try_from(generation).map_err(|source| {
             FxRateSnapshotRepositoryError::InsertFailed {
                 source: box_error(source),

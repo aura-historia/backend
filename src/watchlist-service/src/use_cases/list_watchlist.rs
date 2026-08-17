@@ -26,6 +26,7 @@ use product_service::use_cases::{
     redact_hidden_product,
 };
 use std::collections::{HashMap, HashSet};
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListWatchlistRequest {
@@ -126,6 +127,7 @@ where
     ) -> Result<ListWatchlistResult, ListWatchlistError> {
         authorize_read(context, request.user_id)?;
 
+        let valuation_at = OffsetDateTime::now_utc();
         let mut tx = self
             .unit_of_work
             .begin()
@@ -145,7 +147,7 @@ where
             })
             .await?;
         let pricing_snapshots =
-            pricing_snapshots(&self.fx_rates, &mut tx, &factual_page.items).await?;
+            pricing_snapshots(&self.fx_rates, &mut tx, &factual_page.items, valuation_at).await?;
         let CursoredResult {
             items,
             cursor,
@@ -209,6 +211,7 @@ async fn pricing_snapshots<Tx, F>(
     fx_rates: &F,
     tx: &mut Tx,
     factual_details: &[product_service::ports::PersonalizedProductDetailsReadModel],
+    valuation_at: OffsetDateTime,
 ) -> Result<PricingSnapshots, ListWatchlistError>
 where
     F: FxRateSnapshotRepositoryFactory<Tx>,
@@ -229,7 +232,7 @@ where
         Some(
             fx_rates
                 .in_transaction(tx)
-                .find_latest()
+                .find_latest_at_or_before(valuation_at)
                 .await?
                 .ok_or(ListWatchlistError::CurrentPricingFxSnapshotMissing)?,
         )
@@ -345,6 +348,9 @@ impl From<FxRateSnapshotRepositoryError> for ListWatchlistError {
             }
             FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
                 Self::PricingFxSnapshotInvalid { source }
+            }
+            FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => {
+                Self::CurrentPricingFxSnapshotMissing
             }
         }
     }
@@ -525,7 +531,9 @@ mod tests {
             &mut self,
             _timestamp: OffsetDateTime,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
+            let mut state = lock(&self.0);
+            state.latest_snapshot_requests += 1;
+            state.latest_snapshot_result.take().unwrap_or(Ok(None))
         }
 
         async fn find_by_id(
