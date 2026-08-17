@@ -41,10 +41,12 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
                 user_search_filter_id,
                 product_id,
                 origin_event_id,
+                price_valuation_basis,
+                price_fx_rate_id,
                 user_search_filter_name,
                 enhanced_match_reason,
                 feedback
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (user_search_filter_id, product_id) DO NOTHING
             RETURNING 1::bigint
             "#,
@@ -53,6 +55,16 @@ impl SearchFilterMatchWriter for SqlxSearchFilterMatchWriter<'_> {
         .bind(filter_id)
         .bind(uuid::Uuid::from(product_match.product_id))
         .bind(uuid::Uuid::from(product_match.origin_event_id))
+        .bind(
+            product_match
+                .price_match_valuation
+                .map(|valuation| valuation.basis.as_db_str()),
+        )
+        .bind(
+            product_match
+                .price_match_valuation
+                .map(|valuation| uuid::Uuid::from(valuation.fx_rate_id)),
+        )
         .bind(
             product_match
                 .user_search_filter_name

@@ -11,6 +11,7 @@ use common::fx_rate_id::FxRateId;
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
+#[cfg(test)]
 use fxrate_core::FxRateSnapshot;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -19,11 +20,13 @@ use large_language_model::{
     BatchGenerationOptions, GenerationOptions, LargeLanguageModel, LargeLanguageModelError,
     StructuredGenerationRequest,
 };
+use product_core::product::ProductPriceValuationBasis;
 use product_service::ports::{
+    ProductPercolationInput, ProductPercolationValuation, ProductPricesByCurrency,
     ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
 };
-use search_filter_core::SearchFilterProductMatch;
+use search_filter_core::{PriceMatchValuation, SearchFilterProductMatch};
 use serde::Deserialize;
 use std::num::NonZeroUsize;
 
@@ -80,13 +83,32 @@ pub enum MatchProductEventError {
     ProductSourceMismatch,
     #[error("sale FX snapshot is missing from canonical persisted storage")]
     SaleSnapshotNotFound { fx_rate_id: FxRateId },
+    #[error("event-effective FX snapshot is missing from canonical persisted storage")]
+    EventSnapshotNotFound {
+        origin_event_time: time::OffsetDateTime,
+    },
     #[error("sale FX snapshot read failed")]
     SaleSnapshotReadFailed {
         #[source]
         source: BoxError,
     },
+    #[error("event-effective FX snapshot read failed")]
+    EventSnapshotReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("sale FX snapshot persisted state is invalid")]
     SaleSnapshotStateInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("event-effective FX snapshot persisted state is invalid")]
+    EventSnapshotStateInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("event-time FX conversion failed")]
+    EventValuationConversionFailed {
         #[source]
         source: BoxError,
     },
@@ -233,13 +255,27 @@ where
             ProductSourceReadOutcome::Current(product) => *product,
         };
 
+        let price_match_valuation =
+            product
+                .valuation
+                .as_ref()
+                .map(|valuation| PriceMatchValuation {
+                    basis: valuation.basis,
+                    fx_rate_id: valuation.fx_rate_id,
+                });
         let percolated = self
             .index
-            .percolate(&product.product, product.sale_snapshot.as_ref())
+            .percolate(&product)
             .await
             .map_err(percolation_error)?;
         let percolated_count = percolated.len();
-        let evaluated = evaluate_candidates(&self.evaluator, &product.product, percolated).await;
+        let evaluated = evaluate_candidates(
+            &self.evaluator,
+            &product.source,
+            percolated,
+            price_match_valuation,
+        )
+        .await;
         let candidates = evaluated.candidates;
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             MatchProductEventError::BeginTransactionFailed {
@@ -266,6 +302,7 @@ where
                 user_search_filter_name: Some(candidate.search_filter_name),
                 product_id: command.product_id,
                 origin_event_id: command.origin_event_id,
+                price_match_valuation: candidate.price_match_valuation,
                 enhanced_match_reason: candidate.enhanced_match_reason,
                 feedback: None,
             };
@@ -311,10 +348,7 @@ enum ProductSourceReadOutcome {
     Current(Box<ProductPercolationSource>),
 }
 
-struct ProductPercolationSource {
-    product: ProductSearchFilterMatchSource,
-    sale_snapshot: Option<FxRateSnapshot>,
-}
+type ProductPercolationSource = ProductPercolationInput;
 
 async fn load_product_source<U, S, F>(
     unit_of_work: &U,
@@ -352,21 +386,50 @@ where
             ProductSourceReadOutcome::Stale
         }
         Some(product) => {
-            let sale_snapshot = match product.sale_valuation {
-                Some(valuation) => fx_rates
-                    .in_transaction(&mut tx)
-                    .find_by_id(valuation.fx_rate_id)
-                    .await
-                    .map_err(sale_snapshot_read_error)?
-                    .ok_or(MatchProductEventError::SaleSnapshotNotFound {
-                        fx_rate_id: valuation.fx_rate_id,
-                    })
-                    .map(Some)?,
+            let valuation = match product.pricing.price {
                 None => None,
+                Some(source_price) => {
+                    let (basis, snapshot) = match product.sale_valuation {
+                        Some(sale) => (
+                            ProductPriceValuationBasis::Sale,
+                            fx_rates
+                                .in_transaction(&mut tx)
+                                .find_by_id(sale.fx_rate_id)
+                                .await
+                                .map_err(sale_snapshot_read_error)?
+                                .ok_or(MatchProductEventError::SaleSnapshotNotFound {
+                                    fx_rate_id: sale.fx_rate_id,
+                                })?,
+                        ),
+                        None => (
+                            ProductPriceValuationBasis::Event,
+                            fx_rates
+                                .in_transaction(&mut tx)
+                                .find_latest_at_or_before(product.origin_event_time)
+                                .await
+                                .map_err(event_snapshot_read_error)?
+                                .ok_or(MatchProductEventError::EventSnapshotNotFound {
+                                    origin_event_time: product.origin_event_time,
+                                })?,
+                        ),
+                    };
+                    let prices = ProductPricesByCurrency::convert_all(&snapshot, source_price)
+                        .map_err(|source| {
+                            MatchProductEventError::EventValuationConversionFailed {
+                                source: box_error(source),
+                            }
+                        })?;
+                    Some(ProductPercolationValuation {
+                        basis,
+                        fx_rate_id: snapshot.id(),
+                        effective_at: snapshot.captured_at(),
+                        prices,
+                    })
+                }
             };
-            ProductSourceReadOutcome::Current(Box::new(ProductPercolationSource {
-                product,
-                sale_snapshot,
+            ProductSourceReadOutcome::Current(Box::new(ProductPercolationInput {
+                source: product,
+                valuation,
             }))
         }
     };
@@ -395,6 +458,7 @@ async fn evaluate_candidates<E>(
     llm: &E,
     product: &ProductSearchFilterMatchSource,
     mut filters: Vec<crate::ports::SearchFilterView>,
+    price_match_valuation: Option<PriceMatchValuation>,
 ) -> EvaluatedCandidates
 where
     E: LargeLanguageModel,
@@ -467,6 +531,11 @@ where
         candidates.push(SearchFilterMatchCandidate {
             user_id: filter.user_id,
             search_filter_id: filter.search_filter_id,
+            price_match_valuation: if filter.search.price_query.is_some() {
+                price_match_valuation
+            } else {
+                None
+            },
             enhanced_match_reason,
         });
     }
@@ -508,6 +577,17 @@ fn sale_snapshot_read_error(error: FxRateSnapshotRepositoryError) -> MatchProduc
             MatchProductEventError::SaleSnapshotStateInvalid { source }
         }
         error => MatchProductEventError::SaleSnapshotReadFailed {
+            source: box_error(error),
+        },
+    }
+}
+
+fn event_snapshot_read_error(error: FxRateSnapshotRepositoryError) -> MatchProductEventError {
+    match error {
+        FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
+            MatchProductEventError::EventSnapshotStateInvalid { source }
+        }
+        error => MatchProductEventError::EventSnapshotReadFailed {
             source: box_error(error),
         },
     }
@@ -656,21 +736,32 @@ mod tests {
         SearchFilterIndexQuery, SearchFilterProjectionWriteOutcome, SearchFilterView,
     };
     use common::{
-        currency::domain::Currency, language::domain::Language,
-        product_lifecycle::domain::ProductLifecycle, product_slug_id::ProductSlugId,
-        product_state::domain::ProductState, shop_id::ShopId, shop_name::ShopName,
-        shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId, transaction::TransactionError,
-        user_id::UserId, user_search_filter_id::UserSearchFilterId,
+        currency::domain::Currency,
+        language::domain::Language,
+        price::domain::{MonetaryAmount, Price},
+        product_lifecycle::domain::ProductLifecycle,
+        product_slug_id::ProductSlugId,
+        product_state::domain::ProductState,
+        query::range_query::RangeQuery,
+        shop_id::ShopId,
+        shop_name::ShopName,
+        shop_slug_id::ShopSlugId,
+        shops_product_id::ShopsProductId,
+        transaction::TransactionError,
+        user_id::UserId,
+        user_search_filter_id::UserSearchFilterId,
         user_search_filter_name::UserSearchFilterName,
     };
-    use fxrate_core::NewFxRateSnapshot;
+    use fxrate_core::{
+        FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
+    };
     use fxrate_service::ports::{
         FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryError,
         FxRateSnapshotRepositoryFactory,
     };
     use indexmap::IndexSet;
     use product_core::{
-        product::{ProductAddress, ProductAuction, ProductPricing},
+        product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
         product_image::ProductImage,
     };
     use product_service::ports::{
@@ -678,6 +769,7 @@ mod tests {
         ProductSearchFilterMatchSourceEventKind,
     };
     use std::sync::{Arc, Mutex};
+    use strum::IntoEnumIterator;
 
     use time::OffsetDateTime;
     use url::Url;
@@ -688,6 +780,9 @@ mod tests {
         persisted: Vec<SearchFilterProductMatch>,
         active_reads: usize,
         sale_snapshot_reads: usize,
+        event_snapshot_reads: usize,
+        sale_snapshot: Option<FxRateSnapshot>,
+        event_snapshot: Option<FxRateSnapshot>,
     }
 
     #[derive(Clone, Default)]
@@ -765,8 +860,7 @@ mod tests {
 
         async fn percolate(
             &self,
-            _product: &ProductSearchFilterMatchSource,
-            _sale_snapshot: Option<&FxRateSnapshot>,
+            _input: &ProductPercolationInput,
         ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
             Ok(self.filters.clone())
         }
@@ -799,20 +893,28 @@ mod tests {
             &mut self,
             _timestamp: OffsetDateTime,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            Ok(None)
+            let mut state =
+                self.0
+                    .lock()
+                    .map_err(|_| FxRateSnapshotRepositoryError::ReadFailed {
+                        source: box_error(std::io::Error::other("test mutex poisoned")),
+                    })?;
+            state.event_snapshot_reads += 1;
+            Ok(state.event_snapshot.clone())
         }
 
         async fn find_by_id(
             &mut self,
             _id: FxRateId,
         ) -> Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError> {
-            self.0
-                .lock()
-                .map_err(|_| FxRateSnapshotRepositoryError::ReadFailed {
-                    source: box_error(std::io::Error::other("test mutex poisoned")),
-                })?
-                .sale_snapshot_reads += 1;
-            Ok(None)
+            let mut state =
+                self.0
+                    .lock()
+                    .map_err(|_| FxRateSnapshotRepositoryError::ReadFailed {
+                        source: box_error(std::io::Error::other("test mutex poisoned")),
+                    })?;
+            state.sale_snapshot_reads += 1;
+            Ok(state.sale_snapshot.clone())
         }
 
         async fn find_by_ids(
@@ -901,6 +1003,7 @@ mod tests {
                     search_filter_name: UserSearchFilterName::from(
                         candidate.search_filter_id.to_string(),
                     ),
+                    price_match_valuation: candidate.price_match_valuation,
                     enhanced_match_reason: candidate.enhanced_match_reason.clone(),
                 })
                 .collect())
@@ -959,6 +1062,7 @@ mod tests {
         Ok(ProductSearchFilterMatchSource {
             event_id,
             event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
+            origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
             product_id: common::product_id::ProductId::new(),
@@ -989,6 +1093,33 @@ mod tests {
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
         })
+    }
+
+    fn fx_snapshot(generation: i64, captured_at: OffsetDateTime) -> FxRateSnapshot {
+        let quotes = Currency::iter().map(|currency| {
+            FxRateQuote::new(
+                currency,
+                match currency {
+                    Currency::Eur => FX_RATE_SCALE,
+                    Currency::Gbp => 850_000,
+                    Currency::Usd => 1_100_000,
+                    Currency::Jpy => 160_000_000,
+                    _ => 1_250_000,
+                },
+            )
+        });
+        NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            captured_at,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            quotes,
+        )
+        .unwrap_or_else(|error| panic!("valid snapshot: {error}"))
+        .into_persisted(
+            FxRateGeneration::try_from(generation)
+                .unwrap_or_else(|error| panic!("valid generation: {error}")),
+        )
     }
 
     fn filter(user_id: UserId, search_filter_id: UserSearchFilterId) -> SearchFilterView {
@@ -1069,6 +1200,153 @@ mod tests {
         assert_eq!(1, state.active_reads);
         assert_eq!(0, state.sale_snapshot_reads);
         assert_eq!(2, state.persisted.len());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_use_event_time_snapshot_and_persist_price_match_provenance()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let event_snapshot = fx_snapshot(1, OffsetDateTime::UNIX_EPOCH);
+        state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?
+            .event_snapshot = Some(event_snapshot.clone());
+        let mut source = product()?;
+        source.pricing.price = Some(Price::new(MonetaryAmount::from(12_500_u64), Currency::Gbp));
+        let mut saved_filter = filter(UserId::new(), UserSearchFilterId::new());
+        saved_filter.search.price_query = Some(RangeQuery {
+            min: Some(MonetaryAmount::from(10_000_u64)),
+            max: Some(MonetaryAmount::from(20_000_u64)),
+        });
+        let handler = matching_handler(Arc::clone(&state), vec![source.clone()], saved_filter);
+
+        let result = handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: source.event_id,
+                product_id: source.product_id,
+            })
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(MatchProductEventOutcome::Processed, result.outcome);
+        assert_eq!(1, state.event_snapshot_reads);
+        assert_eq!(0, state.sale_snapshot_reads);
+        assert_eq!(
+            Some(PriceMatchValuation {
+                basis: ProductPriceValuationBasis::Event,
+                fx_rate_id: event_snapshot.id(),
+            }),
+            state.persisted[0].price_match_valuation
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_use_immutable_sale_snapshot_instead_of_newer_event_snapshot()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let sale_snapshot = fx_snapshot(1, OffsetDateTime::UNIX_EPOCH);
+        let newer_event_snapshot =
+            fx_snapshot(2, OffsetDateTime::UNIX_EPOCH + time::Duration::days(1));
+        {
+            let mut state = state
+                .lock()
+                .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+            state.sale_snapshot = Some(sale_snapshot.clone());
+            state.event_snapshot = Some(newer_event_snapshot);
+        }
+        let mut source = product()?;
+        source.pricing.price = Some(Price::new(MonetaryAmount::from(12_500_u64), Currency::Gbp));
+        source.sale_valuation = Some(ProductSaleValuation {
+            fx_rate_id: sale_snapshot.id(),
+            sold_at: OffsetDateTime::UNIX_EPOCH,
+        });
+        source.state = ProductState::Sold;
+        let mut saved_filter = filter(UserId::new(), UserSearchFilterId::new());
+        saved_filter.search.price_query = Some(RangeQuery {
+            min: Some(MonetaryAmount::from(1_u64)),
+            max: Some(MonetaryAmount::from(1_000_000_u64)),
+        });
+        let handler = matching_handler(Arc::clone(&state), vec![source.clone()], saved_filter);
+
+        handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: source.event_id,
+                product_id: source.product_id,
+            })
+            .await?;
+
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(1, state.sale_snapshot_reads);
+        assert_eq!(0, state.event_snapshot_reads);
+        assert_eq!(
+            Some(PriceMatchValuation {
+                basis: ProductPriceValuationBasis::Sale,
+                fx_rate_id: sale_snapshot.id(),
+            }),
+            state.persisted[0].price_match_valuation
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_event_effective_snapshot_is_missing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = product()?;
+        source.pricing.price = Some(Price::new(MonetaryAmount::from(1_u64), Currency::Eur));
+        let handler = matching_handler(
+            Arc::new(Mutex::new(State::default())),
+            vec![source.clone()],
+            filter(UserId::new(), UserSearchFilterId::new()),
+        );
+
+        let error = handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: source.event_id,
+                product_id: source.product_id,
+            })
+            .await
+            .err()
+            .ok_or_else(|| std::io::Error::other("missing snapshot must fail"))?;
+        assert!(matches!(
+            error,
+            MatchProductEventError::EventSnapshotNotFound { .. }
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_fail_when_sale_snapshot_is_missing() -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = product()?;
+        source.pricing.price = Some(Price::new(MonetaryAmount::from(1_u64), Currency::Eur));
+        source.sale_valuation = Some(ProductSaleValuation {
+            fx_rate_id: FxRateId::new(),
+            sold_at: OffsetDateTime::UNIX_EPOCH,
+        });
+        source.state = ProductState::Sold;
+        let handler = matching_handler(
+            Arc::new(Mutex::new(State::default())),
+            vec![source.clone()],
+            filter(UserId::new(), UserSearchFilterId::new()),
+        );
+
+        let error = handler
+            .execute(MatchProductEventCommand {
+                origin_event_id: source.event_id,
+                product_id: source.product_id,
+            })
+            .await
+            .err()
+            .ok_or_else(|| std::io::Error::other("missing sale snapshot must fail"))?;
+        assert!(matches!(
+            error,
+            MatchProductEventError::SaleSnapshotNotFound { .. }
+        ));
         Ok(())
     }
 

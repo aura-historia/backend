@@ -24,7 +24,10 @@ use common::{
 use fxrate_core::{FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use indexmap::IndexSet;
 use isocountry::CountryCode;
-use product_service::ports::{ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource};
+use product_service::ports::{
+    ProductPercolationInput, ProductPricesByCurrency, ProductSearchFilterMatchShopType,
+    ProductSearchFilterMatchSource,
+};
 use serde::Serialize;
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -150,19 +153,19 @@ pub enum ProductPercolationDocumentError {
     },
 }
 
-/// Builds temporary Product JSON consumed by saved-filter percolation.
+/// Builds the private temporary Product JSON consumed by saved-filter percolation.
 ///
-/// The price field is intentionally absent until the caller supplies the one
-/// deterministic event-time valuation snapshot in iteration 6B.
+/// The application owns valuation selection and checked conversion before this
+/// adapter maps the closed-world prices to OpenSearch JSON.
 pub fn product_percolation_document(
-    product: &ProductSearchFilterMatchSource,
-    _sale_snapshot: Option<&FxRateSnapshot>,
+    input: &ProductPercolationInput,
 ) -> Result<Value, ProductPercolationDocumentError> {
-    serde_json::to_value(percolation_document(product))
+    serde_json::to_value(percolation_document(input))
         .map_err(|source| ProductPercolationDocumentError::Serialize { source })
 }
 
-fn percolation_document(product: &ProductSearchFilterMatchSource) -> ProductPercolationDocument {
+fn percolation_document(input: &ProductPercolationInput) -> ProductPercolationDocument {
+    let product = &input.source;
     let (title, language) = selected_title(product);
     let structured_address = product.address.structured.as_ref();
 
@@ -202,7 +205,10 @@ fn percolation_document(product: &ProductSearchFilterMatchSource) -> ProductPerc
         title_fr: translated_title(product, Language::Fr),
         title_es: translated_title(product, Language::Es),
         title_it: translated_title(product, Language::It),
-        price_by_currency: None,
+        price_by_currency: input
+            .valuation
+            .as_ref()
+            .map(|valuation| percolation_prices(valuation.prices)),
         state: ProductStateDocument::from(product.state),
         lifecycle: ProductLifecycleDocument::from(product.lifecycle),
         url: product.url.clone(),
@@ -217,6 +223,29 @@ fn percolation_document(product: &ProductSearchFilterMatchSource) -> ProductPerc
         auction_end: product.auction.end,
         created: product.created,
         updated: product.updated,
+    }
+}
+
+fn percolation_prices(prices: ProductPricesByCurrency) -> ProductPercolationPricesDocument {
+    ProductPercolationPricesDocument {
+        eur: prices.amount_in(Currency::Eur),
+        gbp: prices.amount_in(Currency::Gbp),
+        usd: prices.amount_in(Currency::Usd),
+        aud: prices.amount_in(Currency::Aud),
+        cad: prices.amount_in(Currency::Cad),
+        nzd: prices.amount_in(Currency::Nzd),
+        cny: prices.amount_in(Currency::Cny),
+        brl: prices.amount_in(Currency::Brl),
+        pln: prices.amount_in(Currency::Pln),
+        r#try: prices.amount_in(Currency::Try),
+        jpy: prices.amount_in(Currency::Jpy),
+        czk: prices.amount_in(Currency::Czk),
+        rub: prices.amount_in(Currency::Rub),
+        aed: prices.amount_in(Currency::Aed),
+        sar: prices.amount_in(Currency::Sar),
+        hkd: prices.amount_in(Currency::Hkd),
+        sgd: prices.amount_in(Currency::Sgd),
+        chf: prices.amount_in(Currency::Chf),
     }
 }
 
@@ -425,6 +454,7 @@ mod tests {
         Ok(ProductSearchFilterMatchSource {
             event_id,
             event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
+            origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
             product_id: ProductId::new(),
@@ -460,7 +490,10 @@ mod tests {
     #[test]
     fn should_use_the_private_percolation_shape_without_persistent_price_fields()
     -> Result<(), Box<dyn std::error::Error>> {
-        let document = product_percolation_document(&source()?, None)?;
+        let document = product_percolation_document(&ProductPercolationInput {
+            source: source()?,
+            valuation: None,
+        })?;
 
         assert!(document.get("priceByCurrency").is_none());
         assert!(document.get("sourcePrice").is_none());

@@ -70,6 +70,17 @@ impl ActiveSearchFilterMatchCandidateReader for SqlxActiveSearchFilterMatchCandi
             })
             .collect::<Vec<_>>();
 
+        let valuations = candidates
+            .iter()
+            .map(|candidate| {
+                (
+                    candidate.user_id,
+                    candidate.search_filter_id,
+                    candidate.price_match_valuation,
+                )
+            })
+            .collect::<Vec<_>>();
+
         sqlx::query_as::<_, ActiveCandidateRow>(
             r#"
             SELECT
@@ -105,6 +116,14 @@ impl ActiveSearchFilterMatchCandidateReader for SqlxActiveSearchFilterMatchCandi
                         source: box_error(source),
                     }
                 })?,
+                price_match_valuation: valuations
+                    .iter()
+                    .find(|(user_id, search_filter_id, _)| {
+                        *user_id == UserId::from(row.user_id)
+                            && *search_filter_id
+                                == UserSearchFilterId::from(row.user_search_filter_id)
+                    })
+                    .and_then(|(_, _, valuation)| *valuation),
                 enhanced_match_reason: row.enhanced_match_reason.map(Into::into),
             })
         })

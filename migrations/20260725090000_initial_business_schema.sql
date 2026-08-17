@@ -294,6 +294,8 @@ CREATE TABLE search_filter_matches (
     user_search_filter_id uuid NOT NULL,
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
     origin_event_id uuid NOT NULL,
+    price_valuation_basis text,
+    price_fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
     user_search_filter_name text,
     enhanced_match_reason text,
     feedback boolean,
@@ -306,7 +308,14 @@ CREATE TABLE search_filter_matches (
         ON DELETE CASCADE,
     CONSTRAINT search_filter_matches_origin_event_product_fkey
         FOREIGN KEY (product_id, origin_event_id)
-        REFERENCES product_events(product_id, event_id)
+        REFERENCES product_events(product_id, event_id),
+    CONSTRAINT search_filter_matches_price_valuation_check CHECK (
+        (price_valuation_basis IS NULL AND price_fx_rate_id IS NULL)
+        OR (
+            price_valuation_basis IN ('EVENT', 'SALE')
+            AND price_fx_rate_id IS NOT NULL
+        )
+    )
 );
 
 CREATE INDEX search_filter_matches_user_created_idx ON search_filter_matches (user_id, created DESC);

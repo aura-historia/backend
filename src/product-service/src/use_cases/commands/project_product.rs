@@ -242,6 +242,7 @@ mod tests {
         sync::{Arc, Mutex, MutexGuard},
     };
     use strum::IntoEnumIterator;
+    use time::OffsetDateTime;
     use url::Url;
 
     #[derive(Default)]
@@ -475,6 +476,7 @@ mod tests {
         Ok(ProductSearchFilterMatchSource {
             event_id,
             event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
+            origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 41,
             product_id: ProductId::new(),

@@ -1,6 +1,7 @@
 use common::change_outcome::ChangeOutcome;
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
@@ -123,6 +124,12 @@ impl SearchFilter {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PriceMatchValuation {
+    pub basis: product_core::product::ProductPriceValuationBasis,
+    pub fx_rate_id: FxRateId,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterProductMatch {
     pub user_id: UserId,
@@ -130,6 +137,8 @@ pub struct SearchFilterProductMatch {
     pub user_search_filter_name: Option<UserSearchFilterName>,
     pub product_id: ProductId,
     pub origin_event_id: EventId,
+    /// Immutable valuation used only when this filter had a price condition.
+    pub price_match_valuation: Option<PriceMatchValuation>,
     pub enhanced_match_reason: Option<EnhancedMatchReason>,
     pub feedback: Option<bool>,
 }
@@ -217,6 +226,7 @@ mod tests {
             user_search_filter_name: None,
             product_id: ProductId::new(),
             origin_event_id: EventId::new(),
+            price_match_valuation: None,
             enhanced_match_reason: None,
             feedback: Some(true),
         };

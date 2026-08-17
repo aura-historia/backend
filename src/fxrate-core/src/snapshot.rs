@@ -650,6 +650,62 @@ mod tests {
     }
 
     #[test]
+    fn should_keep_percolation_and_inverse_range_membership_identical() {
+        let snapshot = snapshot();
+        let ranges = [
+            DisplayAmountRange {
+                lower: None,
+                upper: Some(MonetaryAmount::from(5_u64)),
+            },
+            DisplayAmountRange {
+                lower: Some(MonetaryAmount::from(3_u64)),
+                upper: None,
+            },
+            DisplayAmountRange {
+                lower: Some(MonetaryAmount::from(5_u64)),
+                upper: Some(MonetaryAmount::from(5_u64)),
+            },
+            DisplayAmountRange {
+                lower: Some(MonetaryAmount::from(0_u64)),
+                upper: Some(MonetaryAmount::from(1_u64)),
+            },
+            DisplayAmountRange {
+                lower: Some(MonetaryAmount::from(1_000_000_u64)),
+                upper: Some(MonetaryAmount::from(1_000_100_u64)),
+            },
+        ];
+        let amounts = [
+            0_u64, 1, 2, 3, 4, 5, 49, 50, 51, 99, 100, 101, 10_001, 1_000_000,
+        ];
+
+        for source_currency in Currency::iter() {
+            for target_currency in Currency::iter() {
+                for range in ranges {
+                    let compiled = snapshot
+                        .compile_source_range(source_currency, target_currency, range)
+                        .unwrap_or_else(|error| panic!("range must compile: {error}"));
+                    for amount in amounts {
+                        let displayed = snapshot
+                            .convert(
+                                price(amount, source_currency),
+                                target_currency,
+                                RoundingMode::HalfUp,
+                            )
+                            .unwrap_or_else(|error| panic!("conversion must succeed: {error}"));
+                        assert_eq!(
+                            range.contains(displayed.monetary_amount),
+                            compiled.is_some_and(
+                                |compiled| compiled.contains(MonetaryAmount::from(amount))
+                            ),
+                            "{source_currency:?} -> {target_currency:?}, amount {amount}, range {range:?}",
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn should_compile_exact_inverse_ranges_for_every_supported_currency_pair() {
         let snapshot = snapshot();
         for source_currency in Currency::iter() {

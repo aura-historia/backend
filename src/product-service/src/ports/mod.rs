@@ -6,6 +6,7 @@ pub mod product_embedding_source_reader;
 pub mod product_embedding_writer;
 pub mod product_event_reader;
 pub mod product_event_store;
+pub mod product_percolation;
 pub mod product_price_filter_plan;
 pub mod product_repository;
 pub mod product_search_filter_match_source_reader;
@@ -46,6 +47,9 @@ pub use product_event_reader::{
 };
 pub use product_event_store::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory,
+};
+pub use product_percolation::{
+    ProductPercolationInput, ProductPercolationValuation, ProductPricesByCurrency,
 };
 pub use product_price_filter_plan::{NativePriceRange, ProductPriceFilterPlan};
 pub use product_repository::{ProductRepository, ProductRepositoryError, ProductRepositoryFactory};

@@ -591,6 +591,7 @@ mod tests {
         let product = ProductSearchFilterMatchSource {
             event_id: origin_event_id,
             event_kind: ProductSearchFilterMatchSourceEventKind::Domain,
+            origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: origin_event_id,
             projection_version: 1,
             product_id,

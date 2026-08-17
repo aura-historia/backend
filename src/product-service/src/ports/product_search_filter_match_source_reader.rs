@@ -42,6 +42,8 @@ pub struct ProductSearchFilterMatchSource {
     pub event_id: EventId,
     /// Whether this event type is routed to search-filter percolation.
     pub event_kind: ProductSearchFilterMatchSourceEventKind,
+    /// Immutable occurrence time from `product_events.event_time`.
+    pub origin_event_time: OffsetDateTime,
     /// Current Product event identity. This rejects stale CDC triggers.
     pub current_event_id: EventId,
     /// Monotonic authoritative version for external OpenSearch writes.

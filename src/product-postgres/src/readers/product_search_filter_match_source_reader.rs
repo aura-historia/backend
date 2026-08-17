@@ -47,6 +47,7 @@ struct SqlxProductSearchFilterMatchSourceReader<'tx> {
 struct SourceRow {
     event_id: uuid::Uuid,
     event_group: String,
+    origin_event_time: OffsetDateTime,
     current_event_id: uuid::Uuid,
     projection_version: i64,
     product_id: uuid::Uuid,
@@ -160,6 +161,7 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
             SELECT
                 event.event_id,
                 event.event_group,
+                event.event_time AS origin_event_time,
                 product.event_id AS current_event_id,
                 product.projection_version,
                 product.product_id,
@@ -264,6 +266,7 @@ fn source_from_rows(rows: Vec<SourceRow>) -> Result<Option<ProductSearchFilterMa
     Ok(Some(ProductSearchFilterMatchSource {
         event_id: EventId::from(row.event_id),
         event_kind: event_kind(&row.event_group),
+        origin_event_time: row.origin_event_time,
         current_event_id: EventId::from(row.current_event_id),
         projection_version: row.projection_version,
         product_id: ProductId::from(row.product_id),

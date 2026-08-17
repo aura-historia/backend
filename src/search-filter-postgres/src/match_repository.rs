@@ -51,13 +51,21 @@ impl SearchFilterMatchRepository for SqlxSearchFilterMatchRepository<'_> {
         let id = user_search_filter_uuid(v.user_search_filter_id)
             .map_err(|_| SearchFilterMatchRepositoryError::InsertFailed)?;
         let sql = format!(
-            "INSERT INTO search_filter_matches (user_id,user_search_filter_id,product_id,origin_event_id,user_search_filter_name,enhanced_match_reason,feedback) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING {MATCH_COLUMNS}"
+            "INSERT INTO search_filter_matches (user_id,user_search_filter_id,product_id,origin_event_id,price_valuation_basis,price_fx_rate_id,user_search_filter_name,enhanced_match_reason,feedback) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING {MATCH_COLUMNS}"
         );
         let row = sqlx::query_as::<_, MatchRow>(&sql)
             .bind(uuid::Uuid::from(v.user_id))
             .bind(id)
             .bind(uuid::Uuid::from(v.product_id))
             .bind(uuid::Uuid::from(v.origin_event_id))
+            .bind(
+                v.price_match_valuation
+                    .map(|valuation| valuation.basis.as_db_str()),
+            )
+            .bind(
+                v.price_match_valuation
+                    .map(|valuation| uuid::Uuid::from(valuation.fx_rate_id)),
+            )
             .bind(v.user_search_filter_name.as_ref().map(AsRef::as_ref))
             .bind(v.enhanced_match_reason.as_ref().map(AsRef::as_ref))
             .bind(v.feedback)

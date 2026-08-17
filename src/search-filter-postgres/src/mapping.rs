@@ -30,12 +30,13 @@ use std::{collections::HashSet, error::Error, fmt};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, created, updated, last_hybrid_search_matched, version";
-pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_id, origin_event_id, user_search_filter_name, enhanced_match_reason, feedback, created, updated";
+pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_id, origin_event_id, price_valuation_basis, price_fx_rate_id, user_search_filter_name, enhanced_match_reason, feedback, created, updated";
 
 #[derive(Debug)]
 pub(crate) enum SearchFilterRowMappingError {
     NameTooLong,
     InvalidState,
+    InvalidPriceMatchValuation,
 }
 
 impl fmt::Display for SearchFilterRowMappingError {
@@ -45,6 +46,9 @@ impl fmt::Display for SearchFilterRowMappingError {
                 formatter.write_str("persisted search filter name exceeds 255 characters")
             }
             Self::InvalidState => formatter.write_str("persisted search filter state is invalid"),
+            Self::InvalidPriceMatchValuation => {
+                formatter.write_str("persisted price match valuation is invalid")
+            }
         }
     }
 }
@@ -200,6 +204,8 @@ pub(crate) struct MatchRow {
     pub user_search_filter_id: uuid::Uuid,
     pub product_id: uuid::Uuid,
     pub origin_event_id: uuid::Uuid,
+    pub price_valuation_basis: Option<String>,
+    pub price_fx_rate_id: Option<uuid::Uuid>,
     pub user_search_filter_name: Option<String>,
     pub enhanced_match_reason: Option<String>,
     pub feedback: Option<bool>,
@@ -216,6 +222,10 @@ impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
                 user_search_filter_name: row.user_search_filter_name.map(name).transpose()?,
                 product_id: ProductId::from(row.product_id),
                 origin_event_id: EventId::from(row.origin_event_id),
+                price_match_valuation: price_match_valuation(
+                    row.price_valuation_basis.as_deref(),
+                    row.price_fx_rate_id,
+                )?,
                 enhanced_match_reason: row.enhanced_match_reason.map(Into::into),
                 feedback: row.feedback,
             },
@@ -227,6 +237,7 @@ impl TryFrom<MatchRow> for PersistedSearchFilterMatch {
 impl TryFrom<MatchRow> for SearchFilterMatchView {
     type Error = SearchFilterRowMappingError;
     fn try_from(row: MatchRow) -> Result<Self, Self::Error> {
+        price_match_valuation(row.price_valuation_basis.as_deref(), row.price_fx_rate_id)?;
         Ok(Self {
             user_id: UserId::from(row.user_id),
             search_filter_id: UserSearchFilterId::from(row.user_search_filter_id),
@@ -251,6 +262,25 @@ pub(crate) fn format_state(value: ResourceState) -> &'static str {
 pub(crate) fn user_search_filter_uuid(id: UserSearchFilterId) -> Result<uuid::Uuid, uuid::Error> {
     uuid::Uuid::parse_str(&id.to_string())
 }
+fn price_match_valuation(
+    basis: Option<&str>,
+    fx_rate_id: Option<uuid::Uuid>,
+) -> Result<Option<search_filter_core::PriceMatchValuation>, SearchFilterRowMappingError> {
+    match (basis, fx_rate_id) {
+        (None, None) => Ok(None),
+        (Some(basis), Some(fx_rate_id)) => {
+            product_core::product::ProductPriceValuationBasis::from_db_str(basis)
+                .map(|basis| search_filter_core::PriceMatchValuation {
+                    basis,
+                    fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+                })
+                .ok_or(SearchFilterRowMappingError::InvalidPriceMatchValuation)
+                .map(Some)
+        }
+        _ => Err(SearchFilterRowMappingError::InvalidPriceMatchValuation),
+    }
+}
+
 fn state(v: &str) -> Result<ResourceState, SearchFilterRowMappingError> {
     match v {
         "ACTIVE" => Ok(ResourceState::Active),

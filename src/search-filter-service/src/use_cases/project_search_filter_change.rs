@@ -231,8 +231,7 @@ mod tests {
 
         async fn percolate(
             &self,
-            _product: &product_service::ports::ProductSearchFilterMatchSource,
-            _sale_snapshot: Option<&fxrate_core::FxRateSnapshot>,
+            _input: &product_service::ports::ProductPercolationInput,
         ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
             Ok(Vec::new())
         }

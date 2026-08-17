@@ -89,6 +89,29 @@ pub struct ProductPricing {
     pub price_estimate_max: Option<Price>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductPriceValuationBasis {
+    Event,
+    Sale,
+}
+
+impl ProductPriceValuationBasis {
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Event => "EVENT",
+            Self::Sale => "SALE",
+        }
+    }
+
+    pub fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "EVENT" => Some(Self::Event),
+            "SALE" => Some(Self::Sale),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProductSaleValuation {
     pub sold_at: OffsetDateTime,
