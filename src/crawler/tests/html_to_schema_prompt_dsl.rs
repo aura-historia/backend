@@ -159,11 +159,34 @@ fn compact_probe_text(value: &str) -> String {
 fn significant_words_are_represented(probe: &str, dsl: &str) -> bool {
     let words = probe
         .split(|ch: char| !ch.is_alphanumeric())
+        .flat_map(split_concatenated_word)
         .filter(|word| word.chars().count() > 2)
         .take(8)
         .collect::<Vec<_>>();
 
     !words.is_empty() && words.iter().all(|word| dsl.contains(word))
+}
+
+fn split_concatenated_word(word: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    for ch in word.chars() {
+        if ch.is_uppercase()
+            && current
+                .chars()
+                .last()
+                .is_some_and(|previous| previous.is_lowercase())
+        {
+            if !current.is_empty() {
+                parts.push(std::mem::take(&mut current));
+            }
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
 }
 
 fn assert_fixture_specific_expectations(fixture_path: &str, dsl: &str) {
