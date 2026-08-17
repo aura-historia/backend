@@ -750,7 +750,7 @@ mod tests {
     impl SearchFilterIndex for Index {
         async fn upsert(
             &self,
-            _projection: &crate::ports::CompiledSearchFilterProjection,
+            _projection: &crate::ports::SearchFilterProjection,
         ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError> {
             Ok(SearchFilterProjectionWriteOutcome::Applied)
         }

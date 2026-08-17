@@ -1,6 +1,5 @@
 use common::currency::data::CurrencyData;
 use common::distance::data::GeoDistanceQueryData;
-use common::fx_rate_id::FxRateId;
 use common::language::data::LanguageData;
 
 use common::price::domain::MonetaryAmount;
@@ -21,7 +20,7 @@ use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use product_opensearch::build_percolator_query;
-use search_filter_service::ports::{CompiledSearchFilterProjection, SearchFilterView};
+use search_filter_service::ports::{SearchFilterProjection, SearchFilterView};
 use serde::ser::Error as _;
 use serde::{Deserialize, Serialize};
 use shop_core::shop_type::ShopType;
@@ -65,7 +64,6 @@ pub(crate) struct SearchFilterDocument {
     pub notifications: bool,
     pub state: ResourceStateDocument,
     pub source_version: i64,
-    pub compiled_fx_rate_id: FxRateId,
     pub search: serde_json::Value,
     pub query: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -90,25 +88,20 @@ pub enum ProductSearchDocumentMappingError {
     InvalidTimestamp,
 }
 
-impl TryFrom<&CompiledSearchFilterProjection> for SearchFilterDocument {
+impl TryFrom<&SearchFilterProjection> for SearchFilterDocument {
     type Error = serde_json::Error;
 
-    fn try_from(projection: &CompiledSearchFilterProjection) -> Result<Self, Self::Error> {
-        let view = &projection.projection.view;
-        let price_filter = &projection.price_filter_plan;
+    fn try_from(projection: &SearchFilterProjection) -> Result<Self, Self::Error> {
+        let view = &projection.view;
         Ok(Self {
             user_search_filter_id: view.search_filter_id,
             user_id: view.user_id,
             name: view.name.clone(),
             notifications: view.notifications,
             state: view.state.into(),
-            source_version: projection.projection.source_version,
-            compiled_fx_rate_id: price_filter.fx_rate_id,
+            source_version: projection.source_version,
             search: product_search_to_value(&view.search)?,
-            query: build_percolator_query(&product_service::ports::CompiledProductSearch {
-                search: view.search.clone(),
-                price_filter_plan: price_filter.clone(),
-            })?,
+            query: build_percolator_query(&view.search)?,
             embedding: view.embedding.clone(),
             created: view.created,
             updated: view.updated,
@@ -454,234 +447,59 @@ fn product_search_from_value(
 mod tests {
     use super::*;
     use common::currency::domain::Currency;
-    use common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery};
-    use common::fx_rate_id::FxRateId;
     use common::language::domain::Language;
-    use common::product_lifecycle::domain::ProductLifecycle;
     use common::query::range_query::RangeQuery;
-    use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
-    use geo::core::continent::Continent;
-    use isocountry::CountryCode;
-    use product_service::ports::{CompiledProductSearch, ProductPriceFilterPlan};
-    use search_filter_service::ports::{CompiledSearchFilterProjection, SearchFilterProjection};
-    use std::collections::HashSet;
-    use strum::IntoEnumIterator;
+    use search_filter_service::ports::SearchFilterProjection;
     use time::macros::datetime;
 
-    fn price_filter() -> Result<ProductPriceFilterPlan, Box<dyn std::error::Error>> {
-        let snapshot = NewFxRateSnapshot::capture_eur(
-            FxRateId::new(),
-            OffsetDateTime::UNIX_EPOCH,
-            FxRateSource::FxRatesApi,
-            Currency::Eur,
-            Currency::iter().map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE)),
-        )?
-        .into_persisted(1_i64.try_into()?);
-        Ok(ProductPriceFilterPlan::compile(
-            snapshot,
-            Currency::Usd,
-            Some(RangeQuery {
-                min: Some(MonetaryAmount::from(100_u64)),
-                max: Some(MonetaryAmount::from(999_u64)),
-            }),
-        )?)
-    }
-
-    fn compiled_projection(
-        view: SearchFilterView,
-        price_filter_plan: ProductPriceFilterPlan,
-    ) -> CompiledSearchFilterProjection {
-        CompiledSearchFilterProjection {
-            projection: SearchFilterProjection {
-                view,
-                source_version: 1,
+    fn projection(search: ProductSearch) -> SearchFilterProjection {
+        SearchFilterProjection {
+            view: SearchFilterView {
+                search_filter_id: UserSearchFilterId::new(),
+                user_id: UserId::new(),
+                name: UserSearchFilterName::from("daily"),
+                notifications: true,
+                state: common::resource_state::domain::ResourceState::Active,
+                search,
+                embedding: Some(vec![1.0]),
+                created: datetime!(2026-01-01 00:00:00 UTC),
+                updated: datetime!(2026-01-02 00:00:00 UTC),
+                last_hybrid_search_matched: datetime!(2026-01-03 00:00:00 UTC),
             },
-            price_filter_plan,
-        }
-    }
-
-    fn complete_search() -> ProductSearch {
-        ProductSearch::new(Language::De, Currency::Usd)
-            .with_product_query(text_query("Ming porcelain vase"))
-            .with_enhanced_search_description(EnhancedSearchDescription::from("blue and white"))
-            .with_exclude_product_id_query(HashSet::from([ProductId::new()]).into())
-            .with_shop_name_query(HashSet::from([ShopName::from("Shop")]).into())
-            .with_exclude_shop_name_query(HashSet::from([ShopName::from("Bad Shop")]).into())
-            .with_seller_name_query(HashSet::from([ShopName::from("Seller")]).into())
-            .with_exclude_seller_name_query(HashSet::from([ShopName::from("Bad Seller")]).into())
-            .with_shop_slug_id_query(HashSet::from([ShopSlugId::from("shop")]).into())
-            .with_exclude_shop_slug_id_query(HashSet::from([ShopSlugId::from("bad-shop")]).into())
-            .with_seller_slug_id_query(HashSet::from([SellerSlugId::from("seller")]).into())
-            .with_exclude_seller_slug_id_query(
-                HashSet::from([SellerSlugId::from("bad-seller")]).into(),
-            )
-            .with_shop_type_query(HashSet::from([ShopType::CommercialDealer]).into())
-            .with_country_query(HashSet::from([CountryCode::DEU]).into())
-            .with_continent_query(HashSet::from([Continent::Europe]).into())
-            .with_geo_address_distance_query(GeoDistanceQuery {
-                lat: 52.52,
-                lon: 13.405,
-                distance: Distance {
-                    amount: 10.0,
-                    unit: DistanceUnit::Kilometers,
-                },
-            })
-            .with_price_query(RangeQuery {
-                min: Some(MonetaryAmount::from(100_u64)),
-                max: Some(MonetaryAmount::from(999_u64)),
-            })
-            .with_state_query(HashSet::from([ProductState::Available]).into())
-            .with_lifecycle_query(HashSet::from([ProductLifecycle::Deleted]).into())
-            .with_created_query(RangeQuery {
-                min: Some(datetime!(2025-01-01 0:00 UTC)),
-                max: Some(datetime!(2025-01-02 0:00 UTC)),
-            })
-            .with_updated_query(RangeQuery {
-                min: Some(datetime!(2025-01-03 0:00 UTC)),
-                max: Some(datetime!(2025-01-04 0:00 UTC)),
-            })
-            .with_auction_start_query(RangeQuery {
-                min: Some(datetime!(2025-01-05 0:00 UTC)),
-                max: Some(datetime!(2025-01-06 0:00 UTC)),
-            })
-            .with_auction_end_query(RangeQuery {
-                min: Some(datetime!(2025-01-07 0:00 UTC)),
-                max: Some(datetime!(2025-01-08 0:00 UTC)),
-            })
-    }
-
-    fn sample_view(search: ProductSearch) -> SearchFilterView {
-        SearchFilterView {
-            search_filter_id: UserSearchFilterId::new(),
-            user_id: UserId::new(),
-            name: UserSearchFilterName::from("daily"),
-            notifications: true,
-            state: common::resource_state::domain::ResourceState::Active,
-            search,
-            embedding: Some(vec![1.0]),
-            created: datetime!(2026-01-01 00:00:00 UTC),
-            updated: datetime!(2026-01-02 00:00:00 UTC),
-            last_hybrid_search_matched: datetime!(2026-01-03 00:00:00 UTC),
-        }
-    }
-
-    fn text_query(value: &str) -> TextQuery<1> {
-        match value.try_into() {
-            Ok(query) => query,
-            Err(error) => panic!("invalid text query: {error}"),
+            source_version: 12,
         }
     }
 
     #[test]
-    fn should_round_trip_complete_product_search_document() {
-        let expected = sample_view(complete_search());
-        let price_filter = match price_filter() {
-            Ok(price_filter) => price_filter,
-            Err(error) => panic!("failed to compile price filter: {error}"),
-        };
-        let compiled = compiled_projection(expected.clone(), price_filter);
-        let document = match SearchFilterDocument::try_from(&compiled) {
-            Ok(document) => document,
-            Err(error) => panic!("failed to create document: {error}"),
-        };
+    fn should_store_authoritative_search_version_and_original_price_range()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductSearch::new(Language::En, Currency::Usd).with_price_query(RangeQuery {
+            min: Some(MonetaryAmount::from(10_000_u64)),
+            max: Some(MonetaryAmount::from(50_000_u64)),
+        });
+        let document = SearchFilterDocument::try_from(&projection(search))?;
+        let value = serde_json::to_value(&document)?;
 
-        let actual = match SearchFilterView::try_from(document) {
-            Ok(view) => view,
-            Err(error) => panic!("failed to decode complete search filter document: {error}"),
-        };
-
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn should_persist_every_product_search_field() {
-        let price_filter = match price_filter() {
-            Ok(price_filter) => price_filter,
-            Err(error) => panic!("failed to compile price filter: {error}"),
-        };
-        let compiled = compiled_projection(sample_view(complete_search()), price_filter);
-        let document = match SearchFilterDocument::try_from(&compiled) {
-            Ok(document) => document,
-            Err(error) => panic!("failed to create document: {error}"),
-        };
-        let object = match document.search.as_object() {
-            Some(object) => object,
-            None => panic!("product search must be an object"),
-        };
-
-        assert_eq!(PRODUCT_SEARCH_FIELDS.len(), object.len());
-        for field in PRODUCT_SEARCH_FIELDS {
-            assert!(object.contains_key(field));
-        }
-    }
-
-    #[test]
-    fn should_store_compiled_fx_rate_id_and_render_the_supplied_price_plan() {
-        let view = sample_view(complete_search());
-        let price_filter = match price_filter() {
-            Ok(price_filter) => price_filter,
-            Err(error) => panic!("failed to compile price filter: {error}"),
-        };
-        let compiled = compiled_projection(view.clone(), price_filter.clone());
-        let document = match SearchFilterDocument::try_from(&compiled) {
-            Ok(document) => document,
-            Err(error) => panic!("failed to create document: {error}"),
-        };
-        let expected_query = match build_percolator_query(&CompiledProductSearch {
-            search: view.search.clone(),
-            price_filter_plan: price_filter.clone(),
-        }) {
-            Ok(query) => query,
-            Err(error) => panic!("failed to render percolator query: {error}"),
-        };
-
-        assert_eq!(price_filter.fx_rate_id, document.compiled_fx_rate_id);
-        assert_eq!(expected_query, document.query);
+        assert_eq!(12, document.source_version);
         assert_eq!(
-            Some(&serde_json::json!(100)),
+            Some(&serde_json::json!({ "gte": 10_000, "lte": 50_000 })),
             document
                 .query
-                .pointer("/bool/filter/1/bool/should/0/bool/filter/0/bool/should/0/bool/filter/1/range/sourcePrice.amount/gte")
+                .pointer("/bool/filter/1/range/priceByCurrency.usd")
         );
+        assert!(value.get("compiledFxRateId").is_none());
+        assert!(value.get("compiledFxGeneration").is_none());
+        Ok(())
     }
 
     #[test]
-    fn should_reject_incomplete_product_search_document() {
-        let price_filter = match price_filter() {
-            Ok(price_filter) => price_filter,
-            Err(error) => panic!("failed to compile price filter: {error}"),
-        };
-        let compiled = compiled_projection(sample_view(complete_search()), price_filter);
-        let mut document = match SearchFilterDocument::try_from(&compiled) {
-            Ok(document) => document,
-            Err(error) => panic!("failed to create document: {error}"),
-        };
-        let object = match document.search.as_object_mut() {
-            Some(object) => object,
-            None => panic!("product search must be an object"),
-        };
-        object.remove("auctionEnd");
+    fn should_round_trip_search_filter_without_a_price_range()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let expected = projection(ProductSearch::new(Language::En, Currency::Usd));
+        let document = SearchFilterDocument::try_from(&expected)?;
 
-        assert!(SearchFilterView::try_from(document).is_err());
-    }
-
-    #[test]
-    fn should_reject_unknown_product_search_document_field() {
-        let price_filter = match price_filter() {
-            Ok(price_filter) => price_filter,
-            Err(error) => panic!("failed to compile price filter: {error}"),
-        };
-        let compiled = compiled_projection(sample_view(complete_search()), price_filter);
-        let mut document = match SearchFilterDocument::try_from(&compiled) {
-            Ok(document) => document,
-            Err(error) => panic!("failed to create document: {error}"),
-        };
-        let object = match document.search.as_object_mut() {
-            Some(object) => object,
-            None => panic!("product search must be an object"),
-        };
-        object.insert("unexpected".to_owned(), serde_json::Value::Null);
-
-        assert!(SearchFilterView::try_from(document).is_err());
+        assert!(!document.query.to_string().contains("priceByCurrency"));
+        assert_eq!(expected.view, SearchFilterView::try_from(document)?);
+        Ok(())
     }
 }

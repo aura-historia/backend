@@ -1,6 +1,5 @@
 use common::currency::domain::Currency;
 use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
 use common::query::text_query::TextQuery;
@@ -8,7 +7,6 @@ use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
-use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
 use indexmap::IndexSet;
 use product_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
@@ -16,16 +14,14 @@ use product_core::{
     product_search::ProductSearch,
     title::Title,
 };
-use product_service::ports::{
-    ProductPriceFilterPlan, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
-};
+use product_service::ports::{ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_service::ports::{
-    CompiledSearchFilterProjection, SearchFilterIndex, SearchFilterIndexQuery,
-    SearchFilterProjection, SearchFilterProjectionWriteOutcome, SearchFilterView,
+    SearchFilterIndex, SearchFilterIndexQuery, SearchFilterProjection,
+    SearchFilterProjectionWriteOutcome, SearchFilterView,
 };
 use std::collections::HashMap;
-use strum::IntoEnumIterator;
+
 use test_api::{
     IntegrationTestService, OpenSearch, aura_integration_test, get_opensearch_client, refresh_index,
 };
@@ -37,10 +33,9 @@ async fn should_index_query_percolate_and_delete_search_filter_document() {
     let client = get_opensearch_client().await.clone();
     let index = OpenSearchSearchFilterIndex::new(client);
     let view = sample_view("canonical opensearch renaissance cabinet");
-    let price_filter = price_filter();
 
     index
-        .upsert(&compiled_projection(&view, 1, &price_filter))
+        .upsert(&projection(&view, 1))
         .await
         .unwrap_or_else(|error| panic!("index failed: {error:?}"));
     refresh_index("user_search_filters").await;
@@ -82,9 +77,7 @@ async fn should_index_query_percolate_and_delete_search_filter_document() {
         .await
         .unwrap_or_else(|error| panic!("delete failed: {error:?}"));
     assert!(matches!(
-        index
-            .upsert(&compiled_projection(&view, 1, &price_filter))
-            .await,
+        index.upsert(&projection(&view, 1)).await,
         Ok(SearchFilterProjectionWriteOutcome::Stale)
     ));
     refresh_index("user_search_filters").await;
@@ -110,10 +103,9 @@ async fn should_percolate_any_of_multiple_product_queries() {
             .with_product_query(text_query("bronze floor lamp")),
         ..sample_view("copper table lamp")
     };
-    let price_filter = price_filter();
 
     index
-        .upsert(&compiled_projection(&view, 1, &price_filter))
+        .upsert(&projection(&view, 1))
         .await
         .unwrap_or_else(|error| panic!("index failed: {error:?}"));
     refresh_index("user_search_filters").await;
@@ -149,10 +141,9 @@ async fn should_use_application_default_size_for_first_query_page() {
         .map(|number| sample_view(&format!("application page size filter {number}")))
         .collect();
 
-    let price_filter = price_filter();
     for view in &views {
         index
-            .upsert(&compiled_projection(view, 1, &price_filter))
+            .upsert(&projection(view, 1))
             .await
             .unwrap_or_else(|error| panic!("index failed: {error:?}"));
     }
@@ -177,10 +168,9 @@ async fn should_filter_query_by_enhanced_description_presence() {
     let client = get_opensearch_client().await.clone();
     let index = OpenSearchSearchFilterIndex::new(client);
     let view = sample_view_with_enhanced_description("canonical enhanced brass lamp");
-    let price_filter = price_filter();
 
     index
-        .upsert(&compiled_projection(&view, 1, &price_filter))
+        .upsert(&projection(&view, 1))
         .await
         .unwrap_or_else(|error| panic!("index failed: {error:?}"));
     refresh_index("user_search_filters").await;
@@ -244,35 +234,10 @@ fn product_source(title: &str) -> ProductSearchFilterMatchSource {
     }
 }
 
-fn price_filter() -> ProductPriceFilterPlan {
-    let snapshot = NewFxRateSnapshot::capture_eur(
-        FxRateId::new(),
-        OffsetDateTime::UNIX_EPOCH,
-        FxRateSource::FxRatesApi,
-        Currency::Eur,
-        Currency::iter().map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE)),
-    )
-    .unwrap_or_else(|error| panic!("failed to create test FX snapshot: {error}"))
-    .into_persisted(
-        1_i64
-            .try_into()
-            .unwrap_or_else(|error| panic!("invalid test FX generation: {error}")),
-    );
-    ProductPriceFilterPlan::compile(snapshot, Currency::Eur, None)
-        .unwrap_or_else(|error| panic!("failed to compile test price filter: {error}"))
-}
-
-fn compiled_projection(
-    view: &SearchFilterView,
-    source_version: i64,
-    price_filter_plan: &ProductPriceFilterPlan,
-) -> CompiledSearchFilterProjection {
-    CompiledSearchFilterProjection {
-        projection: SearchFilterProjection {
-            view: view.clone(),
-            source_version,
-        },
-        price_filter_plan: price_filter_plan.clone(),
+fn projection(view: &SearchFilterView, source_version: i64) -> SearchFilterProjection {
+    SearchFilterProjection {
+        view: view.clone(),
+        source_version,
     }
 }
 

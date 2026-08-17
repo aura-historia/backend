@@ -217,7 +217,7 @@ Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=watchlist-notification`; its 
 
 - This worker's Sequin subscription is scoped to `search_filters`; any other table is rejected before acknowledgment rather than being accepted into an unconsumed queue.
 - The worker routes every committed `search_filters` insert, update, and delete to `SearchFilterOpenSearch` with `(user_search_filter_id, version, operation)`.
-- The projection worker treats insert/update CDC rows as invalidations: it rereads complete committed Postgres state, loads one latest persisted FX snapshot, compiles the filter's requested price range once, and maps all ProductSearch fields plus a percolator query and `compiledFxRateId` from that same plan. It writes with OpenSearch external versioning from `search_filters.version`.
+- The projection worker treats insert/update CDC rows as invalidations: it rereads complete committed Postgres state, maps all ProductSearch fields, and compiles the requested price range directly against private temporary `priceByCurrency.<currency>` fields. It writes with OpenSearch external versioning from `search_filters.version`; FX capture alone never writes saved filters.
 - `search_filters` uses `REPLICA IDENTITY FULL` so delete CDC carries the old owner and version. Deletes use the deterministic successor external version (`search_filters.version + 1`) as a target tombstone. Older or equal target versions return a conflict and are recorded as stale no-ops.
 - A malformed CDC row without the identifier, owner, or version is rejected so Sequin retries; it is never silently skipped.
 

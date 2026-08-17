@@ -3,14 +3,7 @@ use common::error::boxed::BoxError;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::user_search_filter_id::UserSearchFilterId;
 use fxrate_core::FxRateSnapshot;
-use product_service::ports::{ProductPriceFilterPlan, ProductSearchFilterMatchSource};
-
-/// One authoritative search-filter projection compiled against a persisted FX snapshot.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CompiledSearchFilterProjection {
-    pub projection: SearchFilterProjection,
-    pub price_filter_plan: ProductPriceFilterPlan,
-}
+use product_service::ports::ProductSearchFilterMatchSource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchFilterProjectionWriteOutcome {
@@ -65,7 +58,7 @@ pub enum SearchFilterIndexError {
 pub trait SearchFilterIndex: Send + Sync {
     async fn upsert(
         &self,
-        projection: &CompiledSearchFilterProjection,
+        projection: &SearchFilterProjection,
     ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError>;
     async fn delete(
         &self,

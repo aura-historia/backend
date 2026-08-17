@@ -8,8 +8,8 @@
 ## Core Design
 
 - Depends on `product-core`, `product-service`, `shop-core`, `geo`, and `common` OpenSearch response types.
-- Exports public OpenSearch reader factory/type, external-versioned Product projection writer, compiled-Product-search percolator JSON builder, and typed-source-to-percolation JSON mapper.
-- Keeps OpenSearch documents and mappings private; public percolation helpers expose no document type. Source prices stay native; active percolation receives no FX snapshot, while sale percolation renders every display Currency from the exact immutable sale snapshot using HalfUp.
+- Exports public OpenSearch reader factory/type, external-versioned Product projection writer, saved-filter percolator JSON builder, and typed-source-to-percolation JSON mapper.
+- Keeps OpenSearch documents and mappings private; public percolation helpers expose no document type. Persistent Product pricing stays native or immutable sale-time; temporary percolation prices use the closed-world `priceByCurrency` shape.
 - OpenSearch reads are ordinary readers. No transaction or unit of work.
 
 ## Ownership

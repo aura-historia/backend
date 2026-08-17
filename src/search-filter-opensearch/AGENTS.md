@@ -8,7 +8,7 @@
 ## Core Design
 
 - Writes canonical documents directly through `user_search_filters`.
-- Builds percolator queries from one complete service-compiled search-filter projection using the public product percolator JSON builder; it stores the compiled FX-rate ID. Percolation receives an optional exact sale snapshot from the service, never a latest FX snapshot.
+- Builds percolator queries from complete authoritative SearchFilter state using the public Product percolator JSON builder. Price ranges target private `priceByCurrency.<currency>` fields and carry no FX metadata. Percolation receives event-time valuation input from the service.
 - Uses Postgres `version` as OpenSearch external versioning; stale or duplicate writes are no-op outcomes.
 - Vertex AI product matching is a service-orchestrated use of the neutral `large-language-model` capability, not part of this OpenSearch adapter.
 - Persists every ProductSearch field and rejects incomplete or unknown persisted search payloads.

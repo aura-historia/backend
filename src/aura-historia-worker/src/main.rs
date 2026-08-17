@@ -123,9 +123,7 @@ async fn run_search_filter_projection(
 ) -> Result<(), MainError> {
     let handler: Arc<dyn ProjectSearchFilterChangeUseCase> =
         Arc::new(ProjectSearchFilterChangeHandler::new(
-            SqlxUnitOfWork::new(pool.clone()),
             SqlxSearchFilterIndexReader::new(pool),
-            SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
         ));
     let (runtime, receiver) = composition.into_parts();

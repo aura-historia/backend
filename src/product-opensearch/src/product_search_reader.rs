@@ -370,7 +370,8 @@ pub(crate) fn build_search_query(
     {
         must.push(product_query_clause);
     }
-    let (must_not, filter) = build_filter_clauses(search, &compiled_search.price_filter_plan)?;
+    let (must_not, filter) =
+        build_product_index_filter_clauses(search, &compiled_search.price_filter_plan)?;
 
     Ok(json!({
         "bool": {
@@ -388,7 +389,7 @@ pub(crate) fn build_hybrid_search_request(
     let search = &request.compiled_search.search;
     let cursor = &request.cursor;
     let (must_not, filter) =
-        build_filter_clauses(search, &request.compiled_search.price_filter_plan)?;
+        build_product_index_filter_clauses(search, &request.compiled_search.price_filter_plan)?;
     let title_field = title_field(&search.language);
     let bm25_text = build_product_query_clause(&search.product_query, title_field)
         .unwrap_or_else(|| json!({ "match_all": {} }));
@@ -552,9 +553,19 @@ fn build_text_match_clause(
     })
 }
 
-pub(crate) fn build_filter_clauses(
+pub(crate) fn build_product_index_filter_clauses(
     search: &ProductSearch,
     price_filter: &ProductPriceFilterPlan,
+) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), serde_json::Error> {
+    let (must_not, mut filter) = build_common_filter_clauses(search)?;
+    if let Some(price_clause) = build_product_index_price_clause(price_filter) {
+        filter.push(price_clause);
+    }
+    Ok((must_not, filter))
+}
+
+pub(crate) fn build_common_filter_clauses(
+    search: &ProductSearch,
 ) -> Result<(Vec<serde_json::Value>, Vec<serde_json::Value>), serde_json::Error> {
     let mut must_not = Vec::new();
     let mut filter = Vec::new();
@@ -608,10 +619,6 @@ pub(crate) fn build_filter_clauses(
                 ProductDocumentSerdeField::SellerSlugId.as_str(): search.exclude_seller_slug_id_query.iter().map(ToString::to_string).collect::<Vec<_>>()
             }
         }));
-    }
-
-    if let Some(price_clause) = build_price_filter_clause(price_filter) {
-        filter.push(price_clause);
     }
 
     if !search.country_query.is_empty() {
@@ -719,8 +726,8 @@ pub(crate) fn build_filter_clauses(
     Ok((must_not, filter))
 }
 
-/// Renders the one price clause shared by ordinary and percolator product queries.
-pub(crate) fn build_price_filter_clause(
+/// Renders the pinned price clause for the persistent Product index only.
+pub(crate) fn build_product_index_price_clause(
     price_filter: &ProductPriceFilterPlan,
 ) -> Option<serde_json::Value> {
     if !price_filter.has_price_filter() {
@@ -963,7 +970,7 @@ mod tests {
     #[test]
     fn should_render_active_and_sold_price_branches_from_plan()
     -> Result<(), Box<dyn std::error::Error>> {
-        let clause = build_price_filter_clause(&price_filter(Currency::Usd, Some(110))?)
+        let clause = build_product_index_price_clause(&price_filter(Currency::Usd, Some(110))?)
             .ok_or("missing price clause")?;
 
         assert_eq!(
@@ -994,14 +1001,14 @@ mod tests {
     #[test]
     fn should_not_render_price_clause_without_price_filter()
     -> Result<(), Box<dyn std::error::Error>> {
-        assert!(build_price_filter_clause(&price_filter(Currency::Usd, None)?).is_none());
+        assert!(build_product_index_price_clause(&price_filter(Currency::Usd, None)?).is_none());
         Ok(())
     }
 
     #[test]
     fn should_render_open_price_bounds_without_inventing_limits()
     -> Result<(), Box<dyn std::error::Error>> {
-        let max_only = build_price_filter_clause(&price_filter_range(
+        let max_only = build_product_index_price_clause(&price_filter_range(
             Currency::Usd,
             Some(common::query::range_query::RangeQuery {
                 min: None,
@@ -1009,7 +1016,7 @@ mod tests {
             }),
         )?)
         .ok_or("missing max-only clause")?;
-        let min_only = build_price_filter_clause(&price_filter_range(
+        let min_only = build_product_index_price_clause(&price_filter_range(
             Currency::Usd,
             Some(common::query::range_query::RangeQuery {
                 min: Some(MonetaryAmount::from(110_u64)),
@@ -1040,20 +1047,25 @@ mod tests {
     }
 
     #[test]
-    fn should_render_the_same_price_clause_for_search_and_percolation()
+    fn should_use_distinct_price_clauses_for_search_and_percolation()
     -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductSearch::new(Language::En, Currency::Usd).with_price_query(
+            common::query::range_query::RangeQuery {
+                min: Some(MonetaryAmount::from(110_u64)),
+                max: None,
+            },
+        );
         let compiled_search = CompiledProductSearch {
-            search: ProductSearch::new(Language::En, Currency::Usd),
+            search: search.clone(),
             price_filter_plan: price_filter(Currency::Usd, Some(110))?,
         };
 
-        let search = build_search_query(&compiled_search)?;
-        let percolator = crate::percolator_query::build_percolator_query(&compiled_search)?;
+        let product_index = build_search_query(&compiled_search)?;
+        let percolator = crate::percolator_query::build_percolator_query(&search)?;
 
-        assert_eq!(
-            search.pointer("/bool/filter/1"),
-            percolator.pointer("/bool/filter/1")
-        );
+        assert!(product_index.to_string().contains("sourcePrice"));
+        assert!(percolator.to_string().contains("priceByCurrency.usd"));
+        assert!(!percolator.to_string().contains("sourcePrice"));
         Ok(())
     }
 

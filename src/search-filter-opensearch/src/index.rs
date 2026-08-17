@@ -10,8 +10,8 @@ use opensearch::{
     params::VersionType,
 };
 use search_filter_service::ports::{
-    CompiledSearchFilterProjection, SearchFilterIndex, SearchFilterIndexError,
-    SearchFilterIndexQuery, SearchFilterProjectionWriteOutcome, SearchFilterView,
+    SearchFilterIndex, SearchFilterIndexError, SearchFilterIndexQuery, SearchFilterProjection,
+    SearchFilterProjectionWriteOutcome, SearchFilterView,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -246,7 +246,7 @@ fn build_percolate_body(
 impl SearchFilterIndex for OpenSearchSearchFilterIndex {
     async fn upsert(
         &self,
-        projection: &CompiledSearchFilterProjection,
+        projection: &SearchFilterProjection,
     ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError> {
         let document = SearchFilterDocument::try_from(projection).map_err(|source| {
             SearchFilterIndexError::WriteFailed {
