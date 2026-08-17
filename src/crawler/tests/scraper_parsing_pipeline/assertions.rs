@@ -60,14 +60,18 @@ impl ProductStateMappingService for FixedStateMappingService {
 }
 
 pub fn assert_extraction(
-    schema: &ProductCssSelectorSchema,
+    schemas: &[ProductCssSelectorSchema],
+    schema_index: usize,
     html_src: &str,
     expected: &RawExpectation,
 ) {
     let html = Html::parse_document(html_src);
-    let result: RawExtractedProduct = schema
-        .apply(&html)
-        .unwrap_or_else(|e| panic!("schema apply failed: {e}"));
+    let results: Vec<_> = schemas.iter().map(|schema| schema.apply(&html)).collect();
+    let result: RawExtractedProduct = results
+        .into_iter()
+        .nth(schema_index)
+        .unwrap_or_else(|| panic!("expected schema index {schema_index} to apply successfully"))
+        .unwrap_or_else(|e| panic!("schema {schema_index} apply failed: {e}"));
 
     assert_eq!(
         result.shops_product_id, expected.shops_product_id,

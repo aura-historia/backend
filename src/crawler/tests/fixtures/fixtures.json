@@ -648,5 +648,129 @@
       "auction_start": null,
       "auction_end": null
     }
+  },
+  {
+    "html": "tests/fixtures/html/collingeantiques_listed.html",
+    "raw_state": "Price: £795",
+    "state_record": "LISTED",
+    "schemas_file": "tests/fixtures/schemas/collingeantiques.json",
+    "schema_index": 0,
+    "raw": {
+      "shops_product_id": "post-47679",
+      "title": "Walnut Dumb Waiter c.1880",
+      "description": [
+        "Fine quality walnut buffet or dumb waiter c.1880. Three 48\" x 20\" shelves in solid walnut with moulded edges. Shaped apron and brackets below. Joined with slim crisply turned and tapering baluster columns front and rear. Turned feet raised on the original castors. Excellent colour and condition, cleaned and waxed in our workshops."
+      ],
+      "price": "Price: £795",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "Price: £795",
+      "images": [
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2266.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2273.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2275.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2287.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2279.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2283.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2281.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2277.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "post-47679",
+      "title": "Walnut Dumb Waiter c.1880",
+      "description": "Fine quality walnut buffet or dumb waiter c.1880. Three 48\" x 20\" shelves in solid walnut with moulded edges. Shaped apron and brackets below. Joined with slim crisply turned and tapering baluster columns front and rear. Turned feet raised on the original castors. Excellent colour and condition, cleaned and waxed in our workshops.",
+      "price": 79500,
+      "price_currency": "GBP",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "LISTED",
+      "url": "https://www.collingeantiques.com/product/walnut-dumb-waiter-c-1880/",
+      "images": [
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2266.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2273.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2275.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2287.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2279.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2283.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2281.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2277.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
+  },
+  {
+    "html": "tests/fixtures/html/collingeantiques_sold.html",
+    "raw_state": "SOLD",
+    "state_record": "SOLD",
+    "schemas_file": "tests/fixtures/schemas/collingeantiques.json",
+    "schema_index": 1,
+    "raw": {
+      "shops_product_id": "post-29358",
+      "title": "18th.c. Oak Dresser Base c.1740",
+      "description": [
+        "Early 18th.c. oak dresser base c.1740. Two plank top with a moulded edge. Two drawers with deep raised mouldings to the drawer fronts, decorative pierced brass escutcheons and later brass swan neck handles. Applied moulding to the front and sides above and below the drawers. Raised on turned and block baluster front legs and straight rear stiles. Some obvious old wear, generally very good condition with great character and particularly good original colour and patina. Cleaned and waxed in our workshops."
+      ],
+      "price": null,
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "SOLD",
+      "images": [
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7207.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7209.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7210.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7213.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7221.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7232.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7261.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7264.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7217.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7228.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7223.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7234.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7214.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    },
+    "normalized": {
+      "shops_product_id": "post-29358",
+      "title": "18th.c. Oak Dresser Base c.1740",
+      "description": "Early 18th.c. oak dresser base c.1740. Two plank top with a moulded edge. Two drawers with deep raised mouldings to the drawer fronts, decorative pierced brass escutcheons and later brass swan neck handles. Applied moulding to the front and sides above and below the drawers. Raised on turned and block baluster front legs and straight rear stiles. Some obvious old wear, generally very good condition with great character and particularly good original colour and patina. Cleaned and waxed in our workshops.",
+      "price": null,
+      "price_currency": null,
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "SOLD",
+      "url": "https://www.collingeantiques.com/product/18th-c-dresser-base/",
+      "images": [
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7207.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7209.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7210.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7213.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7221.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7232.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7261.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7264.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7217.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7228.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7223.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7234.jpg",
+        "https://www.collingeantiques.com/wp-content/uploads/2024/05/IMG_7214.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
   }
 ]

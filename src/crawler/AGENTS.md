@@ -33,6 +33,7 @@
 - Fresh schema generation creates a brand-new schema from the current page; it never localizes, selector-patches, or mutates a cached schema. Freshly generated schemas are only persisted after they apply and normalize successfully.
 - Cached schema scoring lives in `scraper::scraper_service::extraction::schema_candidates`. Each populated prepared logical field counts once (multiple description fragments → one, valid images → one, every populated raw-attribute key → one); `default_currency` is schema context and does not score.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.
+- Scraper parsing fixtures live in `tests/fixtures`: HTML pages, one JSON schema cache per shop under `schemas/`, and expected raw/normalized outputs in `fixtures.json`. Fixture extraction applies every schema in the shop cache before asserting the expected candidate.
 - `fetch-fixture` writes fetched HTML to `tests/fixtures/html`.
 - `demo` and `server` auto-run migrations on startup. Migrations be authoritative DB contract.
 
