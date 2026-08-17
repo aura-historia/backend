@@ -772,5 +772,206 @@
       "auction_start": null,
       "auction_end": null
     }
+  },
+  {
+    "html": "tests/fixtures/html/georgianantiques_lamp.html",
+    "raw_state": "Product Enquiry",
+    "state_record": "AVAILABLE",
+    "schemas_file": "tests/fixtures/schemas/georgianantiques.json",
+    "schema_index": 0,
+    "raw": {
+      "shops_product_id": "088",
+      "title": "Cast Brass Tavern (Bell) Lamp",
+      "description": [
+        "DescriptionCirca 1860. Mid-Victorian cast brass tavern bell candle stick (recently converted to electricity), the top surmounted with a large faux candle resting on the brass nozzle, beneath this there is a small brass wheel in faux wood pattern and a bell supported on a faux beam, when the wheel rotates it rings the bell, contained in a frame in the form of a bell, supported on a simple brass stem on a large dished base.Dimensions:44cm High, 15.5cm Dia.Period 1860-1880: Mid VictorianCategory Table Lamps & Candelabra"
+      ],
+      "price": "£400",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "Product Enquiry",
+      "images": [
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2916.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2923.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2916.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2917.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2918.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2920.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null,
+      "raw_attributes": {
+        "rawMeasurements": ["44cm High, 15.5cm Dia."],
+        "rawTags": ["1860-1880: Mid Victorian", "Table Lamps & Candelabra"]
+      }
+    },
+    "normalized": {
+      "shops_product_id": "088",
+      "title": "Cast Brass Tavern (Bell) Lamp",
+      "description": "DescriptionCirca 1860. Mid-Victorian cast brass tavern bell candle stick (recently converted to electricity), the top surmounted with a large faux candle resting on the brass nozzle, beneath this there is a small brass wheel in faux wood pattern and a bell supported on a faux beam, when the wheel rotates it rings the bell, contained in a frame in the form of a bell, supported on a simple brass stem on a large dished base.Dimensions:44cm High, 15.5cm Dia.Period 1860-1880: Mid VictorianCategory Table Lamps & Candelabra",
+      "price": 40000,
+      "price_currency": "GBP",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "AVAILABLE",
+      "url": "https://www.georgianantiques.net/product/cast-brass-tavern-bell-lamp/",
+      "images": [
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2916.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2923.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2916.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2917.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2918.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2026/01/GAN_2920.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
+  },
+  {
+    "html": "tests/fixtures/html/georgianantiques_desk.html",
+    "raw_state": "Product Enquiry",
+    "state_record": "AVAILABLE",
+    "schemas_file": "tests/fixtures/schemas/georgianantiques.json",
+    "schema_index": 1,
+    "raw": {
+      "shops_product_id": "21840",
+      "title": "Chippendale Style Mahogany Desk",
+      "description": [
+        "DescriptionCirca 1920, Georgian Chippendale style mahogany desk. The rectangular 3 panelled top has been recently re-leathered. Each of the panels is separated by mahogany cross banding and the fore-edge of the table is carved gadrooning. At the front there is one full length long drawer and 2 further shorter drawers either side with cast brass swan neck handles with wonderful bronze patination. The back plates with foliate casting, stylish pommels and the drop handles again with foliate casting. Beneath the outer drawers there is a stylish shaped apron with foliate carving, and this occurs on the sides and back. There are also stylish carved quarter brackets on the back. The whole desk stands on 4 elegant carved cabriole legs with foliate carving on the knees which runs down the top of the leg and finishing on a stylish ball and claw foot. The desk is good size, clean and sturdy.Dimensions:72cm high x 140cm wide x 77cm deep.Period 1900-1930: Early 20thCategory Desks"
+      ],
+      "price": "£1,590",
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "Product Enquiry",
+      "images": [
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-1-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-3-scaled-1-600x399.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-4-scaled-1-600x400.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-5-scaled-1-600x406.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-7-scaled-1-600x844.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-8-scaled-1-600x900.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-10-scaled-1-600x400.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-11-scaled-1-600x400.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-12-scaled-1-600x396.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null,
+      "raw_attributes": {
+        "rawMeasurements": ["72cm high x 140cm wide x 77cm deep."]
+      }
+    },
+    "normalized": {
+      "shops_product_id": "21840",
+      "title": "Chippendale Style Mahogany Desk",
+      "description": "DescriptionCirca 1920, Georgian Chippendale style mahogany desk. The rectangular 3 panelled top has been recently re-leathered. Each of the panels is separated by mahogany cross banding and the fore-edge of the table is carved gadrooning. At the front there is one full length long drawer and 2 further shorter drawers either side with cast brass swan neck handles with wonderful bronze patination. The back plates with foliate casting, stylish pommels and the drop handles again with foliate casting. Beneath the outer drawers there is a stylish shaped apron with foliate carving, and this occurs on the sides and back. There are also stylish carved quarter brackets on the back. The whole desk stands on 4 elegant carved cabriole legs with foliate carving on the knees which runs down the top of the leg and finishing on a stylish ball and claw foot. The desk is good size, clean and sturdy.Dimensions:72cm high x 140cm wide x 77cm deep.Period 1900-1930: Early 20thCategory Desks",
+      "price": 159000,
+      "price_currency": "GBP",
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "AVAILABLE",
+      "url": "https://www.georgianantiques.net/product/chippendale-style-mahogany-desk/",
+      "images": [
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-1-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-3-scaled-1-600x399.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-4-scaled-1-600x400.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-5-scaled-1-600x406.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-7-scaled-1-600x844.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-8-scaled-1-600x900.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-10-scaled-1-600x400.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-11-scaled-1-600x400.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-12-scaled-1-600x396.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
+  },
+  {
+    "html": "tests/fixtures/html/georgianantiques_jugs.html",
+    "raw_state": "Product Enquiry",
+    "state_record": "AVAILABLE",
+    "schemas_file": "tests/fixtures/schemas/georgianantiques.json",
+    "schema_index": 2,
+    "raw": {
+      "shops_product_id": "22234-22238",
+      "title": "Collection of Victorian Silver Claret Jugs",
+      "description": [
+        "DescriptionA stunning collection of silver claret jugs and a water jug.From left to right:A Victorian silver gilt claret jug, Lawson and Co. Glasgow, 1899. Hallmarked on the foot-rim. With scroll, swag and floral chaste decoration; both cartouches empty; no inscriptions; fluted neck and Rococo spout, with C-scroll cast acanthus handle.\nSize 33cm high x 12cm wide x 14cm deep.\n£2,750An early Victorian silver claret Jug, Marshall and Sons. Edinburgh, 1838. Hallmarked on the neck. With a Neo Classical acanthus body on dome-spreading foot, with applied cast rose and foliate neck, S-scroll acanthus handle with cast flower head finial. Size 35cm x 18cm x 14cm deep.\n£2,750A large Victorian silver claret jug, John Muirhead and Son, Glasgow, 1848. Hallmarked on the neck. Of magnum size with chased floral and scroll body, flat chased decoration, Rococo decoration at the neck, with s-scroll acanthus handle and cast foliate finial. The front of the body is engraved with full armorial.\nSize 34cm high x 17cm wide x 13cm deep.\nNOW SOLD.An early Victorian Neoclassical silver Claret Jug. Sheffield, 1838. Hallmarked on the spout. There is a presentation inscription on the body to Donald MacFarlane Esquire, Callandar – ‘A small tribute of gratitude for his guardianship of the family of the late Peter MacLaren. Middleton, 1842.’ With cast grape and vine neck handle and finial.\nSize 32cm high x 17cm wide x 11cm deep.\nNOW SOLDA Victorian water jug. Sheffield, 1899. Hallmarked on the neck. With applied foliate pendant swags and foliate border, with wicker-wrapped raffia handle; hinged spout with plain finial.\nSize 28cm high x 14cm wide x 9cm deep.\nNOW SOLDPeriod 1837-1901: VictorianCategory Kitchenware & Tableware"
+      ],
+      "price": null,
+      "price_estimate_min": null,
+      "price_estimate_max": null,
+      "seller_name": null,
+      "state": "Product Enquiry",
+      "images": [
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jugs-4-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-C-2-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-C-3-scaled-1-600x841.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-C-4-scaled-1-600x893.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-C-8-scaled-1-600x394.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-2-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-3-scaled-1-600x795.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-4-scaled-1-600x831.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-6-scaled-1-600x900.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-8-scaled-1-600x437.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-D-2-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-9-scaled-1-600x446.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-D-4-scaled-1-600x909.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-D-6-scaled-1-600x900.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-D-7-scaled-1-600x445.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-E-2-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-E-3-scaled-1-600x858.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-E-4-scaled-1-600x916.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-E-7-scaled-1-600x400.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null,
+      "raw_attributes": {
+        "rawTags": ["1837-1901: Victorian", "Kitchenware & Tableware"]
+      }
+    },
+    "normalized": {
+      "shops_product_id": "22234-22238",
+      "title": "Collection of Victorian Silver Claret Jugs",
+      "description": "DescriptionA stunning collection of silver claret jugs and a water jug.From left to right:A Victorian silver gilt claret jug, Lawson and Co. Glasgow, 1899. Hallmarked on the foot-rim. With scroll, swag and floral chaste decoration; both cartouches empty; no inscriptions; fluted neck and Rococo spout, with C-scroll cast acanthus handle.\nSize 33cm high x 12cm wide x 14cm deep.\n£2,750An early Victorian silver claret Jug, Marshall and Sons. Edinburgh, 1838. Hallmarked on the neck. With a Neo Classical acanthus body on dome-spreading foot, with applied cast rose and foliate neck, S-scroll acanthus handle with cast flower head finial. Size 35cm x 18cm x 14cm deep.\n£2,750A large Victorian silver claret jug, John Muirhead and Son, Glasgow, 1848. Hallmarked on the neck. Of magnum size with chased floral and scroll body, flat chased decoration, Rococo decoration at the neck, with s-scroll acanthus handle and cast foliate finial. The front of the body is engraved with full armorial.\nSize 34cm high x 17cm wide x 13cm deep.\nNOW SOLD.An early Victorian Neoclassical silver Claret Jug. Sheffield, 1838. Hallmarked on the spout. There is a presentation inscription on the body to Donald MacFarlane Esquire, Callandar – ‘A small tribute of gratitude for his guardianship of the family of the late Peter MacLaren. Middleton, 1842.’ With cast grape and vine neck handle and finial.\nSize 32cm high x 17cm wide x 11cm deep.\nNOW SOLDA Victorian water jug. Sheffield, 1899. Hallmarked on the neck. With applied foliate pendant swags and foliate border, with wicker-wrapped raffia handle; hinged spout with plain finial.\nSize 28cm high x 14cm wide x 9cm deep.\nNOW SOLDPeriod 1837-1901: VictorianCategory Kitchenware & Tableware",
+      "price": null,
+      "price_currency": null,
+      "price_estimate_min": null,
+      "price_estimate_min_currency": null,
+      "price_estimate_max": null,
+      "price_estimate_max_currency": null,
+      "seller_name": null,
+      "state": "AVAILABLE",
+      "url": "https://www.georgianantiques.net/product/collection-of-victorian-silver-claret-jugs",
+      "images": [
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jugs-4-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-C-2-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-C-3-scaled-1-600x841.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-C-4-scaled-1-600x893.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-C-8-scaled-1-600x394.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-2-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-3-scaled-1-600x795.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-4-scaled-1-600x831.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-6-scaled-1-600x900.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-8-scaled-1-600x437.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-D-2-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-B-9-scaled-1-600x446.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-D-4-scaled-1-600x909.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-D-6-scaled-1-600x900.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-D-7-scaled-1-600x445.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-E-2-scaled-1-600x600.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-E-3-scaled-1-600x858.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-E-4-scaled-1-600x916.jpg",
+        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Claret-Jug-E-7-scaled-1-600x400.jpg"
+      ],
+      "auction_start": null,
+      "auction_end": null
+    }
   }
 ]

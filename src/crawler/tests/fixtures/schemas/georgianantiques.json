@@ -1,0 +1,121 @@
+[
+  {
+    "price": {
+      "type": "text",
+      "selector": ".summary p.price",
+      "cardinality": "first"
+    },
+    "state": {
+      "type": "text",
+      "selector": ".summary button.single_add_to_cart_button",
+      "cardinality": "first"
+    },
+    "title": {
+      "type": "text",
+      "selector": ".summary h1.product_title",
+      "cardinality": "first"
+    },
+    "images": {
+      "type": "image_url",
+      "selector": "#wpgs-gallery a.wcgs-slider-lightbox",
+      "cardinality": "all"
+    },
+    "description": {
+      "type": "text",
+      "selector": "#tab-description",
+      "cardinality": "first"
+    },
+    "raw_attributes": {
+      "rawTags": {
+        "type": "text",
+        "selector": "#tab-description .product_meta a[rel=\"tag\"]",
+        "cardinality": "all"
+      },
+      "rawMeasurements": {
+        "type": "text",
+        "selector": "#tab-description li.dimensions",
+        "cardinality": "first"
+      }
+    },
+    "shops_product_id": {
+      "type": "text",
+      "selector": ".summary .sku",
+      "cardinality": "first"
+    }
+  },
+  {
+    "price": {
+      "type": "text",
+      "selector": "p.price ins .amount, p.price > .amount",
+      "cardinality": "first"
+    },
+    "state": {
+      "type": "text",
+      "selector": "button.single_add_to_cart_button",
+      "cardinality": "first"
+    },
+    "title": {
+      "type": "text",
+      "selector": "h1.product_title",
+      "cardinality": "first"
+    },
+    "images": {
+      "type": "image_url",
+      "selector": "img.wcgs-slider-image-tag",
+      "cardinality": "all"
+    },
+    "description": {
+      "type": "text",
+      "selector": "#tab-description",
+      "cardinality": "first"
+    },
+    "raw_attributes": {
+      "rawMeasurements": {
+        "type": "text",
+        "selector": "li.dimensions",
+        "cardinality": "first"
+      }
+    },
+    "default_currency": "GBP",
+    "shops_product_id": {
+      "type": "text",
+      "selector": ".sku",
+      "cardinality": "first"
+    }
+  },
+  {
+    "state": {
+      "type": "text",
+      "selector": "button.single_add_to_cart_button",
+      "cardinality": "first"
+    },
+    "title": {
+      "type": "text",
+      "selector": "h1.product_title",
+      "cardinality": "first"
+    },
+    "images": {
+      "type": "image_url",
+      "selector": ".wcgs-slider-image-tag",
+      "cardinality": "all"
+    },
+    "description": {
+      "type": "text",
+      "selector": "#tab-description",
+      "cardinality": "first"
+    },
+    "raw_attributes": {
+      "rawTags": {
+        "type": "text",
+        "selector": "#tab-description .product_meta a[rel=\"tag\"]",
+        "cardinality": "all"
+      }
+    },
+    "default_currency": "GBP",
+    "shops_product_id": {
+      "type": "text",
+      "selector": ".sku",
+      "cardinality": "first"
+    }
+  }
+]
