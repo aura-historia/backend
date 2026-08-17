@@ -176,10 +176,9 @@ fn split_concatenated_word(word: &str) -> Vec<String> {
                 .chars()
                 .last()
                 .is_some_and(|previous| previous.is_lowercase())
+            && !current.is_empty()
         {
-            if !current.is_empty() {
-                parts.push(std::mem::take(&mut current));
-            }
+            parts.push(std::mem::take(&mut current));
         }
         current.push(ch);
     }
