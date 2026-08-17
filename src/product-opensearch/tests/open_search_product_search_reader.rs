@@ -53,7 +53,7 @@ async fn should_search_active_and_sold_products_with_one_pinned_price_plan_impl(
     assert_eq!(Some(2), result.total);
     assert_eq!(2, result.items.len());
     assert!(result.items.iter().all(|item| {
-        item.price
+        item.display_price
             == Some(common::price::domain::Price::new(
                 MonetaryAmount::from(110_u64),
                 Currency::Usd,

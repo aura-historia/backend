@@ -438,13 +438,23 @@ mod tests {
         product_slug_id::ProductSlugId, product_state::domain::ProductState, shop_id::ShopId,
         shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
     };
+    use fxrate_core::{
+        FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
+    };
     use indexmap::IndexSet;
     use product_core::{
-        product::{ProductAddress, ProductAuction, ProductPricing},
+        product::{
+            ProductAddress, ProductAuction, ProductPriceValuationBasis, ProductPricing,
+            ProductSaleValuation,
+        },
         title::Title,
     };
-    use product_service::ports::ProductSearchFilterMatchSourceEventKind;
+    use product_service::ports::{
+        ProductPercolationValuation, ProductPricesByCurrency,
+        ProductSearchFilterMatchSourceEventKind,
+    };
     use std::collections::HashMap;
+    use strum::IntoEnumIterator;
     use url::Url;
 
     fn source() -> Result<ProductSearchFilterMatchSource, url::ParseError> {
@@ -500,6 +510,56 @@ mod tests {
         assert!(document.get("salePrices").is_none());
         assert!(document.get("priceEstimateMin").is_none());
         assert!(document.get("priceEstimateMax").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn should_use_identical_sale_snapshot_values_for_persistent_and_temporary_prices()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| {
+                FxRateQuote::new(
+                    currency,
+                    match currency {
+                        Currency::Eur => FX_RATE_SCALE,
+                        Currency::Gbp => 850_000,
+                        Currency::Usd => 1_100_000,
+                        Currency::Jpy => 160_000_000,
+                        _ => 1_250_000,
+                    },
+                )
+            }),
+        )?
+        .into_persisted(FxRateGeneration::try_from(1)?);
+        let mut product = source()?;
+        let source_price = common::price::domain::Price::new(12_500_u64.into(), Currency::Gbp);
+        product.pricing.price = Some(source_price);
+        product.sale_valuation = Some(ProductSaleValuation {
+            fx_rate_id: snapshot.id(),
+            sold_at: OffsetDateTime::UNIX_EPOCH,
+        });
+        product.state = ProductState::Sold;
+        let prices = ProductPricesByCurrency::convert_all(&snapshot, source_price)?;
+
+        let persistent = serde_json::to_value(product_document(&product, Some(&snapshot))?)?;
+        let temporary = product_percolation_document(&ProductPercolationInput {
+            source: product,
+            valuation: Some(ProductPercolationValuation {
+                basis: ProductPriceValuationBasis::Sale,
+                fx_rate_id: snapshot.id(),
+                effective_at: snapshot.captured_at(),
+                prices,
+            }),
+        })?;
+
+        assert_eq!(
+            persistent.get("salePrices"),
+            temporary.get("priceByCurrency"),
+        );
         Ok(())
     }
 

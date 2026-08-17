@@ -90,6 +90,7 @@ impl ProductPriceFilterPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::ProductPricesByCurrency;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
@@ -186,6 +187,70 @@ mod tests {
         assert!(upper_open.active_native_ranges.iter().any(|range| {
             range.source_currency == Currency::Eur && range.lower == 100 && range.upper.is_none()
         }));
+        Ok(())
+    }
+
+    #[test]
+    fn should_keep_interactive_and_percolation_price_membership_identical_for_supported_currency_pairs()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = snapshot()?;
+        let ranges = [
+            RangeQuery {
+                min: None,
+                max: Some(MonetaryAmount::from(5_u64)),
+            },
+            RangeQuery {
+                min: Some(MonetaryAmount::from(3_u64)),
+                max: None,
+            },
+            RangeQuery {
+                min: Some(MonetaryAmount::from(3_u64)),
+                max: Some(MonetaryAmount::from(12_u64)),
+            },
+            RangeQuery {
+                min: Some(MonetaryAmount::from(0_u64)),
+                max: Some(MonetaryAmount::from(1_u64)),
+            },
+        ];
+        let amounts = [0_u64, 1, 2, 3, 4, 5, 49, 50, 51, 99, 100, 101, 160, 500];
+
+        for source_currency in Currency::iter() {
+            for target_currency in Currency::iter() {
+                for range in ranges {
+                    let plan = ProductPriceFilterPlan::compile(
+                        snapshot.clone(),
+                        target_currency,
+                        Some(range),
+                    )?;
+                    for amount in amounts {
+                        let interactive_membership = plan
+                            .active_native_ranges
+                            .iter()
+                            .find(|native| native.source_currency == source_currency)
+                            .is_some_and(|native| {
+                                amount >= native.lower
+                                    && native.upper.is_none_or(|upper| amount <= upper)
+                            });
+                        let percolated_amount = ProductPricesByCurrency::convert_all(
+                            &snapshot,
+                            common::price::domain::Price::new(amount.into(), source_currency),
+                        )?
+                        .amount_in(target_currency);
+                        let saved_filter_membership = range
+                            .min
+                            .is_none_or(|minimum| percolated_amount >= u64::from(minimum))
+                            && range
+                                .max
+                                .is_none_or(|maximum| percolated_amount <= u64::from(maximum));
+
+                        assert_eq!(
+                            interactive_membership, saved_filter_membership,
+                            "{source_currency:?} -> {target_currency:?}, amount {amount}, range {range:?}",
+                        );
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
