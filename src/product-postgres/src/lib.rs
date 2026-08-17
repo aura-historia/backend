@@ -15,9 +15,10 @@ pub use product_embedding_writer::SqlxProductEmbeddingWriterFactory;
 pub use product_translation_source_reader::SqlxProductTranslationSourceReader;
 pub use product_translation_writer::SqlxProductTranslationWriterFactory;
 pub use readers::{
-    SqlxProductDetailsBatchReader, SqlxProductDetailsReaderFactory,
-    SqlxProductEmbeddingReaderFactory, SqlxProductEventReaderFactory,
-    SqlxProductSearchFilterMatchSourceReaderFactory, SqlxProductUserStateReader,
-    SqlxProductWatchlistDetailsReaderFactory, SqlxProductWatchlistNotificationSourceReaderFactory,
+    SqlxProductCurrentRevisionGuardFactory, SqlxProductDetailsBatchReader,
+    SqlxProductDetailsReaderFactory, SqlxProductEmbeddingReaderFactory,
+    SqlxProductEventReaderFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
+    SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
+    SqlxProductWatchlistNotificationSourceReaderFactory,
 };
 pub use repository::{SqlxProductRepository, SqlxProductRepositoryFactory};

@@ -22,9 +22,11 @@ use large_language_model::{
 };
 use product_core::product::ProductPriceValuationBasis;
 use product_service::ports::{
-    ProductPercolationInput, ProductPercolationValuation, ProductPricesByCurrency,
-    ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
-    ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
+    ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
+    ProductCurrentRevisionGuardFactory, ProductPercolationInput, ProductPercolationValuation,
+    ProductPricesByCurrency, ProductSearchFilterMatchSource,
+    ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
+    ProductSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_core::{PriceMatchValuation, SearchFilterProductMatch};
 use serde::Deserialize;
@@ -132,6 +134,11 @@ pub enum MatchProductEventError {
         #[source]
         source: BoxError,
     },
+    #[error("product current revision check failed")]
+    ProductRevisionCheckFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("active search filter match candidate read failed")]
     CandidateReadFailed {
         #[source]
@@ -169,9 +176,10 @@ pub trait MatchProductEventUseCase: Send + Sync {
     ) -> Result<MatchProductEventResult, MatchProductEventError>;
 }
 
-pub struct MatchProductEventHandler<U, S, F, I, E, R, W> {
+pub struct MatchProductEventHandler<U, S, G, F, I, E, R, W> {
     unit_of_work: U,
     sources: S,
+    revisions: G,
     fx_rates: F,
     index: I,
     evaluator: E,
@@ -179,10 +187,11 @@ pub struct MatchProductEventHandler<U, S, F, I, E, R, W> {
     matches: W,
 }
 
-impl<U, S, F, I, E, R, W> MatchProductEventHandler<U, S, F, I, E, R, W> {
+impl<U, S, G, F, I, E, R, W> MatchProductEventHandler<U, S, G, F, I, E, R, W> {
     pub fn new(
         unit_of_work: U,
         sources: S,
+        revisions: G,
         fx_rates: F,
         index: I,
         evaluator: E,
@@ -192,6 +201,7 @@ impl<U, S, F, I, E, R, W> MatchProductEventHandler<U, S, F, I, E, R, W> {
         Self {
             unit_of_work,
             sources,
+            revisions,
             fx_rates,
             index,
             evaluator,
@@ -202,10 +212,12 @@ impl<U, S, F, I, E, R, W> MatchProductEventHandler<U, S, F, I, E, R, W> {
 }
 
 #[async_trait::async_trait]
-impl<U, S, F, I, E, R, W> MatchProductEventUseCase for MatchProductEventHandler<U, S, F, I, E, R, W>
+impl<U, S, G, F, I, E, R, W> MatchProductEventUseCase
+    for MatchProductEventHandler<U, S, G, F, I, E, R, W>
 where
     U: UnitOfWork,
     S: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
+    G: ProductCurrentRevisionGuardFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
     I: SearchFilterIndex,
     E: LargeLanguageModel,
@@ -282,6 +294,21 @@ where
                 source: box_error(source),
             }
         })?;
+        let revision = self
+            .revisions
+            .in_transaction(&mut tx)
+            .lock_and_check(command.product_id, command.origin_event_id)
+            .await
+            .map_err(product_revision_check_error)?;
+        if revision == ProductCurrentRevisionCheck::Stale {
+            return Ok(MatchProductEventResult {
+                outcome: MatchProductEventOutcome::StaleSourceSkipped,
+                percolated_count,
+                persisted_match_count: 0,
+                enhanced_evaluation_failure_count: evaluated.enhanced_evaluation_failure_count,
+            });
+        }
+
         let mut candidates = if candidates.is_empty() {
             Vec::new()
         } else {
@@ -705,6 +732,12 @@ fn is_retryable_llm_error(error: &LargeLanguageModelError) -> bool {
     )
 }
 
+fn product_revision_check_error(error: ProductCurrentRevisionCheckError) -> MatchProductEventError {
+    MatchProductEventError::ProductRevisionCheckFailed {
+        source: box_error(error),
+    }
+}
+
 fn candidate_read_error(
     error: ActiveSearchFilterMatchCandidateReadError,
 ) -> MatchProductEventError {
@@ -765,11 +798,13 @@ mod tests {
         product_image::ProductImage,
     };
     use product_service::ports::{
-        ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
-        ProductSearchFilterMatchSourceEventKind,
+        ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
+        ProductCurrentRevisionGuardFactory, ProductSearchFilterMatchShopType,
+        ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceEventKind,
     };
     use std::sync::{Arc, Mutex};
     use strum::IntoEnumIterator;
+    use tokio::sync::Notify;
 
     use time::OffsetDateTime;
     use url::Url;
@@ -783,6 +818,7 @@ mod tests {
         event_snapshot_reads: usize,
         sale_snapshot: Option<FxRateSnapshot>,
         event_snapshot: Option<FxRateSnapshot>,
+        current_event_id: Option<EventId>,
     }
 
     #[derive(Clone, Default)]
@@ -837,6 +873,42 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct Revisions(Arc<Mutex<State>>);
+
+    struct CheckingRevision<'a>(&'a Arc<Mutex<State>>);
+
+    #[async_trait::async_trait]
+    impl ProductCurrentRevisionGuard for CheckingRevision<'_> {
+        async fn lock_and_check(
+            &mut self,
+            _product_id: ProductId,
+            expected_event_id: EventId,
+        ) -> Result<ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError> {
+            let state =
+                self.0
+                    .lock()
+                    .map_err(|_| ProductCurrentRevisionCheckError::CheckFailed {
+                        source: box_error(std::io::Error::other("test mutex poisoned")),
+                    })?;
+            Ok(match state.current_event_id {
+                Some(current_event_id) if current_event_id != expected_event_id => {
+                    ProductCurrentRevisionCheck::Stale
+                }
+                Some(_) | None => ProductCurrentRevisionCheck::Current,
+            })
+        }
+    }
+
+    impl ProductCurrentRevisionGuardFactory<FakeTransaction> for Revisions {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl ProductCurrentRevisionGuard + 'tx {
+            CheckingRevision(&self.0)
+        }
+    }
+
     struct Index {
         filters: Vec<SearchFilterView>,
     }
@@ -862,6 +934,49 @@ mod tests {
             &self,
             _input: &ProductPercolationInput,
         ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
+            Ok(self.filters.clone())
+        }
+
+        async fn query(
+            &self,
+            _query: &SearchFilterIndexQuery,
+        ) -> Result<
+            common::pagination::cursor::CursoredResult<SearchFilterView, serde_json::Value>,
+            SearchFilterIndexError,
+        > {
+            Ok(Default::default())
+        }
+    }
+
+    struct BlockingIndex {
+        filters: Vec<SearchFilterView>,
+        percolation_started: Arc<Notify>,
+        resume_percolation: Arc<Notify>,
+    }
+
+    #[async_trait::async_trait]
+    impl SearchFilterIndex for BlockingIndex {
+        async fn upsert(
+            &self,
+            _projection: &crate::ports::SearchFilterProjection,
+        ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError> {
+            Ok(SearchFilterProjectionWriteOutcome::Applied)
+        }
+
+        async fn delete(
+            &self,
+            _id: UserSearchFilterId,
+            _source_version: i64,
+        ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError> {
+            Ok(SearchFilterProjectionWriteOutcome::Applied)
+        }
+
+        async fn percolate(
+            &self,
+            _input: &ProductPercolationInput,
+        ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
+            self.percolation_started.notify_one();
+            self.resume_percolation.notified().await;
             Ok(self.filters.clone())
         }
 
@@ -1144,6 +1259,7 @@ mod tests {
     ) -> MatchProductEventHandler<
         FakeUnitOfWork,
         Sources,
+        Revisions,
         FxRates,
         Index,
         Evaluator,
@@ -1153,6 +1269,7 @@ mod tests {
         MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(sources),
+            Revisions(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![search_filter],
@@ -1172,6 +1289,7 @@ mod tests {
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
+            Revisions(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![
@@ -1387,6 +1505,7 @@ mod tests {
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
+            Revisions(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![plain.clone(), enhanced],
@@ -1427,6 +1546,7 @@ mod tests {
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
+            Revisions(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: vec![enhanced],
@@ -1590,6 +1710,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_skip_stale_event_when_product_advances_during_percolation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let product = product()?;
+        let percolation_started = Arc::new(Notify::new());
+        let resume_percolation = Arc::new(Notify::new());
+        let handler = MatchProductEventHandler::new(
+            FakeUnitOfWork(Arc::clone(&state)),
+            Sources(vec![product.clone()]),
+            Revisions(Arc::clone(&state)),
+            FxRates(Arc::clone(&state)),
+            BlockingIndex {
+                filters: vec![filter(UserId::new(), UserSearchFilterId::new())],
+                percolation_started: Arc::clone(&percolation_started),
+                resume_percolation: Arc::clone(&resume_percolation),
+            },
+            Evaluator,
+            Candidates(Arc::clone(&state)),
+            Matches(Arc::clone(&state)),
+        );
+
+        let product_id = product.product_id;
+        let event_id = product.event_id;
+        let matching = tokio::spawn(async move {
+            handler
+                .execute(MatchProductEventCommand {
+                    origin_event_id: event_id,
+                    product_id,
+                })
+                .await
+        });
+        percolation_started.notified().await;
+        state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?
+            .current_event_id = Some(EventId::new());
+        resume_percolation.notify_one();
+
+        let result = matching.await??;
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(MatchProductEventOutcome::StaleSourceSkipped, result.outcome);
+        assert_eq!(0, result.persisted_match_count);
+        assert_eq!(0, state.active_reads);
+        assert!(state.persisted.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_ignore_stale_product_events_after_committing_source_read()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = Arc::new(Mutex::new(State::default()));
@@ -1598,6 +1768,7 @@ mod tests {
         let handler = MatchProductEventHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
             Sources(vec![product.clone()]),
+            Revisions(Arc::clone(&state)),
             FxRates(Arc::clone(&state)),
             Index {
                 filters: Vec::new(),

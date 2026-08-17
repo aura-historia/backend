@@ -26,9 +26,10 @@ use opensearch::{
 };
 use product_opensearch::OpenSearchProductSearchProjection;
 use product_postgres::{
-    SqlxProductEmbeddingSourceReader, SqlxProductEmbeddingWriterFactory,
-    SqlxProductSearchFilterMatchSourceReaderFactory, SqlxProductTranslationSourceReader,
-    SqlxProductTranslationWriterFactory, SqlxProductWatchlistNotificationSourceReaderFactory,
+    SqlxProductCurrentRevisionGuardFactory, SqlxProductEmbeddingSourceReader,
+    SqlxProductEmbeddingWriterFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
+    SqlxProductTranslationSourceReader, SqlxProductTranslationWriterFactory,
+    SqlxProductWatchlistNotificationSourceReaderFactory,
 };
 use product_service::use_cases::{
     EmbedProductEventHandler, EmbedProductEventUseCase, GenerateWatchlistNotificationsHandler,
@@ -141,6 +142,7 @@ async fn run_search_filter_percolator(
     let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+        SqlxProductCurrentRevisionGuardFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
         OpenSearchSearchFilterIndex::new(opensearch_client(opensearch)?),
         vertex_ai_large_language_model(vertex_ai)?,

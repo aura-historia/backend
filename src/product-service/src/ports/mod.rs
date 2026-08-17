@@ -1,4 +1,5 @@
 pub mod partner_product_authorizer;
+pub mod product_current_revision_guard;
 pub mod product_details_batch_reader;
 pub mod product_details_reader;
 pub mod product_embedding_reader;
@@ -23,6 +24,10 @@ pub mod watchlist_notification_recipient_reader;
 
 pub use partner_product_authorizer::{
     PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,
+};
+pub use product_current_revision_guard::{
+    ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
+    ProductCurrentRevisionGuardFactory,
 };
 pub use product_details_batch_reader::{
     ProductDetailsBatchReadError, ProductDetailsBatchReadRequest, ProductDetailsBatchReader,

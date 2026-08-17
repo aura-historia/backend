@@ -434,13 +434,15 @@ mod tests {
     use super::*;
     use common::{
         event_id::EventId, localized::Localized, product_lifecycle::domain::ProductLifecycle,
-        product_slug_id::ProductSlugId, product_state::domain::ProductState, shop_id::ShopId,
-        shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
+        product_slug_id::ProductSlugId, product_state::domain::ProductState,
+        query::range_query::RangeQuery, shop_id::ShopId, shop_name::ShopName,
+        shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
     };
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use product_core::product_search::ProductSearch;
     use product_core::{
         product::{
             ProductAddress, ProductAuction, ProductPriceValuationBasis, ProductPricing,
@@ -449,7 +451,7 @@ mod tests {
         title::Title,
     };
     use product_service::ports::{
-        ProductPercolationValuation, ProductPricesByCurrency,
+        ProductPercolationValuation, ProductPriceFilterPlan, ProductPricesByCurrency,
         ProductSearchFilterMatchSourceEventKind,
     };
     use std::collections::HashMap;
@@ -494,6 +496,112 @@ mod tests {
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,
         })
+    }
+
+    fn snapshot() -> Result<FxRateSnapshot, FxRateSnapshotError> {
+        NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| {
+                FxRateQuote::new(
+                    currency,
+                    match currency {
+                        Currency::Eur => FX_RATE_SCALE,
+                        Currency::Gbp => 850_000,
+                        Currency::Usd => 1_100_000,
+                        Currency::Jpy => 160_000_000,
+                        _ => 1_250_000,
+                    },
+                )
+            }),
+        )
+        .and_then(|snapshot| Ok(snapshot.into_persisted(FxRateGeneration::try_from(1)?)))
+    }
+
+    fn boundary_amounts(lower: u64, upper: Option<u64>) -> Vec<u64> {
+        let mut amounts = vec![
+            0,
+            1,
+            lower.saturating_sub(1),
+            lower,
+            lower.saturating_add(1),
+        ];
+        if let Some(upper) = upper {
+            amounts.extend([upper.saturating_sub(1), upper, upper.saturating_add(1)]);
+        }
+        amounts.sort_unstable();
+        amounts.dedup();
+        amounts
+    }
+
+    fn matches_inclusive_range(amount: u64, bounds: &Value) -> bool {
+        bounds
+            .get("gte")
+            .and_then(Value::as_u64)
+            .is_none_or(|minimum| amount >= minimum)
+            && bounds
+                .get("lte")
+                .and_then(Value::as_u64)
+                .is_none_or(|maximum| amount <= maximum)
+    }
+
+    fn normal_search_membership(
+        price_clause: &Value,
+        source_currency: Currency,
+        source_amount: u64,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let source_currency = serde_json::to_value(CurrencyData::from(source_currency))?;
+        let active_ranges = price_clause
+            .pointer("/bool/should")
+            .and_then(Value::as_array)
+            .ok_or("normal Product price query has no branches")?;
+        let bounds = active_ranges.iter().find_map(|branch| {
+            (branch.pointer("/bool/filter/0/bool/should")?.as_array()?)
+                .iter()
+                .find_map(|range| {
+                    (range.pointer("/bool/filter/0/term/sourcePrice.currency")
+                        == Some(&source_currency))
+                    .then(|| range.pointer("/bool/filter/1/range/sourcePrice.amount"))
+                    .flatten()
+                })
+        });
+
+        Ok(bounds.is_some_and(|bounds| matches_inclusive_range(source_amount, bounds)))
+    }
+
+    fn saved_filter_percolation_membership(
+        percolator_query: &Value,
+        percolation_document: &Value,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let filters = percolator_query
+            .pointer("/bool/filter")
+            .and_then(Value::as_array)
+            .ok_or("saved-filter percolator query has no filters")?;
+        let (field, bounds) = filters
+            .iter()
+            .find_map(|filter| {
+                filter
+                    .get("range")
+                    .and_then(Value::as_object)
+                    .and_then(|ranges| {
+                        ranges.iter().find_map(|(field, bounds)| {
+                            field
+                                .strip_prefix("priceByCurrency.")
+                                .map(|field| (field, bounds))
+                        })
+                    })
+            })
+            .ok_or("saved-filter percolator query has no price range")?;
+        let amount = percolation_document
+            .get("priceByCurrency")
+            .and_then(Value::as_object)
+            .and_then(|prices| prices.get(field))
+            .and_then(Value::as_u64)
+            .ok_or("percolation document has no mapped target price")?;
+
+        Ok(matches_inclusive_range(amount, bounds))
     }
 
     #[test]
@@ -586,6 +694,107 @@ mod tests {
                 .map(ToOwned::to_owned)
         );
         assert!(document.get("soldAt").is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn should_match_normal_search_and_saved_filter_percolation_for_all_price_pairs_and_boundaries()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let snapshot = snapshot()?;
+        let ranges = [
+            RangeQuery {
+                min: None,
+                max: Some(5_u64.into()),
+            },
+            RangeQuery {
+                min: Some(3_u64.into()),
+                max: None,
+            },
+            RangeQuery {
+                min: Some(3_u64.into()),
+                max: Some(12_u64.into()),
+            },
+            RangeQuery {
+                min: Some(0_u64.into()),
+                max: Some(1_u64.into()),
+            },
+        ];
+        let mut covered_pairs = 0;
+        let mut covered_jpy_pairs = 0;
+
+        for source_currency in Currency::iter() {
+            for target_currency in Currency::iter() {
+                covered_pairs += 1;
+                if source_currency == Currency::Jpy || target_currency == Currency::Jpy {
+                    covered_jpy_pairs += 1;
+                }
+                for range in ranges {
+                    let price_filter = ProductPriceFilterPlan::compile(
+                        snapshot.clone(),
+                        target_currency,
+                        Some(range),
+                    )?;
+                    let normal_price_clause =
+                        crate::product_search_reader::build_product_index_price_clause(
+                            &price_filter,
+                        )
+                        .ok_or("normal Product price clause missing")?;
+                    let saved_filter =
+                        ProductSearch::new(Language::En, target_currency).with_price_query(range);
+                    let percolator_query = crate::build_percolator_query(&saved_filter)?;
+                    let native_range = price_filter
+                        .active_native_ranges
+                        .iter()
+                        .find(|native| native.source_currency == source_currency)
+                        .ok_or("normal Product price query misses a source currency")?;
+
+                    for source_amount in boundary_amounts(native_range.lower, native_range.upper) {
+                        let source_price = common::price::domain::Price::new(
+                            source_amount.into(),
+                            source_currency,
+                        );
+                        let prices = ProductPricesByCurrency::convert_all(&snapshot, source_price)?;
+                        let mut product = source()?;
+                        product.pricing.price = Some(source_price);
+                        let percolation_document =
+                            product_percolation_document(&ProductPercolationInput {
+                                source: product,
+                                valuation: Some(ProductPercolationValuation {
+                                    basis: ProductPriceValuationBasis::Event,
+                                    fx_rate_id: snapshot.id(),
+                                    effective_at: snapshot.captured_at(),
+                                    prices,
+                                }),
+                            })?;
+                        let normal_membership = normal_search_membership(
+                            &normal_price_clause,
+                            source_currency,
+                            source_amount,
+                        )?;
+                        let saved_filter_membership = saved_filter_percolation_membership(
+                            &percolator_query,
+                            &percolation_document,
+                        )?;
+
+                        assert_eq!(
+                            normal_membership, saved_filter_membership,
+                            "{source_currency:?} -> {target_currency:?}, source amount {source_amount}, range {range:?}",
+                        );
+                    }
+                }
+            }
+        }
+
+        let supported_currency_count = Currency::iter().count();
+        assert_eq!(
+            supported_currency_count * supported_currency_count,
+            covered_pairs
+        );
+        assert_eq!(
+            supported_currency_count * 2 - 1,
+            covered_jpy_pairs,
+            "all JPY source and target pairs must be covered"
+        );
         Ok(())
     }
 

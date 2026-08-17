@@ -7,6 +7,8 @@ use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::postgres::SqlxUnitOfWork;
+use common::price::domain::MonetaryAmount;
+use common::query::range_query::RangeQuery;
 use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
@@ -25,7 +27,10 @@ use notification_service::ports::all_notifications_reader::{
     AllNotificationsReadItem, AllNotificationsReader,
 };
 use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
-use product_postgres::SqlxProductSearchFilterMatchSourceReaderFactory;
+use opensearch::GetParts;
+use product_postgres::{
+    SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
+};
 use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
@@ -40,7 +45,7 @@ use search_filter_service::use_cases::{
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
     SearchFilterProjectionOperation,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -156,6 +161,16 @@ async fn should_keep_current_enrichment_match_for_each_product_event_delivery_or
     assert!(
         result.is_ok(),
         "search-filter stale-event ordering acceptance test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
+async fn should_percolate_cross_currency_saved_filters_with_event_and_sale_fx_provenance() {
+    let result = cross_currency_saved_filter_percolation_flow().await;
+
+    assert!(
+        result.is_ok(),
+        "cross-currency search-filter percolation acceptance test failed: {result:?}"
     );
 }
 
@@ -532,6 +547,250 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
     worker.finish(result).await
 }
 
+async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn std::error::Error>> {
+    let worker = PercolatorWorker::start().await?;
+    let result = async {
+        let user_id = seed_user(&worker.pool, "ULTIMATE").await?;
+        let product_query = format!("Cross currency saved-filter product {user_id}");
+        let eur_filter = price_search_filter(
+            user_id,
+            UserSearchFilterName::from("EUR saved-filter bounds"),
+            &product_query,
+            Currency::Eur,
+            9_000,
+            13_000,
+        )?;
+        let usd_filter = price_search_filter(
+            user_id,
+            UserSearchFilterName::from("USD saved-filter bounds"),
+            &product_query,
+            Currency::Usd,
+            8_500,
+            16_000,
+        )?;
+        let jpy_filter = price_search_filter(
+            user_id,
+            UserSearchFilterName::from("JPY saved-filter bounds"),
+            &product_query,
+            Currency::Jpy,
+            10_000,
+            21_000,
+        )?;
+        let no_price_filter = search_filter(
+            user_id,
+            UserSearchFilterName::from("Saved-filter without price bounds"),
+            ResourceState::Active,
+            &product_query,
+        )?;
+        let price_filters = [&eur_filter, &usd_filter, &jpy_filter];
+        let all_filters = [&eur_filter, &usd_filter, &jpy_filter, &no_price_filter];
+
+        for filter in all_filters {
+            worker.project_filter(filter).await?;
+        }
+        refresh_index("user_search_filters").await;
+        assert_price_filter_document(&eur_filter, Currency::Eur, 9_000, 13_000).await?;
+        assert_price_filter_document(&usd_filter, Currency::Usd, 8_500, 16_000).await?;
+        assert_price_filter_document(&jpy_filter, Currency::Jpy, 10_000, 21_000).await?;
+
+        let snapshot_a_time = time::OffsetDateTime::from_unix_timestamp(1_900_000_000)?;
+        let snapshot_a = insert_fx_snapshot(
+            &worker.pool,
+            snapshot_a_time,
+            800_000,
+            1_200_000,
+            160_000_000,
+        )
+        .await?;
+        assert_match_total(&worker.pool, 0).await?;
+
+        let event_one_time = snapshot_a_time + time::Duration::hours(1);
+        let event_one = insert_cross_currency_product_with_event(
+            &worker.pool,
+            &product_query,
+            event_one_time,
+            Some((10_000, "GBP")),
+            None,
+            None,
+            "LISTED",
+            None,
+        )
+        .await?;
+        assert_product_source_price(&worker.pool, event_one.product_id, 10_000, "GBP").await?;
+        wait_for_match(&worker.pool, event_one.event_id, all_filters.len() as i64).await?;
+        assert_matches_for_event(
+            &worker.pool,
+            event_one.event_id,
+            all_filters.map(SearchFilter::id),
+        )
+        .await?;
+        assert_price_filter_valuations(
+            &worker.pool,
+            event_one.event_id,
+            price_filters,
+            "EVENT",
+            snapshot_a,
+        )
+        .await?;
+        assert_match_valuation(
+            &worker.pool,
+            event_one.event_id,
+            no_price_filter.id(),
+            None,
+            None,
+        )
+        .await?;
+
+        let snapshot_b = insert_fx_snapshot(
+            &worker.pool,
+            event_one_time + time::Duration::hours(1),
+            800_000,
+            1_200_000,
+            160_000_000,
+        )
+        .await?;
+        assert_ne!(snapshot_a, snapshot_b);
+        assert_match_total_for_duration(&worker.pool, 4, NO_SIDE_EFFECT_OBSERVATION).await?;
+
+        redeliver_product_event(
+            &worker.server,
+            event_one.product_id,
+            event_one.event_id,
+            "PRODUCT_CREATED",
+            "DOMAIN",
+        )
+        .await?;
+        assert_match_count_for_duration(
+            &worker.pool,
+            event_one.event_id,
+            all_filters.len() as i64,
+            NO_SIDE_EFFECT_OBSERVATION,
+        )
+        .await?;
+        assert_price_filter_valuations(
+            &worker.pool,
+            event_one.event_id,
+            price_filters,
+            "EVENT",
+            snapshot_a,
+        )
+        .await?;
+
+        let event_two = insert_cross_currency_product_with_event(
+            &worker.pool,
+            &product_query,
+            event_one_time + time::Duration::hours(2),
+            Some((10_000, "GBP")),
+            None,
+            None,
+            "LISTED",
+            None,
+        )
+        .await?;
+        wait_for_match(&worker.pool, event_two.event_id, all_filters.len() as i64).await?;
+        assert_matches_for_event(
+            &worker.pool,
+            event_two.event_id,
+            all_filters.map(SearchFilter::id),
+        )
+        .await?;
+        assert_price_filter_valuations(
+            &worker.pool,
+            event_two.event_id,
+            price_filters,
+            "EVENT",
+            snapshot_b,
+        )
+        .await?;
+        assert_match_valuation(
+            &worker.pool,
+            event_two.event_id,
+            no_price_filter.id(),
+            None,
+            None,
+        )
+        .await?;
+
+        let snapshot_c = insert_fx_snapshot(
+            &worker.pool,
+            event_one_time + time::Duration::hours(3),
+            1_000_000,
+            900_000,
+            120_000_000,
+        )
+        .await?;
+        assert_ne!(snapshot_b, snapshot_c);
+        assert_match_total_for_duration(&worker.pool, 8, NO_SIDE_EFFECT_OBSERVATION).await?;
+
+        let sale_event = insert_cross_currency_product_with_event(
+            &worker.pool,
+            &product_query,
+            event_one_time + time::Duration::hours(4),
+            Some((10_000, "GBP")),
+            None,
+            None,
+            "SOLD",
+            Some(snapshot_b),
+        )
+        .await?;
+        wait_for_match(&worker.pool, sale_event.event_id, all_filters.len() as i64).await?;
+        assert_matches_for_event(
+            &worker.pool,
+            sale_event.event_id,
+            all_filters.map(SearchFilter::id),
+        )
+        .await?;
+        assert_price_filter_valuations(
+            &worker.pool,
+            sale_event.event_id,
+            price_filters,
+            "SALE",
+            snapshot_b,
+        )
+        .await?;
+        assert_match_valuation(
+            &worker.pool,
+            sale_event.event_id,
+            no_price_filter.id(),
+            None,
+            None,
+        )
+        .await?;
+
+        let no_price_event = insert_cross_currency_product_with_event(
+            &worker.pool,
+            &product_query,
+            event_one_time + time::Duration::hours(4),
+            None,
+            Some((10_000, "GBP")),
+            Some((10_000, "GBP")),
+            "LISTED",
+            None,
+        )
+        .await?;
+        wait_for_match(&worker.pool, no_price_event.event_id, 1).await?;
+        assert_matches_for_event(
+            &worker.pool,
+            no_price_event.event_id,
+            [no_price_filter.id()],
+        )
+        .await?;
+        assert_match_valuation(
+            &worker.pool,
+            no_price_event.event_id,
+            no_price_filter.id(),
+            None,
+            None,
+        )
+        .await?;
+        assert_match_total(&worker.pool, 13).await?;
+        Ok(())
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
 async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std::error::Error>> {
     let worker = FullFlowWorker::start().await?;
     let result = async {
@@ -620,6 +879,7 @@ impl FullFlowWorker {
             Arc::new(MatchProductEventHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+                SqlxProductCurrentRevisionGuardFactory::new(),
                 SqlxFxRateSnapshotRepositoryFactory,
                 index.clone(),
                 NonMatchingLargeLanguageModel,
@@ -739,6 +999,7 @@ impl PercolatorWorker {
         let handler: Arc<dyn MatchProductEventUseCase> = Arc::new(MatchProductEventHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductSearchFilterMatchSourceReaderFactory::new(),
+            SqlxProductCurrentRevisionGuardFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
             index.clone(),
             NonMatchingLargeLanguageModel,
@@ -926,6 +1187,104 @@ async fn create_product_with_event(
     Ok((product_id, event_id))
 }
 
+struct CrossCurrencyProductEvent {
+    product_id: common::product_id::ProductId,
+    event_id: EventId,
+}
+
+async fn insert_cross_currency_product_with_event(
+    pool: &sqlx::PgPool,
+    title: &str,
+    event_time: time::OffsetDateTime,
+    price: Option<(i64, &str)>,
+    price_estimate_min: Option<(i64, &str)>,
+    price_estimate_max: Option<(i64, &str)>,
+    state: &str,
+    sale_fx_rate_id: Option<FxRateId>,
+) -> Result<CrossCurrencyProductEvent, sqlx::Error> {
+    let product_id = common::product_id::ProductId::new();
+    let product_uuid = uuid::Uuid::from(product_id);
+    let event_id = EventId::new();
+    let shop_id = uuid::Uuid::new_v4();
+    let product_slug_suffix = product_uuid.simple().to_string()[..6].to_owned();
+    let mut tx = pool.begin().await?;
+    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Cross currency worker shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
+        .bind(shop_id)
+        .bind(format!("cross-currency-worker-shop-{shop_id}"))
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, description_text, description_language, price_amount, price_currency, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url, product_images) VALUES ($1, $2, $3, $4, $4, $5, $6, 'en', 'Cross currency worker description', 'en', $7, $8, $9, $10, $11, $12, $13, CASE WHEN $13 IS NULL THEN NULL ELSE $14 END, $15, 'ACTIVE', 'https://example.test/cross-currency-product', '[]')",
+    )
+    .bind(product_uuid)
+    .bind(format!("cross-currency-worker-product-{product_slug_suffix}"))
+    .bind(uuid::Uuid::from(event_id))
+    .bind(shop_id)
+    .bind(product_uuid.to_string())
+    .bind(title)
+    .bind(price.map(|(amount, _)| amount))
+    .bind(price.map(|(_, currency)| currency))
+    .bind(price_estimate_min.map(|(amount, _)| amount))
+    .bind(price_estimate_min.map(|(_, currency)| currency))
+    .bind(price_estimate_max.map(|(amount, _)| amount))
+    .bind(price_estimate_max.map(|(_, currency)| currency))
+    .bind(sale_fx_rate_id.map(uuid::Uuid::from))
+    .bind(event_time)
+    .bind(state)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', $3)")
+        .bind(uuid::Uuid::from(event_id))
+        .bind(product_uuid)
+        .bind(event_time)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(CrossCurrencyProductEvent {
+        product_id,
+        event_id,
+    })
+}
+
+async fn insert_fx_snapshot(
+    pool: &sqlx::PgPool,
+    captured_at: time::OffsetDateTime,
+    gbp_units_per_eur: i64,
+    usd_units_per_eur: i64,
+    jpy_units_per_eur: i64,
+) -> Result<FxRateId, sqlx::Error> {
+    let fx_rate_id = FxRateId::new();
+    sqlx::query(
+        "INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id) VALUES ($1, $2, 'fxratesapi', $3)",
+    )
+    .bind(uuid::Uuid::from(fx_rate_id))
+    .bind(captured_at)
+    .bind(fx_rate_id.to_string())
+    .execute(pool)
+    .await?;
+    for currency in [
+        "EUR", "GBP", "USD", "AUD", "CAD", "NZD", "CNY", "BRL", "PLN", "TRY", "JPY", "CZK", "RUB",
+        "AED", "SAR", "HKD", "SGD", "CHF",
+    ] {
+        let units_per_eur = match currency {
+            "EUR" => 1_000_000,
+            "GBP" => gbp_units_per_eur,
+            "USD" => usd_units_per_eur,
+            "JPY" => jpy_units_per_eur,
+            _ => 1_250_000,
+        };
+        sqlx::query(
+            "INSERT INTO fx_rate_quotes (fx_rate_id, currency, units_per_eur) VALUES ($1, $2, $3)",
+        )
+        .bind(uuid::Uuid::from(fx_rate_id))
+        .bind(currency)
+        .bind(units_per_eur)
+        .execute(pool)
+        .await?;
+    }
+    Ok(fx_rate_id)
+}
+
 fn search_filter(
     user_id: UserId,
     name: UserSearchFilterName,
@@ -940,6 +1299,30 @@ fn search_filter(
         state,
         search: ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query(product_query.try_into()?),
+        embedding: None,
+    }))
+}
+
+fn price_search_filter(
+    user_id: UserId,
+    name: UserSearchFilterName,
+    product_query: &str,
+    currency: Currency,
+    minimum: u64,
+    maximum: u64,
+) -> Result<SearchFilter, Box<dyn std::error::Error>> {
+    Ok(SearchFilter::create(NewSearchFilter {
+        user_search_filter_id: UserSearchFilterId::new(),
+        user_id,
+        name,
+        notifications: true,
+        state: ResourceState::Active,
+        search: ProductSearch::new(Language::En, currency)
+            .with_product_query(product_query.try_into()?)
+            .with_price_query(RangeQuery {
+                min: Some(MonetaryAmount::from(minimum)),
+                max: Some(MonetaryAmount::from(maximum)),
+            }),
         embedding: None,
     }))
 }
@@ -1078,6 +1461,22 @@ async fn product_event_type(pool: &sqlx::PgPool, event_id: EventId) -> Result<St
         .await
 }
 
+async fn assert_product_source_price(
+    pool: &sqlx::PgPool,
+    product_id: common::product_id::ProductId,
+    expected_amount: i64,
+    expected_currency: &str,
+) -> Result<(), sqlx::Error> {
+    let (amount, currency): (i64, String) =
+        sqlx::query_as("SELECT price_amount, price_currency FROM products WHERE product_id = $1")
+            .bind(uuid::Uuid::from(product_id))
+            .fetch_one(pool)
+            .await?;
+    assert_eq!(expected_amount, amount);
+    assert_eq!(expected_currency, currency);
+    Ok(())
+}
+
 async fn wait_for_match(
     pool: &sqlx::PgPool,
     event_id: EventId,
@@ -1089,8 +1488,9 @@ async fn wait_for_match(
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
+    let actual = match_count(pool, event_id).await?;
     Err(std::io::Error::other(format!(
-        "product event {event_id} did not create {expected} search-filter matches"
+        "product event {event_id} created {actual} search-filter matches; expected {expected}"
     ))
     .into())
 }
@@ -1113,6 +1513,56 @@ async fn matches_for_event(
     .fetch_all(pool)
     .await?;
     Ok(ids.into_iter().map(UserSearchFilterId::from).collect())
+}
+
+async fn assert_matches_for_event(
+    pool: &sqlx::PgPool,
+    event_id: EventId,
+    expected: impl IntoIterator<Item = UserSearchFilterId>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut expected = expected.into_iter().collect::<Vec<_>>();
+    expected.sort_by_key(ToString::to_string);
+    assert_eq!(expected, matches_for_event(pool, event_id).await?);
+    Ok(())
+}
+
+async fn assert_match_valuation(
+    pool: &sqlx::PgPool,
+    event_id: EventId,
+    filter_id: UserSearchFilterId,
+    expected_basis: Option<&str>,
+    expected_fx_rate_id: Option<FxRateId>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (basis, fx_rate_id): (Option<String>, Option<uuid::Uuid>) = sqlx::query_as(
+        "SELECT price_valuation_basis, price_fx_rate_id FROM search_filter_matches WHERE origin_event_id = $1 AND user_search_filter_id = $2",
+    )
+    .bind(uuid::Uuid::from(event_id))
+    .bind(uuid::Uuid::parse_str(&filter_id.to_string())?)
+    .fetch_one(pool)
+    .await?;
+    assert_eq!(expected_basis, basis.as_deref());
+    assert_eq!(expected_fx_rate_id.map(uuid::Uuid::from), fx_rate_id);
+    Ok(())
+}
+
+async fn assert_price_filter_valuations(
+    pool: &sqlx::PgPool,
+    event_id: EventId,
+    filters: [&SearchFilter; 3],
+    expected_basis: &str,
+    expected_fx_rate_id: FxRateId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for filter in filters {
+        assert_match_valuation(
+            pool,
+            event_id,
+            filter.id(),
+            Some(expected_basis),
+            Some(expected_fx_rate_id),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 async fn assert_match_for_event(
@@ -1140,6 +1590,32 @@ async fn assert_match_for_event(
     );
     assert_eq!(uuid::Uuid::from(product_id), matched_product_id);
     Ok(())
+}
+
+async fn assert_match_total(
+    pool: &sqlx::PgPool,
+    expected: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let actual: i64 = sqlx::query_scalar("SELECT count(*) FROM search_filter_matches")
+        .fetch_one(pool)
+        .await?;
+    assert_eq!(expected, actual);
+    Ok(())
+}
+
+async fn assert_match_total_for_duration(
+    pool: &sqlx::PgPool,
+    expected: i64,
+    duration: Duration,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + duration;
+    loop {
+        assert_match_total(pool, expected).await?;
+        if Instant::now() >= deadline {
+            return Ok(());
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
 }
 
 async fn assert_match_count_for_duration(
@@ -1250,6 +1726,70 @@ fn assert_search_filter_notification(
         &search_filter_id,
         &search_filter_payload.user_search_filter_id
     );
+    Ok(())
+}
+
+async fn assert_price_filter_document(
+    filter: &SearchFilter,
+    currency: Currency,
+    minimum: u64,
+    maximum: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let response: Value = get_opensearch_client()
+        .await
+        .get(GetParts::IndexId(
+            "user_search_filters",
+            &filter.id().to_string(),
+        ))
+        .send()
+        .await?
+        .error_for_status_code()?
+        .json()
+        .await?;
+    let document = response
+        .get("_source")
+        .ok_or_else(|| std::io::Error::other("saved-filter OpenSearch response has no _source"))?;
+    let price_field = match currency {
+        Currency::Eur => "priceByCurrency.eur",
+        Currency::Usd => "priceByCurrency.usd",
+        Currency::Jpy => "priceByCurrency.jpy",
+        _ => return Err(std::io::Error::other("unsupported currency assertion").into()),
+    };
+    let price_query = document
+        .pointer("/query/bool/filter")
+        .and_then(Value::as_array)
+        .and_then(|filters| {
+            filters
+                .iter()
+                .find_map(|filter| filter.get("range").and_then(|range| range.get(price_field)))
+        })
+        .ok_or_else(|| std::io::Error::other("saved-filter document has no price range query"))?;
+
+    assert_eq!(
+        Some(minimum),
+        document
+            .pointer("/search/price/min")
+            .and_then(Value::as_u64)
+    );
+    assert_eq!(
+        Some(maximum),
+        document
+            .pointer("/search/price/max")
+            .and_then(Value::as_u64)
+    );
+    assert_eq!(
+        Some(minimum),
+        price_query.get("gte").and_then(Value::as_u64)
+    );
+    assert_eq!(
+        Some(maximum),
+        price_query.get("lte").and_then(Value::as_u64)
+    );
+    let serialized = document.to_string();
+    assert!(!serialized.contains("fxRate"));
+    assert!(!serialized.contains("generation"));
+    assert!(!serialized.contains("Estimate"));
+    assert!(!serialized.contains("estimate"));
     Ok(())
 }
 
