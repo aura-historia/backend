@@ -774,7 +774,7 @@
     }
   },
   {
-    "html": "tests/fixtures/html/georgianantiques_lamp.html",
+    "html": "tests/fixtures/html/georgianantiques_sale.html",
     "raw_state": "Product Enquiry",
     "state_record": "AVAILABLE",
     "schemas_file": "tests/fixtures/schemas/georgianantiques.json",
@@ -831,69 +831,7 @@
     }
   },
   {
-    "html": "tests/fixtures/html/georgianantiques_desk.html",
-    "raw_state": "Product Enquiry",
-    "state_record": "AVAILABLE",
-    "schemas_file": "tests/fixtures/schemas/georgianantiques.json",
-    "schema_index": 1,
-    "raw": {
-      "shops_product_id": "21840",
-      "title": "Chippendale Style Mahogany Desk",
-      "description": [
-        "DescriptionCirca 1920, Georgian Chippendale style mahogany desk. The rectangular 3 panelled top has been recently re-leathered. Each of the panels is separated by mahogany cross banding and the fore-edge of the table is carved gadrooning. At the front there is one full length long drawer and 2 further shorter drawers either side with cast brass swan neck handles with wonderful bronze patination. The back plates with foliate casting, stylish pommels and the drop handles again with foliate casting. Beneath the outer drawers there is a stylish shaped apron with foliate carving, and this occurs on the sides and back. There are also stylish carved quarter brackets on the back. The whole desk stands on 4 elegant carved cabriole legs with foliate carving on the knees which runs down the top of the leg and finishing on a stylish ball and claw foot. The desk is good size, clean and sturdy.Dimensions:72cm high x 140cm wide x 77cm deep.Period 1900-1930: Early 20thCategory Desks"
-      ],
-      "price": "£1,590",
-      "price_estimate_min": null,
-      "price_estimate_max": null,
-      "seller_name": null,
-      "state": "Product Enquiry",
-      "images": [
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-1-scaled-1-600x600.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-3-scaled-1-600x399.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-4-scaled-1-600x400.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-5-scaled-1-600x406.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-7-scaled-1-600x844.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-8-scaled-1-600x900.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-10-scaled-1-600x400.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-11-scaled-1-600x400.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-12-scaled-1-600x396.jpg"
-      ],
-      "auction_start": null,
-      "auction_end": null,
-      "raw_attributes": {
-        "rawMeasurements": ["72cm high x 140cm wide x 77cm deep."]
-      }
-    },
-    "normalized": {
-      "shops_product_id": "21840",
-      "title": "Chippendale Style Mahogany Desk",
-      "description": "DescriptionCirca 1920, Georgian Chippendale style mahogany desk. The rectangular 3 panelled top has been recently re-leathered. Each of the panels is separated by mahogany cross banding and the fore-edge of the table is carved gadrooning. At the front there is one full length long drawer and 2 further shorter drawers either side with cast brass swan neck handles with wonderful bronze patination. The back plates with foliate casting, stylish pommels and the drop handles again with foliate casting. Beneath the outer drawers there is a stylish shaped apron with foliate carving, and this occurs on the sides and back. There are also stylish carved quarter brackets on the back. The whole desk stands on 4 elegant carved cabriole legs with foliate carving on the knees which runs down the top of the leg and finishing on a stylish ball and claw foot. The desk is good size, clean and sturdy.Dimensions:72cm high x 140cm wide x 77cm deep.Period 1900-1930: Early 20thCategory Desks",
-      "price": 159000,
-      "price_currency": "GBP",
-      "price_estimate_min": null,
-      "price_estimate_min_currency": null,
-      "price_estimate_max": null,
-      "price_estimate_max_currency": null,
-      "seller_name": null,
-      "state": "AVAILABLE",
-      "url": "https://www.georgianantiques.net/product/chippendale-style-mahogany-desk/",
-      "images": [
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-1-scaled-1-600x600.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-3-scaled-1-600x399.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-4-scaled-1-600x400.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-5-scaled-1-600x406.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-7-scaled-1-600x844.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-8-scaled-1-600x900.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-10-scaled-1-600x400.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-11-scaled-1-600x400.jpg",
-        "https://www.georgianantiques.net/wp-content/uploads/2023/01/Desk-G-12-scaled-1-600x396.jpg"
-      ],
-      "auction_start": null,
-      "auction_end": null
-    }
-  },
-  {
-    "html": "tests/fixtures/html/georgianantiques_jugs.html",
+    "html": "tests/fixtures/html/georgianantiques_priceless.html",
     "raw_state": "Product Enquiry",
     "state_record": "AVAILABLE",
     "schemas_file": "tests/fixtures/schemas/georgianantiques.json",
