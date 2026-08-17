@@ -12,7 +12,7 @@ use scraper::Html;
 /// Each populated logical field contributes exactly one point, regardless of
 /// how many values it holds:
 ///
-/// * Images do not score because URL validation happens during normalization.
+/// * Images count once after URL validation has prepared the raw product.
 /// * Multiple description fragments count as one populated `description` field.
 /// * Every non-empty `raw_attributes` key counts as one distinct attribute.
 ///
@@ -42,7 +42,7 @@ fn any_populated(values: &[String]) -> bool {
 /// Score a [`RawExtractedProduct`] by counting distinct populated logical
 /// fields. Pure function — no LLM calls, no I/O.
 ///
-/// Each field is encoded exactly once across the four category arrays below;
+/// Each field is encoded exactly once across the category arrays below;
 /// the final score is a single sum over them. Adding a new scored field is a
 /// one-line change in the relevant array.
 pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionCompletenessScore {
@@ -74,6 +74,7 @@ pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionComplete
 
     // Multi-valued fields: counted as 1 each, regardless of how many values they hold.
     let populated_descriptions = usize::from(any_populated(&raw.description));
+    let populated_images = usize::from(!raw.images.is_empty());
     // Raw attributes: one point per populated key.
     let populated_raw_attribute_keys = raw
         .raw_attributes
@@ -85,6 +86,7 @@ pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionComplete
         populated_scalar_strings
             + populated_optionals
             + populated_descriptions
+            + populated_images
             + populated_raw_attribute_keys,
     )
 }
@@ -130,7 +132,7 @@ pub(crate) fn collect_applicable_candidates<'a>(
             schema, html,
         ) {
             Ok(raw) => {
-                let score = score_raw_product(&raw);
+                let score = ExtractionCompletenessScore(0);
                 candidates.push(AppliedSchemaCandidate {
                     schema_index,
                     schema,
@@ -214,10 +216,10 @@ mod tests {
     }
 
     #[test]
-    fn should_not_score_unvalidated_images() {
+    fn should_count_many_prepared_images_as_one_field() {
         let mut raw = raw_product();
         raw.images = (0..20).map(|i| format!("img-{i}")).collect();
-        assert_eq!(score_raw_product(&raw).as_usize(), 0);
+        assert_eq!(score_raw_product(&raw).as_usize(), 1);
     }
 
     #[test]

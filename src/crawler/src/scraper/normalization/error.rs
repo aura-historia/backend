@@ -1,5 +1,11 @@
 use crate::scraper::normalization::state_mapping_service::StateMappingServiceError;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NormalizationFailureScope {
+    CandidateData,
+    External,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum NormalizationError {
     #[error("failed to resolve product state: {0}")]
@@ -70,4 +76,27 @@ pub enum NormalizationError {
         "failed to normalize `state`: extracted text is too long ({len} bytes, max {max}) — CSS selector likely extracting wrong content"
     )]
     StateTextTooLong { len: usize, max: usize },
+}
+
+impl NormalizationError {
+    pub(crate) const fn failure_scope(&self) -> NormalizationFailureScope {
+        match self {
+            Self::StateMappingError(_) => NormalizationFailureScope::External,
+            Self::ShopsProductIdEmpty
+            | Self::TitleEmpty
+            | Self::TitleUnknownLanguage { .. }
+            | Self::DescriptionUnknownLanguage { .. }
+            | Self::PriceUnknownCurrency { .. }
+            | Self::PriceParseError { .. }
+            | Self::PriceEstimateMinUnknownCurrency { .. }
+            | Self::PriceEstimateMinParseError { .. }
+            | Self::PriceEstimateMaxUnknownCurrency { .. }
+            | Self::PriceEstimateMaxParseError { .. }
+            | Self::InvalidImageUrl { .. }
+            | Self::NoValidImages { .. }
+            | Self::AuctionStartParseError { .. }
+            | Self::AuctionEndParseError { .. }
+            | Self::StateTextTooLong { .. } => NormalizationFailureScope::CandidateData,
+        }
+    }
 }

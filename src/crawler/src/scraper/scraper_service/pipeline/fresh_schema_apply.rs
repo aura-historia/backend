@@ -1,6 +1,6 @@
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
 use crate::scraper::css_selector::product_schema_service::{
-    GeneratedAppendSchema, SchemaLlmEvaluation,
+    GeneratedSingleSchema, SchemaLlmEvaluation,
 };
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema::ShopsRemovedPageSchema;
@@ -58,11 +58,11 @@ impl ScraperServiceImpl {
             .generate_single_schema_for_page(html)
             .await?;
         let (generated_schema, evaluation) = match generated {
-            GeneratedAppendSchema::Product { schema, evaluation } => (*schema, evaluation),
-            GeneratedAppendSchema::Removed { schema, .. } => {
+            GeneratedSingleSchema::Product { schema, evaluation } => (*schema, evaluation),
+            GeneratedSingleSchema::Removed { schema, .. } => {
                 if !schema.matches(html) {
                     return Err(
-                        crate::scraper::scraper_service::recovery::schema_retry::page_classification_did_not_match(
+                        crate::scraper::scraper_service::pipeline::fresh_schema_apply::page_classification_did_not_match(
                             url,
                             &schema.selector,
                         ),
@@ -75,7 +75,7 @@ impl ScraperServiceImpl {
                     details: "fresh schema generation classified page as removed".to_string(),
                 });
             }
-            GeneratedAppendSchema::NotProduct { reason, .. } => {
+            GeneratedSingleSchema::NotProduct { reason, .. } => {
                 self.mark_url_other_best_effort(shop_id, url).await;
                 return Err(ScraperError::NotProductPage {
                     url: url.clone(),

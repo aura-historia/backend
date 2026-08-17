@@ -143,7 +143,7 @@ pub enum LlmOperation {
     SellerShopDisambiguation,
     CrawlerUrlClassification,
     CrawlerProductSchemaGeneration,
-    CrawlerProductSchemaRepair,
+    CrawlerProductSchemaFreshGeneration,
     CrawlerProductSchemaEvaluation,
     CrawlerProductStateMapping,
 }
@@ -160,7 +160,7 @@ impl LlmOperation {
             Self::SellerShopDisambiguation => "SELLER_SHOP_DISAMBIGUATION",
             Self::CrawlerUrlClassification => "CRAWLER_URL_CLASSIFICATION",
             Self::CrawlerProductSchemaGeneration => "CRAWLER_PRODUCT_SCHEMA_GENERATION",
-            Self::CrawlerProductSchemaRepair => "CRAWLER_PRODUCT_SCHEMA_REPAIR",
+            Self::CrawlerProductSchemaFreshGeneration => "CRAWLER_PRODUCT_SCHEMA_FRESH_GENERATION",
             Self::CrawlerProductSchemaEvaluation => "CRAWLER_PRODUCT_SCHEMA_EVALUATION",
             Self::CrawlerProductStateMapping => "CRAWLER_PRODUCT_STATE_MAPPING",
         }
@@ -398,10 +398,10 @@ mod tests {
     }
 
     #[test]
-    fn should_return_crawler_product_schema_repair_name_for_llm_operation() {
+    fn should_return_crawler_product_schema_fresh_generation_name_for_llm_operation() {
         assert_eq!(
-            LlmOperation::CrawlerProductSchemaRepair.as_str(),
-            "CRAWLER_PRODUCT_SCHEMA_REPAIR"
+            LlmOperation::CrawlerProductSchemaFreshGeneration.as_str(),
+            "CRAWLER_PRODUCT_SCHEMA_FRESH_GENERATION"
         );
     }
 

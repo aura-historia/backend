@@ -284,7 +284,7 @@ pub(super) fn build_single_schema_instruction(html: &str) -> String {
     let prompt_page = html_to_schema_prompt_dsl(html);
 
     format!(
-        "Classify the following HTML from a URL expected to be a product page, then return one append response.\n\
+        "Classify the following HTML from a URL expected to be a product page, then return one single-schema response.\n\
           The page may be a product page, a removed/404-like product page, or a wrong URL type.\n\
           Choose page_kind = product when the page is a real product detail page and return exactly one ProductCssSelectorSchema in schemas.\n\
           Choose page_kind = removed when the page is a removed, gone, not-found, deleted, or 404-like page for a product URL served with HTTP 200. Return no product schemas and set removed_schema to selector-bound evidence that proves the removed state.\n\

@@ -60,7 +60,7 @@ pub struct GeneratedProductSchemas {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum GeneratedAppendSchema {
+pub enum GeneratedSingleSchema {
     Product {
         schema: Box<ProductCssSelectorSchema>,
         evaluation: SchemaLlmEvaluation,
@@ -75,19 +75,19 @@ pub enum GeneratedAppendSchema {
     },
 }
 
-impl GeneratedAppendSchema {
+impl GeneratedSingleSchema {
     pub fn evaluation(&self) -> &SchemaLlmEvaluation {
         match self {
-            GeneratedAppendSchema::Product { evaluation, .. }
-            | GeneratedAppendSchema::Removed { evaluation, .. }
-            | GeneratedAppendSchema::NotProduct { evaluation, .. } => evaluation,
+            GeneratedSingleSchema::Product { evaluation, .. }
+            | GeneratedSingleSchema::Removed { evaluation, .. }
+            | GeneratedSingleSchema::NotProduct { evaluation, .. } => evaluation,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-enum AppendPageKind {
+enum SinglePageKind {
     Product,
     Removed,
     NotProduct,
@@ -96,7 +96,7 @@ enum AppendPageKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 struct ProductSchemaGenerationResponse {
     #[serde(default)]
-    pub page_kind: Option<AppendPageKind>,
+    pub page_kind: Option<SinglePageKind>,
     #[serde(default)]
     pub schemas: Vec<ProductCssSelectorSchema>,
     #[serde(default)]
@@ -145,42 +145,42 @@ impl ProductSchemaGenerationResponse {
         }
     }
 
-    fn into_generated_append(self) -> Result<GeneratedAppendSchema, serde_json::Error> {
+    fn into_generated_single(self) -> Result<GeneratedSingleSchema, serde_json::Error> {
         let evaluation = self.evaluation();
-        match self.page_kind.unwrap_or(AppendPageKind::Product) {
-            AppendPageKind::Product => {
+        match self.page_kind.unwrap_or(SinglePageKind::Product) {
+            SinglePageKind::Product => {
                 if self.schemas.len() != 1 {
                     return Err(invalid_data(format!(
-                        "Expected exactly one product schema for append generation, got {}",
+                        "Expected exactly one product schema for single-schema generation, got {}",
                         self.schemas.len()
                     )));
                 }
-                Ok(GeneratedAppendSchema::Product {
+                Ok(GeneratedSingleSchema::Product {
                     schema: Box::new(self.schemas.into_iter().next().ok_or_else(|| {
-                        invalid_data("Expected one product schema for append generation")
+                        invalid_data("Expected one product schema for single-schema generation")
                     })?),
                     evaluation,
                 })
             }
-            AppendPageKind::Removed => {
+            SinglePageKind::Removed => {
                 if !self.schemas.is_empty() {
                     return Err(invalid_data(
-                        "Removed append generation must not include product schemas",
+                        "Removed single-schema generation must not include product schemas",
                     ));
                 }
-                let schema = self
-                    .removed_schema
-                    .ok_or_else(|| invalid_data("Removed append generation missing schema"))?;
+                let schema = self.removed_schema.ok_or_else(|| {
+                    invalid_data("Removed single-schema generation missing schema")
+                })?;
                 schema.validate_for_llm_response().map_err(invalid_data)?;
-                Ok(GeneratedAppendSchema::Removed { schema, evaluation })
+                Ok(GeneratedSingleSchema::Removed { schema, evaluation })
             }
-            AppendPageKind::NotProduct => {
+            SinglePageKind::NotProduct => {
                 if !self.schemas.is_empty() {
                     return Err(invalid_data(
-                        "Not-product append generation must not include product schemas",
+                        "Not-product single-schema generation must not include product schemas",
                     ));
                 }
-                Ok(GeneratedAppendSchema::NotProduct {
+                Ok(GeneratedSingleSchema::NotProduct {
                     reason: self
                         .reason
                         .unwrap_or_else(|| "not product page".to_string()),
@@ -202,7 +202,7 @@ pub(super) fn parse_product_schemas_response(
     let response = serde_json::from_str::<ProductSchemaGenerationResponse>(raw)?;
     if matches!(
         response.page_kind,
-        Some(AppendPageKind::Removed | AppendPageKind::NotProduct)
+        Some(SinglePageKind::Removed | SinglePageKind::NotProduct)
     ) {
         return Err(invalid_data(
             "Initial schema generation must not classify pages as removed or not-product",
@@ -224,15 +224,15 @@ pub(super) fn parse_product_schemas_response(
     Ok(response.into_generated())
 }
 
-pub(super) fn append_schema_generation_response_schema_json() -> String {
+pub(super) fn single_schema_generation_response_schema_json() -> String {
     serde_json::to_string_pretty(&schema_for!(ProductSchemaGenerationResponse))
         .unwrap_or_else(|_| "Failed to generate response schema".to_string())
 }
 
-pub(super) fn parse_append_schema_response(
+pub(super) fn parse_single_schema_response(
     raw: &str,
-) -> Result<GeneratedAppendSchema, serde_json::Error> {
-    serde_json::from_str::<ProductSchemaGenerationResponse>(raw)?.into_generated_append()
+) -> Result<GeneratedSingleSchema, serde_json::Error> {
+    serde_json::from_str::<ProductSchemaGenerationResponse>(raw)?.into_generated_single()
 }
 
 fn invalid_data(message: impl Into<String>) -> serde_json::Error {

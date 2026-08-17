@@ -1,26 +1,36 @@
 use super::*;
 use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::rule::ExtractionError;
-use crate::scraper::normalization::error::NormalizationError;
+use crate::scraper::normalization::error::{NormalizationError, NormalizationFailureScope};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::util::html::is_schema_specific_normalization_error;
 
 #[test]
-fn should_not_classify_no_valid_images_as_schema_specific() {
-    assert!(!is_schema_specific_normalization_error(
-        &NormalizationError::NoValidImages { candidates: 2 }
-    ));
+fn should_classify_no_valid_images_as_candidate_data_failure() {
+    assert_eq!(
+        NormalizationError::NoValidImages { candidates: 2 }.failure_scope(),
+        NormalizationFailureScope::CandidateData
+    );
 }
 
 #[test]
-fn should_classify_title_errors_as_schema_specific() {
-    assert!(is_schema_specific_normalization_error(
-        &NormalizationError::TitleEmpty
-    ));
+fn should_classify_title_errors_as_candidate_data_failures() {
+    assert_eq!(
+        NormalizationError::TitleEmpty.failure_scope(),
+        NormalizationFailureScope::CandidateData
+    );
+
+    assert_eq!(
+        NormalizationError::StateMappingError(
+            crate::scraper::normalization::state_mapping_service::StateMappingServiceError::DatabaseError(
+                sqlx::Error::RowNotFound,
+            ),
+        )
+        .failure_scope(),
+        NormalizationFailureScope::External
+    );
 }
 
-#[tokio::test]
-async fn should_try_next_existing_schema_when_first_schema_has_fixable_normalization_error() {
+async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
     let id = shop_id();
     let url = product_url();
 
@@ -50,19 +60,22 @@ async fn should_try_next_existing_schema_when_first_schema_has_fixable_normaliza
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
-    let norm_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let first_error = Arc::new(std::sync::Mutex::new(Some(error)));
     let mut norm_svc = MockProductNormalizationService::new();
     norm_svc
         .expect_normalize()
         .times(2)
         .returning(move |_, _, _| {
             let n = expected.clone();
-            let norm_calls = norm_calls.clone();
+            let first_error = first_error.clone();
             Box::pin(async move {
-                if norm_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-                    Err(normalization_failure(NormalizationError::TitleEmpty, 0))
-                } else {
-                    Ok(normalization_success(n, 0))
+                let error = first_error
+                    .lock()
+                    .expect("first error lock should not be poisoned")
+                    .take();
+                match error {
+                    Some(error) => Err(normalization_failure(error, 0)),
+                    None => Ok(normalization_success(n, 0)),
                 }
             })
         });
@@ -91,7 +104,36 @@ async fn should_try_next_existing_schema_when_first_schema_has_fixable_normaliza
 }
 
 #[tokio::test]
-async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_error() {
+async fn should_try_next_cached_schema_after_title_failure() {
+    assert_tries_next_cached_schema_after(NormalizationError::TitleEmpty).await;
+}
+
+#[tokio::test]
+async fn should_try_next_cached_schema_after_description_language_failure() {
+    assert_tries_next_cached_schema_after(NormalizationError::DescriptionUnknownLanguage {
+        text: "garbage".to_string(),
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn should_try_next_cached_schema_after_auction_start_failure() {
+    assert_tries_next_cached_schema_after(NormalizationError::AuctionStartParseError {
+        raw: "garbage".to_string(),
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn should_try_next_cached_schema_after_price_failure() {
+    assert_tries_next_cached_schema_after(NormalizationError::PriceParseError {
+        raw: "garbage".to_string(),
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn should_try_all_cached_schemas_before_fresh_generation() {
     let id = shop_id();
     let url = product_url();
 
@@ -129,7 +171,7 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
         .once()
         .returning(move |_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     minimal_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -191,7 +233,7 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
 }
 
 #[tokio::test]
-async fn should_regenerate_schema_when_normalization_error_is_fixable() {
+async fn should_generate_fresh_schema_when_cached_data_fails() {
     let id = shop_id();
     let url = product_url();
 
@@ -222,7 +264,7 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
         .returning(move |_| {
             let s = minimal_schema();
             Box::pin(async move {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     s,
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -284,7 +326,7 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
 }
 
 #[tokio::test]
-async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() {
+async fn should_generate_fresh_schema_when_cached_candidate_has_candidate_data_failure() {
     let id = shop_id();
     let url = product_url();
 
@@ -303,7 +345,16 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    schema_svc.expect_generate_single_schema_for_page().never();
+    schema_svc
+        .expect_generate_single_schema_for_page()
+        .once()
+        .returning(|_| {
+            Box::pin(async {
+                Err(crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(
+                    "generation failed in test".to_string(),
+                ))
+            })
+        });
     schema_svc.expect_save_product_schemas().never();
 
     let mut norm_svc = MockProductNormalizationService::new();
@@ -319,7 +370,8 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
         })
     });
 
-    let cand_svc = MockScraperCandidateService::new();
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_budget_increment(&mut cand_svc, 1);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -331,7 +383,7 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
-    assert!(matches!(err, ScraperError::NormalizationError(_)));
+    assert!(matches!(err, ScraperError::SchemaServiceError(_)));
 }
 
 #[tokio::test]
@@ -400,7 +452,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
 }
 
 #[tokio::test]
-async fn should_keep_valid_image_fallback_after_malformed_candidate_without_schema_repair() {
+async fn should_keep_valid_image_fallback_after_malformed_candidate() {
     let id = shop_id();
     let url = product_url();
     let html = r#"<!DOCTYPE html>
@@ -515,7 +567,7 @@ async fn should_generate_single_schema_without_failed_schema_context() {
     };
 
     let bad_existing = make_bad_schema("non-existent-title-1");
-    let bad_appended = make_bad_schema("non-existent-title-2");
+    let bad_generated = make_bad_schema("non-existent-title-2");
 
     let mut schema_svc = MockProductSchemaService::new();
     let existing = ShopsProductSchema {
@@ -536,10 +588,10 @@ async fn should_generate_single_schema_without_failed_schema_context() {
         .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
-            let expected_bad_appended = bad_appended.clone();
+            let expected_bad_generated = bad_generated.clone();
             Box::pin(async move {
-                Ok(generated_append_product(
-                    expected_bad_appended,
+                Ok(generated_single_product(
+                    expected_bad_generated,
                     SchemaLlmEvaluationConfidence::High,
                 ))
             })
@@ -571,11 +623,10 @@ async fn should_generate_single_schema_without_failed_schema_context() {
 }
 
 /// When the generated schema successfully applies on every attempt but
-/// normalization still fails with a fixable error each time,
-/// `fix_normalization_with_schema_retry` must exhaust its attempts and
-/// return `FreshSchemaNormalizationFailed` rather than `SchemaRegenerationExhausted`.
+/// normalization still fails with candidate-data errors each time, fresh
+/// generation must return `FreshSchemaNormalizationFailed`.
 #[tokio::test]
-async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_keeps_failing() {
+async fn should_fail_when_fresh_schema_normalization_keeps_failing() {
     let id = shop_id();
     let url = product_url();
 
@@ -606,7 +657,7 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     minimal_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -615,7 +666,7 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
     // Schema is never persisted because normalization never succeeds.
     schema_svc.expect_save_product_schemas().never();
 
-    // Both normalize calls return TitleEmpty (fixable) so the single repair attempt is exhausted.
+    // Both normalize calls return candidate-data failures.
     let mut norm_svc = MockProductNormalizationService::new();
     norm_svc
         .expect_normalize()

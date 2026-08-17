@@ -1,6 +1,6 @@
 use super::*;
 use crate::scraper::css_selector::product_schema::ShopsProductSchema;
-use crate::scraper::css_selector::product_schema_service::GeneratedAppendSchema;
+use crate::scraper::css_selector::product_schema_service::GeneratedSingleSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::MockRemovedPageSchemaRepository;
 use crate::scraper::css_selector::rule::ExtractionError;
@@ -46,7 +46,7 @@ fn normalizer_with_success(url: Url) -> MockProductNormalizationService {
 }
 
 #[tokio::test]
-async fn should_use_yaml_only_when_append_schema_applies() {
+async fn should_use_yaml_only_when_single_schema_applies() {
     let id = shop_id();
     let url = product_url();
 
@@ -63,7 +63,7 @@ async fn should_use_yaml_only_when_append_schema_applies() {
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     minimal_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -101,7 +101,7 @@ async fn should_use_yaml_only_when_append_schema_applies() {
 }
 
 #[tokio::test]
-async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
+async fn should_fail_when_fresh_schema_does_not_apply_after_initial_schema_failure() {
     let id = shop_id();
     let url = product_url();
 
@@ -119,7 +119,7 @@ async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     invalid_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -153,7 +153,7 @@ async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
 }
 
 #[tokio::test]
-async fn should_exhaust_append_repair_after_yaml_fails() {
+async fn should_fail_when_fresh_schema_application_fails() {
     let id = shop_id();
     let url = product_url();
 
@@ -170,7 +170,7 @@ async fn should_exhaust_append_repair_after_yaml_fails() {
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     invalid_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -205,7 +205,7 @@ async fn should_exhaust_append_repair_after_yaml_fails() {
 }
 
 #[tokio::test]
-async fn should_not_consume_second_budget_call_when_yaml_append_does_not_apply() {
+async fn should_not_consume_second_budget_call_when_fresh_schema_does_not_apply() {
     let id = shop_id();
     let url = product_url();
 
@@ -222,7 +222,7 @@ async fn should_not_consume_second_budget_call_when_yaml_append_does_not_apply()
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     invalid_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -254,7 +254,7 @@ async fn should_not_consume_second_budget_call_when_yaml_append_does_not_apply()
 }
 
 #[tokio::test]
-async fn should_mark_removed_when_append_classifies_removed() {
+async fn should_mark_removed_when_fresh_generation_classifies_removed() {
     let id = shop_id();
     let url = product_url();
     let removed_html = r#"<main><h1 id="removed-message">Product no longer available</h1></main>"#;
@@ -278,14 +278,14 @@ async fn should_mark_removed_when_append_classifies_removed() {
             let s = existing_invalid_schema(id);
             Box::pin(async move { Ok(Some(s)) })
         });
-    let removed_schema_for_append = removed_schema.clone();
+    let removed_schema_for_generation = removed_schema.clone();
     schema_svc
         .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
-            let schema = removed_schema_for_append.clone();
+            let schema = removed_schema_for_generation.clone();
             Box::pin(async move {
-                Ok(GeneratedAppendSchema::Removed {
+                Ok(GeneratedSingleSchema::Removed {
                     schema,
                     evaluation: schema_evaluation(SchemaLlmEvaluationConfidence::High),
                 })
@@ -339,7 +339,7 @@ async fn should_mark_removed_when_append_classifies_removed() {
 }
 
 #[tokio::test]
-async fn should_mark_other_when_append_classifies_not_product() {
+async fn should_mark_other_when_fresh_generation_classifies_not_product() {
     let id = shop_id();
     let url = product_url();
     let category_html = r#"<main class="category"><h1>Latest antiques</h1></main>"#;
@@ -363,7 +363,7 @@ async fn should_mark_other_when_append_classifies_not_product() {
         .once()
         .returning(move |_| {
             Box::pin(async move {
-                Ok(GeneratedAppendSchema::NotProduct {
+                Ok(GeneratedSingleSchema::NotProduct {
                     reason: "category page".to_string(),
                     evaluation: schema_evaluation(SchemaLlmEvaluationConfidence::High),
                 })
@@ -399,7 +399,7 @@ async fn should_mark_other_when_append_classifies_not_product() {
 }
 
 #[tokio::test]
-async fn should_not_change_state_or_class_when_append_classification_does_not_match_html() {
+async fn should_not_change_state_or_class_when_fresh_classification_does_not_match_html() {
     let id = shop_id();
     let url = product_url();
     let html = r#"<main><h1>Still a weird page</h1></main>"#;
@@ -423,7 +423,7 @@ async fn should_not_change_state_or_class_when_append_classification_does_not_ma
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(GeneratedAppendSchema::Removed {
+                Ok(GeneratedSingleSchema::Removed {
                     schema: RemovedPageSchema {
                         selector: CssSelector::from("#missing"),
                         text: Some("Product no longer available".to_string()),

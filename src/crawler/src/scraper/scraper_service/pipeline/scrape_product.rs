@@ -3,9 +3,8 @@ use crate::scraper::candidate_service::ProductSnapshot;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::{ScrapedProduct, ScraperService};
-use crate::scraper::scraper_service::recovery::schema_selection::{
-    ExistingSchemaSelection, FreshSchemaGenerationContext,
-};
+use crate::scraper::scraper_service::pipeline::cached_schema_selection::ExistingSchemaSelection;
+use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSchemaGenerationContext;
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};
 use crate::scraper::scraper_service::util::hash::{hash_html, hash_main_fragment};
 use crate::scraper::scraper_service::util::html::extract_main_fragment;

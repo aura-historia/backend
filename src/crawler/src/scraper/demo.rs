@@ -306,7 +306,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let gemini_rate_limiter = Arc::new(GeminiRateLimiter::new(GeminiRateLimitConfig::from_env()));
 
     let create_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
-    let append_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
+    let single_schema_llm_builder = google_llm_builder(&api_key, &model, gemini_flex);
 
     let state_llm_builder = google_llm_builder(&api_key, &state_model, gemini_flex);
 
@@ -328,7 +328,7 @@ fn build_scraper_service(pool: &'static PgPool) -> ScraperServiceImpl {
     let removed_page_schema_repo = Box::new(RemovedPageSchemaRepositoryImpl::new(pool));
     let schema_svc = ProductSchemaServiceImpl::new(
         create_schema_llm_builder,
-        append_schema_llm_builder,
+        single_schema_llm_builder,
         llm_service_tier,
         schema_repo,
         Some(Arc::clone(&gemini_rate_limiter)),

@@ -1,5 +1,8 @@
 use common::shop_id::ShopId;
-use crawler::review::model::{PAGE_ROLE_PRIMARY, STATUS_APPROVED, SchemaReviewPageInput};
+use crawler::review::model::{
+    PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, STATUS_APPROVED,
+    STATUS_PENDING_REVIEW, SchemaReviewPageInput,
+};
 use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
 use crawler::scraper::css_selector::product_schema::{
     ProductCssSelectorSchema, ShopsProductSchema,
@@ -70,6 +73,34 @@ fn review_pages() -> Vec<SchemaReviewPageInput> {
         role: PAGE_ROLE_PRIMARY.to_string(),
         raw_html: "<html><body><span class=\"id\">SKU</span><h1>Title</h1><span class=\"state\">In stock</span><img class=\"product\" src=\"a.jpg\"></body></html>".to_string(),
     }]
+}
+
+#[aura_integration_test(services = [POSTGRES])]
+async fn fresh_generation_review_page_role_is_persisted() {
+    let pool = get_postgres_client().await;
+    let review_repository = CrawlerReviewRepository::new(pool.clone());
+    let shop_id = ShopId::new();
+    insert_shop(&pool, shop_id).await;
+
+    let schema = schema("h1");
+    let review_id = review_repository
+        .create_schema_review_with_status(SchemaReviewWithStatusInput {
+            shop_id: &shop_id,
+            reason: "fresh_schema_generation",
+            schemas: &[schema],
+            pages: vec![SchemaReviewPageInput {
+                url: "https://example.com/products/1".to_string(),
+                role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_string(),
+                raw_html: "<html><body><h1>Title</h1></body></html>".to_string(),
+            }],
+            validation_summary: json!({}),
+            status: STATUS_PENDING_REVIEW,
+            notes: None,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(review_page_count(&pool, review_id).await, 1);
 }
 
 async fn pending_review_count(pool: &PgPool, shop_id: ShopId, artifact_type: &str) -> i64 {

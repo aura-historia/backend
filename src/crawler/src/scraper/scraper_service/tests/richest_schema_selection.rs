@@ -53,7 +53,8 @@ async fn should_select_richer_schema_even_when_it_is_later_in_order() {
     norm_svc
         .expect_normalize()
         .times(1)
-        .returning(move |_, _, _| {
+        .returning(move |raw, _, _| {
+            assert!(raw.description.iter().any(|value| !value.trim().is_empty()));
             let n = expected.clone();
             Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
@@ -112,7 +113,8 @@ async fn should_pick_earlier_schema_when_it_extracts_more_data() {
     norm_svc
         .expect_normalize()
         .times(1)
-        .returning(move |_, _, _| {
+        .returning(move |raw, _, _| {
+            assert!(raw.description.iter().any(|value| !value.trim().is_empty()));
             let n = expected.clone();
             Box::pin(async move { Ok(normalization_success(n, 0)) })
         });
@@ -168,7 +170,7 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     minimal_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -230,7 +232,7 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
         .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
 
     // Both schemas apply; richer is index 1. Both normalization attempts
-    // fail with a fixable error, so fresh schema generation must run.
+    // fail with candidate-data errors, so fresh schema generation must run.
     let poor = minimal_schema();
     let rich = schema_with_description();
     let schema = ShopsProductSchema {
@@ -253,7 +255,7 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     minimal_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
@@ -274,16 +276,16 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
         });
 
     let expected = normalized_product(url.clone());
+    let normalize_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut norm_svc = MockProductNormalizationService::new();
     norm_svc
         .expect_normalize()
-        .times(3) // 2 cached (both fixable) + 1 generated
+        .times(3) // 2 cached (candidate-data failures) + 1 generated
         .returning(move |_, _, _| {
             let n = expected.clone();
+            let normalize_calls = normalize_calls.clone();
             Box::pin(async move {
-                static CALL: std::sync::atomic::AtomicUsize =
-                    std::sync::atomic::AtomicUsize::new(0);
-                let call = CALL.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let call = normalize_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 if call < 2 {
                     Err(normalization_failure(NormalizationError::TitleEmpty, 0))
                 } else {
@@ -343,7 +345,7 @@ async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fi
         .once()
         .returning(|_| {
             Box::pin(async {
-                Ok(generated_append_product(
+                Ok(generated_single_product(
                     minimal_schema(),
                     SchemaLlmEvaluationConfidence::High,
                 ))
