@@ -38,11 +38,11 @@ pub enum ScraperError {
         last_error: ApplySchemaError,
     },
 
-    /// All schema-fix attempts were consumed but normalization kept failing
-    /// even after the generated schema successfully applied.  The root cause
-    /// is a normalization error, not an extraction failure.
-    #[error("Normalization fix exhausted after {attempts} attempts for '{url}': {last_norm_error}")]
-    NormalizationFixExhausted {
+    /// Fresh schema generation succeeded, but normalization still failed.
+    #[error(
+        "Fresh schema normalization failed after {attempts} attempts for '{url}': {last_norm_error}"
+    )]
+    FreshSchemaNormalizationFailed {
         url: Url,
         attempts: u32,
         last_norm_error: NormalizationError,

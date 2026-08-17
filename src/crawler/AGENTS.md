@@ -23,7 +23,7 @@
 - Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `shops_removed_page_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
 - Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper feeds backend product push.
 - Locking be two-layer: process-local locks stop duplicate in one process, DB lock/cooldown metadata stop bad overlap and hot-loop retries across runs after final fetch failure.
-- LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair page classification, schema evaluation, state mapping fallback.
+- LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only page classification, schema evaluation, state mapping fallback.
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
 - Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors. State selector prompt must choose only availability/cart action nodes and exclude price text.
@@ -31,8 +31,8 @@
 - Product schemas may generate configured raw attribute selectors for review/demo/file inspection only. Missing raw attribute selector matches are skipped; extracted raw values are not DB or product-command data. New raw attribute keys need schema regeneration for existing cached shop schemas.
 - Initial schema generation accepts product schema responses only. Append repair accepts product, removed, and not-product classifications.
 - Append repair classifies failed pages as product, removed, or not-product. Removed needs verified selector-bound text or regex evidence, stores shop-scoped `shops_removed_page_schema`, and marks URL `REMOVED`. Not-product needs verified reason and only changes that URL class to `other`; never update shop URL pattern from one page.
-- Append repair and fresh-generation fallback create a brand-new schema from the current page; they never localize-repair, selector-patch, or mutate a cached schema. Freshly generated schemas are only persisted after they apply and normalize successfully.
-- Cached schema scoring lives in `scraper::scraper_service::extraction::schema_selection`. Each populated logical field counts once (many images → one, multiple description fragments → one, every populated raw-attribute key → one). `default_currency` is schema context and does not score.
+- Fresh schema generation creates a brand-new schema from the current page; it never localizes, selector-patches, or mutates a cached schema. Freshly generated schemas are only persisted after they apply and normalize successfully.
+- Cached schema scoring lives in `scraper::scraper_service::extraction::schema_selection`. Each populated validated logical field counts once (multiple description fragments → one, every populated raw-attribute key → one); images do not score before URL validation. `default_currency` is schema context and does not score.
 - Local dev support live here too: `docker-compose.yml`, `scripts/linux/`, `scripts/windows/`, `migrations/`, and test fixtures under `tests/`.
 - `fetch-fixture` writes fetched HTML to `tests/fixtures/html`.
 - `demo` and `server` auto-run migrations on startup. Migrations be authoritative DB contract.

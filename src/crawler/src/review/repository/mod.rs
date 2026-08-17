@@ -215,7 +215,8 @@ impl CrawlerReviewRepository {
              ORDER BY
                CASE role
                  WHEN 'PRIMARY' THEN 0
-                 WHEN 'TRIGGERING_REPAIR_PAGE' THEN 0
+                  WHEN 'TRIGGERING_GENERATION_PAGE' THEN 0
+                  WHEN 'TRIGGERING_REPAIR_PAGE' THEN 0
                  ELSE 1
                END,
                created",

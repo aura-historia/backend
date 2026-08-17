@@ -1,4 +1,4 @@
-use crate::review::model::{PAGE_ROLE_TRIGGERING_REPAIR_PAGE, SchemaReviewPageInput};
+use crate::review::model::{PAGE_ROLE_TRIGGERING_GENERATION_PAGE, SchemaReviewPageInput};
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::normalization::product::NormalizedProduct;
@@ -12,7 +12,7 @@ use crate::scraper::scraper_service::extraction::schema_selection::{
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
-use crate::scraper::scraper_service::util::html::normalization_error_to_schema_hint;
+use crate::scraper::scraper_service::util::html::is_schema_specific_normalization_error;
 use common::shop_id::ShopId;
 use serde_json::json;
 use tracing::{debug, info};
@@ -151,7 +151,7 @@ impl ScraperServiceImpl {
                     return Ok(ExistingSchemaSelection::Normalized(Box::new(product)));
                 }
                 Err(ScraperError::NormalizationError(err))
-                    if normalization_error_to_schema_hint(&err).is_some() =>
+                    if is_schema_specific_normalization_error(&err) =>
                 {
                     debug!(
                         candidate_schema_index = candidate.schema_index,
@@ -231,7 +231,7 @@ impl ScraperServiceImpl {
     /// On exhaustion the terminal failure mode determines the error variant:
     /// - Generated schema failed to apply → [`ScraperError::SchemaRegenerationExhausted`].
     /// - Generated schema applied but normalization kept failing →
-    ///   [`ScraperError::NormalizationFixExhausted`].
+    ///   [`ScraperError::FreshSchemaNormalizationFailed`].
     #[tracing::instrument(
         skip(self, ctx),
         fields(
@@ -246,7 +246,7 @@ impl ScraperServiceImpl {
         ctx: FreshSchemaGenerationContext<'_>,
     ) -> Result<NormalizedProduct, ScraperError> {
         let (generated_schema, mut reapplied, evaluation) = self
-            .generate_and_apply_fresh_schema(ctx.shop_id, ctx.url, ctx.html)
+            .generate_single_schema_for_page(ctx.shop_id, ctx.url, ctx.html)
             .await?;
 
         reapplied.images = match filter_valid_image_urls(
@@ -258,8 +258,8 @@ impl ScraperServiceImpl {
         {
             Ok(images) => images,
             Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-            Err(norm_err) if normalization_error_to_schema_hint(&norm_err).is_some() => {
-                return Err(ScraperError::NormalizationFixExhausted {
+            Err(norm_err) if is_schema_specific_normalization_error(&norm_err) => {
+                return Err(ScraperError::FreshSchemaNormalizationFailed {
                     url: ctx.url.clone(),
                     attempts: 1,
                     last_norm_error: norm_err,
@@ -290,7 +290,7 @@ impl ScraperServiceImpl {
 
                 let pages = vec![SchemaReviewPageInput {
                     url: ctx.url.to_string(),
-                    role: PAGE_ROLE_TRIGGERING_REPAIR_PAGE.to_string(),
+                    role: PAGE_ROLE_TRIGGERING_GENERATION_PAGE.to_string(),
                     raw_html: ctx.html.to_string(),
                 }];
                 match self
@@ -329,8 +329,8 @@ impl ScraperServiceImpl {
             }) => {
                 self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
                     .await?;
-                if normalization_error_to_schema_hint(&norm_err).is_some() {
-                    return Err(ScraperError::NormalizationFixExhausted {
+                if is_schema_specific_normalization_error(&norm_err) {
+                    return Err(ScraperError::FreshSchemaNormalizationFailed {
                         url: ctx.url.clone(),
                         attempts: 1,
                         last_norm_error: norm_err,

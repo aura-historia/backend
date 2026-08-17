@@ -31,7 +31,7 @@ impl ScraperServiceImpl {
             url = %url,
         )
     )]
-    pub(crate) async fn generate_and_apply_fresh_schema(
+    pub(crate) async fn generate_single_schema_for_page(
         &self,
         shop_id: &ShopId,
         url: &Url,
@@ -53,7 +53,10 @@ impl ScraperServiceImpl {
 
         self.consume_llm_budget_or_err(shop_id, url).await?;
 
-        let generated = self.schema_service.append_single_schema(html).await?;
+        let generated = self
+            .schema_service
+            .generate_single_schema_for_page(html)
+            .await?;
         let (generated_schema, evaluation) = match generated {
             GeneratedAppendSchema::Product { schema, evaluation } => (*schema, evaluation),
             GeneratedAppendSchema::Removed { schema, .. } => {

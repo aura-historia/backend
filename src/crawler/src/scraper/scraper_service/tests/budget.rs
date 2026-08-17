@@ -223,7 +223,7 @@ async fn should_charge_budget_for_state_mapping_llm_call_when_normalization_fail
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
@@ -285,7 +285,7 @@ async fn should_return_llm_budget_exceeded_when_failed_normalization_usage_excee
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let mut norm_svc = MockProductNormalizationService::new();

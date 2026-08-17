@@ -45,7 +45,7 @@ async fn should_select_richer_schema_even_when_it_is_later_in_order() {
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
@@ -104,7 +104,7 @@ async fn should_pick_earlier_schema_when_it_extracts_more_data() {
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
@@ -164,7 +164,7 @@ async fn should_generate_fresh_schema_when_no_cached_schema_applies() {
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
@@ -249,7 +249,7 @@ async fn should_generate_fresh_schema_when_richer_candidate_normalization_fails_
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
@@ -339,7 +339,7 @@ async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fi
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
@@ -372,12 +372,12 @@ async fn should_not_persist_generated_schema_when_normalization_keeps_failing_fi
     assert!(
         matches!(
             err,
-            ScraperError::NormalizationFixExhausted {
+            ScraperError::FreshSchemaNormalizationFailed {
                 attempts: 1,
                 last_norm_error: NormalizationError::TitleEmpty,
                 ..
             }
         ),
-        "expected NormalizationFixExhausted, got {err:?}"
+        "expected FreshSchemaNormalizationFailed, got {err:?}"
     );
 }

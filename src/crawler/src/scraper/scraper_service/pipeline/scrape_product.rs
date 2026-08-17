@@ -3,7 +3,7 @@ use crate::scraper::candidate_service::ProductSnapshot;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::domain::product::{ScrapedProduct, ScraperService};
-use crate::scraper::scraper_service::recovery::normalization_retry::{
+use crate::scraper::scraper_service::recovery::schema_selection::{
     ExistingSchemaSelection, FreshSchemaGenerationContext,
 };
 use crate::scraper::scraper_service::service::{FetchError, ScraperServiceImpl};

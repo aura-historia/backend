@@ -3,23 +3,19 @@ use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::NormalizationError;
 use crate::scraper::scraper_service::domain::errors::ScraperError;
-use crate::scraper::scraper_service::util::html::normalization_error_to_schema_hint;
+use crate::scraper::scraper_service::util::html::is_schema_specific_normalization_error;
 
 #[test]
-fn should_not_map_no_valid_images_to_schema_repair_hint() {
-    assert!(
-        normalization_error_to_schema_hint(&NormalizationError::NoValidImages { candidates: 2 })
-            .is_none()
-    );
+fn should_not_classify_no_valid_images_as_schema_specific() {
+    assert!(!is_schema_specific_normalization_error(
+        &NormalizationError::NoValidImages { candidates: 2 }
+    ));
 }
 
 #[test]
-fn should_still_map_fixable_normalization_errors_to_schema_repair_hint() {
-    assert!(matches!(
-        normalization_error_to_schema_hint(&NormalizationError::TitleEmpty),
-        Some(ApplySchemaError::Title(
-            ExtractionError::NoElementMatched { .. }
-        ))
+fn should_classify_title_errors_as_schema_specific() {
+    assert!(is_schema_specific_normalization_error(
+        &NormalizationError::TitleEmpty
     ));
 }
 
@@ -50,7 +46,7 @@ async fn should_try_next_existing_schema_when_first_schema_has_fixable_normaliza
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
@@ -129,7 +125,7 @@ async fn should_try_all_existing_schemas_before_repairing_fixable_normalization_
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
             Box::pin(async {
@@ -221,7 +217,7 @@ async fn should_regenerate_schema_when_normalization_error_is_fixable() {
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
             let s = minimal_schema();
@@ -307,7 +303,7 @@ async fn should_not_regenerate_schema_when_normalization_error_is_not_fixable() 
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let mut norm_svc = MockProductNormalizationService::new();
@@ -371,7 +367,7 @@ async fn should_normalize_with_empty_images_when_image_policy_rejects_all_candid
             let schema = schema.clone();
             Box::pin(async move { Ok(Some(schema)) })
         });
-    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
@@ -447,7 +443,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate_without_sche
             let schema = schema.clone();
             Box::pin(async move { Ok(Some(schema)) })
         });
-    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let expected = normalized_product(url.clone());
@@ -480,7 +476,7 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate_without_sche
 }
 
 #[tokio::test]
-async fn should_append_single_schema_without_failed_schema_context() {
+async fn should_generate_single_schema_without_failed_schema_context() {
     let id = shop_id();
     let url = product_url();
 
@@ -537,7 +533,7 @@ async fn should_append_single_schema_without_failed_schema_context() {
         });
 
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
             let expected_bad_appended = bad_appended.clone();
@@ -577,7 +573,7 @@ async fn should_append_single_schema_without_failed_schema_context() {
 /// When the generated schema successfully applies on every attempt but
 /// normalization still fails with a fixable error each time,
 /// `fix_normalization_with_schema_retry` must exhaust its attempts and
-/// return `NormalizationFixExhausted` rather than `SchemaRegenerationExhausted`.
+/// return `FreshSchemaNormalizationFailed` rather than `SchemaRegenerationExhausted`.
 #[tokio::test]
 async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_keeps_failing() {
     let id = shop_id();
@@ -606,7 +602,7 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
@@ -644,12 +640,12 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
     assert!(
         matches!(
             err,
-            ScraperError::NormalizationFixExhausted {
+            ScraperError::FreshSchemaNormalizationFailed {
                 attempts: 1,
                 last_norm_error: NormalizationError::TitleEmpty,
                 ..
             }
         ),
-        "expected NormalizationFixExhausted, got {err:?}"
+        "expected FreshSchemaNormalizationFailed, got {err:?}"
     );
 }

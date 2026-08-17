@@ -220,7 +220,7 @@ async fn scrape_candidate(
                 let error_kind = scraper_error_kind(&e);
                 match &e {
                     ScraperError::SchemaRegenerationExhausted { .. }
-                    | ScraperError::NormalizationFixExhausted { .. }
+                    | ScraperError::FreshSchemaNormalizationFailed { .. }
                     | ScraperError::LlmBudgetExceeded { .. }
                     | ScraperError::PendingSchemaReview { .. } => {
                         let cooldown = std::time::Duration::from_secs(30 * 60);
@@ -321,7 +321,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
         ScraperError::RemovedPageSchemaDatabaseError(_) => "RemovedPageSchemaDatabaseError",
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
-        ScraperError::NormalizationFixExhausted { .. } => "NormalizationFixExhausted",
+        ScraperError::FreshSchemaNormalizationFailed { .. } => "FreshSchemaNormalizationFailed",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
         ScraperError::PendingSchemaReview { .. } => "PendingSchemaReview",
@@ -1057,11 +1057,11 @@ mod tests {
         job.run_scraper_once().await;
     }
 
-    /// `NormalizationFixExhausted` must be handled identically to
+    /// `FreshSchemaNormalizationFailed` must be handled identically to
     /// `SchemaRegenerationExhausted`: write a cooldown via `mark_fetch_failure`
     /// so the URL is held back until the backoff window expires.
     #[tokio::test]
-    async fn should_mark_fetch_failure_for_normalization_fix_exhausted_error() {
+    async fn should_mark_fetch_failure_for_fresh_schema_normalization_failure() {
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
             .expect_get_candidates()
@@ -1083,7 +1083,7 @@ mod tests {
             .returning(|_, url, _, _| {
                 let url = url.clone();
                 Box::pin(async move {
-                    Err(ScraperError::NormalizationFixExhausted {
+                    Err(ScraperError::FreshSchemaNormalizationFailed {
                         url,
                         attempts: 3,
                         last_norm_error: crate::scraper::normalization::product_normalization_service::NormalizationError::TitleEmpty,

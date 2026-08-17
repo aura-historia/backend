@@ -12,7 +12,7 @@ use scraper::Html;
 /// Each populated logical field contributes exactly one point, regardless of
 /// how many values it holds:
 ///
-/// * 20 images count as one populated `images` field.
+/// * Images do not score because URL validation happens during normalization.
 /// * Multiple description fragments count as one populated `description` field.
 /// * Every non-empty `raw_attributes` key counts as one distinct attribute.
 ///
@@ -74,8 +74,6 @@ pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionComplete
 
     // Multi-valued fields: counted as 1 each, regardless of how many values they hold.
     let populated_descriptions = usize::from(any_populated(&raw.description));
-    let populated_images = usize::from(!raw.images.is_empty());
-
     // Raw attributes: one point per populated key.
     let populated_raw_attribute_keys = raw
         .raw_attributes
@@ -87,7 +85,6 @@ pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionComplete
         populated_scalar_strings
             + populated_optionals
             + populated_descriptions
-            + populated_images
             + populated_raw_attribute_keys,
     )
 }
@@ -217,10 +214,10 @@ mod tests {
     }
 
     #[test]
-    fn should_count_many_images_as_one_field() {
+    fn should_not_score_unvalidated_images() {
         let mut raw = raw_product();
         raw.images = (0..20).map(|i| format!("img-{i}")).collect();
-        assert_eq!(score_raw_product(&raw).as_usize(), 1);
+        assert_eq!(score_raw_product(&raw).as_usize(), 0);
     }
 
     #[test]

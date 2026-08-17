@@ -63,7 +63,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
             let s = final_schema_for_append.clone();

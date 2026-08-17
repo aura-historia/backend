@@ -59,7 +59,7 @@ async fn should_use_yaml_only_when_append_schema_applies() {
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
@@ -115,7 +115,7 @@ async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
         });
 
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
@@ -166,7 +166,7 @@ async fn should_exhaust_append_repair_after_yaml_fails() {
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
@@ -218,7 +218,7 @@ async fn should_not_consume_second_budget_call_when_yaml_append_does_not_apply()
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {
@@ -280,7 +280,7 @@ async fn should_mark_removed_when_append_classifies_removed() {
         });
     let removed_schema_for_append = removed_schema.clone();
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
             let schema = removed_schema_for_append.clone();
@@ -359,7 +359,7 @@ async fn should_mark_other_when_append_classifies_not_product() {
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
             Box::pin(async move {
@@ -419,7 +419,7 @@ async fn should_not_change_state_or_class_when_append_classification_does_not_ma
             Box::pin(async move { Ok(Some(s)) })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(|_| {
             Box::pin(async {

@@ -133,7 +133,7 @@ async fn should_repair_after_yaml_schema_does_not_cover_raw_html_without_initial
             })
         });
     schema_svc
-        .expect_append_single_schema()
+        .expect_generate_single_schema_for_page()
         .once()
         .returning(move |_| {
             let s = repair_schema.clone();

@@ -42,7 +42,7 @@ async fn should_mark_product_removed_when_stored_removed_page_schema_matches() {
 
     let mut schema_svc = MockProductSchemaService::new();
     schema_svc.expect_find_product_schema().never();
-    schema_svc.expect_append_single_schema().never();
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let mut cand_svc = MockScraperCandidateService::new();

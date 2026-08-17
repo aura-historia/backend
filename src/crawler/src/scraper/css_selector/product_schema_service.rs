@@ -8,7 +8,7 @@ use llm::{
     chat::{ChatMessage, ChatProvider},
     error::LLMError,
 };
-use prompt::{build_append_schema_instruction, build_create_schemas_instruction};
+use prompt::{build_create_schemas_instruction, build_single_schema_instruction};
 use response::{
     append_schema_generation_response_schema_json, parse_append_schema_response,
     parse_product_schemas_response, product_schema_generation_response_schema_json,
@@ -60,10 +60,8 @@ pub trait ProductSchemaService {
         html_pages: &[String],
     ) -> Result<GeneratedProductSchemas, ProductSchemaServiceError>;
 
-    /// Generate a single schema from a single HTML page and append it to the
-    /// cached schema set. Used when a runtime schema-variant match fails to
-    /// dynamically expand the schema set without full regeneration.
-    async fn append_single_schema(
+    /// Generate one new schema from one HTML page.
+    async fn generate_single_schema_for_page(
         &self,
         html: &str,
     ) -> Result<GeneratedAppendSchema, ProductSchemaServiceError>;
@@ -154,11 +152,11 @@ fn build_append_schema_generation_llm(
         .unwrap_or_else(|_| "Failed to generate schema".to_string());
     let append_response_schema = append_schema_generation_response_schema_json();
     let system_prompt = format!(
-        "You are an e-commerce scraper-assistant for antiques repairing extraction-schemas for one HTML page.
-            Return only JSON matching Append ProductSchemaGenerationResponse.
+        "You are an e-commerce scraper-assistant for antiques generating a new extraction schema for one HTML page.
+            Return only JSON matching ProductSchemaGenerationResponse.
             The response may classify the page as product, removed, or not_product.
             ProductCssSelectorSchema schema:\n\n {schema}\n\n
-            Append ProductSchemaGenerationResponse schema:\n\n {append_response_schema}",
+            ProductSchemaGenerationResponse schema:\n\n {append_response_schema}",
     );
     let llm = llm
         .system(system_prompt)
@@ -243,12 +241,12 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         Ok(generated)
     }
 
-    #[tracing::instrument(name = "scraper_append_single_schema", skip(self, html))]
-    async fn append_single_schema(
+    #[tracing::instrument(name = "scraper_generate_single_schema_for_page", skip(self, html))]
+    async fn generate_single_schema_for_page(
         &self,
         html: &str,
     ) -> Result<GeneratedAppendSchema, ProductSchemaServiceError> {
-        let instruction = build_append_schema_instruction(html);
+        let instruction = build_single_schema_instruction(html);
         let message = ChatMessage::user().content(instruction).build();
         let messages = vec![message];
 
@@ -260,7 +258,7 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
         )
         .await?;
         log_llm_invocation(
-            LlmOperation::CrawlerProductSchemaRepair,
+            LlmOperation::CrawlerProductSchemaGeneration,
             LlmProvider::Google,
             LlmModel::Configured,
             started_at.elapsed(),
@@ -366,8 +364,8 @@ impl ProductSchemaService for ProductSchemaServiceImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::prompt::build_append_schema_instruction;
     use super::prompt::build_create_schemas_instruction;
+    use super::prompt::build_single_schema_instruction;
     use super::response::parse_append_schema_response;
     use super::response::parse_product_schemas_response;
     use super::*;
@@ -1020,7 +1018,7 @@ mod tests {
     #[test]
     fn should_include_page_classification_in_append_instruction() {
         let instruction =
-            build_append_schema_instruction("<html><body><h1>Missing</h1></body></html>");
+            build_single_schema_instruction("<html><body><h1>Missing</h1></body></html>");
 
         assert!(instruction.contains("page_kind = product"));
         assert!(instruction.contains("page_kind = removed"));
