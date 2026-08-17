@@ -26,6 +26,7 @@ use product_core::user_state::{
 use product_service::use_cases::{
     DisplayProductPricing, PersonalizedProductDetailsView, PersonalizedProductSummary,
     ProductDetailsView, ProductPricingPresentation, ProductPricingValuation, ProductSummary,
+    ProductSummaryPriceValuation,
 };
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -128,7 +129,8 @@ pub(crate) struct ProductSummaryData {
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    price: Option<PriceData>,
+    display_price: Option<PriceData>,
+    price_valuation: ProductSummaryPriceValuationData,
     state: ProductStateData,
     lifecycle: ProductLifecycleData,
     url: Url,
@@ -171,6 +173,23 @@ enum ProductPricingValuationData {
         fx_rate_id: FxRateId,
         #[serde(rename = "capturedAt", with = "time::serde::rfc3339")]
         captured_at: OffsetDateTime,
+        #[serde(rename = "soldAt", with = "time::serde::rfc3339")]
+        sold_at: OffsetDateTime,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+enum ProductSummaryPriceValuationData {
+    Current {
+        #[serde(rename = "fxRateId")]
+        fx_rate_id: FxRateId,
+        #[serde(rename = "capturedAt", with = "time::serde::rfc3339")]
+        captured_at: OffsetDateTime,
+    },
+    Sale {
+        #[serde(rename = "fxRateId")]
+        fx_rate_id: FxRateId,
         #[serde(rename = "soldAt", with = "time::serde::rfc3339")]
         sold_at: OffsetDateTime,
     },
@@ -294,6 +313,27 @@ impl From<DisplayProductPricing> for ProductPricingData {
     }
 }
 
+impl From<ProductSummaryPriceValuation> for ProductSummaryPriceValuationData {
+    fn from(valuation: ProductSummaryPriceValuation) -> Self {
+        match valuation {
+            ProductSummaryPriceValuation::Current {
+                fx_rate_id,
+                captured_at,
+            } => Self::Current {
+                fx_rate_id,
+                captured_at,
+            },
+            ProductSummaryPriceValuation::Sale {
+                fx_rate_id,
+                sold_at,
+            } => Self::Sale {
+                fx_rate_id,
+                sold_at,
+            },
+        }
+    }
+}
+
 impl From<ProductPricingValuation> for ProductPricingValuationData {
     fn from(valuation: ProductPricingValuation) -> Self {
         match valuation {
@@ -379,7 +419,8 @@ impl ProductSummaryData {
             shop_name: summary.shop_name.into(),
             shop_slug_id: summary.shop_slug_id,
             title: summary.title.map(Into::into),
-            price: summary.price.map(Into::into),
+            display_price: summary.display_price.map(Into::into),
+            price_valuation: summary.price_valuation.into(),
             state: summary.state.into(),
             lifecycle: summary.lifecycle.into(),
             url: summary.url,

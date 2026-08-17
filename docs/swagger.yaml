@@ -1290,8 +1290,9 @@ paths:
         When the product embedding is ready, the endpoint returns matching products. If it is absent,
         the endpoint returns `202 Accepted` with a polling location.
 
-        Returned prices remain stored source amounts and currencies; this endpoint performs no currency
-        conversion. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
+        Ready entries return `displayPrice` in the requested currency and `priceValuation` metadata.
+        Active Products use one persisted snapshot pinned for the request; sold Products use immutable
+        sale-time values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
         `userState`. Personalized KNN results use `Cache-Control: no-store`.
       operationId: getSimilarProducts
       tags:
@@ -1311,6 +1312,12 @@ paths:
           description: Language used for localized KNN result titles. Defaults to `en`.
           schema:
             $ref: "#/components/schemas/LanguageData"
+        - name: currency
+          in: query
+          required: false
+          description: Display currency for KNN result prices. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
       security:
         - BearerAuth: []
         - {}
@@ -1398,7 +1405,7 @@ paths:
   /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/similar:
     get:
       summary: Get similar products by slug
-      description: Returns KNN matches when the product embedding is ready, or `202 Accepted` with a polling location when it is absent. Returned prices are stored source amounts and currencies; no conversion is performed. Every ready entry contains `item`; a valid user or delegated-user bearer token adds `userState`. Anonymous responses omit it and remain cacheable.
+      description: Returns KNN matches when the product embedding is ready, or `202 Accepted` with a polling location when it is absent. Ready entries return `displayPrice` in the requested currency and `priceValuation`; active Products use one persisted request snapshot and sold Products use immutable sale values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds `userState`. Anonymous responses omit it and remain cacheable.
       operationId: getSimilarProductsBySlug
       tags:
         - Products
@@ -1421,6 +1428,12 @@ paths:
           description: Language used for localized KNN result titles. Defaults to `en`.
           schema:
             $ref: "#/components/schemas/LanguageData"
+        - name: currency
+          in: query
+          required: false
+          description: Display currency for KNN result prices. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
       security:
         - BearerAuth: []
         - {}
@@ -9950,6 +9963,7 @@ components:
         - viewUrl
         - images
         - updated
+        - priceValuation
       properties:
         productId:
           type: string
@@ -9985,11 +9999,13 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-        price:
+        displayPrice:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Product price in its stored source currency; conversion is not applied.
+          description: Main Product price converted into the requested display currency.
+        priceValuation:
+          $ref: "#/components/schemas/ProductSummaryPriceValuationData"
         state:
           $ref: "#/components/schemas/ProductStateData"
         lifecycle:
@@ -10011,6 +10027,33 @@ components:
           type: string
           format: date-time
           description: When the product was last updated (RFC3339 format).
+    ProductSummaryPriceValuationData:
+      oneOf:
+        - type: object
+          required: [type, fxRateId, capturedAt]
+          properties:
+            type:
+              type: string
+              enum: [CURRENT]
+            fxRateId:
+              type: string
+              format: uuid
+            capturedAt:
+              type: string
+              format: date-time
+        - type: object
+          required: [type, fxRateId, soldAt]
+          properties:
+            type:
+              type: string
+              enum: [SALE]
+            fxRateId:
+              type: string
+              format: uuid
+            soldAt:
+              type: string
+              format: date-time
+
     ProductDetailsData:
       type: object
       description: Canonical Product detail data inside a personalized response wrapper.

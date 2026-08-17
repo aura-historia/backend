@@ -867,12 +867,15 @@ impl From<GetSimilarProductsError> for ApiError {
             | GetSimilarProductsError::SimilaritySearchUnavailable
             | GetSimilarProductsError::BeginTransactionFailed
             | GetSimilarProductsError::CommitTransactionFailed
+            | GetSimilarProductsError::PricingFxSnapshotMissing
+            | GetSimilarProductsError::PricingFxSnapshotUnavailable { .. }
             | GetSimilarProductsError::ProductUserStateQueryFailed { .. }
             | GetSimilarProductsError::ProductNotificationReadFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Similar products are temporarily unavailable.")
             }
-            GetSimilarProductsError::ProductUserStateReadModelInvalid { .. }
+            GetSimilarProductsError::PricingFxSnapshotInvalid { .. }
+            | GetSimilarProductsError::ProductUserStateReadModelInvalid { .. }
             | GetSimilarProductsError::ProductUserStateMissing
             | GetSimilarProductsError::HiddenProductSummaryInvalid { .. } => {
                 ApiError::internal_server_error(PRODUCT_INTERNAL_ERROR)

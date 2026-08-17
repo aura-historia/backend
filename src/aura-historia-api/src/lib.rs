@@ -735,6 +735,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     let get_similar_products = GetSimilarProductsHandler::new(
         unit_of_work.clone(),
         SqlxProductEmbeddingReaderFactory::new(),
+        SqlxFxRateSnapshotRepositoryFactory,
         OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
         product_user_states.clone(),
         DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),

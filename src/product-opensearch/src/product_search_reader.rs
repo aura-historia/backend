@@ -25,7 +25,7 @@ use product_service::ports::{
     ProductSearchReadRequest, ProductSearchReader,
 };
 use product_service::use_cases::queries::search_products::{
-    ProductSearchReadResult, ProductSummary,
+    ProductSearchReadResult, ProductSummary, ProductSummaryPriceValuation,
 };
 use serde::ser::Error;
 use serde_json::json;
@@ -159,57 +159,22 @@ pub(crate) fn map_search_response(
     })
 }
 
-pub(crate) fn map_search_response_without_price(
-    search: &ProductSearch,
-    search_response: SearchResponse<ProductDocument>,
-) -> Result<ProductSearchReadResult, ProductSearchReadError> {
-    let cursor = Cursor {
-        size: search_response.hits.hits.len() as u64,
-        search_after: search_response
-            .hits
-            .hits
-            .last()
-            .and_then(|last| last.sort.clone()),
-    };
-    let items = search_response
-        .hits
-        .hits
-        .into_iter()
-        .map(|hit| map_summary_without_price(search, hit))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(CursoredResult {
-        cursor,
-        items,
-        total: Some(search_response.hits.total.value),
-    })
-}
-
 fn map_summary(
     search: &ProductSearch,
     price_filter: &ProductPriceFilterPlan,
     hit: SearchHit<ProductDocument>,
 ) -> Result<ProductSummary, ProductSearchReadError> {
     let document = hit.source;
-    let price = resolve_price(&document, price_filter)?;
-    map_summary_fields(document, search.language, price)
-}
-
-fn map_summary_without_price(
-    search: &ProductSearch,
-    hit: SearchHit<ProductDocument>,
-) -> Result<ProductSummary, ProductSearchReadError> {
-    let document = hit.source;
-    document
-        .validate()
-        .map_err(|_| ProductSearchReadError::ProductSearchReadModelInvalid)?;
-    map_summary_fields(document, search.language, None)
+    let display_price = resolve_price(&document, price_filter)?;
+    let price_valuation = price_valuation(&document, price_filter)?;
+    map_summary_fields(document, search.language, display_price, price_valuation)
 }
 
 fn map_summary_fields(
     document: ProductDocument,
     preferred_language: Language,
-    price: Option<Price>,
+    display_price: Option<Price>,
+    price_valuation: ProductSummaryPriceValuation,
 ) -> Result<ProductSummary, ProductSearchReadError> {
     let title = resolve_title(&document, preferred_language);
 
@@ -223,7 +188,8 @@ fn map_summary_fields(
         shop_name: ShopName::from(document.shop_name),
         shop_slug_id: document.shop_slug_id,
         title,
-        price,
+        display_price,
+        price_valuation,
         state: document.state.into(),
         lifecycle: document.lifecycle.into(),
         url: document.url,
@@ -253,6 +219,25 @@ fn insert_title(titles: &mut HashMap<Language, Title>, language: Language, title
     if let Some(title) = title {
         titles.entry(language).or_insert_with(|| Title::from(title));
     }
+}
+
+fn price_valuation(
+    document: &ProductDocument,
+    price_filter: &ProductPriceFilterPlan,
+) -> Result<ProductSummaryPriceValuation, ProductSearchReadError> {
+    if let (Some(fx_rate_id), Some(sold_at)) = (document.sale_fx_rate_id, document.sold_at) {
+        return Ok(ProductSummaryPriceValuation::Sale {
+            fx_rate_id,
+            sold_at,
+        });
+    }
+    if document.has_sale_valuation() {
+        return Err(ProductSearchReadError::ProductSearchReadModelInvalid);
+    }
+    Ok(ProductSummaryPriceValuation::Current {
+        fx_rate_id: price_filter.fx_rate_id,
+        captured_at: price_filter.captured_at(),
+    })
 }
 
 fn resolve_price(

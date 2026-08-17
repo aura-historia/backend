@@ -69,13 +69,26 @@ pub struct ProductSummary {
     pub shop_name: ShopName,
     pub shop_slug_id: ShopSlugId,
     pub title: Option<Localized<Language, Title>>,
-    pub price: Option<Price>,
+    pub display_price: Option<Price>,
+    pub price_valuation: ProductSummaryPriceValuation,
     pub state: ProductState,
     pub lifecycle: ProductLifecycle,
     pub url: Url,
     pub view_url: Url,
     pub images: IndexSet<ProductImage>,
     pub updated: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductSummaryPriceValuation {
+    Current {
+        fx_rate_id: FxRateId,
+        captured_at: OffsetDateTime,
+    },
+    Sale {
+        fx_rate_id: FxRateId,
+        sold_at: OffsetDateTime,
+    },
 }
 
 pub type PersonalizedProductSummary = Personalized<ProductSummary, ProductUserState>;
@@ -771,7 +784,11 @@ mod tests {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
                 }),
-                price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                price_valuation: ProductSummaryPriceValuation::Current {
+                    fx_rate_id: FxRateId::new(),
+                    captured_at: OffsetDateTime::UNIX_EPOCH,
+                },
                 state: ProductState::Listed,
                 lifecycle: ProductLifecycle::Active,
                 url: Url::parse("https://shop.example/products/1")?,

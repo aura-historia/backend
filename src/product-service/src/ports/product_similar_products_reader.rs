@@ -1,24 +1,26 @@
-use crate::use_cases::ProductSummary;
-use common::{
-    currency::domain::Currency, error::boxed::BoxError, language::domain::Language,
-    product_id::ProductId,
-};
+use crate::{ports::ProductPriceFilterPlan, use_cases::ProductSummary};
+use common::{error::boxed::BoxError, language::domain::Language, product_id::ProductId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductSimilarProductsRequest {
     pub product_id: ProductId,
     pub embedding: Vec<f32>,
     pub language: Language,
-    pub currency: Currency,
+    pub price_filter_plan: ProductPriceFilterPlan,
 }
 
 impl ProductSimilarProductsRequest {
-    pub fn new(product_id: ProductId, embedding: Vec<f32>, language: Language) -> Self {
+    pub fn new(
+        product_id: ProductId,
+        embedding: Vec<f32>,
+        language: Language,
+        price_filter_plan: ProductPriceFilterPlan,
+    ) -> Self {
         Self {
             product_id,
             embedding,
             language,
-            currency: Currency::Eur,
+            price_filter_plan,
         }
     }
 }

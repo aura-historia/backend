@@ -6,10 +6,10 @@ use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use common::language::data::LanguageData;
 use common::product_id::ProductId;
 use common::product_slug_id::ProductSlugId;
 use common::shop_slug_id::ShopSlugId;
+use common::{currency::data::CurrencyData, language::data::LanguageData};
 use product_service::ports::ProductEmbeddingLookup;
 use product_service::use_cases::{GetSimilarProductsRequest, GetSimilarProductsResult};
 use serde::Deserialize;
@@ -18,6 +18,8 @@ use serde::Deserialize;
 struct SimilarProductsQuery {
     #[serde(default)]
     language: LanguageData,
+    #[serde(default)]
+    currency: CurrencyData,
 }
 
 const READY_CACHE_CONTROL: &str = "public, max-age=180, s-maxage=900";
@@ -38,15 +40,15 @@ pub async fn get_similar_products_by_id(
                 .into_response();
         }
     };
-    let language = match query_language(raw_query.as_deref()) {
-        Ok(language) => language,
+    let query = match parse_query(raw_query.as_deref()) {
+        Ok(query) => query,
         Err(error) => return error.into_response(),
     };
     similar_response(
         state,
         headers,
         ProductEmbeddingLookup::ById(product_id),
-        language,
+        query,
     )
     .await
 }
@@ -75,8 +77,8 @@ pub async fn get_similar_products_by_slug(
                 .into_response();
         }
     };
-    let language = match query_language(raw_query.as_deref()) {
-        Ok(language) => language,
+    let query = match parse_query(raw_query.as_deref()) {
+        Ok(query) => query,
         Err(error) => return error.into_response(),
     };
     similar_response(
@@ -86,25 +88,23 @@ pub async fn get_similar_products_by_slug(
             shop_slug_id,
             product_slug_id,
         },
-        language,
+        query,
     )
     .await
 }
 
-fn query_language(raw_query: Option<&str>) -> Result<common::language::domain::Language, ApiError> {
-    serde_qs::from_str::<SimilarProductsQuery>(raw_query.unwrap_or_default())
-        .map(|query| query.language.into())
-        .map_err(|error| {
-            ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
-                .with_detail(error.to_string())
-        })
+fn parse_query(raw_query: Option<&str>) -> Result<SimilarProductsQuery, ApiError> {
+    serde_qs::from_str(raw_query.unwrap_or_default()).map_err(|error| {
+        ApiError::bad_request(crate::error::BAD_QUERY_PARAMETER_VALUE)
+            .with_detail(error.to_string())
+    })
 }
 
 async fn similar_response(
     state: ProductsState,
     headers: HeaderMap,
     lookup: ProductEmbeddingLookup,
-    language: common::language::domain::Language,
+    query: SimilarProductsQuery,
 ) -> Response {
     let metadata = request_metadata(&headers);
     let principal = match OptionalAuthExtractor::new(state.authenticator.as_ref())
@@ -121,7 +121,8 @@ async fn similar_response(
             &context,
             GetSimilarProductsRequest {
                 lookup: lookup.clone(),
-                language,
+                language: query.language.into(),
+                currency: query.currency.into(),
             },
         )
         .await
@@ -211,7 +212,8 @@ mod tests {
         GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
         PersonalizedProductDetailsView, PersonalizedProductSummary, ProductSummary,
-        SearchProductsError, SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
+        ProductSummaryPriceValuation, SearchProductsError, SearchProductsRequest,
+        SearchProductsResult, SearchProductsUseCase,
     };
     use std::collections::BTreeSet;
     use std::sync::Arc;
@@ -295,17 +297,22 @@ mod tests {
     }
 
     #[test]
-    fn should_parse_similar_products_language() {
-        assert!(matches!(
-            query_language(Some("language=de")),
-            Ok(Language::De)
-        ));
-        assert!(matches!(query_language(None), Ok(Language::En)));
+    fn should_parse_similar_products_currency_and_language() {
+        let query = parse_query(Some("language=de&currency=USD"));
+        assert!(
+            matches!(query, Ok(query) if query.language == LanguageData::De && query.currency == CurrencyData::Usd)
+        );
+
+        let default_query = parse_query(None);
+        assert!(
+            matches!(default_query, Ok(query) if query.language == LanguageData::En && query.currency == CurrencyData::Eur)
+        );
     }
 
     #[test]
-    fn should_reject_invalid_similar_products_language() {
-        assert!(query_language(Some("language=invalid")).is_err());
+    fn should_reject_invalid_similar_products_query() {
+        assert!(parse_query(Some("language=invalid")).is_err());
+        assert!(parse_query(Some("currency=invalid")).is_err());
     }
 
     #[tokio::test]
@@ -511,7 +518,11 @@ mod tests {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
                 }),
-                price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+                price_valuation: ProductSummaryPriceValuation::Current {
+                    fx_rate_id: common::fx_rate_id::FxRateId::new(),
+                    captured_at: OffsetDateTime::UNIX_EPOCH,
+                },
                 state: ProductState::Listed,
                 lifecycle: ProductLifecycle::Active,
                 url: Url::parse("https://shop.example/products/1")?,

@@ -265,7 +265,7 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
     assert_eq!(vec![products[0].0.clone()], product_ids(&first_body));
     assert_eq!(
         json!({ "amount": 50, "currency": "EUR" }),
-        first_body["items"][0]["item"]["price"]
+        first_body["items"][0]["item"]["displayPrice"]
     );
     assert_eq!(
         json!(original_fx_rate_id.to_string()),
@@ -288,7 +288,7 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
     assert_eq!(vec![products[1].0.clone()], product_ids(&second_body));
     assert_eq!(
         json!({ "amount": 50, "currency": "EUR" }),
-        second_body["items"][0]["item"]["price"]
+        second_body["items"][0]["item"]["displayPrice"]
     );
     assert_eq!(
         json!(original_fx_rate_id.to_string()),
@@ -335,7 +335,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
     assert_eq!(json!("SOLD"), before_body["items"][0]["item"]["state"]);
     assert_eq!(
         json!({ "amount": 40, "currency": "EUR" }),
-        before_body["items"][0]["item"]["price"]
+        before_body["items"][0]["item"]["displayPrice"]
     );
 
     capture_fx_snapshot(captured_at + Duration::days(1), 1_000_000).await;
@@ -346,7 +346,7 @@ async fn should_keep_sold_display_when_fx_snapshot_changes() {
     assert_eq!(vec![product_id], product_ids(&after_body));
     assert_eq!(
         json!({ "amount": 40, "currency": "EUR" }),
-        after_body["items"][0]["item"]["price"]
+        after_body["items"][0]["item"]["displayPrice"]
     );
 }
 
@@ -383,8 +383,14 @@ async fn should_return_matching_product_search_summary() {
         json!("Renaissance walnut cabinet"),
         body["items"][0]["item"]["title"]["text"]
     );
-    assert_eq!(json!("USD"), body["items"][0]["item"]["price"]["currency"]);
-    assert_eq!(json!(125), body["items"][0]["item"]["price"]["amount"]);
+    assert_eq!(
+        json!("USD"),
+        body["items"][0]["item"]["displayPrice"]["currency"]
+    );
+    assert_eq!(
+        json!(125),
+        body["items"][0]["item"]["displayPrice"]["amount"]
+    );
     assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["state"]);
     assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
     assert!(body["items"][0].get("userState").is_none());
@@ -510,7 +516,10 @@ async fn should_intersect_product_search_filters() {
         body["items"][0]["item"]["shopName"]
     );
     assert_eq!(json!("LISTED"), body["items"][0]["item"]["state"]);
-    assert_eq!(json!(550), body["items"][0]["item"]["price"]["amount"]);
+    assert_eq!(
+        json!(550),
+        body["items"][0]["item"]["displayPrice"]["amount"]
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]

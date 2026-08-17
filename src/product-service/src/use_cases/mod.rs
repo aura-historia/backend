@@ -62,6 +62,6 @@ pub use queries::get_similar_products::{
 };
 pub use queries::search_products::{
     PersonalizedProductSummary, ProductSearchCursor, ProductSearchReadResult, ProductSummary,
-    SearchProductsError, SearchProductsHandler, SearchProductsRequest, SearchProductsResult,
-    SearchProductsUseCase,
+    ProductSummaryPriceValuation, SearchProductsError, SearchProductsHandler,
+    SearchProductsRequest, SearchProductsResult, SearchProductsUseCase,
 };

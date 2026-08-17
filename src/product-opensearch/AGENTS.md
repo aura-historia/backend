@@ -30,7 +30,7 @@
 - Search documents do not escape this adapter.
 - Map OpenSearch payloads into `product-service` read models.
 - Preserve query-building tests for filters, cursors, canonical percolator semantics, pinned price conversion, and invalid sale documents.
-- Price sorting is unsupported; readers consume one compiled request. Active prices use its pinned plan and sold prices use exact indexed target values. Product projection writes use `products.projection_version` with OpenSearch external versioning; conflicts are stale no-ops.
+- Price sorting is unsupported. Product search and similar readers consume one compiled request. Active summary prices use its pinned plan and sold summaries use exact indexed target values; summary valuation metadata names that current or sale basis. Product projection writes use `products.projection_version` with OpenSearch external versioning; conflicts are stale no-ops.
 
 ## Verification
 

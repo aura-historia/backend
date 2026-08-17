@@ -156,7 +156,7 @@ fn redact_hidden_product_summary(
     product.shop_name = ShopName::from("Hidden");
     product.shop_slug_id = ShopSlugId::from("Hidden");
     product.title = Some(Localized::new(language, hidden_title(language)));
-    product.price = None;
+    product.display_price = None;
     product.state = ProductState::Unknown;
     product.lifecycle = ProductLifecycle::Active;
     product.url = hidden_url.clone();

@@ -1,23 +1,29 @@
 use crate::ports::{
     ProductEmbeddingLookup, ProductEmbeddingReadError, ProductEmbeddingReader,
-    ProductEmbeddingReaderFactory, ProductSimilarProductsReadError, ProductSimilarProductsReader,
-    ProductSimilarProductsRequest, ProductUserStateReader,
+    ProductEmbeddingReaderFactory, ProductPriceFilterPlan, ProductSimilarProductsReadError,
+    ProductSimilarProductsReader, ProductSimilarProductsRequest, ProductUserStateReader,
 };
 use crate::use_cases::PersonalizedProductSummary;
 use crate::use_cases::queries::product_summary_personalization::{
     ProductSummaryPersonalizationError, hydrate_product_summaries,
 };
-use common::error::boxed::BoxError;
+use common::currency::domain::Currency;
+use common::error::boxed::{BoxError, box_error};
 use common::language::domain::Language;
 use common::operation_context::{OperationContext, Principal};
 use common::personalized::Personalized;
 use common::transaction::{Transaction, UnitOfWork};
+
+use fxrate_service::ports::{
+    FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
+};
 use notification_service::ports::all_notifications_reader::AllNotificationsReader;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetSimilarProductsRequest {
     pub lookup: ProductEmbeddingLookup,
     pub language: Language,
+    pub currency: Currency,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +47,18 @@ pub enum GetSimilarProductsError {
     BeginTransactionFailed,
     #[error("failed to commit get similar products transaction")]
     CommitTransactionFailed,
+    #[error("no persisted FX snapshot is available for similar product pricing")]
+    PricingFxSnapshotMissing,
+    #[error("FX snapshot lookup is temporarily unavailable for similar product pricing")]
+    PricingFxSnapshotUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("persisted FX snapshot is invalid for similar product pricing")]
+    PricingFxSnapshotInvalid {
+        #[source]
+        source: BoxError,
+    },
     #[error("product user state query failed")]
     ProductUserStateQueryFailed {
         #[source]
@@ -74,18 +92,20 @@ pub trait GetSimilarProductsUseCase: Send + Sync {
     ) -> Result<GetSimilarProductsResult, GetSimilarProductsError>;
 }
 
-pub struct GetSimilarProductsHandler<U, E, S, P, N> {
+pub struct GetSimilarProductsHandler<U, E, F, S, P, N> {
     unit_of_work: U,
     embedding_reader: E,
+    fx_rates: F,
     similar_products_reader: S,
     user_states: P,
     notifications: N,
 }
 
-impl<U, E, S, P, N> GetSimilarProductsHandler<U, E, S, P, N> {
+impl<U, E, F, S, P, N> GetSimilarProductsHandler<U, E, F, S, P, N> {
     pub fn new(
         unit_of_work: U,
         embedding_reader: E,
+        fx_rates: F,
         similar_products_reader: S,
         user_states: P,
         notifications: N,
@@ -93,6 +113,7 @@ impl<U, E, S, P, N> GetSimilarProductsHandler<U, E, S, P, N> {
         Self {
             unit_of_work,
             embedding_reader,
+            fx_rates,
             similar_products_reader,
             user_states,
             notifications,
@@ -101,10 +122,11 @@ impl<U, E, S, P, N> GetSimilarProductsHandler<U, E, S, P, N> {
 }
 
 #[async_trait::async_trait]
-impl<U, E, S, P, N> GetSimilarProductsUseCase for GetSimilarProductsHandler<U, E, S, P, N>
+impl<U, E, F, S, P, N> GetSimilarProductsUseCase for GetSimilarProductsHandler<U, E, F, S, P, N>
 where
     U: UnitOfWork,
     E: ProductEmbeddingReaderFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
     S: ProductSimilarProductsReader,
     P: ProductUserStateReader,
     N: AllNotificationsReader,
@@ -143,6 +165,19 @@ where
             return Ok(GetSimilarProductsResult::EmbeddingPending);
         };
 
+        let snapshot = self
+            .fx_rates
+            .in_transaction(&mut tx)
+            .find_latest()
+            .await?
+            .ok_or(GetSimilarProductsError::PricingFxSnapshotMissing)?;
+        let price_filter_plan = ProductPriceFilterPlan::compile(snapshot, request.currency, None)
+            .map_err(|source| {
+            GetSimilarProductsError::PricingFxSnapshotInvalid {
+                source: box_error(source),
+            }
+        })?;
+
         tx.commit()
             .await
             .map_err(|_| GetSimilarProductsError::CommitTransactionFailed)?;
@@ -153,6 +188,7 @@ where
                 seed.product_id,
                 embedding,
                 request.language,
+                price_filter_plan,
             ))
             .await?;
         let mut products = products
@@ -199,6 +235,20 @@ impl From<ProductSimilarProductsReadError> for GetSimilarProductsError {
     }
 }
 
+impl From<FxRateSnapshotRepositoryError> for GetSimilarProductsError {
+    fn from(error: FxRateSnapshotRepositoryError) -> Self {
+        match error {
+            FxRateSnapshotRepositoryError::InsertFailed { source }
+            | FxRateSnapshotRepositoryError::ReadFailed { source } => {
+                Self::PricingFxSnapshotUnavailable { source }
+            }
+            FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
+                Self::PricingFxSnapshotInvalid { source }
+            }
+        }
+    }
+}
+
 impl From<ProductSummaryPersonalizationError> for GetSimilarProductsError {
     fn from(error: ProductSummaryPersonalizationError) -> Self {
         match error {
@@ -225,10 +275,11 @@ impl From<ProductSummaryPersonalizationError> for GetSimilarProductsError {
 mod tests {
     use super::*;
     use crate::ports::{ProductEmbedding, ProductSimilarProductsReadError};
-    use crate::use_cases::ProductSummary;
+    use crate::use_cases::{ProductSummary, ProductSummaryPriceValuation};
     use common::currency::domain::Currency;
     use common::error::boxed::box_error;
     use common::event_id::EventId;
+    use common::fx_rate_id::FxRateId;
     use common::localized::Localized;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::{MonetaryAmount, Price};
@@ -241,6 +292,7 @@ mod tests {
     use common::shop_slug_id::ShopSlugId;
     use common::shops_product_id::ShopsProductId;
     use common::transaction::TransactionError;
+    use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
     use notification_service::ports::all_notifications_reader::{
         AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
@@ -249,6 +301,7 @@ mod tests {
     use product_core::user_state::ProductUserState;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
+    use strum::IntoEnumIterator;
     use time::OffsetDateTime;
     use url::Url;
 
@@ -283,6 +336,11 @@ mod tests {
     struct FakeEmbeddingReader {
         state: SharedState,
     }
+
+    #[derive(Clone, Copy)]
+    struct FakeFxRateSnapshotRepositoryFactory;
+
+    struct FakeFxRateSnapshotRepository;
 
     #[derive(Clone)]
     struct FakeSimilarProductsReader {
@@ -337,6 +395,66 @@ mod tests {
                 Ok(())
             }
         }
+    }
+
+    impl FxRateSnapshotRepositoryFactory<FakeTx> for FakeFxRateSnapshotRepositoryFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl FxRateSnapshotRepository + 'tx {
+            FakeFxRateSnapshotRepository
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FxRateSnapshotRepository for FakeFxRateSnapshotRepository {
+        async fn find_latest(
+            &mut self,
+        ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Some(test_fx_snapshot()))
+        }
+
+        async fn find_latest_at_or_before(
+            &mut self,
+            _timestamp: OffsetDateTime,
+        ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Some(test_fx_snapshot()))
+        }
+
+        async fn find_by_id(
+            &mut self,
+            _id: FxRateId,
+        ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Some(test_fx_snapshot()))
+        }
+
+        async fn find_by_ids(
+            &mut self,
+            _ids: &[FxRateId],
+        ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(vec![test_fx_snapshot()])
+        }
+
+        async fn insert(
+            &mut self,
+            _snapshot: &NewFxRateSnapshot,
+            _source_event_id: &str,
+        ) -> Result<fxrate_service::ports::FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>
+        {
+            Ok(fxrate_service::ports::FxRateSnapshotInsertOutcome::Duplicate)
+        }
+    }
+
+    fn test_fx_snapshot() -> fxrate_core::FxRateSnapshot {
+        NewFxRateSnapshot::capture_eur(
+            FxRateId::new(),
+            OffsetDateTime::UNIX_EPOCH,
+            FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| FxRateQuote::new(currency, FX_RATE_SCALE)),
+        )
+        .and_then(|snapshot| Ok(snapshot.into_persisted(1_i64.try_into()?)))
+        .unwrap_or_else(|error| panic!("test FX snapshot must be valid: {error}"))
     }
 
     impl ProductEmbeddingReaderFactory<FakeTx> for FakeEmbeddingReaderFactory {
@@ -421,6 +539,7 @@ mod tests {
     ) -> GetSimilarProductsHandler<
         FakeUnitOfWork,
         FakeEmbeddingReaderFactory,
+        FakeFxRateSnapshotRepositoryFactory,
         FakeSimilarProductsReader,
         EmptyUserStateReader,
         EmptyNotificationsReader,
@@ -432,6 +551,7 @@ mod tests {
             FakeEmbeddingReaderFactory {
                 state: Arc::clone(state),
             },
+            FakeFxRateSnapshotRepositoryFactory,
             FakeSimilarProductsReader {
                 state: Arc::clone(state),
             },
@@ -467,7 +587,11 @@ mod tests {
             shop_name: ShopName::from("Shop"),
             shop_slug_id: ShopSlugId::from("shop"),
             title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
-            price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+            display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
+            price_valuation: ProductSummaryPriceValuation::Current {
+                fx_rate_id: FxRateId::new(),
+                captured_at: OffsetDateTime::UNIX_EPOCH,
+            },
             state: ProductState::Listed,
             lifecycle: ProductLifecycle::Active,
             url: Url::parse("https://shop.example/products/1")?,
@@ -481,6 +605,7 @@ mod tests {
         GetSimilarProductsRequest {
             lookup: ProductEmbeddingLookup::ById(ProductId::new()),
             language: Language::En,
+            currency: Currency::Eur,
         }
     }
 
@@ -562,6 +687,7 @@ mod tests {
             FakeEmbeddingReaderFactory {
                 state: Arc::clone(&state),
             },
+            FakeFxRateSnapshotRepositoryFactory,
             FakeSimilarProductsReader {
                 state: Arc::clone(&state),
             },

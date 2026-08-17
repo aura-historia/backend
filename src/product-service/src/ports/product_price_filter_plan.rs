@@ -68,6 +68,10 @@ impl ProductPriceFilterPlan {
         self.has_price_filter
     }
 
+    pub fn captured_at(&self) -> time::OffsetDateTime {
+        self.snapshot.captured_at()
+    }
+
     pub fn convert_active_source_amount(
         &self,
         source_currency: Currency,
