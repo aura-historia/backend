@@ -527,8 +527,6 @@ pub(crate) fn product_response(
     view: PersonalizedProductDetailsView,
     principal: &Principal,
 ) -> Response {
-    let event_id = view.item.event_id;
-    let updated = view.item.updated;
     let state = view.item.state;
     let content_language = view
         .item
@@ -553,12 +551,6 @@ pub(crate) fn product_response(
     );
     if let Some(language) = content_language {
         headers.insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(language));
-    }
-    if let Ok(value) = HeaderValue::from_str(&event_id.to_string()) {
-        headers.insert(header::ETAG, value);
-    }
-    if let Ok(value) = HeaderValue::from_str(&httpdate::fmt_http_date(updated.into())) {
-        headers.insert(header::LAST_MODIFIED, value);
     }
     response
 }

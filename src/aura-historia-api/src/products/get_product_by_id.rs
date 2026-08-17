@@ -195,7 +195,6 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let view = product_details_view()?;
         let product_id = view.item.product_id;
-        let event_id = view.item.event_id;
         let (app, calls) = app(view, false, None);
 
         let response = app
@@ -208,11 +207,8 @@ mod tests {
             response.headers()[header::CACHE_CONTROL]
         );
         assert_eq!("en", response.headers()[header::CONTENT_LANGUAGE]);
-        assert_eq!(event_id.to_string(), response.headers()[header::ETAG]);
-        assert_eq!(
-            "Thu, 01 Jan 1970 00:00:00 GMT",
-            response.headers()[header::LAST_MODIFIED]
-        );
+        assert!(response.headers().get(header::ETAG).is_none());
+        assert!(response.headers().get(header::LAST_MODIFIED).is_none());
         let body = body_json(response).await?;
         assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
         assert!(body["item"].get("createdBy").is_none());

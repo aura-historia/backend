@@ -139,8 +139,6 @@ pub enum ProductPercolationDocumentError {
         valuation_fx_rate_id: FxRateId,
         snapshot_fx_rate_id: FxRateId,
     },
-    #[error("sale valuation cannot be projected without a native source price")]
-    MissingSalePrice,
     #[error("sale FX snapshot cannot convert the native source price")]
     InvalidSaleSnapshot {
         #[source]
@@ -334,6 +332,9 @@ fn sale_projection(
         }
         (None, None) => Err(ProductPercolationDocumentError::MissingSaleValuation),
         (None, Some(_)) => Err(ProductPercolationDocumentError::UnexpectedSaleSnapshot),
+        (Some(valuation), None) if product.pricing.price.is_none() => {
+            Ok((None, Some(valuation.fx_rate_id), Some(valuation.sold_at)))
+        }
         (Some(_), None) => Err(ProductPercolationDocumentError::MissingSaleSnapshot),
         (Some(valuation), Some(snapshot)) if valuation.fx_rate_id != snapshot.id() => {
             Err(ProductPercolationDocumentError::SaleSnapshotMismatch {
@@ -342,13 +343,11 @@ fn sale_projection(
             })
         }
         (Some(valuation), Some(snapshot)) => Ok((
-            Some(sale_prices(
-                snapshot,
-                product
-                    .pricing
-                    .price
-                    .ok_or(ProductPercolationDocumentError::MissingSalePrice)?,
-            )?),
+            product
+                .pricing
+                .price
+                .map(|price| sale_prices(snapshot, price))
+                .transpose()?,
             Some(valuation.fx_rate_id),
             Some(valuation.sold_at),
         )),
@@ -560,6 +559,33 @@ mod tests {
             persistent.get("salePrices"),
             temporary.get("priceByCurrency"),
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_project_sold_product_without_main_price_or_sale_prices()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut product = source()?;
+        product.state = ProductState::Sold;
+        product.sale_valuation = Some(ProductSaleValuation {
+            fx_rate_id: FxRateId::new(),
+            sold_at: OffsetDateTime::UNIX_EPOCH,
+        });
+
+        let document = serde_json::to_value(product_document(&product, None)?)?;
+
+        assert!(document.get("sourcePrice").is_none());
+        assert!(document.get("salePrices").is_none());
+        assert_eq!(
+            product
+                .sale_valuation
+                .map(|valuation| valuation.fx_rate_id.to_string()),
+            document
+                .get("saleFxRateId")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        );
+        assert!(document.get("soldAt").is_some());
         Ok(())
     }
 

@@ -184,6 +184,9 @@ where
     let Some(valuation) = source.sale_valuation else {
         return Ok(None);
     };
+    if source.pricing.price.is_none() {
+        return Ok(None);
+    }
     fx_rates
         .in_transaction(tx)
         .find_by_id(valuation.fx_rate_id)
@@ -561,6 +564,10 @@ mod tests {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
+        source.pricing.price = Some(common::price::domain::Price::new(
+            100_u64.into(),
+            Currency::Eur,
+        ));
         source.sale_valuation = Some(ProductSaleValuation {
             sold_at: time::OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: snapshot.id(),
@@ -583,11 +590,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_project_sold_source_without_price_without_fx_lookup()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state();
+        let mut source = source()?;
+        source.sale_valuation = Some(ProductSaleValuation {
+            sold_at: time::OffsetDateTime::UNIX_EPOCH,
+            fx_rate_id: FxRateId::new(),
+        });
+        let command = command(&source);
+        lock_state(&state).source_result = Some(Ok(Some(source.clone())));
+
+        let result = handler(&state).execute(command).await?;
+
+        assert_eq!(ProjectProductOutcome::Applied, result.outcome);
+        let state = lock_state(&state);
+        assert!(state.fx_lookup_ids.is_empty());
+        assert_eq!(vec![(source.product_id, None)], state.upserts);
+        assert_eq!(vec![1], state.write_commit_counts);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_not_commit_or_write_when_sale_fx_snapshot_is_missing()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
+        source.pricing.price = Some(common::price::domain::Price::new(
+            100_u64.into(),
+            Currency::Eur,
+        ));
         source.sale_valuation = Some(ProductSaleValuation {
             sold_at: time::OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: snapshot.id(),
@@ -618,6 +651,10 @@ mod tests {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
+        source.pricing.price = Some(common::price::domain::Price::new(
+            100_u64.into(),
+            Currency::Eur,
+        ));
         source.sale_valuation = Some(ProductSaleValuation {
             sold_at: time::OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: snapshot.id(),

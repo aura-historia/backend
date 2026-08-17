@@ -75,7 +75,7 @@ impl SalePricesDocument {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum ProductDocumentValidationError {
-    #[error("product sale projection fields must be all present or all absent")]
+    #[error("product sale projection metadata must be complete when present")]
     PartialSaleProjection,
 }
 
@@ -165,7 +165,7 @@ impl ProductDocument {
 
     pub(crate) fn validate(&self) -> Result<(), ProductDocumentValidationError> {
         match (&self.sale_prices, self.sale_fx_rate_id, self.sold_at) {
-            (None, None, None) | (Some(_), Some(_), Some(_)) => Ok(()),
+            (None, None, None) | (None, Some(_), Some(_)) | (Some(_), Some(_), Some(_)) => Ok(()),
             _ => Err(ProductDocumentValidationError::PartialSaleProjection),
         }
     }
@@ -267,6 +267,17 @@ mod tests {
     }
 
     #[test]
+    fn should_allow_sale_metadata_without_sale_prices() -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        document.source_price = None;
+        document.sale_fx_rate_id = Some(FxRateId::new());
+        document.sold_at = Some(OffsetDateTime::UNIX_EPOCH);
+
+        assert_eq!(Ok(()), document.validate());
+        Ok(())
+    }
+
+    #[test]
     fn should_reject_partial_sale_projection() -> Result<(), Box<dyn std::error::Error>> {
         let mut document = document()?;
         document.sale_fx_rate_id = Some(FxRateId::new());
@@ -275,6 +286,18 @@ mod tests {
             Err(ProductDocumentValidationError::PartialSaleProjection),
             document.validate()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_incomplete_sale_prices_during_deserialization()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut value = serde_json::to_value(document()?)?;
+        value["salePrices"] = serde_json::json!({ "eur": 100 });
+        value["saleFxRateId"] = serde_json::json!(FxRateId::new());
+        value["soldAt"] = serde_json::json!("1970-01-01T00:00:00Z");
+
+        assert!(serde_json::from_value::<ProductDocument>(value).is_err());
         Ok(())
     }
 }

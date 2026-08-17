@@ -228,6 +228,66 @@ async fn should_project_sold_product_with_all_sale_price_currencies() {
         .unwrap_or_else(|error| panic!("worker cleanup or test failed: {error}"));
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
+async fn should_project_sold_product_without_main_price_then_add_sale_prices_when_corrected() {
+    let worker = ProductOpenSearchWorker::start().await;
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let fx_rate_id = insert_equal_rate_snapshot(&worker.pool).await?;
+        let fixture =
+            insert_sold_product_without_main_price_with_event(&worker.pool, fx_rate_id).await?;
+
+        let initial = wait_for_product_response(fixture.product_id).await?;
+        let initial_document = initial
+            .get("_source")
+            .ok_or_else(|| std::io::Error::other("projected Product response has no _source"))?;
+        assert!(initial_document.get("sourcePrice").is_none());
+        assert!(initial_document.get("salePrices").is_none());
+        assert_eq!(
+            Some(fx_rate_id.to_string().as_str()),
+            initial_document.get("saleFxRateId").and_then(Value::as_str)
+        );
+        assert!(
+            initial_document
+                .get("soldAt")
+                .and_then(Value::as_str)
+                .is_some()
+        );
+        assert!(initial_document.get("priceEstimateMin").is_none());
+        assert!(initial_document.get("priceEstimateMax").is_none());
+
+        let corrected_event_id =
+            correct_sold_product_main_price(&worker.pool, fixture.product_id).await?;
+        let corrected = wait_for_product_event(fixture.product_id, corrected_event_id).await?;
+        let corrected_document = corrected
+            .get("_source")
+            .ok_or_else(|| std::io::Error::other("corrected Product response has no _source"))?;
+        assert_eq!(
+            Some(&json!({ "amount": 12_345, "currency": "EUR" })),
+            corrected_document.get("sourcePrice")
+        );
+        let sale_prices = corrected_document
+            .get("salePrices")
+            .ok_or_else(|| std::io::Error::other("corrected sold Product has no salePrices"))?;
+        for currency in [
+            "eur", "gbp", "usd", "aud", "cad", "nzd", "cny", "brl", "pln", "try", "jpy", "czk",
+            "rub", "aed", "sar", "hkd", "sgd", "chf",
+        ] {
+            let expected = if currency == "jpy" { 123 } else { 12_345 };
+            assert_eq!(
+                Some(expected),
+                sale_prices.get(currency).and_then(Value::as_i64)
+            );
+        }
+        Ok(())
+    }
+    .await;
+
+    worker
+        .finish(result)
+        .await
+        .unwrap_or_else(|error| panic!("worker cleanup or test failed: {error}"));
+}
+
 struct ProductFixture {
     product_id: ProductId,
     event_id: EventId,
@@ -435,6 +495,52 @@ async fn insert_sold_product_with_event(
         product_id,
         event_id,
     })
+}
+
+async fn insert_sold_product_without_main_price_with_event(
+    pool: &sqlx::PgPool,
+    fx_rate_id: uuid::Uuid,
+) -> Result<ProductFixture, sqlx::Error> {
+    let product_id = ProductId::new();
+    let event_id = EventId::new();
+    let shop_id = uuid::Uuid::new_v4();
+    let mut tx = pool.begin().await?;
+    insert_shop(&mut tx, shop_id, "sold-no-price-os").await?;
+    sqlx::query(
+        "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, title_text, title_language, price_estimate_min_amount, price_estimate_min_currency, price_estimate_max_amount, price_estimate_max_currency, sale_fx_rate_id, sold_at, state, lifecycle, url, product_images, projection_version) VALUES ($1, $2, $3, $4, $4, $5, 'Sold Product OpenSearch chair without main price', 'en', 10000, 'EUR', 15000, 'EUR', $6, now(), 'SOLD', 'ACTIVE', 'https://example.test/products/sold-no-price', '[]', 17)",
+    )
+    .bind(uuid::Uuid::from(product_id))
+    .bind(product_slug("sold-no-price-os", product_id))
+    .bind(uuid::Uuid::from(event_id))
+    .bind(shop_id)
+    .bind(product_id.to_string())
+    .bind(fx_rate_id)
+    .execute(&mut *tx)
+    .await?;
+    insert_product_event(&mut tx, product_id, event_id).await?;
+    tx.commit().await?;
+    Ok(ProductFixture {
+        product_id,
+        event_id,
+    })
+}
+
+async fn correct_sold_product_main_price(
+    pool: &sqlx::PgPool,
+    product_id: ProductId,
+) -> Result<EventId, sqlx::Error> {
+    let event_id = EventId::new();
+    let mut tx = pool.begin().await?;
+    insert_product_event(&mut tx, product_id, event_id).await?;
+    sqlx::query(
+        "UPDATE products SET event_id = $1, price_amount = 12345, price_currency = 'EUR', projection_version = projection_version + 1, updated = now() WHERE product_id = $2",
+    )
+    .bind(uuid::Uuid::from(event_id))
+    .bind(uuid::Uuid::from(product_id))
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(event_id)
 }
 
 fn product_slug(prefix: &str, product_id: ProductId) -> String {

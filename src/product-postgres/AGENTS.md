@@ -12,7 +12,7 @@
 - The ordinary Product user-state reader resolves an OpenSearch result page in one set-based query: profile consent/tier, watchlist, selected search-filter match, and Free-tier monthly hide state.
 - Keeps SQL rows, SQL, mappings, repositories, event stores, and reader internals private.
 - Product row and `product_events` append bind to caller-owned transactions through service factory ports. The Product event-history reader returns domain events only.
-- Product repository writes return storage-neutral persisted product state. Product source price columns contain no FX ID; `sale_fx_rate_id` plus `sold_at` persist the immutable sale valuation. Canonical FX storage and transactional latest-snapshot reads are owned by `fxrate-postgres`.
+- Product repository writes return storage-neutral persisted product state. Product source price columns contain no FX ID; `sale_fx_rate_id` plus `sold_at` persist the immutable sale valuation and are allowed only for `SOLD` or `REMOVED` state. Canonical FX storage and transactional latest-snapshot reads are owned by `fxrate-postgres`.
 - Batch watchlist details use a tie-safe `created DESC, product_id ASC` cursor page with one joined query.
 - Real Postgres integration tests live under `tests/` by implementation file, with helpers inline per file.
 

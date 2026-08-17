@@ -249,13 +249,9 @@ fn resolve_price(
         .map_err(|_| ProductSearchReadError::ProductSearchReadModelInvalid)?;
 
     if document.has_sale_valuation() {
-        let amount = document
+        return Ok(document
             .sale_price(price_filter.target_currency)
-            .ok_or(ProductSearchReadError::ProductSearchReadModelInvalid)?;
-        return Ok(Some(Price::new(
-            amount.into(),
-            price_filter.target_currency,
-        )));
+            .map(|amount| Price::new(amount.into(), price_filter.target_currency)));
     }
 
     document
@@ -1096,6 +1092,33 @@ mod tests {
         assert_eq!(
             price,
             Some(Price::new(MonetaryAmount::from(777_u64), Currency::Usd))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_map_sold_document_without_sale_prices_to_sale_valuation_and_no_display_price()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut document = document()?;
+        let fx_rate_id = FxRateId::new();
+        document.source_price = None;
+        document.sale_fx_rate_id = Some(fx_rate_id);
+        document.sold_at = Some(OffsetDateTime::UNIX_EPOCH);
+
+        let summary = map_summary_fields(
+            document.clone(),
+            Language::En,
+            resolve_price(&document, &price_filter(Currency::Usd, None)?)?,
+            price_valuation(&document, &price_filter(Currency::Usd, None)?)?,
+        )?;
+
+        assert_eq!(None, summary.display_price);
+        assert_eq!(
+            ProductSummaryPriceValuation::Sale {
+                fx_rate_id,
+                sold_at: OffsetDateTime::UNIX_EPOCH,
+            },
+            summary.price_valuation
         );
         Ok(())
     }

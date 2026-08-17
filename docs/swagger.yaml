@@ -963,7 +963,11 @@ paths:
 
         `pricing.source` preserves seller-supplied source amounts and currencies. `pricing.display` contains
         HalfUp-converted amounts in the requested currency, and `pricing.valuation` identifies the persisted
-        snapshot used. Currency defaults to `EUR`.
+        snapshot used. A sold Product may have no main price; then display prices are omitted while its immutable
+        `SALE` valuation remains present. Currency defaults to `EUR`.
+
+        Anonymous responses use freshness caching only: no `ETag` or `Last-Modified` validator is emitted because
+        current display pricing may change when the selected persisted FX snapshot changes.
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
         adds optional top-level `userState`; authenticated responses are not cached.
@@ -1008,18 +1012,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/LanguageData"
               example: "de"
-            ETag:
-              description: The event ID of the product for caching
-              schema:
-                type: string
-                format: uuid
-              example: '"550e8400-e29b-41d4-a716-446655440001"'
-            Last-Modified:
-              description: When the product was last updated
-              schema:
-                type: string
-                format: http-date
-              example: "Wed, 01 Jan 2020 00:00:00 GMT"
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -1072,7 +1064,11 @@ paths:
 
         `pricing.source` preserves seller-supplied source amounts and currencies. `pricing.display` contains
         HalfUp-converted amounts in the requested currency, and `pricing.valuation` identifies the persisted
-        snapshot used. Currency defaults to `EUR`.
+        snapshot used. A sold Product may have no main price; then display prices are omitted while its immutable
+        `SALE` valuation remains present. Currency defaults to `EUR`.
+
+        Anonymous responses use freshness caching only: no `ETag` or `Last-Modified` validator is emitted because
+        current display pricing may change when the selected persisted FX snapshot changes.
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
         adds optional top-level `userState`; authenticated responses are not cached.
@@ -1132,18 +1128,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/LanguageData"
               example: "de"
-            ETag:
-              description: The event ID of the product for caching
-              schema:
-                type: string
-                format: uuid
-              example: '"550e8400-e29b-41d4-a716-446655440001"'
-            Last-Modified:
-              description: When the product was last updated
-              schema:
-                type: string
-                format: http-date
-              example: "Wed, 01 Jan 2020 00:00:00 GMT"
+
             Access-Control-Allow-Origin:
               description: CORS header
               schema:

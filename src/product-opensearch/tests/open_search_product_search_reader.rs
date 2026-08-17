@@ -46,7 +46,10 @@ async fn should_search_active_and_sold_products_with_one_pinned_price_plan_impl(
                 max: Some(MonetaryAmount::from(110_u64)),
             },
         ),
-        price_filter()?,
+        price_filter(Some(RangeQuery {
+            min: Some(MonetaryAmount::from(110_u64)),
+            max: Some(MonetaryAmount::from(110_u64)),
+        }))?,
     )
     .await?;
 
@@ -59,6 +62,57 @@ async fn should_search_active_and_sold_products_with_one_pinned_price_plan_impl(
                 Currency::Usd,
             ))
     }));
+    Ok(())
+}
+
+#[aura_integration_test(services = [OpenSearch()])]
+async fn should_return_sold_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search()
+ {
+    assert_ok(
+        should_return_sold_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search_impl()
+            .await,
+    );
+}
+
+async fn should_return_sold_product_without_main_price_for_non_price_search_and_exclude_it_from_price_search_impl()
+-> TestResult {
+    let sold_without_price =
+        product_document(ProductSeed::sold_without_main_price("sold-no-price"))?;
+    let product_id = sold_without_price.document["productId"]
+        .as_str()
+        .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "productId missing"))?
+        .to_owned();
+    index_products([sold_without_price.document]).await?;
+
+    let non_price_result = search(
+        ProductSearch::new(common::language::domain::Language::En, Currency::Usd),
+        price_filter(None)?,
+    )
+    .await?;
+    assert_eq!(Some(1), non_price_result.total);
+    assert_eq!(1, non_price_result.items.len());
+    assert_eq!(product_id, non_price_result.items[0].product_id.to_string());
+    assert_eq!(None, non_price_result.items[0].display_price);
+    assert!(matches!(
+        non_price_result.items[0].price_valuation,
+        product_service::use_cases::ProductSummaryPriceValuation::Sale { .. }
+    ));
+
+    let price_result = search(
+        ProductSearch::new(common::language::domain::Language::En, Currency::Usd).with_price_query(
+            RangeQuery {
+                min: Some(MonetaryAmount::from(1_u64)),
+                max: Some(MonetaryAmount::from(1_000_u64)),
+            },
+        ),
+        price_filter(Some(RangeQuery {
+            min: Some(MonetaryAmount::from(1_u64)),
+            max: Some(MonetaryAmount::from(1_000_u64)),
+        }))?,
+    )
+    .await?;
+    assert_eq!(Some(0), price_result.total);
+    assert!(price_result.items.is_empty());
     Ok(())
 }
 
@@ -84,7 +138,9 @@ async fn search(
         .await
 }
 
-fn price_filter() -> Result<ProductPriceFilterPlan, Box<dyn std::error::Error + Send + Sync>> {
+fn price_filter(
+    range: Option<RangeQuery<MonetaryAmount>>,
+) -> Result<ProductPriceFilterPlan, Box<dyn std::error::Error + Send + Sync>> {
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
 
     let snapshot = NewFxRateSnapshot::capture_eur(
@@ -107,10 +163,7 @@ fn price_filter() -> Result<ProductPriceFilterPlan, Box<dyn std::error::Error + 
     Ok(ProductPriceFilterPlan::compile(
         snapshot,
         Currency::Usd,
-        Some(RangeQuery {
-            min: Some(MonetaryAmount::from(110_u64)),
-            max: Some(MonetaryAmount::from(110_u64)),
-        }),
+        range,
     )?)
 }
 
@@ -154,6 +207,7 @@ struct ProductSeed {
     product_slug_id: ProductSlugId,
     source_price: Option<u64>,
     sale_price: Option<u64>,
+    has_sale_valuation: bool,
 }
 
 impl ProductSeed {
@@ -163,6 +217,7 @@ impl ProductSeed {
             product_slug_id: ProductSlugId::from(slug),
             source_price: Some(source_price),
             sale_price: None,
+            has_sale_valuation: false,
         }
     }
 
@@ -172,6 +227,17 @@ impl ProductSeed {
             product_slug_id: ProductSlugId::from(slug),
             source_price: None,
             sale_price: Some(sale_price),
+            has_sale_valuation: true,
+        }
+    }
+
+    fn sold_without_main_price(slug: &str) -> Self {
+        Self {
+            product_id: ProductId::new(),
+            product_slug_id: ProductSlugId::from(slug),
+            source_price: None,
+            sale_price: None,
+            has_sale_valuation: true,
         }
     }
 }
@@ -192,8 +258,8 @@ fn product_document(seed: ProductSeed) -> Result<IndexedProduct, time::error::Fo
         })
     });
     let sold_at = seed
-        .sale_price
-        .map(|_| OffsetDateTime::UNIX_EPOCH.format(&Rfc3339))
+        .has_sale_valuation
+        .then(|| OffsetDateTime::UNIX_EPOCH.format(&Rfc3339))
         .transpose()?;
     let document = json!({
         "productId": seed.product_id,
@@ -211,9 +277,9 @@ fn product_document(seed: ProductSeed) -> Result<IndexedProduct, time::error::Fo
         "titleEn": "Blue vase",
         "sourcePrice": seed.source_price.map(|amount| json!({ "amount": amount, "currency": "EUR" })),
         "salePrices": sale_prices,
-        "saleFxRateId": seed.sale_price.map(|_| FxRateId::new()),
+        "saleFxRateId": seed.has_sale_valuation.then(FxRateId::new),
         "soldAt": sold_at,
-        "state": "AVAILABLE",
+        "state": if seed.has_sale_valuation { "SOLD" } else { "AVAILABLE" },
         "lifecycle": "ACTIVE",
         "url": format!("https://shop.example/products/{}", seed.product_slug_id),
         "viewUrl": format!("https://aura.example/products/{}", seed.product_slug_id),

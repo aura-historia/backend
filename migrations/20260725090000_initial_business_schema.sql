@@ -184,6 +184,7 @@ CREATE TABLE products (
     CONSTRAINT products_price_estimate_min_currency_check CHECK (price_estimate_min_currency IS NULL OR price_estimate_min_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT products_price_estimate_max_currency_check CHECK (price_estimate_max_currency IS NULL OR price_estimate_max_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT products_sale_valuation_pair_check CHECK ((sale_fx_rate_id IS NULL) = (sold_at IS NULL)),
+    CONSTRAINT products_sale_valuation_state_check CHECK (sale_fx_rate_id IS NULL OR state IN ('SOLD', 'REMOVED')),
     CONSTRAINT products_sold_sale_valuation_check CHECK (state <> 'SOLD' OR sale_fx_rate_id IS NOT NULL),
     CONSTRAINT products_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
     CONSTRAINT products_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
