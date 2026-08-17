@@ -460,7 +460,7 @@ pub async fn seed_product() -> ProductId {
     product_id
 }
 
-async fn seed_current_fx_snapshot(pool: &sqlx::PgPool) {
+pub(super) async fn seed_current_fx_snapshot(pool: &sqlx::PgPool) {
     let fx_rate_id = FxRateId::new();
     if let Err(error) = sqlx::query(
         "INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id) VALUES ($1, now(), $2, $3)",

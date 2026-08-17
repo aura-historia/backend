@@ -2,7 +2,7 @@ mod api_support;
 
 use api_support::{
     assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
-    seed_product,
+    seed_current_fx_snapshot, seed_product,
 };
 use opensearch::IndexParts;
 use serde_json::{Value, json};
@@ -255,7 +255,7 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
     ];
     index_search_documents(products.iter().map(|(_, document)| document.clone())).await;
 
-    let captured_at = OffsetDateTime::now_utc() + Duration::days(365);
+    let captured_at = OffsetDateTime::now_utc();
     let original_fx_rate_id = capture_fx_snapshot(captured_at, 2_000_000).await;
     let first_page_path = "/api/v1/products?language=en&currency=EUR&productQuery[0]=Pinned%20FX%20cursor&price[min]=50&price[max]=50&sort=created&order=asc&size=1".to_owned();
     let (first_response, _) = get_json(first_page_path.clone()).await;
@@ -274,7 +274,7 @@ async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_s
 
     let search_after = serde_json::to_string(&first_body["searchAfter"])
         .unwrap_or_else(|error| panic!("failed to encode search cursor: {error}"));
-    let newer_fx_rate_id = capture_fx_snapshot(captured_at + Duration::days(1), 1_000_000).await;
+    let newer_fx_rate_id = capture_fx_snapshot(OffsetDateTime::now_utc(), 1_000_000).await;
     assert_ne!(original_fx_rate_id, newer_fx_rate_id);
 
     let (second_response, _) = get_json(format!(
@@ -730,6 +730,8 @@ async fn capture_fx_snapshot(captured_at: OffsetDateTime, usd_units_per_eur: i64
 }
 
 async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
+    let pool = get_postgres_client().await;
+    seed_current_fx_snapshot(&pool).await;
     let client = get_opensearch_client().await;
     for document in documents {
         let product_id = document["productId"]
