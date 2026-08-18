@@ -36,5 +36,6 @@
 
 ## Child DOX Index
 
+- `common-decomposition.md` — `common` migration inventory and guard contract.
 - `storage.md` — canonical storage contracts.
 - `events/flow.md` — durable event and scheduled-flow contracts.

@@ -9,6 +9,7 @@ on:
       - "Cargo.lock"
       - "depgraph-rules.toml"
       - "sonar-project.properties"
+      - "scripts/common-decomposition/**"
       - "src/**"
       - "infra/**"
       - "mjml/**"
@@ -19,6 +20,7 @@ on:
       - "Cargo.lock"
       - "depgraph-rules.toml"
       - "sonar-project.properties"
+      - "scripts/common-decomposition/**"
       - "src/**"
       - "infra/**"
       - "opensearch/**"
@@ -67,6 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -77,6 +81,9 @@ jobs:
 
       - name: Format check
         run: cargo fmt --all -- --check
+
+      - name: Check common decomposition baseline
+        run: python3 scripts/common-decomposition/check_baseline.py --base-ref HEAD^
 
       - name: Install dependency graph checker
         run: cargo install cargo-depgraph-check --version 0.1.0 --locked
