@@ -5,6 +5,8 @@ pub(crate) mod image_validation;
 pub(crate) mod pipeline;
 pub(crate) mod recovery;
 pub mod service;
+
+pub use extraction::schema_candidates::rank_applicable_schema_indices;
 pub(crate) mod util;
 
 #[cfg(test)]

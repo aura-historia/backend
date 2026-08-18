@@ -11,6 +11,7 @@ use crawler::scraper::normalization::state::{ProductStateMappingRecord, StateMap
 use crawler::scraper::normalization::state_mapping_service::{
     ProductStateMappingService, StateMappingServiceError,
 };
+use crawler::scraper::scraper_service::rank_applicable_schema_indices;
 use product::dynamodb::product_state_record::ProductStateRecord;
 use scraper::Html;
 use time::OffsetDateTime;
@@ -66,6 +67,12 @@ pub fn assert_extraction(
     expected: &RawExpectation,
 ) {
     let html = Html::parse_document(html_src);
+    let ranked_indices = rank_applicable_schema_indices(schemas, html_src);
+    assert_eq!(
+        ranked_indices.first().copied(),
+        Some(schema_index),
+        "production schema ranking"
+    );
     let results: Vec<_> = schemas.iter().map(|schema| schema.apply(&html)).collect();
     let result: RawExtractedProduct = results
         .into_iter()

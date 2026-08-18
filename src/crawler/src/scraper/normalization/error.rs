@@ -2,7 +2,8 @@ use crate::scraper::normalization::state_mapping_service::StateMappingServiceErr
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NormalizationFailureScope {
-    CandidateData,
+    CachedSchemaFallback,
+    Terminal,
     External,
 }
 
@@ -82,21 +83,21 @@ impl NormalizationError {
     pub(crate) const fn failure_scope(&self) -> NormalizationFailureScope {
         match self {
             Self::StateMappingError(_) => NormalizationFailureScope::External,
-            Self::ShopsProductIdEmpty
-            | Self::TitleEmpty
+            Self::TitleEmpty
             | Self::TitleUnknownLanguage { .. }
-            | Self::DescriptionUnknownLanguage { .. }
             | Self::PriceUnknownCurrency { .. }
             | Self::PriceParseError { .. }
             | Self::PriceEstimateMinUnknownCurrency { .. }
             | Self::PriceEstimateMinParseError { .. }
             | Self::PriceEstimateMaxUnknownCurrency { .. }
             | Self::PriceEstimateMaxParseError { .. }
+            | Self::StateTextTooLong { .. } => NormalizationFailureScope::CachedSchemaFallback,
+            Self::ShopsProductIdEmpty
+            | Self::DescriptionUnknownLanguage { .. }
             | Self::InvalidImageUrl { .. }
             | Self::NoValidImages { .. }
             | Self::AuctionStartParseError { .. }
-            | Self::AuctionEndParseError { .. }
-            | Self::StateTextTooLong { .. } => NormalizationFailureScope::CandidateData,
+            | Self::AuctionEndParseError { .. } => NormalizationFailureScope::Terminal,
         }
     }
 }

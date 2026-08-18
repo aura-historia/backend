@@ -3,20 +3,21 @@ use crate::scraper::css_selector::product_schema::ApplySchemaError;
 use crate::scraper::css_selector::rule::ExtractionError;
 use crate::scraper::normalization::error::{NormalizationError, NormalizationFailureScope};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
+use crate::scraper::scraper_service::image_validation::{ImageValidation, ImageValidator};
 
 #[test]
-fn should_classify_no_valid_images_as_candidate_data_failure() {
+fn should_classify_no_valid_images_as_terminal_failure() {
     assert_eq!(
         NormalizationError::NoValidImages { candidates: 2 }.failure_scope(),
-        NormalizationFailureScope::CandidateData
+        NormalizationFailureScope::Terminal
     );
 }
 
 #[test]
-fn should_classify_title_errors_as_candidate_data_failures() {
+fn should_classify_title_errors_as_cached_schema_fallback_failures() {
     assert_eq!(
         NormalizationError::TitleEmpty.failure_scope(),
-        NormalizationFailureScope::CandidateData
+        NormalizationFailureScope::CachedSchemaFallback
     );
 
     assert_eq!(
@@ -28,6 +29,90 @@ fn should_classify_title_errors_as_candidate_data_failures() {
         .failure_scope(),
         NormalizationFailureScope::External
     );
+}
+
+struct CountingImageValidator(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+#[async_trait::async_trait]
+impl ImageValidator for CountingImageValidator {
+    async fn validate(&self, _url: &url::Url) -> ImageValidation {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        ImageValidation::Valid
+    }
+}
+
+#[tokio::test]
+async fn should_not_validate_lower_ranked_images_after_richer_candidate_succeeds() {
+    let id = shop_id();
+    let url = product_url();
+    let mut rich_schema = minimal_schema();
+    rich_schema.description = Some(ExtractionRule {
+        selector: CssSelector::from("main"),
+        additional_selectors: vec![],
+        extract: ExtractionKind::Text,
+        cardinality: ExtractionCardinality::First,
+    });
+    let schema = ShopsProductSchema {
+        shop_id: id,
+        product_schemas: vec![minimal_schema(), rich_schema],
+        created: OffsetDateTime::now_utc(),
+        updated: OffsetDateTime::now_utc(),
+    };
+
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher
+        .expect_fetch()
+        .once()
+        .returning(|_| {
+            Box::pin(async {
+                Ok(fetch_result(
+                    "<html><body><main><span id=\"product-id\">SKU-42</span><h1>Biedermeier Chair</h1><span id=\"state\">In Stock</span><img src=\"https://images.example/chair.jpg\"></main></body></html>".to_string(),
+                ))
+            })
+        });
+    let mut schema_svc = MockProductSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let schema = schema.clone();
+            Box::pin(async move { Ok(Some(schema)) })
+        });
+    schema_svc.expect_generate_single_schema_for_page().never();
+    schema_svc.expect_save_product_schemas().never();
+
+    let expected = normalized_product(url.clone());
+    let mut norm_svc = MockProductNormalizationService::new();
+    norm_svc
+        .expect_normalize()
+        .once()
+        .returning(move |raw, _, _| {
+            assert!(raw.description.iter().any(|value| !value.is_empty()));
+            let product = expected.clone();
+            Box::pin(async move { Ok(normalization_success(product, 0)) })
+        });
+
+    let mut candidate_svc = MockScraperCandidateService::new();
+    expect_successful_bookkeeping(&mut candidate_svc, id, url.clone(), UrlState::Available);
+    let image_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Box::new(norm_svc),
+        std::sync::Arc::new(candidate_svc),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+    );
+    service.image_validator = Box::new(CountingImageValidator(image_calls.clone()));
+
+    assert!(
+        service
+            .scrape(&id, &url, None, None)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(image_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
@@ -61,10 +146,16 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
 
     let expected = normalized_product(url.clone());
     let first_error = Arc::new(std::sync::Mutex::new(Some(error)));
+    let expected_scope = first_error
+        .lock()
+        .expect("first error lock should not be poisoned")
+        .as_ref()
+        .expect("first error should be present")
+        .failure_scope();
     let mut norm_svc = MockProductNormalizationService::new();
     norm_svc
         .expect_normalize()
-        .times(2)
+        .times(1..=2)
         .returning(move |_, _, _| {
             let n = expected.clone();
             let first_error = first_error.clone();
@@ -81,7 +172,9 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    if expected_scope == NormalizationFailureScope::CachedSchemaFallback {
+        expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
+    }
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -92,15 +185,19 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
         DEFAULT_MAX_LLM_CALLS_PER_SHOP,
     );
 
-    let result = service
-        .scrape(&id, &url, None, None)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        result.product.shops_product_id,
-        ShopsProductId::from("SKU-42")
-    );
+    let result = service.scrape(&id, &url, None, None).await;
+    match expected_scope {
+        NormalizationFailureScope::CachedSchemaFallback => {
+            let product = result.unwrap().unwrap();
+            assert_eq!(
+                product.product.shops_product_id,
+                ShopsProductId::from("SKU-42")
+            );
+        }
+        NormalizationFailureScope::Terminal | NormalizationFailureScope::External => {
+            assert!(matches!(result, Err(ScraperError::NormalizationError(_))));
+        }
+    }
 }
 
 #[tokio::test]
@@ -109,7 +206,7 @@ async fn should_try_next_cached_schema_after_title_failure() {
 }
 
 #[tokio::test]
-async fn should_try_next_cached_schema_after_description_language_failure() {
+async fn should_stop_cached_selection_after_description_language_failure() {
     assert_tries_next_cached_schema_after(NormalizationError::DescriptionUnknownLanguage {
         text: "garbage".to_string(),
     })
@@ -117,7 +214,7 @@ async fn should_try_next_cached_schema_after_description_language_failure() {
 }
 
 #[tokio::test]
-async fn should_try_next_cached_schema_after_auction_start_failure() {
+async fn should_stop_cached_selection_after_auction_start_failure() {
     assert_tries_next_cached_schema_after(NormalizationError::AuctionStartParseError {
         raw: "garbage".to_string(),
     })
@@ -326,7 +423,7 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
 }
 
 #[tokio::test]
-async fn should_generate_fresh_schema_when_cached_candidate_has_candidate_data_failure() {
+async fn should_not_generate_fresh_schema_when_cached_candidate_has_terminal_failure() {
     let id = shop_id();
     let url = product_url();
 
@@ -345,16 +442,7 @@ async fn should_generate_fresh_schema_when_cached_candidate_has_candidate_data_f
             let s = schema.clone();
             Box::pin(async move { Ok(Some(s)) })
         });
-    schema_svc
-        .expect_generate_single_schema_for_page()
-        .once()
-        .returning(|_| {
-            Box::pin(async {
-                Err(crate::scraper::css_selector::product_schema_service::ProductSchemaServiceError::NoTextResponse(
-                    "generation failed in test".to_string(),
-                ))
-            })
-        });
+    schema_svc.expect_generate_single_schema_for_page().never();
     schema_svc.expect_save_product_schemas().never();
 
     let mut norm_svc = MockProductNormalizationService::new();
@@ -370,8 +458,7 @@ async fn should_generate_fresh_schema_when_cached_candidate_has_candidate_data_f
         })
     });
 
-    let mut cand_svc = MockScraperCandidateService::new();
-    expect_budget_increment(&mut cand_svc, 1);
+    let cand_svc = MockScraperCandidateService::new();
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
@@ -383,7 +470,7 @@ async fn should_generate_fresh_schema_when_cached_candidate_has_candidate_data_f
     );
 
     let err = service.scrape(&id, &url, None, None).await.unwrap_err();
-    assert!(matches!(err, ScraperError::SchemaServiceError(_)));
+    assert!(matches!(err, ScraperError::NormalizationError(_)));
 }
 
 #[tokio::test]

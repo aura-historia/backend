@@ -228,7 +228,7 @@ fn assert_fixture_specific_expectations(fixture_path: &str, dsl: &str) {
                 assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
             }
         }
-        path if path.contains("antik-und-stil") => {
+        path if path.contains("antik-und-stil_available") => {
             for needle in [
                 "sku",
                 "product_title",
@@ -238,6 +238,32 @@ fn assert_fixture_specific_expectations(fixture_path: &str, dsl: &str) {
                 "Tisch rund antik Marmorplatte",
                 "In den Warenkorb",
                 "Tisch-Marmor1000",
+            ] {
+                assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
+            }
+        }
+        path if path.contains("antik-und-stil_sale") => {
+            for needle in [
+                "product_title",
+                "woocommerce-product-gallery__image",
+                "elementor-widget-woocommerce-product-content",
+                "38426",
+                "Couchtisch Glas Vintage",
+                "In den Warenkorb",
+                "56A8EEE6-078D-496D-8362-FDF3E6170795.webp",
+            ] {
+                assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
+            }
+        }
+        path if path.contains("antik-und-stil_priceless") => {
+            for needle in [
+                "product_title",
+                "woocommerce-product-gallery__image",
+                "elementor-widget-woocommerce-product-content",
+                "38291",
+                "Antiker Jugendstil Kronleuchter",
+                "In den Warenkorb",
+                "Kein-Titel-105-x-105-mm",
             ] {
                 assert!(dsl.contains(needle), "{fixture_path} DSL missing {needle}");
             }

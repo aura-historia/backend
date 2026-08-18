@@ -12,7 +12,8 @@ use scraper::Html;
 /// Each populated logical field contributes exactly one point, regardless of
 /// how many values it holds:
 ///
-/// * Images count once after URL validation has prepared the raw product.
+/// * Image candidates count once when the raw extraction is non-empty. Image
+///   validation happens later, only for candidates being normalized.
 /// * Multiple description fragments count as one populated `description` field.
 /// * Every non-empty `raw_attributes` key counts as one distinct attribute.
 ///
@@ -132,7 +133,7 @@ pub(crate) fn collect_applicable_candidates<'a>(
             schema, html,
         ) {
             Ok(raw) => {
-                let score = ExtractionCompletenessScore(0);
+                let score = score_raw_product(&raw);
                 candidates.push(AppliedSchemaCandidate {
                     schema_index,
                     schema,
@@ -150,6 +151,23 @@ pub(crate) fn collect_applicable_candidates<'a>(
         candidates,
         apply_failures,
     }
+}
+
+/// Returns applicable cached schema indices in production ranking order.
+///
+/// This is the shared ranking seam for fixture tests. It applies every schema
+/// to one parsed document and performs no network or LLM work.
+pub fn rank_applicable_schema_indices(
+    schemas: &[ProductCssSelectorSchema],
+    html: &str,
+) -> Vec<usize> {
+    let parsed = Html::parse_document(html);
+    let mut candidates = collect_applicable_candidates(schemas, &parsed).candidates;
+    rank_candidates(&mut candidates);
+    candidates
+        .into_iter()
+        .map(|candidate| candidate.schema_index)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------

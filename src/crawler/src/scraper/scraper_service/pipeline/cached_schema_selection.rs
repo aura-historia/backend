@@ -6,7 +6,7 @@ use crate::scraper::normalization::product_normalization_service::{
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
-    collect_applicable_candidates, rank_candidates, score_raw_product,
+    collect_applicable_candidates, rank_candidates,
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -99,21 +99,6 @@ impl ScraperServiceImpl {
             candidate_set.candidates
         };
 
-        for candidate in &mut candidates {
-            candidate.raw.images = match filter_valid_image_urls(
-                std::mem::take(&mut candidate.raw.images),
-                url,
-                &*self.image_validator,
-            )
-            .await
-            {
-                Ok(images) => images,
-                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-                Err(err) => return Err(ScraperError::NormalizationError(err)),
-            };
-            candidate.score = score_raw_product(&candidate.raw);
-        }
-
         rank_candidates(&mut candidates);
         for candidate in &candidates {
             debug!(
@@ -135,8 +120,20 @@ impl ScraperServiceImpl {
         }
 
         for candidate in candidates.drain(..) {
+            let mut raw = candidate.raw;
+            raw.images = match filter_valid_image_urls(
+                std::mem::take(&mut raw.images),
+                url,
+                &*self.image_validator,
+            )
+            .await
+            {
+                Ok(images) => images,
+                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
+                Err(err) => return Err(ScraperError::NormalizationError(err)),
+            };
             match self
-                .normalize_applied_schema(shop_id, url, candidate.schema, candidate.raw)
+                .normalize_applied_schema(shop_id, url, candidate.schema, raw)
                 .await
             {
                 Ok(product) => {
@@ -149,7 +146,7 @@ impl ScraperServiceImpl {
                     return Ok(ExistingSchemaSelection::Normalized(Box::new(product)));
                 }
                 Err(ScraperError::NormalizationError(err))
-                    if err.failure_scope() == NormalizationFailureScope::CandidateData =>
+                    if err.failure_scope() == NormalizationFailureScope::CachedSchemaFallback =>
                 {
                     debug!(
                         candidate_schema_index = candidate.schema_index,

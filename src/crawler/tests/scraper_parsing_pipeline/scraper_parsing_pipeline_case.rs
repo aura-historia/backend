@@ -110,7 +110,9 @@ fn normalized_from_json(data: NormalizedExpectationJson) -> NormalizedExpectatio
     NormalizedExpectation {
         shops_product_id: data.shops_product_id,
         title: data.title,
-        description: data.description,
+        description: data.description.map(|description| {
+            product::core::description::Description::from(description.as_str()).to_string()
+        }),
         price: price_from_parts(data.price, data.price_currency.as_deref()),
         price_estimate_min: price_from_parts(
             data.price_estimate_min,
