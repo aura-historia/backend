@@ -63,6 +63,8 @@ pub trait ProjectSearchFilterChangeUseCase: Send + Sync {
     ) -> Result<ProjectSearchFilterChangeResult, ProjectSearchFilterChangeError>;
 }
 
+/// Projects only authoritative SearchFilter state. FX selection belongs to
+/// Product-event percolation, never to the saved-filter projection.
 pub struct ProjectSearchFilterChangeHandler<R, I> {
     source: R,
     index: I,
@@ -156,7 +158,6 @@ mod tests {
     use super::*;
     use crate::ports::{SearchFilterIndexQuery, SearchFilterProjection, SearchFilterView};
     use common::currency::domain::Currency;
-    use common::language::domain::Language;
     use common::pagination::cursor::CursoredResult;
     use common::resource_state::domain::ResourceState;
     use common::user_id::UserId;
@@ -195,7 +196,7 @@ mod tests {
 
     #[derive(Default)]
     struct Index {
-        upserts: Mutex<Vec<i64>>,
+        upserts: Mutex<Vec<SearchFilterProjection>>,
         deletes: Mutex<Vec<i64>>,
     }
 
@@ -203,14 +204,14 @@ mod tests {
     impl SearchFilterIndex for Index {
         async fn upsert(
             &self,
-            projection: &crate::ports::SearchFilterProjection,
+            projection: &SearchFilterProjection,
         ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError> {
             self.upserts
                 .lock()
                 .map_err(|_| SearchFilterIndexError::WriteFailed {
                     source: box_error(std::io::Error::other("test mutex poisoned")),
                 })?
-                .push(projection.source_version);
+                .push(projection.clone());
             Ok(SearchFilterProjectionWriteOutcome::Applied)
         }
 
@@ -230,7 +231,7 @@ mod tests {
 
         async fn percolate(
             &self,
-            _product: &product_service::ports::ProductSearchFilterMatchSource,
+            _input: &product_service::ports::ProductPercolationInput,
         ) -> Result<Vec<SearchFilterView>, SearchFilterIndexError> {
             Ok(Vec::new())
         }
@@ -252,7 +253,7 @@ mod tests {
                 name: UserSearchFilterName::from("daily"),
                 notifications: true,
                 state: ResourceState::Active,
-                search: ProductSearch::new(Language::En, Currency::Eur),
+                search: ProductSearch::new(common::language::domain::Language::En, Currency::Usd),
                 embedding: None,
                 created: datetime!(2026-01-01 0:00 UTC),
                 updated: datetime!(2026-01-01 0:00 UTC),
@@ -263,15 +264,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_project_current_authoritative_version_for_an_old_cdc_change()
+    async fn should_project_authoritative_search_filter_state_without_fx_dependencies()
     -> Result<(), Box<dyn std::error::Error>> {
         let current = projection(4);
         let id = current.view.search_filter_id;
-        let source = Source {
-            projection: Mutex::new(Some(current)),
-        };
-        let index = Index::default();
-        let handler = ProjectSearchFilterChangeHandler::new(source, index);
+        let handler = ProjectSearchFilterChangeHandler::new(
+            Source {
+                projection: Mutex::new(Some(current.clone())),
+            },
+            Index::default(),
+        );
 
         handler
             .execute(ProjectSearchFilterChangeCommand {
@@ -287,22 +289,14 @@ mod tests {
             .lock()
             .map_err(|_| std::io::Error::other("test mutex poisoned"))?
             .clone();
-        let deletes = handler
-            .index
-            .deletes
-            .lock()
-            .map_err(|_| std::io::Error::other("test mutex poisoned"))?
-            .clone();
-        assert_eq!(vec![4], upserts);
-        assert!(deletes.is_empty());
+        assert_eq!(vec![current], upserts);
         Ok(())
     }
 
     #[tokio::test]
     async fn should_write_successor_delete_tombstone_for_deleted_source()
     -> Result<(), Box<dyn std::error::Error>> {
-        let index = Index::default();
-        let handler = ProjectSearchFilterChangeHandler::new(Source::default(), index);
+        let handler = ProjectSearchFilterChangeHandler::new(Source::default(), Index::default());
 
         handler
             .execute(ProjectSearchFilterChangeCommand {
@@ -323,25 +317,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reject_delete_version_overflow() {
-        let handler = ProjectSearchFilterChangeHandler::new(Source::default(), Index::default());
-
-        let result = handler
-            .execute(ProjectSearchFilterChangeCommand {
-                search_filter_id: UserSearchFilterId::new(),
-                source_version: i64::MAX,
-                operation: SearchFilterProjectionOperation::Delete,
-            })
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(ProjectSearchFilterChangeError::DeleteVersionOverflow)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_reject_non_positive_source_versions() {
+    async fn should_reject_invalid_source_versions() {
         let handler = ProjectSearchFilterChangeHandler::new(Source::default(), Index::default());
 
         let result = handler

@@ -41,7 +41,10 @@ product = { workspace = true }
 product-core = { workspace = true }
 product-service = { workspace = true }
 product-postgres = { workspace = true }
-product-fxratesapi = { workspace = true }
+fxrate-core = { workspace = true }
+fxrate-service = { workspace = true }
+fxrate-postgres = { workspace = true }
+fxrate-fxratesapi = { workspace = true }
 product-opensearch = { workspace = true }
 product-api = { workspace = true }
 product-api-partner = { workspace = true }
@@ -107,7 +110,10 @@ members = [
     "src/product-core",
     "src/product-service",
     "src/product-postgres",
-    "src/product-fxratesapi",
+    "src/fxrate-core",
+    "src/fxrate-service",
+    "src/fxrate-postgres",
+    "src/fxrate-fxratesapi",
     "src/product-opensearch",
     "src/product-api",
     "src/product-api-partner",
@@ -235,7 +241,10 @@ product = { path = "src/product" }
 product-core = { path = "src/product-core" }
 product-service = { path = "src/product-service" }
 product-postgres = { path = "src/product-postgres" }
-product-fxratesapi = { path = "src/product-fxratesapi" }
+fxrate-core = { path = "src/fxrate-core" }
+fxrate-service = { path = "src/fxrate-service" }
+fxrate-postgres = { path = "src/fxrate-postgres" }
+fxrate-fxratesapi = { path = "src/fxrate-fxratesapi" }
 product-opensearch = { path = "src/product-opensearch" }
 product-api = { path = "src/product-api" }
 product-api-partner = { path = "src/product-api-partner" }

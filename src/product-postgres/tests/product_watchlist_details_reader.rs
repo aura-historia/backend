@@ -20,12 +20,12 @@ use product_postgres::{
     SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
     SqlxProductWatchlistDetailsReaderFactory,
 };
+use product_service::ports::PersonalizedProductDetailsReadModel;
 use product_service::ports::{
     ProductEventStore, ProductEventStoreFactory, ProductRepository, ProductRepositoryFactory,
     ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
     ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
 };
-use product_service::use_cases::queries::get_product::PersonalizedProductDetailsView;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
@@ -73,6 +73,7 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     assert_eq!(view.item.shops_product_id.as_ref(), "watchlist-joined");
     assert_eq!(view.item.shop_name.as_ref(), "watchlist-joined-shop");
     assert_eq!(view.item.seller_name.as_ref(), "watchlist-joined-seller");
+    assert!(view.item.sale_valuation.is_none());
     assert_localized_title(
         view.item.product_title.as_ref(),
         Language::En,
@@ -209,7 +210,7 @@ async fn find_for_user(
     pool: &sqlx::PgPool,
     user_id: UserId,
     language: Language,
-) -> Vec<PersonalizedProductDetailsView> {
+) -> Vec<PersonalizedProductDetailsReadModel> {
     match find_for_user_result(pool, user_id, language).await {
         Ok(products) => products,
         Err(error) => panic!("failed to read product watchlist details: {error:?}"),
@@ -220,7 +221,7 @@ async fn find_for_user_result(
     pool: &sqlx::PgPool,
     user_id: UserId,
     language: Language,
-) -> Result<Vec<PersonalizedProductDetailsView>, ProductWatchlistDetailsReadError> {
+) -> Result<Vec<PersonalizedProductDetailsReadModel>, ProductWatchlistDetailsReadError> {
     find_for_user_page_result(
         pool,
         &ProductWatchlistDetailsRequest {
@@ -239,7 +240,7 @@ async fn find_for_user_result(
 async fn find_for_user_page(
     pool: &sqlx::PgPool,
     request: &ProductWatchlistDetailsRequest,
-) -> CursoredResult<PersonalizedProductDetailsView, ProductWatchlistDetailsCursor> {
+) -> CursoredResult<PersonalizedProductDetailsReadModel, ProductWatchlistDetailsCursor> {
     match find_for_user_page_result(pool, request).await {
         Ok(page) => page,
         Err(error) => panic!("failed to read product watchlist details: {error:?}"),
@@ -250,7 +251,7 @@ async fn find_for_user_page_result(
     pool: &sqlx::PgPool,
     request: &ProductWatchlistDetailsRequest,
 ) -> Result<
-    CursoredResult<PersonalizedProductDetailsView, ProductWatchlistDetailsCursor>,
+    CursoredResult<PersonalizedProductDetailsReadModel, ProductWatchlistDetailsCursor>,
     ProductWatchlistDetailsReadError,
 > {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -394,8 +395,8 @@ fn sample_product(
             price: Some(Price::new(MonetaryAmount::from(1_200_u64), Currency::Eur)),
             price_estimate_min: None,
             price_estimate_max: None,
-            fx_rate_id: None,
         },
+        sale_valuation: None,
         state: ProductState::Listed,
         url: url(&format!("https://example.com/{slug}")),
         images,

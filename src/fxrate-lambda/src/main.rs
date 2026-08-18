@@ -1,10 +1,10 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use common::postgres::SqlxUnitOfWork;
+use fxrate_fxratesapi::FxRatesApiQuoteProvider;
 use fxrate_lambda::handler;
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
+use fxrate_service::CaptureFxRateSnapshotHandler;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use product_fxratesapi::FxRatesApiQuoteProvider;
-use product_postgres::SqlxFxRateSnapshotRepositoryFactory;
-use product_service::use_cases::CaptureFxRateSnapshotHandler;
 use serde_json::Value;
 use tracing::debug;
 

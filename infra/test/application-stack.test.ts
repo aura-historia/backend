@@ -300,7 +300,7 @@ describe("Application stacks", () => {
 
     expect(resourceCount(templates, "AWS::OpenSearchService::Domain")).toBe(0);
     expect(resourceCount(templates, "AWS::SNS::Topic")).toBe(1);
-    expect(resourcePropertiesCount(templates, "AWS::CloudWatch::Alarm", {})).toBe(48);
+    expect(resourcePropertiesCount(templates, "AWS::CloudWatch::Alarm", {})).toBe(49);
     templates.api.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
       DefaultRouteSettings: Match.objectLike({
         DetailedMetricsEnabled: true,
@@ -360,6 +360,9 @@ describe("Application stacks", () => {
           JSON.stringify(resource.Properties?.Code?.S3Key).includes("fxrate-lambda"),
       ),
     ).toBe(true);
+    templates.compute.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      SourceEventId: "deployment:fxrate:initial:dev:v1",
+    });
   });
 
   test("dev schedules periodic search-filter matching on Fargate", () => {
@@ -394,6 +397,9 @@ describe("Application stacks", () => {
     expect(resourceCount(templates, "AWS::CloudWatch::Alarm")).toBe(0);
     expect(resourcePropertiesCount(templates, "AWS::Lambda::Function", {
       FunctionName: Match.stringLikeRegexp("fxrate-lambda"),
+    })).toBe(0);
+    expect(resourcePropertiesCount(templates, "AWS::CloudFormation::CustomResource", {
+      SourceEventId: Match.anyValue(),
     })).toBe(0);
     expect(resourceCount(templates, "AWS::ECS::TaskDefinition")).toBe(0);
     templates.data.hasResourceProperties("AWS::OpenSearchService::Domain", {

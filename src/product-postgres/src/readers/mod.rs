@@ -1,3 +1,4 @@
+mod product_current_revision_guard;
 mod product_details_batch_reader;
 mod product_details_reader;
 mod product_embedding_reader;
@@ -6,6 +7,7 @@ mod product_search_filter_match_source_reader;
 mod product_user_state_reader;
 mod product_watchlist_details_reader;
 mod product_watchlist_notification_source_reader;
+pub use product_current_revision_guard::SqlxProductCurrentRevisionGuardFactory;
 pub use product_details_batch_reader::SqlxProductDetailsBatchReader;
 pub use product_details_reader::SqlxProductDetailsReaderFactory;
 pub use product_embedding_reader::SqlxProductEmbeddingReaderFactory;

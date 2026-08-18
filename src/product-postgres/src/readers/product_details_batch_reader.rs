@@ -1,9 +1,9 @@
 use super::product_details_reader::{ProductDetailsRow, SELECT_PRODUCT_DETAILS};
 use common::{error::boxed::box_error, product_id::ProductId};
 use product_service::ports::{
-    ProductDetailsBatchReadError, ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
+    PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
+    ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
 };
-use product_service::use_cases::PersonalizedProductDetailsView;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
@@ -59,7 +59,7 @@ impl ProductDetailsBatchReader for SqlxProductDetailsBatchReader {
     async fn find_for_user(
         &self,
         request: &ProductDetailsBatchReadRequest,
-    ) -> Result<HashMap<ProductId, PersonalizedProductDetailsView>, ProductDetailsBatchReadError>
+    ) -> Result<HashMap<ProductId, PersonalizedProductDetailsReadModel>, ProductDetailsBatchReadError>
     {
         if request.product_ids.is_empty() {
             return Ok(HashMap::new());
@@ -91,7 +91,7 @@ impl ProductDetailsBatchReader for SqlxProductDetailsBatchReader {
         rows.into_iter()
             .map(|row| {
                 let product_id = ProductId::from(row.product_id);
-                let details = PersonalizedProductDetailsView::try_from(row)
+                let details = PersonalizedProductDetailsReadModel::try_from(row)
                     .map_err(|_| ProductDetailsBatchReadModelMappingError)?;
                 Ok((product_id, details))
             })

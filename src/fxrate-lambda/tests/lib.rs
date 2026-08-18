@@ -2,12 +2,12 @@ use async_trait::async_trait;
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use common::{currency::domain::Currency, postgres::SqlxUnitOfWork};
 use fxrate_lambda::handler;
-use lambda_runtime::{Context, LambdaEvent};
-use product_postgres::SqlxFxRateSnapshotRepositoryFactory;
-use product_service::{
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
+use fxrate_service::{
+    CaptureFxRateSnapshotHandler,
     ports::{FxRateQuote, FxRateQuoteProvider, FxRateQuoteProviderError, FxRateQuoteSet},
-    use_cases::CaptureFxRateSnapshotHandler,
 };
+use lambda_runtime::{Context, LambdaEvent};
 use serde_json::Value;
 use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -25,7 +25,7 @@ impl FxRateQuoteProvider for Quotes {
             .filter(|currency| *currency != Currency::Eur)
             .map(|currency| FxRateQuote {
                 currency,
-                rate: 1_250_000,
+                units_per_eur: 1_250_000,
             })
             .collect::<Vec<_>>();
         if !self.complete {
@@ -69,7 +69,7 @@ async fn should_capture_complete_fx_snapshot_from_scheduled_event() {
             r#"
             SELECT
                 (SELECT count(*) FROM fx_rates WHERE source_event_id = 'scheduled-capture'),
-                (SELECT count(*) FROM fx_rate_conversions c
+                (SELECT count(*) FROM fx_rate_quotes c
                  JOIN fx_rates r ON r.fx_rate_id = c.fx_rate_id
                  WHERE r.source_event_id = 'scheduled-capture')
             "#,
@@ -77,7 +77,7 @@ async fn should_capture_complete_fx_snapshot_from_scheduled_event() {
         .fetch_one(&pool)
         .await?;
         assert_eq!(1, snapshots);
-        assert_eq!(17, conversions);
+        assert_eq!(18, conversions);
         Ok(())
     }
     .await;

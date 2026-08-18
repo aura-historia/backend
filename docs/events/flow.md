@@ -17,7 +17,7 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 | DynamoDB notifications | AWS DynamoDB | Notification TTL and insert-to-send behavior. |
 | DynamoDB access tokens | AWS DynamoDB | Existing access-token storage and lookup. |
 | `notification-send` | AWS Lambda | Sends external notifications through SES. |
-| FxRate Lambda | AWS Lambda | Captures immutable EUR FX snapshots in Postgres. |
+| FxRate Lambda | AWS Lambda | Captures immutable canonical EUR-base FX snapshots in Postgres. |
 | Shopify Lambda | AWS Lambda | Handles Shopify events, writes Postgres directly. |
 | Stripe Lambda | AWS Lambda | Handles Stripe subscription events, writes Postgres directly. |
 | Step Functions | AWS workflow | Partner-shop-application workflow. |
@@ -71,7 +71,7 @@ flowchart TD
 
 ## Product write flow
 
-Product writes are synchronous and persist full immutable payload snapshots. Pricing uses `price`, `price_estimate_min`, `price_estimate_max`, and `fx_rate_id`; historical old/new pricing snapshots retain their own FX-rate IDs. Prices remain stored source amounts and currencies: no conversion or converted `other` price maps are persisted. Source → EUR → requested-currency conversion is deferred to [#1466](https://github.com/aura-historia/backend/issues/1466).
+Product writes are synchronous and persist full immutable payload snapshots. Pricing retains only source `price`, `price_estimate_min`, and `price_estimate_max`; it never carries an FX ID. Creating or transitioning a Product to `SOLD` captures one `sold_at`, then selects latest persisted `captured_at <= sold_at` in the Product transaction and records immutable `sale_fx_rate_id` plus `sold_at`. Missing or invalid persisted FX data rejects the write. A sold Product can move only to `REMOVED` through generic writes, preserving its sale valuation. FX snapshots are a separate canonical context: each persisted generation stores one checked EUR-base `units_per_eur` quote for every supported currency, including EUR at scale. Capture fetches the provider before its short Postgres transaction, deduplicates by source event ID, and rejects retroactive or tied canonical captures.
 
 ```mermaid
 sequenceDiagram
@@ -169,7 +169,13 @@ Examples:
 | User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
 | Periodic matcher | ECS periodic matcher | Scheduled job | OpenSearch product search, Postgres matches, DynamoDB notifications. |
 
-The canonical search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, Product embedding worker, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+The canonical Product OpenSearch projector, search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, Product embedding worker, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+
+## Canonical Product OpenSearch projection
+
+PostgreSQL `products`, `product_translations`, and immutable `fx_rates` are authoritative. The `products` alias in OpenSearch is a rebuildable projection only. Each committed `product_events` insert creates a Product projection job with stable `(event_id, product_id)` IDs. The handler rereads full current Product state, rejects a trigger whose event ID is no longer current, and loads the exact sale snapshot only when a sale valuation has a main source price to convert. It commits its PostgreSQL read transaction, then writes the complete private document with `products.projection_version` as OpenSearch external version. A `LIFECYCLE_DELETED` current Product produces a versioned target delete. Duplicate and older writes return a stale no-op; a required missing sale snapshot fails the job for retry.
+
+The document stores native `sourcePrice`, all immutable HalfUp `salePrices` only when a sale valuation has a main source price, and the valuation metadata independently. Thus a sold no-main-price document has `saleFxRateId` and `soldAt`, but no `sourcePrice` or `salePrices`; it remains searchable by non-price criteria and maps to a `SALE` summary with no display price. All existing search fields and the authoritative embedding remain. It never stores estimates. Product search cursor chains and single similar-Product KNN reads pin one persisted snapshot for active summary conversion; sold summaries use the indexed immutable sale amount when present and always preserve sale basis. Run the `product-opensearch` scope with `POSTGRES_*`, `OPENSEARCH_ENDPOINT_URL`, and OpenSearch credentials outside local development. Its Sequin subscription must contain only `product_events` inserts.
 
 ## Canonical Product embedding
 
@@ -185,9 +191,9 @@ Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=product-translation`; it requ
 
 ## Canonical search-filter percolator
 
-The percolator scope accepts only `product_events` inserts. It enqueues only `DOMAIN` and `ENRICHMENT` Product events, rereads the committed typed Product match source, and invokes `MatchProductEventUseCase`. The use case compares the source event ID with `products.event_id` before percolating; a superseded trigger is skipped, never evaluated against newer Product state with its old origin ID. Current events percolate the canonical OpenSearch filter projection, then batch enhanced candidates through the neutral typed `large-language-model` capability. The service owns the product-match prompt, structured response schema, typed response mapping, retry policy, and first-five-product-image policy; the capability owns Vertex protocol, credentials, image fetch, generic output deserialization, and its configured provider model. The worker selects that model through required `VERTEX_AI_MODEL` configuration, not use-case code. The use case authoritatively rereads active candidates and stores every active idempotent plain or successful-enhanced match. An enhanced candidate failure never prevents those writes: retryable timeout, transport, 429, 5xx, and malformed-response failures return after commit for normal worker retry; permanent provider 4xx failures are explicit in the use-case result and never create a match. Vertex requests use a 10-second connect and 30-second total timeout, bounded concurrency, at most five product-image fetches per evaluation request, structured JSON, and reasons in the filter search language.
+The percolator scope accepts only `product_events` inserts. It enqueues only `DOMAIN` and `ENRICHMENT` Product events, rereads the committed typed Product match source including immutable `product_events.event_time`, and invokes `MatchProductEventUseCase`. The use case compares the source event ID with `products.event_id` before percolating; a superseded trigger is skipped, never evaluated against newer Product state with its old origin ID. For an accepted current event with a main source price, it uses the immutable sale snapshot when present; otherwise it reads latest persisted FX with `captured_at <= origin_event_time`, ordered by capture then generation. It converts the price into every supported currency only in the private temporary percolation document. Stored filter queries remain FX-independent. Current events percolate the canonical OpenSearch filter projection, then batch enhanced candidates through the neutral typed `large-language-model` capability. The service owns the product-match prompt, structured response schema, typed response mapping, retry policy, and first-five-product-image policy; the capability owns Vertex protocol, credentials, image fetch, generic output deserialization, and its configured provider model. The worker selects that model through required `VERTEX_AI_MODEL` configuration, not use-case code. The use case authoritatively rereads active candidates and stores every active idempotent plain or successful-enhanced match. An enhanced candidate failure never prevents those writes: retryable timeout, transport, 429, 5xx, and malformed-response failures return after commit for normal worker retry; permanent provider 4xx failures are explicit in the use-case result and never create a match. Vertex requests use a 10-second connect and 30-second total timeout, bounded concurrency, at most five product-image fetches per evaluation request, structured JSON, and reasons in the filter search language.
 
-Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; its Sequin subscription must contain only `product_events` inserts. `POLICY` and `LIFECYCLE` events are acknowledged without a percolator job. Product-event redelivery is safe through the match uniqueness key; processed, duplicate, stale, missing-source, and ignored-event outcomes are recorded separately.
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; its Sequin subscription must contain only `product_events` inserts. `POLICY` and `LIFECYCLE` events are acknowledged without a percolator job. Product-event redelivery is safe through the match uniqueness key; price matches retain `EVENT` or `SALE` snapshot provenance, while non-price matches retain null valuation provenance. Processed, duplicate, stale, missing-source, and ignored-event outcomes are recorded separately. FX capture has no percolation, Product projection, match, or notification route.
 
 ## Search-filter match notification generator
 
@@ -211,7 +217,7 @@ Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=watchlist-notification`; its 
 
 - This worker's Sequin subscription is scoped to `search_filters`; any other table is rejected before acknowledgment rather than being accepted into an unconsumed queue.
 - The worker routes every committed `search_filters` insert, update, and delete to `SearchFilterOpenSearch` with `(user_search_filter_id, version, operation)`.
-- The projection worker treats insert/update CDC rows as invalidations: it rereads complete committed Postgres state, maps all ProductSearch fields plus the percolator query, and writes with OpenSearch external versioning from `search_filters.version`.
+- The projection worker treats insert/update CDC rows as invalidations: it rereads complete committed Postgres state, maps all ProductSearch fields, and compiles the requested price range directly against private temporary `priceByCurrency.<currency>` fields. It writes with OpenSearch external versioning from `search_filters.version`; FX capture alone never writes saved filters.
 - `search_filters` uses `REPLICA IDENTITY FULL` so delete CDC carries the old owner and version. Deletes use the deterministic successor external version (`search_filters.version + 1`) as a target tombstone. Older or equal target versions return a conflict and are recorded as stale no-ops.
 - A malformed CDC row without the identifier, owner, or version is rejected so Sequin retries; it is never silently skipped.
 
@@ -224,7 +230,7 @@ These AWS event flows stay:
 | Source | Route | Target |
 |---|---|---|
 | DynamoDB notification insert | Stream/EventBridge/SQS | `notification-send` Lambda |
-| EventBridge schedule | cron | `fxrate-lambda`; captures one idempotent Product FX snapshot in Postgres per EventBridge event ID |
+| Compute-stack creation or EventBridge schedule | bootstrap or cron | `fxrate-lambda`; captures one idempotent canonical FX snapshot in Postgres per source event ID |
 | Shopify partner EventBridge/SQS | Shopify product events | `shopify-lambda`; this is external intake buffering before sync Postgres product/event writes, not the removed product command queue. |
 | Stripe partner EventBridge | subscription events | `stripe-lambda`; Lambda invokes canonical User service handlers with direct Postgres adapters for atomic user tier/customer updates. |
 | Step Functions | partner app workflow | `partner-shop-application-lambda`; Lambda writes Postgres business rows directly. |
@@ -241,7 +247,7 @@ Minimum unique keys:
 | Product event | `product_events.event_id` |
 | Product materialized state | `products.event_id` |
 | Product worker job | `product_events.event_id` |
-| Scheduled FX snapshot | `fx_rates.source_event_id` |
+| Scheduled or deployment-bootstrap FX snapshot | `fx_rates.source_event_id` |
 | Shop worker job | `(shop_id, version, op)` |
 | Search-filter worker job | `(user_search_filter_id, version, op)` |
 | User tier worker job | `(user_id, version)` |

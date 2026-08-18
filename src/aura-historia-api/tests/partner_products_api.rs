@@ -1,11 +1,15 @@
 mod api_support;
 
-use api_support::{json_response, seed_access_token_for, seed_partner_shop, seed_shop, seed_user};
+use api_support::{
+    json_response, seed_access_token_for, seed_current_fx_snapshot, seed_partner_shop, seed_shop,
+    seed_user,
+};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::convert::Infallible;
 use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
+    get_postgres_client,
 };
 use user_core::access_token::Scope;
 
@@ -452,6 +456,8 @@ async fn should_not_expose_legacy_partner_product_item_delete_route() -> TestRes
 }
 
 async fn partner_auth(scopes: HashSet<Scope>) -> Result<PartnerAuth, Infallible> {
+    let pool = get_postgres_client().await;
+    seed_current_fx_snapshot(&pool).await;
     let shop = seed_shop().await;
     let user_id = seed_user("USER").await;
     seed_partner_shop(user_id, shop.id()).await;

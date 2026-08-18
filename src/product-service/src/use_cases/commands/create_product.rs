@@ -17,10 +17,14 @@ use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use fxrate_service::ports::{
+    FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
+};
 use indexmap::IndexSet;
 use product_core::description::Description;
 use product_core::product::{
-    NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, RehydrateProductError,
+    NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
+    RehydrateProductError,
 };
 use product_core::product_image::ProductImage;
 use product_core::title::Title;
@@ -72,6 +76,18 @@ pub enum CreateProductError {
     ProductSlugAlreadyExists,
     #[error("product state is invalid")]
     InvalidProductState,
+    #[error("no persisted FX snapshot is available for product sale")]
+    SaleFxSnapshotMissing,
+    #[error("persisted FX snapshot is invalid for product sale")]
+    SaleFxSnapshotInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("FX snapshot lookup is temporarily unavailable for product sale")]
+    SaleFxSnapshotUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("created product did not record a domain event")]
     CreatedEventMissing,
     #[error("product current event id did not match expected event id")]
@@ -138,31 +154,40 @@ pub trait CreateProductUseCase: Send + Sync {
     ) -> Result<CreateProductResult, CreateProductError>;
 }
 
-pub struct CreateProductHandler<U, R, E, A> {
+pub struct CreateProductHandler<U, R, E, A, F> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
+    fx_rates: F,
 }
 
-impl<U, R, E, A> CreateProductHandler<U, R, E, A> {
-    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
+impl<U, R, E, A, F> CreateProductHandler<U, R, E, A, F> {
+    pub fn new_with_fx_rates(
+        unit_of_work: U,
+        products: R,
+        events: E,
+        authorizer: A,
+        fx_rates: F,
+    ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
+            fx_rates,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, A> CreateProductUseCase for CreateProductHandler<U, R, E, A>
+impl<U, R, E, A, F> CreateProductUseCase for CreateProductHandler<U, R, E, A, F>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "create_product",
@@ -191,13 +216,6 @@ where
         );
 
         let shop_id = command.shop_id;
-        let product = Product::create(command.into_new_product(ProductId::new()))?;
-        let event_id = product
-            .pending_events()
-            .last()
-            .map(|event| event.event_id)
-            .ok_or(CreateProductError::CreatedEventMissing)?;
-
         let mut tx = self
             .unit_of_work
             .begin()
@@ -210,6 +228,18 @@ where
                 .authorize(actor_id, shop_id)
                 .await?;
         }
+
+        let mut input = command.into_new_product(ProductId::new());
+        if input.state == ProductState::Sold {
+            let sold_at = time::OffsetDateTime::now_utc();
+            input.sale_valuation = Some(sale_valuation(&self.fx_rates, &mut tx, sold_at).await?);
+        }
+        let product = Product::create(input)?;
+        let event_id = product
+            .pending_events()
+            .last()
+            .map(|event| event.event_id)
+            .ok_or(CreateProductError::CreatedEventMissing)?;
 
         let persisted_product = self
             .products
@@ -248,6 +278,7 @@ impl CreateProductCommand {
             title: self.title,
             description: self.description,
             pricing: self.pricing,
+            sale_valuation: None,
             state: self.state,
             url: self.url,
             images: self.images,
@@ -273,9 +304,44 @@ impl TryFrom<&Product> for CreateProductResult {
     }
 }
 
+async fn sale_valuation<Tx, F>(
+    fx_rates: &F,
+    tx: &mut Tx,
+    sold_at: time::OffsetDateTime,
+) -> Result<ProductSaleValuation, CreateProductError>
+where
+    F: FxRateSnapshotRepositoryFactory<Tx>,
+{
+    let mut repository = fx_rates.in_transaction(tx);
+    let snapshot = repository
+        .find_latest_at_or_before(sold_at)
+        .await
+        .map_err(CreateProductError::from)?
+        .ok_or(CreateProductError::SaleFxSnapshotMissing)?;
+    Ok(ProductSaleValuation {
+        sold_at,
+        fx_rate_id: snapshot.id(),
+    })
+}
+
 impl From<RehydrateProductError> for CreateProductError {
     fn from(_error: RehydrateProductError) -> Self {
         Self::InvalidProductState
+    }
+}
+
+impl From<FxRateSnapshotRepositoryError> for CreateProductError {
+    fn from(error: FxRateSnapshotRepositoryError) -> Self {
+        match error {
+            FxRateSnapshotRepositoryError::InsertFailed { source }
+            | FxRateSnapshotRepositoryError::ReadFailed { source } => {
+                Self::SaleFxSnapshotUnavailable { source }
+            }
+            FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
+                Self::SaleFxSnapshotInvalid { source }
+            }
+            FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => Self::SaleFxSnapshotMissing,
+        }
     }
 }
 
@@ -370,6 +436,73 @@ impl From<ProductRepositoryError> for CreateProductError {
     }
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy)]
+struct MissingFxRateSnapshotFactory;
+
+#[cfg(test)]
+struct MissingFxRateSnapshotRepository;
+
+#[cfg(test)]
+impl<Tx> FxRateSnapshotRepositoryFactory<Tx> for MissingFxRateSnapshotFactory {
+    fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl FxRateSnapshotRepository + 'tx {
+        MissingFxRateSnapshotRepository
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl FxRateSnapshotRepository for MissingFxRateSnapshotRepository {
+    async fn find_latest(
+        &mut self,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_latest_at_or_before(
+        &mut self,
+        _timestamp: time::OffsetDateTime,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_by_id(
+        &mut self,
+        _id: common::fx_rate_id::FxRateId,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_by_ids(
+        &mut self,
+        _ids: &[common::fx_rate_id::FxRateId],
+    ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(Vec::new())
+    }
+
+    async fn insert(
+        &mut self,
+        _snapshot: &fxrate_core::NewFxRateSnapshot,
+        _source_event_id: &str,
+    ) -> Result<fxrate_service::ports::FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>
+    {
+        Ok(fxrate_service::ports::FxRateSnapshotInsertOutcome::Duplicate)
+    }
+}
+
+#[cfg(test)]
+impl<U, R, E, A> CreateProductHandler<U, R, E, A, MissingFxRateSnapshotFactory> {
+    fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
+        Self::new_with_fx_rates(
+            unit_of_work,
+            products,
+            events,
+            authorizer,
+            MissingFxRateSnapshotFactory,
+        )
+    }
+}
+
 impl From<ProductEventStoreError> for CreateProductError {
     fn from(error: ProductEventStoreError) -> Self {
         match error {
@@ -391,6 +524,7 @@ mod tests {
     use common::transaction::TransactionError;
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};
+    use strum::IntoEnumIterator;
 
     #[derive(Debug, Default)]
     struct FakeState {
@@ -401,6 +535,7 @@ mod tests {
         insert_result:
             Option<Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>>,
         append_result: Option<Result<(), ProductEventStoreError>>,
+        inserted_product: Option<Product>,
         insert_count: usize,
         append_count: usize,
     }
@@ -432,6 +567,78 @@ mod tests {
 
     struct FakeEventStore {
         state: SharedState,
+    }
+
+    #[derive(Clone)]
+    struct TrackingFxRateSnapshotFactory {
+        snapshot: fxrate_core::FxRateSnapshot,
+        latest_count: Arc<Mutex<usize>>,
+    }
+
+    struct TrackingFxRateSnapshotRepository {
+        snapshot: fxrate_core::FxRateSnapshot,
+        latest_count: Arc<Mutex<usize>>,
+    }
+
+    impl FxRateSnapshotRepositoryFactory<FakeTx> for TrackingFxRateSnapshotFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTx,
+        ) -> impl FxRateSnapshotRepository + 'tx {
+            TrackingFxRateSnapshotRepository {
+                snapshot: self.snapshot.clone(),
+                latest_count: Arc::clone(&self.latest_count),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FxRateSnapshotRepository for TrackingFxRateSnapshotRepository {
+        async fn find_latest(
+            &mut self,
+        ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            let mut count = match self.latest_count.lock() {
+                Ok(count) => count,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            *count += 1;
+            Ok(Some(self.snapshot.clone()))
+        }
+
+        async fn find_latest_at_or_before(
+            &mut self,
+            _timestamp: time::OffsetDateTime,
+        ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            let mut count = match self.latest_count.lock() {
+                Ok(count) => count,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            *count += 1;
+            Ok(Some(self.snapshot.clone()))
+        }
+
+        async fn find_by_id(
+            &mut self,
+            _id: common::fx_rate_id::FxRateId,
+        ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(None)
+        }
+
+        async fn find_by_ids(
+            &mut self,
+            _ids: &[common::fx_rate_id::FxRateId],
+        ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+            Ok(Vec::new())
+        }
+
+        async fn insert(
+            &mut self,
+            _snapshot: &fxrate_core::NewFxRateSnapshot,
+            _source_event_id: &str,
+        ) -> Result<fxrate_service::ports::FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>
+        {
+            Ok(fxrate_service::ports::FxRateSnapshotInsertOutcome::Duplicate)
+        }
     }
 
     #[derive(Clone, Copy)]
@@ -552,6 +759,7 @@ mod tests {
         {
             let mut state = lock_state(&self.state);
             state.insert_count += 1;
+            state.inserted_product = Some(product.clone());
             match state.insert_result.take() {
                 Some(result) => result,
                 None => Ok(common::versioned::Versioned::new(
@@ -617,6 +825,34 @@ mod tests {
         Url::parse(value)
     }
 
+    fn snapshot() -> fxrate_core::FxRateSnapshot {
+        let captured = fxrate_core::NewFxRateSnapshot::capture_eur(
+            common::fx_rate_id::FxRateId::new(),
+            time::OffsetDateTime::UNIX_EPOCH,
+            fxrate_core::FxRateSource::FxRatesApi,
+            Currency::Eur,
+            Currency::iter().map(|currency| {
+                fxrate_core::FxRateQuote::new(
+                    currency,
+                    if currency == Currency::Eur {
+                        fxrate_core::FX_RATE_SCALE
+                    } else {
+                        1_250_000
+                    },
+                )
+            }),
+        );
+        let captured = match captured {
+            Ok(snapshot) => snapshot,
+            Err(error) => panic!("test FX snapshot must be valid: {error}"),
+        };
+        let generation = match fxrate_core::FxRateGeneration::try_from(1) {
+            Ok(generation) => generation,
+            Err(error) => panic!("test FX generation must be valid: {error}"),
+        };
+        captured.into_persisted(generation)
+    }
+
     fn create_command() -> Result<CreateProductCommand, url::ParseError> {
         let input = new_product(ProductId::new())?;
         Ok(CreateProductCommand {
@@ -653,6 +889,7 @@ mod tests {
                 price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 ..Default::default()
             },
+            sale_valuation: None,
             state: ProductState::Listed,
             url: url("https://shop.example/products/1")?,
             images: IndexSet::new(),
@@ -678,6 +915,94 @@ mod tests {
         assert_eq!(1, state.insert_count);
         assert_eq!(1, state.append_count);
         assert_eq!(1, state.commit_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_capture_persisted_snapshot_when_creating_sold_product()
+    -> Result<(), url::ParseError> {
+        let state = state();
+        let snapshot = snapshot();
+        let latest_count = Arc::new(Mutex::new(0));
+        let handler = CreateProductHandler::new_with_fx_rates(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+            AllowPartnerProductAuthorizer,
+            TrackingFxRateSnapshotFactory {
+                snapshot: snapshot.clone(),
+                latest_count: Arc::clone(&latest_count),
+            },
+        );
+        let mut command = create_command()?;
+        command.state = ProductState::Sold;
+
+        let result = handler.execute(&context(), command).await;
+
+        assert!(result.is_ok());
+        let state = lock_state(&state);
+        assert!(matches!(
+            state.inserted_product.as_ref().and_then(Product::sale_valuation),
+            Some(valuation) if valuation.fx_rate_id == snapshot.id()
+        ));
+        let latest_count = match latest_count.lock() {
+            Ok(count) => *count,
+            Err(poisoned) => *poisoned.into_inner(),
+        };
+        assert_eq!(1, latest_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_read_fx_snapshot_when_creating_non_sold_product()
+    -> Result<(), url::ParseError> {
+        let state = state();
+        let latest_count = Arc::new(Mutex::new(0));
+        let handler = CreateProductHandler::new_with_fx_rates(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+            AllowPartnerProductAuthorizer,
+            TrackingFxRateSnapshotFactory {
+                snapshot: snapshot(),
+                latest_count: Arc::clone(&latest_count),
+            },
+        );
+
+        let result = handler.execute(&context(), create_command()?).await;
+
+        assert!(result.is_ok());
+        let latest_count = match latest_count.lock() {
+            Ok(count) => *count,
+            Err(poisoned) => *poisoned.into_inner(),
+        };
+        assert_eq!(0, latest_count);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_not_persist_or_commit_when_sold_product_has_no_persisted_fx_snapshot()
+    -> Result<(), url::ParseError> {
+        let state = state();
+        let handler = CreateProductHandler::new(
+            uow(&state),
+            repository_factory(&state),
+            event_store_factory(&state),
+            AllowPartnerProductAuthorizer,
+        );
+        let mut command = create_command()?;
+        command.state = ProductState::Sold;
+
+        let result = handler.execute(&context(), command).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateProductError::SaleFxSnapshotMissing)
+        ));
+        let state = lock_state(&state);
+        assert_eq!(0, state.insert_count);
+        assert_eq!(0, state.append_count);
+        assert_eq!(0, state.commit_count);
         Ok(())
     }
 

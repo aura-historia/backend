@@ -113,6 +113,10 @@ async fn should_list_current_user_watchlist() {
         serde_json::json!(product_id.to_string()),
         body["items"][0]["item"]["productId"]
     );
+    assert_eq!(
+        "CURRENT",
+        body["items"][0]["item"]["pricing"]["valuation"]["type"]
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]

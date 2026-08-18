@@ -49,6 +49,9 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/stripe-lambda",
     "src/shopify-lambda",
     "src/fxrate-lambda",
+    "src/fxrate-core",
+    "src/fxrate-postgres",
+    "src/fxrate-service",
 ];
 
 /// Acceptance test crates that run on self-hosted runners with cargo-lambda.

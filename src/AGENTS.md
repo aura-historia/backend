@@ -96,7 +96,11 @@
 - `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.
 - `src/large-language-model/AGENTS.md` — reusable typed Vertex AI Gemini invocation adapter crate.
 - `src/crawler/AGENTS.md` — `crawler` crate.
-- `src/fxrate-lambda/AGENTS.md` — `fxrate-lambda` crate.
+- `src/fxrate-core/AGENTS.md` — canonical FX domain crate.
+- `src/fxrate-service/AGENTS.md` — canonical FX service/use-case crate.
+- `src/fxrate-postgres/AGENTS.md` — canonical FX PostgreSQL adapter crate.
+- `src/fxrate-fxratesapi/AGENTS.md` — canonical FxRatesApi adapter crate.
+- `src/fxrate-lambda/AGENTS.md` — scheduled FX capture Lambda.
 - `src/geo/AGENTS.md` — `geo` crate.
 - `src/newsletter-api/AGENTS.md` — `newsletter-api` crate.
 - `src/notification/AGENTS.md` — legacy notification crate.
@@ -117,7 +121,6 @@
 - `src/product-core/AGENTS.md` — canonical Product domain crate.
 - `src/product-service/AGENTS.md` — canonical Product service crate.
 - `src/product-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
-- `src/product-fxratesapi/AGENTS.md` — Product FxRatesApi external adapter crate.
 - `src/product-opensearch/AGENTS.md` — canonical Product OpenSearch adapter crate.
 - `src/product-api/AGENTS.md` — `product-api` crate.
 - `src/product-api-partner/AGENTS.md` — `product-api-partner` crate.

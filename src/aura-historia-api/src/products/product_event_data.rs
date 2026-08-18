@@ -1,12 +1,13 @@
 use crate::products::product_data::ProductImageData;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::data::LocalizedTextData;
 use common::price::data::PriceData;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_state::domain::ProductState;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
-use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_image::ProductImage;
 use product_service::use_cases::{ProductEvent, ProductEventPayload, ProductEventType};
 use serde::Serialize;
@@ -63,6 +64,8 @@ struct ProductCreatedHistoryPayloadData {
     #[serde(skip_serializing_if = "Option::is_none")]
     geo_address: Option<GeoAddressData>,
     pricing: ProductPricingData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sale_valuation: Option<ProductSaleValuationData>,
     state: ProductStateData,
     url: Url,
     images: Vec<ProductImageData>,
@@ -74,6 +77,8 @@ struct ProductCreatedHistoryPayloadData {
 struct ProductStateChangedHistoryPayloadData {
     old_state: ProductStateData,
     new_state: ProductStateData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sale_valuation: Option<ProductSaleValuationData>,
 }
 
 #[derive(Debug, Serialize)]
@@ -125,8 +130,14 @@ struct ProductPricingData {
     price_estimate_min: Option<PriceData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     price_estimate_max: Option<PriceData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    fx_rate_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProductSaleValuationData {
+    #[serde(with = "time::serde::rfc3339")]
+    sold_at: OffsetDateTime,
+    fx_rate_id: FxRateId,
 }
 
 #[derive(Debug, Serialize)]
@@ -193,6 +204,7 @@ impl From<ProductEventPayload> for ProductEventPayloadData {
                     structured_address: value.address.structured.map(Into::into),
                     geo_address: value.address.geo.map(Into::into),
                     pricing: value.pricing.into(),
+                    sale_valuation: value.sale_valuation.map(Into::into),
                     state: value.state.into(),
                     url: value.url,
                     images: images(value.images),
@@ -203,6 +215,7 @@ impl From<ProductEventPayload> for ProductEventPayloadData {
                 Self::StateChanged(ProductStateChangedHistoryPayloadData {
                     old_state: value.old_state.into(),
                     new_state: value.new_state.into(),
+                    sale_valuation: value.sale_valuation.map(Into::into),
                 })
             }
             ProductEventPayload::AddressChanged(value) => {
@@ -255,7 +268,15 @@ impl From<ProductPricing> for ProductPricingData {
             price: pricing.price.map(Into::into),
             price_estimate_min: pricing.price_estimate_min.map(Into::into),
             price_estimate_max: pricing.price_estimate_max.map(Into::into),
-            fx_rate_id: pricing.fx_rate_id.map(|value| value.to_string()),
+        }
+    }
+}
+
+impl From<ProductSaleValuation> for ProductSaleValuationData {
+    fn from(valuation: ProductSaleValuation) -> Self {
+        Self {
+            sold_at: valuation.sold_at,
+            fx_rate_id: valuation.fx_rate_id,
         }
     }
 }

@@ -9,6 +9,7 @@ aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 common = { workspace = true, features = ["postgres"] }
 embedding = { workspace = true }
+fxrate-postgres = { workspace = true }
 large-language-model = { workspace = true }
 google-cloud-auth = { workspace = true }
 indexmap = { workspace = true }
@@ -16,6 +17,7 @@ notification-dynamodb = { workspace = true }
 notification-service = { workspace = true }
 opensearch = { workspace = true }
 product-core = { workspace = true }
+product-opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
 reqwest = { workspace = true }

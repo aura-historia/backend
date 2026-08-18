@@ -9,6 +9,7 @@ use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
 use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
 use common::product_id::ProductId;
@@ -22,6 +23,8 @@ use watchlist_service::use_cases::ListWatchlistRequest;
 struct ListWatchlistQuery {
     #[serde(default)]
     language: LanguageData,
+    #[serde(default)]
+    currency: CurrencyData,
     size: Option<u64>,
     #[serde(rename = "searchAfter")]
     search_after: Option<String>,
@@ -56,6 +59,7 @@ pub async fn list_watchlist(
             ListWatchlistRequest {
                 user_id,
                 language: query.language.into(),
+                currency: query.currency.into(),
                 cursor,
             },
         )
@@ -160,6 +164,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
     use common::event_id::EventId;
+    use common::fx_rate_id::FxRateId;
     use common::language::domain::Language;
     use common::operation_context::OperationContext;
     use common::personalized::Personalized;
@@ -296,11 +301,18 @@ mod tests {
                 product_description: None,
                 title: None,
                 description: None,
-                pricing: ProductPricing::default(),
-                price: None,
-                price_estimate_min: None,
-                price_estimate_max: None,
-                currency: None,
+                pricing: product_service::use_cases::ProductPricingPresentation {
+                    source: ProductPricing::default(),
+                    display: product_service::use_cases::DisplayProductPricing {
+                        price: None,
+                        price_estimate_min: None,
+                        price_estimate_max: None,
+                    },
+                    valuation: product_service::use_cases::ProductPricingValuation::Current {
+                        fx_rate_id: FxRateId::new(),
+                        captured_at: OffsetDateTime::UNIX_EPOCH,
+                    },
+                },
                 state: ProductState::Available,
                 lifecycle: ProductLifecycle::Active,
                 url: url.clone(),
@@ -380,6 +392,7 @@ mod tests {
             ListWatchlistRequest {
                 user_id: actual_user_id,
                 language: Language::De,
+                currency: common::currency::domain::Currency::Eur,
                 cursor: Cursor { size: 21, search_after: None },
             } if actual_user_id == user_id
         ));

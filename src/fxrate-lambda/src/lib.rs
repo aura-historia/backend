@@ -1,11 +1,11 @@
-//! Scheduled AWS Lambda edge handler for immutable Product FX snapshots.
+//! Scheduled AWS Lambda edge handler for immutable canonical FX snapshots.
 
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-use lambda_runtime::LambdaEvent;
-use product_service::use_cases::{
+use fxrate_service::{
     CaptureFxRateSnapshotCommand, CaptureFxRateSnapshotOutcome, CaptureFxRateSnapshotUseCase,
 };
+use lambda_runtime::LambdaEvent;
 use serde_json::Value;
 use time::OffsetDateTime;
 use tracing::{info, warn};
@@ -36,8 +36,11 @@ pub async fn handler(
     match result {
         Ok(result) => {
             match result.outcome {
-                CaptureFxRateSnapshotOutcome::Captured { fx_rate_id } => {
-                    info!(event = "fx_rate_snapshot.captured", fx_rate_id = %fx_rate_id);
+                CaptureFxRateSnapshotOutcome::Captured {
+                    fx_rate_id,
+                    generation,
+                } => {
+                    info!(event = "fxrate.snapshot.captured", fx_rate_id = %fx_rate_id, generation = generation.as_i64());
                 }
                 CaptureFxRateSnapshotOutcome::Duplicate => {
                     info!(event = "fx_rate_snapshot.duplicate");

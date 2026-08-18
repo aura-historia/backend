@@ -1,0 +1,2 @@
+mod fx_rate_snapshot_repository;
+pub use fx_rate_snapshot_repository::SqlxFxRateSnapshotRepositoryFactory;

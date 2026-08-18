@@ -3,7 +3,10 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
@@ -51,6 +54,7 @@ export class Eventing extends Construct {
     createSqsEventSources(props.functions, props.queues);
 
     if (!props.config.isEphemeral && props.functions.fxRateSync) {
+      createInitialFxRateSnapshot(this, props.functions.fxRateSync, stageName);
       new events.Rule(this, "FxRateSyncStartSchedule", {
         schedule: events.Schedule.expression("cron(0 6,18 * * ? *)"),
         targets: [
@@ -62,6 +66,33 @@ export class Eventing extends Construct {
       });
     }
   }
+}
+
+function createInitialFxRateSnapshot(
+  scope: Construct,
+  fxRateSync: lambda.IFunction,
+  stageName: string,
+): void {
+  const provider = new lambda.Function(scope, "InitialFxRateSnapshotProvider", {
+    functionName: `fxrate-initial-snapshot-provider-${stageName}`,
+    runtime: lambda.Runtime.NODEJS_20_X,
+    handler: "index.handler",
+    timeout: cdk.Duration.seconds(30),
+    code: lambda.Code.fromInline(resourceCode("fx-rate-initial-snapshot-custom-resource.js")),
+  });
+  fxRateSync.grantInvoke(provider);
+
+  new cdk.CustomResource(scope, "InitialFxRateSnapshot", {
+    serviceToken: provider.functionArn,
+    properties: {
+      FunctionName: fxRateSync.functionName,
+      SourceEventId: `deployment:fxrate:initial:${stageName}:v1`,
+    },
+  });
+}
+
+function resourceCode(fileName: string): string {
+  return fs.readFileSync(path.join(__dirname, "..", "resources", fileName), "utf8");
 }
 
 function createDynamoDbStreamPipe(

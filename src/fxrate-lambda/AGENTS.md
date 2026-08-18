@@ -6,9 +6,9 @@
 
 ## Core Design
 
-- Scheduled Lambda that captures immutable Product FX snapshots in Postgres.
-- Main neighbors: `common`, `product-service`, `product-postgres`, `product-fxratesapi`.
-- Event/runtime edge crate. It maps EventBridge IDs to idempotency keys and wires Product service/Postgres/provider adapters; behavior stays deeper.
+- Scheduled and deployment-bootstrap Lambda that captures immutable canonical FX snapshots in Postgres.
+- Main neighbors: `common`, `fxrate-service`, `fxrate-postgres`, `fxrate-fxratesapi`.
+- Event/runtime edge crate. It maps EventBridge IDs to idempotency keys and wires canonical FX service/Postgres/provider adapters; behavior stays deeper.
 
 ## Ownership
 

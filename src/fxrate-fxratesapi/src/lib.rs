@@ -1,9 +1,9 @@
 use common::{
     currency::{data::CurrencyData, domain::Currency},
     error::boxed::{box_error, static_error},
-    price::domain::Rate,
 };
-use product_service::ports::{
+
+use fxrate_service::ports::{
     FxRateQuote, FxRateQuoteProvider, FxRateQuoteProviderError, FxRateQuoteSet,
 };
 use serde::Deserialize;
@@ -76,9 +76,9 @@ impl FxRateQuoteProvider for FxRatesApiQuoteProvider {
             .rates
             .into_iter()
             .map(|(currency, rate)| {
-                decimal_rate_to_scaled_integer(&rate).map(|rate| FxRateQuote {
+                decimal_rate_to_scaled_integer(&rate).map(|units_per_eur| FxRateQuote {
                     currency: currency.into(),
-                    rate,
+                    units_per_eur,
                 })
             })
             .collect::<Result<Vec<_>, _>>()
@@ -93,7 +93,7 @@ impl FxRateQuoteProvider for FxRatesApiQuoteProvider {
     }
 }
 
-fn decimal_rate_to_scaled_integer(value: &serde_json::Number) -> Result<Rate, InvalidFxRate> {
+fn decimal_rate_to_scaled_integer(value: &serde_json::Number) -> Result<u64, InvalidFxRate> {
     let value = value.to_string();
     let (significand, exponent) = match value.split_once(['e', 'E']) {
         Some((significand, exponent)) => (
@@ -114,7 +114,7 @@ fn decimal_rate_to_scaled_integer(value: &serde_json::Number) -> Result<Rate, In
     }
 
     let significant = format!("{whole}{fractional}")
-        .parse::<Rate>()
+        .parse::<u128>()
         .map_err(|_| InvalidFxRate)?;
     let shift = i64::from(exponent) - i64::try_from(fractional.len()).map_err(|_| InvalidFxRate)?
         + FX_RATE_DECIMAL_PLACES;
@@ -127,51 +127,58 @@ fn decimal_rate_to_scaled_integer(value: &serde_json::Number) -> Result<Rate, In
     } else {
         let divisor = power_of_ten(u32::try_from(-shift).map_err(|_| InvalidFxRate)?)?;
         let quotient = significant / divisor;
-        if significant % divisor == 0 {
-            quotient
-        } else {
-            quotient.checked_add(1).ok_or(InvalidFxRate)?
-        }
+        let remainder = significant % divisor;
+        let rounds_up =
+            remainder > divisor / 2 || (divisor.is_multiple_of(2) && remainder == divisor / 2);
+        quotient
+            .checked_add(u128::from(u8::from(rounds_up)))
+            .ok_or(InvalidFxRate)?
     };
-
-    if scaled == 0 {
+    let scaled = u64::try_from(scaled).map_err(|_| InvalidFxRate)?;
+    if scaled == 0 || scaled > i64::MAX as u64 {
         return Err(InvalidFxRate);
     }
     Ok(scaled)
 }
 
-fn power_of_ten(exponent: u32) -> Result<Rate, InvalidFxRate> {
-    (0..exponent).try_fold(1_u64, |value, _| value.checked_mul(10).ok_or(InvalidFxRate))
+fn power_of_ten(exponent: u32) -> Result<u128, InvalidFxRate> {
+    10_u128.checked_pow(exponent).ok_or(InvalidFxRate)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fxrate_core::FX_RATE_SCALE;
 
     fn number(value: &str) -> serde_json::Number {
-        match serde_json::from_str(value) {
-            Ok(value) => value,
-            Err(error) => panic!("test number must be valid JSON: {error}"),
-        }
+        serde_json::from_str(value)
+            .unwrap_or_else(|error| panic!("test number must be valid JSON: {error}"))
     }
 
     #[test]
-    fn should_convert_decimal_rates_to_scaled_unsigned_integers() {
+    fn should_parse_rates_to_scaled_integers_with_half_up_rounding() {
         for (input, expected) in [
-            ("1", 1_000_000),
+            ("1", FX_RATE_SCALE),
             ("1.25", 1_250_000),
-            ("0.0000001", 1),
-            ("1.0000001", 1_000_001),
-            ("1.0000000000000001", 1_000_001),
-            ("1.0000000", 1_000_000),
+            ("0.0000004", 0),
+            ("0.0000005", 1),
+            ("1.0000004", 1_000_000),
+            ("1.0000005", 1_000_001),
+            ("1.000000500000", 1_000_001),
+            ("1.25e0", 1_250_000),
+            ("125e-2", 1_250_000),
         ] {
-            assert_eq!(Ok(expected), decimal_rate_to_scaled_integer(&number(input)));
+            if expected == 0 {
+                assert!(decimal_rate_to_scaled_integer(&number(input)).is_err());
+            } else {
+                assert_eq!(Ok(expected), decimal_rate_to_scaled_integer(&number(input)));
+            }
         }
     }
 
     #[test]
-    fn should_reject_zero_and_negative_rates() {
-        for input in ["0", "-1"] {
+    fn should_reject_zero_negative_and_unpersistable_rates() {
+        for input in ["0", "-1", "9223372036855"] {
             assert!(decimal_rate_to_scaled_integer(&number(input)).is_err());
         }
     }

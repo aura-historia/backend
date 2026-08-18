@@ -111,23 +111,22 @@ CREATE INDEX partner_shop_applications_shop_id_idx ON partner_shop_applications 
 
 CREATE TABLE fx_rates (
     fx_rate_id uuid PRIMARY KEY,
+    generation bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
     captured_at timestamptz NOT NULL,
     source text NOT NULL,
     source_event_id text NOT NULL UNIQUE,
     created timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX fx_rates_captured_at_idx ON fx_rates (captured_at DESC);
+CREATE INDEX fx_rates_captured_at_generation_idx
+    ON fx_rates (captured_at DESC, generation DESC);
 
-CREATE TABLE fx_rate_conversions (
+CREATE TABLE fx_rate_quotes (
     fx_rate_id uuid NOT NULL REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
-    from_currency text NOT NULL,
-    to_currency text NOT NULL,
-    rate bigint NOT NULL,
-    PRIMARY KEY (fx_rate_id, from_currency, to_currency),
-    CONSTRAINT fx_rate_conversions_from_currency_check CHECK (from_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT fx_rate_conversions_to_currency_check CHECK (to_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
-    CONSTRAINT fx_rate_conversions_rate_nonnegative CHECK (rate >= 0)
+    currency text NOT NULL,
+    units_per_eur bigint NOT NULL CHECK (units_per_eur > 0),
+    PRIMARY KEY (fx_rate_id, currency),
+    CONSTRAINT fx_rate_quotes_currency_check CHECK (currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF'))
 );
 
 CREATE TABLE products (
@@ -155,12 +154,14 @@ CREATE TABLE products (
     price_estimate_min_currency text,
     price_estimate_max_amount bigint,
     price_estimate_max_currency text,
-    fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
+    sale_fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
+    sold_at timestamptz,
     state text NOT NULL,
     lifecycle text NOT NULL,
     url text NOT NULL,
     product_images jsonb NOT NULL DEFAULT '[]',
     embedding real[],
+    projection_version bigint NOT NULL DEFAULT 1,
     auction_start timestamptz,
     auction_end timestamptz,
     created timestamptz NOT NULL DEFAULT now(),
@@ -182,17 +183,21 @@ CREATE TABLE products (
     CONSTRAINT products_price_currency_check CHECK (price_currency IS NULL OR price_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT products_price_estimate_min_currency_check CHECK (price_estimate_min_currency IS NULL OR price_estimate_min_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
     CONSTRAINT products_price_estimate_max_currency_check CHECK (price_estimate_max_currency IS NULL OR price_estimate_max_currency IN ('EUR', 'GBP', 'USD', 'AUD', 'CAD', 'NZD', 'CNY', 'BRL', 'PLN', 'TRY', 'JPY', 'CZK', 'RUB', 'AED', 'SAR', 'HKD', 'SGD', 'CHF')),
+    CONSTRAINT products_sale_valuation_pair_check CHECK ((sale_fx_rate_id IS NULL) = (sold_at IS NULL)),
+    CONSTRAINT products_sale_valuation_state_check CHECK (sale_fx_rate_id IS NULL OR state IN ('SOLD', 'REMOVED')),
+    CONSTRAINT products_sold_sale_valuation_check CHECK (state <> 'SOLD' OR sale_fx_rate_id IS NOT NULL),
     CONSTRAINT products_geo_pair_check CHECK ((geo_address_lat IS NULL) = (geo_address_lon IS NULL)),
     CONSTRAINT products_geo_lat_range CHECK (geo_address_lat IS NULL OR geo_address_lat BETWEEN -90 AND 90),
     CONSTRAINT products_geo_lon_range CHECK (geo_address_lon IS NULL OR geo_address_lon BETWEEN -180 AND 180),
     CONSTRAINT products_images_array CHECK (jsonb_typeof(product_images) = 'array'),
     CONSTRAINT products_embedding_dimension_check CHECK (embedding IS NULL OR (array_ndims(embedding) = 1 AND cardinality(embedding) = 768)),
+    CONSTRAINT products_projection_version_positive CHECK (projection_version >= 1),
     CONSTRAINT products_auction_order_check CHECK (auction_start IS NULL OR auction_end IS NULL OR auction_start <= auction_end)
 );
 
 CREATE INDEX products_seller_id_idx ON products (seller_id);
 CREATE INDEX products_lifecycle_updated_idx ON products (lifecycle, updated DESC);
-CREATE INDEX products_fx_rate_id_idx ON products (fx_rate_id);
+CREATE INDEX products_sale_fx_rate_id_idx ON products (sale_fx_rate_id);
 
 CREATE TABLE product_translations (
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
@@ -290,6 +295,8 @@ CREATE TABLE search_filter_matches (
     user_search_filter_id uuid NOT NULL,
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
     origin_event_id uuid NOT NULL,
+    price_valuation_basis text,
+    price_fx_rate_id uuid REFERENCES fx_rates(fx_rate_id) ON DELETE RESTRICT,
     user_search_filter_name text,
     enhanced_match_reason text,
     feedback boolean,
@@ -302,7 +309,14 @@ CREATE TABLE search_filter_matches (
         ON DELETE CASCADE,
     CONSTRAINT search_filter_matches_origin_event_product_fkey
         FOREIGN KEY (product_id, origin_event_id)
-        REFERENCES product_events(product_id, event_id)
+        REFERENCES product_events(product_id, event_id),
+    CONSTRAINT search_filter_matches_price_valuation_check CHECK (
+        (price_valuation_basis IS NULL AND price_fx_rate_id IS NULL)
+        OR (
+            price_valuation_basis IN ('EVENT', 'SALE')
+            AND price_fx_rate_id IS NOT NULL
+        )
+    )
 );
 
 CREATE INDEX search_filter_matches_user_created_idx ON search_filter_matches (user_id, created DESC);

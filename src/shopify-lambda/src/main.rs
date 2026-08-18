@@ -1,5 +1,6 @@
 use aws_lambda_events::sqs::SqsEvent;
 use common::postgres::SqlxUnitOfWork;
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use lambda_runtime::tracing::debug;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use product_postgres::{
@@ -18,11 +19,12 @@ async fn main() -> Result<(), Error> {
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let ingestion = IngestShopifyProductHandler::new(
         GetShopHandler::new(unit_of_work.clone(), SqlxShopDetailsReaderFactory::new()),
-        UpsertProductHandler::new(
+        UpsertProductHandler::new_with_fx_rates(
             unit_of_work,
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         ),
     );
 

@@ -5,6 +5,7 @@ use crate::state::ProductsState;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
+use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
 use common::product_slug_id::ProductSlugId;
 use common::shop_slug_id::ShopSlugId;
@@ -15,6 +16,8 @@ use serde::Deserialize;
 struct ProductDetailsQuery {
     #[serde(default)]
     language: LanguageData,
+    #[serde(default)]
+    currency: CurrencyData,
 }
 
 pub async fn get_product_by_slug(
@@ -71,6 +74,7 @@ pub async fn get_product_by_slug(
                     product_slug_id,
                 },
                 language: query.language.into(),
+                currency: query.currency.into(),
             },
         )
         .await
@@ -180,6 +184,7 @@ mod tests {
                     product_slug_id,
                 },
                 language: Language::En,
+                currency: common::currency::domain::Currency::Eur,
             }] if shop_slug_id.as_ref() == raw_shop_slug_id
                 && product_slug_id.as_ref() == raw_product_slug_id
         ));
@@ -193,7 +198,7 @@ mod tests {
 
         let response = app
             .oneshot(
-                Request::get("/api/v1/by-slug/shops/antique-depot/products/louis-xvi-commode-a1b2c3?language=de")
+                Request::get("/api/v1/by-slug/shops/antique-depot/products/louis-xvi-commode-a1b2c3?language=de&currency=USD")
                     .body(Body::empty())?,
             )
             .await?;
@@ -204,6 +209,7 @@ mod tests {
             [GetProductRequest {
                 lookup: ProductLookup::BySlug { .. },
                 language: Language::De,
+                currency: common::currency::domain::Currency::Usd,
             }]
         ));
         Ok(())

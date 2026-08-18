@@ -20,6 +20,7 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use common::domain::Domain;
+use common::fx_rate_id::FxRateId;
 use common::postgres::SqlxUnitOfWork;
 use common::product_id::ProductId;
 use common::shop_id::ShopId;
@@ -29,6 +30,7 @@ use common::user_id::UserId;
 use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
 };
+use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{Geocoder, GeocodingError};
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
 use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
@@ -402,6 +404,7 @@ pub async fn seed_product() -> ProductId {
     let product_slug_id = common::product_slug_id::ProductSlugId::from("acceptance-product");
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
+    seed_current_fx_snapshot(&pool).await;
     let mut tx = pool
         .begin()
         .await
@@ -457,6 +460,42 @@ pub async fn seed_product() -> ProductId {
     product_id
 }
 
+pub(super) async fn seed_current_fx_snapshot(pool: &sqlx::PgPool) {
+    let fx_rate_id = FxRateId::new();
+    if let Err(error) = sqlx::query(
+        "INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id) VALUES ($1, now(), $2, $3)",
+    )
+    .bind(uuid::Uuid::from(fx_rate_id))
+    .bind("fxratesapi")
+    .bind(fx_rate_id.to_string())
+    .execute(pool)
+    .await
+    {
+        panic!("failed to seed current FX snapshot: {error}");
+    }
+
+    for currency in [
+        "EUR", "GBP", "USD", "AUD", "CAD", "NZD", "CNY", "BRL", "PLN", "TRY", "JPY", "CZK", "RUB",
+        "AED", "SAR", "HKD", "SGD", "CHF",
+    ] {
+        if let Err(error) = sqlx::query(
+            "INSERT INTO fx_rate_quotes (fx_rate_id, currency, units_per_eur) VALUES ($1, $2, $3)",
+        )
+        .bind(uuid::Uuid::from(fx_rate_id))
+        .bind(currency)
+        .bind(if currency == "EUR" {
+            1_000_000_i64
+        } else {
+            1_250_000_i64
+        })
+        .execute(pool)
+        .await
+        {
+            panic!("failed to seed current FX quote: {error}");
+        }
+    }
+}
+
 fn domain(value: &str) -> Domain {
     match Domain::try_from(value) {
         Ok(domain) => domain,
@@ -473,6 +512,7 @@ fn url(value: &str) -> Url {
 
 async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let pool = get_postgres_client().await;
+    seed_current_fx_snapshot(&pool).await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let client = get_dynamodb_client().await;
     let access_token_store = DynamoDbAccessTokenStore::new(client, "table_1");
@@ -490,17 +530,21 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(GetProductHandler::new(
             unit_of_work.clone(),
             SqlxProductDetailsReaderFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
             DynamoDbProductNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(GetSimilarProductsHandler::new(
             unit_of_work.clone(),
             SqlxProductEmbeddingReaderFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
             SqlxProductUserStateReader::new(get_postgres_client().await),
             DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(SearchProductsHandler::new(
+            unit_of_work.clone(),
             OpenSearchProductSearchReader::new(opensearch_client.clone()),
+            SqlxFxRateSnapshotRepositoryFactory,
             search_embeddings,
             SqlxProductUserStateReader::new(get_postgres_client().await),
             DynamoDbAllNotificationsReader::new(client, "table_1"),
@@ -513,23 +557,26 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     )));
 
     let partner_products_state = PartnerProductsState::new(
-        Arc::new(CreateProductHandler::new(
+        Arc::new(CreateProductHandler::new_with_fx_rates(
             unit_of_work.clone(),
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         )),
-        Arc::new(UpdateProductHandler::new(
+        Arc::new(UpdateProductHandler::new_with_fx_rates(
             unit_of_work.clone(),
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         )),
-        Arc::new(UpsertProductHandler::new(
+        Arc::new(UpsertProductHandler::new_with_fx_rates(
             unit_of_work.clone(),
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         )),
         Arc::new(DeleteProductHandler::new(
             unit_of_work.clone(),
@@ -541,7 +588,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     );
 
     let webhooks_state = WebhooksState::new(
-        Arc::new(IngestWoocommerceProductHandler::new(
+        Arc::new(IngestWoocommerceProductHandler::new_with_fx_rates(
             unit_of_work.clone(),
             SqlxPartnerShopReaderFactory::new(),
             SqlxWoocommerceWebhookShopReaderFactory::new(),
@@ -549,6 +596,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxProductRepositoryFactory::new(),
             SqlxProductEventStoreFactory::new(),
             SqlxPartnerProductAuthorizerFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
@@ -660,8 +708,10 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxSearchFilterRepositoryFactory,
         )),
         Arc::new(ListSearchFilterMatchesHandler::new(
+            unit_of_work.clone(),
             search_filter_reader.clone(),
             SqlxProductDetailsBatchReader::new(get_postgres_client().await),
+            SqlxFxRateSnapshotRepositoryFactory,
             DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
@@ -676,6 +726,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(ListWatchlistHandler::new(
             unit_of_work.clone(),
             SqlxProductWatchlistDetailsReaderFactory::new(),
+            SqlxFxRateSnapshotRepositoryFactory,
             DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(WatchProductHandler::new(

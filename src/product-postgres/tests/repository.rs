@@ -1,5 +1,6 @@
 use common::currency::domain::Currency;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
 use common::postgres::SqlxUnitOfWork;
@@ -25,7 +26,9 @@ use product_service::ports::{
     ProductEventStore, ProductEventStoreFactory, ProductRepository, ProductRepositoryError,
     ProductRepositoryFactory,
 };
+use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::OffsetDateTime;
 use url::Url;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -99,7 +102,8 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     assert_eq!(ProductLifecycle::Active, loaded_by_id.lifecycle());
 
     let mut updated = loaded_by_id;
-    updated.change_state(ProductState::Sold);
+    let outcome = updated.mark_available();
+    assert!(outcome.is_ok());
     let update_event = updated.pending_events()[0].clone();
     let mut tx = begin(&unit_of_work).await;
     match products
@@ -137,9 +141,111 @@ async fn should_insert_append_find_and_update_product_by_id_in_postgres() {
     };
     commit(tx).await;
 
-    assert_eq!(ProductState::Sold, loaded.value.state());
+    assert_eq!(ProductState::Available, loaded.value.state());
     assert_eq!(update_event.event_id, loaded.version);
     assert_eq!(update_event.event_id, current_event_id_after_update);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_round_trip_immutable_sale_valuation_in_postgres() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let products = SqlxProductRepositoryFactory::new();
+    let events = SqlxProductEventStoreFactory::new();
+    let shop_id = seed_shop(&pool, "product-postgres-sale-shop").await;
+    let seller_id = seed_shop(&pool, "product-postgres-sale-seller").await;
+    let fx_rate_id = FxRateId::new();
+    seed_complete_fx_snapshot(&pool, fx_rate_id).await;
+    let valuation = product_core::product::ProductSaleValuation {
+        sold_at: OffsetDateTime::UNIX_EPOCH,
+        fx_rate_id,
+    };
+    let mut product = sample_product("postgres-product-sale", shop_id, seller_id);
+    let transition = product.mark_sold(valuation);
+    assert!(matches!(
+        transition,
+        Ok(common::change_outcome::ChangeOutcome::Changed)
+    ));
+    let current_event_id = match product.pending_events().last() {
+        Some(event) => event.event_id,
+        None => panic!("sold product is missing events"),
+    };
+
+    let mut tx = begin(&unit_of_work).await;
+    match products
+        .in_transaction(&mut tx)
+        .insert(&product, current_event_id)
+        .await
+    {
+        Ok(_) => {}
+        Err(error) => panic!("failed to insert sold product: {error:?}"),
+    }
+    for event in product.pending_events() {
+        match events.in_transaction(&mut tx).append(event).await {
+            Ok(()) => {}
+            Err(error) => panic!("failed to append sold product event: {error:?}"),
+        }
+    }
+    commit(tx).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let loaded = match products
+        .in_transaction(&mut tx)
+        .find_by_id(product.id())
+        .await
+    {
+        Ok(Some(product)) => product,
+        Ok(None) => panic!("persisted sold product is missing"),
+        Err(error) => panic!("failed to load sold product: {error:?}"),
+    };
+    commit(tx).await;
+
+    assert_eq!(ProductState::Sold, loaded.value.state());
+    assert_eq!(Some(valuation), loaded.value.sale_valuation());
+    assert_eq!(product.pricing(), loaded.value.pricing());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_enforce_product_sale_valuation_state_constraints_in_postgres() {
+    let pool = get_postgres_client().await;
+    let shop_id = seed_shop(&pool, "product-postgres-sale-constraint-shop").await;
+    let fx_rate_id = FxRateId::new();
+    seed_complete_fx_snapshot(&pool, fx_rate_id).await;
+
+    let available_with_sale = insert_product_row(
+        &pool,
+        shop_id,
+        "product-postgres-available-with-sale",
+        ProductState::Available,
+        Some(fx_rate_id),
+        Some(OffsetDateTime::UNIX_EPOCH),
+    )
+    .await;
+    assert_check_violation(available_with_sale);
+
+    let sold_without_sale = insert_product_row(
+        &pool,
+        shop_id,
+        "product-postgres-sold-without-sale",
+        ProductState::Sold,
+        None,
+        None,
+    )
+    .await;
+    assert_check_violation(sold_without_sale);
+
+    let removed_with_sale = insert_product_row(
+        &pool,
+        shop_id,
+        "product-postgres-removed-with-sale",
+        ProductState::Removed,
+        Some(fx_rate_id),
+        Some(OffsetDateTime::UNIX_EPOCH),
+    )
+    .await;
+    if let Err(error) = removed_with_sale {
+        panic!("removed Product with sale valuation must be valid: {error}");
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -225,7 +331,8 @@ async fn should_report_product_update_conflict_when_event_id_is_stale() {
 
     insert_product_with_event(&unit_of_work, &products, &events, &product).await;
 
-    product.change_state(ProductState::Reserved);
+    let outcome = product.mark_reserved();
+    assert!(outcome.is_ok());
     let result = {
         let mut tx = begin(&unit_of_work).await;
         products
@@ -374,6 +481,54 @@ async fn should_roll_back_product_and_event_when_transaction_is_not_committed() 
     assert_eq!(0, persisted_event_count);
 }
 
+async fn insert_product_row(
+    pool: &sqlx::PgPool,
+    shop_id: ShopId,
+    slug: &str,
+    state: ProductState,
+    sale_fx_rate_id: Option<FxRateId>,
+    sold_at: Option<OffsetDateTime>,
+) -> Result<(), sqlx::Error> {
+    let product_id = uuid::Uuid::new_v4();
+    let event_id = uuid::Uuid::new_v4();
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, state, lifecycle, url, sale_fx_rate_id, sold_at) VALUES ($1, $2, $3, $4, $4, $5, $6, 'ACTIVE', 'https://example.test/product', $7, $8)",
+    )
+    .bind(product_id)
+    .bind(slug)
+    .bind(event_id)
+    .bind(uuid::Uuid::from(shop_id))
+    .bind(format!("{slug}-sku"))
+    .bind(match state {
+        ProductState::Listed => "LISTED",
+        ProductState::Available => "AVAILABLE",
+        ProductState::Reserved => "RESERVED",
+        ProductState::Sold => "SOLD",
+        ProductState::Removed => "REMOVED",
+        ProductState::Unknown => "UNKNOWN",
+    })
+    .bind(sale_fx_rate_id.map(uuid::Uuid::from))
+    .bind(sold_at)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())",
+    )
+    .bind(event_id)
+    .bind(product_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await
+}
+
+fn assert_check_violation(result: Result<(), sqlx::Error>) {
+    assert!(matches!(
+        result,
+        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("23514")
+    ));
+}
+
 async fn insert_product_with_event(
     unit_of_work: &SqlxUnitOfWork,
     products: &SqlxProductRepositoryFactory,
@@ -413,6 +568,7 @@ fn rehydrate_product_for_update(
         title: product.title().cloned(),
         description: product.description().cloned(),
         pricing: product.pricing(),
+        sale_valuation: product.sale_valuation(),
         state: product.state(),
         lifecycle: product.lifecycle(),
         url: product.url().clone(),
@@ -445,8 +601,8 @@ fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> Product {
             price: Some(Price::new(MonetaryAmount::from(1_200_u64), Currency::Eur)),
             price_estimate_min: None,
             price_estimate_max: None,
-            fx_rate_id: None,
         },
+        sale_valuation: None,
         state: ProductState::Listed,
         url: url(&format!("https://example.com/{slug}")),
         images,
@@ -454,6 +610,39 @@ fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> Product {
     }) {
         Ok(product) => product,
         Err(error) => panic!("failed to create product: {error}"),
+    }
+}
+
+async fn seed_complete_fx_snapshot(pool: &sqlx::PgPool, fx_rate_id: FxRateId) {
+    let rate = sqlx::query(
+        "INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(uuid::Uuid::from(fx_rate_id))
+    .bind(OffsetDateTime::UNIX_EPOCH)
+    .bind("fxratesapi")
+    .bind(fx_rate_id.to_string())
+    .execute(pool)
+    .await;
+    if let Err(error) = rate {
+        panic!("failed to seed FX snapshot: {error}");
+    }
+
+    for currency in Currency::iter() {
+        let quote = sqlx::query(
+            "INSERT INTO fx_rate_quotes (fx_rate_id, currency, units_per_eur) VALUES ($1, $2, $3)",
+        )
+        .bind(uuid::Uuid::from(fx_rate_id))
+        .bind(currency.as_str())
+        .bind(if currency == Currency::Eur {
+            1_000_000_i64
+        } else {
+            1_250_000_i64
+        })
+        .execute(pool)
+        .await;
+        if let Err(error) = quote {
+            panic!("failed to seed FX quote: {error}");
+        }
     }
 }
 

@@ -7,7 +7,7 @@ use common::{
 use indexmap::IndexSet;
 use product_core::{
     description::Description,
-    product::{ProductAddress, ProductAuction, ProductPricing},
+    product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
     product_image::ProductImage,
     title::Title,
 };
@@ -42,8 +42,12 @@ pub struct ProductSearchFilterMatchSource {
     pub event_id: EventId,
     /// Whether this event type is routed to search-filter percolation.
     pub event_kind: ProductSearchFilterMatchSourceEventKind,
-    /// Current Product version for a rebuilt OpenSearch document.
+    /// Immutable occurrence time from `product_events.event_time`.
+    pub origin_event_time: OffsetDateTime,
+    /// Current Product event identity. This rejects stale CDC triggers.
     pub current_event_id: EventId,
+    /// Monotonic authoritative version for external OpenSearch writes.
+    pub projection_version: i64,
     pub product_id: ProductId,
     pub product_slug_id: ProductSlugId,
     pub shop_id: ShopId,
@@ -61,14 +65,18 @@ pub struct ProductSearchFilterMatchSource {
     pub titles: HashMap<Language, Title>,
     /// Translations take precedence over the original text for the same language.
     pub descriptions: HashMap<Language, Description>,
-    /// Native persisted prices and their FX snapshot identifier.
+    /// Native persisted prices.
     pub pricing: ProductPricing,
+    /// Immutable valuation captured when the Product was sold.
+    pub sale_valuation: Option<ProductSaleValuation>,
     pub state: ProductState,
     pub lifecycle: ProductLifecycle,
     pub url: Url,
     pub view_url: Url,
     pub image: Option<ProductImage>,
     pub images: IndexSet<ProductImage>,
+    /// Authoritative embedding, when enrichment completed.
+    pub embedding: Option<Vec<f32>>,
     pub auction: ProductAuction,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,

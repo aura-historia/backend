@@ -40,6 +40,15 @@ export class Observability extends Construct {
     dynamoAlarm(this, props.stageName, "TableOneThrottledRequestsAlarm", "ThrottledRequests", props.table, 5, 1).addAlarmAction(alarmAction);
     dynamoAlarm(this, props.stageName, "TableOneConditionalCheckFailedRequestsAlarm", "ConditionalCheckFailedRequests", props.table, 100, 2).addAlarmAction(alarmAction);
 
+    lambdaAlarm(
+      this,
+      props.stageName,
+      "InitialFxRateSnapshotProviderErrorAlarm",
+      "Errors",
+      `fxrate-initial-snapshot-provider-${props.stageName}`,
+      1,
+    ).addAlarmAction(alarmAction);
+
     for (const [key, fn] of Object.entries(props.functions) as [LambdaKey, unknown][]) {
       if (!fn) {
         continue;

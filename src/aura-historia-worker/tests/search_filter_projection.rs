@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use common::currency::domain::Currency;
@@ -25,7 +22,9 @@ use product_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
     title::Title,
 };
-use product_service::ports::{ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource};
+use product_service::ports::{
+    ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
+};
 use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{SqlxSearchFilterIndexReader, SqlxSearchFilterRepositoryFactory};
@@ -35,6 +34,8 @@ use search_filter_service::ports::{
 use search_filter_service::use_cases::{
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
 };
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use test_api::{
     IntegrationTestService, OpenSearch, Postgres, Sequin, aura_integration_test,
     get_opensearch_client, get_postgres_client, get_sequin_worker_webhook_bind_addr, refresh_index,
@@ -317,7 +318,10 @@ async fn assert_not_percolated_for(
 
     loop {
         refresh_index("user_search_filters").await;
-        let product = product_source(title)?;
+        let product = ProductPercolationInput {
+            source: product_source(title)?,
+            valuation: None,
+        };
         let matches = index.percolate(&product).await?;
         if matches
             .iter()
@@ -343,7 +347,10 @@ async fn wait_for_percolation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
         refresh_index("user_search_filters").await;
-        let product = product_source(title)?;
+        let product = ProductPercolationInput {
+            source: product_source(title)?,
+            valuation: None,
+        };
         let matches = index.percolate(&product).await?;
         let found = matches
             .iter()
@@ -370,7 +377,9 @@ fn product_source(
     Ok(ProductSearchFilterMatchSource {
         event_id,
         event_kind: product_service::ports::ProductSearchFilterMatchSourceEventKind::Domain,
+        origin_event_time: time::OffsetDateTime::UNIX_EPOCH,
         current_event_id: event_id,
+        projection_version: 1,
         product_id: ProductId::new(),
         product_slug_id: ProductSlugId::from("test-product"),
         shop_id: ShopId::new(),
@@ -390,12 +399,14 @@ fn product_source(
         titles: std::collections::HashMap::from([(Language::En, title)]),
         descriptions: std::collections::HashMap::new(),
         pricing: ProductPricing::default(),
+        sale_valuation: None,
         state: ProductState::Listed,
         lifecycle: ProductLifecycle::Active,
         url: url.clone(),
         view_url: url,
         image: None,
         images: indexmap::IndexSet::new(),
+        embedding: None,
         auction: ProductAuction::default(),
         created: time::OffsetDateTime::UNIX_EPOCH,
         updated: time::OffsetDateTime::UNIX_EPOCH,

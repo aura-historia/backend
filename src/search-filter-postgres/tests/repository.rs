@@ -1,5 +1,6 @@
 use common::currency::domain::Currency;
 use common::event_id::EventId;
+use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::postgres::SqlxUnitOfWork;
 use common::product_id::ProductId;
@@ -8,8 +9,10 @@ use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
-use product_core::product_search::ProductSearch;
-use search_filter_core::{NewSearchFilter, SearchFilter, SearchFilterProductMatch};
+use product_core::{product::ProductPriceValuationBasis, product_search::ProductSearch};
+use search_filter_core::{
+    NewSearchFilter, PriceMatchValuation, SearchFilter, SearchFilterProductMatch,
+};
 use search_filter_postgres::{
     SqlxSearchFilterIndexReader, SqlxSearchFilterMatchRepositoryFactory,
     SqlxSearchFilterQuotaReaderFactory, SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
@@ -182,12 +185,17 @@ async fn should_insert_find_and_update_search_filter_match() {
     let filter = sample_filter(user_id, "match filter");
     let product_id = seed_product(&pool, "search-filter-match-product").await;
     let event_id = seed_product_event(&pool, product_id).await;
+    let fx_rate_id = seed_fx_rate(&pool).await;
     let mut product_match = SearchFilterProductMatch {
         user_id,
         user_search_filter_id: filter.id(),
         user_search_filter_name: Some(filter.name().clone()),
         product_id,
         origin_event_id: event_id,
+        price_match_valuation: Some(PriceMatchValuation {
+            basis: ProductPriceValuationBasis::Event,
+            fx_rate_id,
+        }),
         enhanced_match_reason: None,
         feedback: None,
     };
@@ -276,6 +284,19 @@ async fn seed_product(pool: &sqlx::PgPool, slug: &str) -> ProductId {
         .await
         .unwrap_or_else(|error| panic!("seed commit failed: {error:?}"));
     product_id
+}
+
+async fn seed_fx_rate(pool: &sqlx::PgPool) -> FxRateId {
+    let fx_rate_id = FxRateId::new();
+    sqlx::query(
+        "INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id) VALUES ($1, now(), 'fxratesapi', $2)",
+    )
+    .bind(uuid::Uuid::from(fx_rate_id))
+    .bind(uuid::Uuid::new_v4().to_string())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("seed FX rate failed: {error:?}"));
+    fx_rate_id
 }
 
 async fn seed_product_event(pool: &sqlx::PgPool, product_id: ProductId) -> EventId {

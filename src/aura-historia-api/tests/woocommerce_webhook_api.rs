@@ -1,6 +1,8 @@
 mod api_support;
 
-use api_support::{seed_access_token_for, seed_partner_shop, seed_shop, seed_user};
+use api_support::{
+    seed_access_token_for, seed_current_fx_snapshot, seed_partner_shop, seed_shop, seed_user,
+};
 use base64::Engine;
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use serde_json::json;
@@ -323,6 +325,8 @@ async fn should_reject_invalid_woocommerce_request_shape_without_persisting_prod
 }
 
 async fn webhook_auth() -> Result<(String, String), Box<dyn std::error::Error>> {
+    let pool = get_postgres_client().await;
+    seed_current_fx_snapshot(&pool).await;
     let shop = seed_shop().await;
     let shop_id = shop.id().to_string();
     configure_webhook_shop(shop.id()).await?;

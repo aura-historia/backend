@@ -205,6 +205,10 @@ async fn should_list_search_filter_matches() {
         body["items"][0]["item"]["productId"]
     );
     assert_eq!(
+        "CURRENT",
+        body["items"][0]["item"]["pricing"]["valuation"]["type"]
+    );
+    assert_eq!(
         serde_json::json!(false),
         body["items"][0]["userState"]["searchFilter"]["matchFeedback"]
     );

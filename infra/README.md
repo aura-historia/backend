@@ -115,5 +115,8 @@ and `dev`:
 ```
 
 `fxrate-lambda` currently reads `/fxratesapi/prod/api-token` for the scheduled
-sync. The `ephemeral` stage uses local/mock values for third-party integrations
-where possible.
+sync. On first real-stage compute-stack creation, a custom resource synchronously
+invokes this same Lambda with stable deployment source ID `deployment:fxrate:initial:{stage}:v1`.
+Deployment fails when this initial capture fails; it must run after PostgreSQL
+business migrations. Updates, deletes, and `ephemeral` do not invoke it. The
+`ephemeral` stage uses local/mock values for third-party integrations where possible.

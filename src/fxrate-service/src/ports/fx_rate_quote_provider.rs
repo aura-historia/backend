@@ -1,9 +1,9 @@
-use common::{currency::domain::Currency, error::boxed::BoxError, price::domain::Rate};
+use common::{currency::domain::Currency, error::boxed::BoxError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FxRateQuote {
     pub currency: Currency,
-    pub rate: Rate,
+    pub units_per_eur: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

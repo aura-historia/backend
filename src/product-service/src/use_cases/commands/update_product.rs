@@ -14,8 +14,14 @@ use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use fxrate_service::ports::{
+    FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
+};
 use indexmap::IndexSet;
-use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+use product_core::product::{
+    ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
+    ProductStateTransitionError,
+};
 use product_core::product_image::ProductImage;
 use url::Url;
 
@@ -84,6 +90,20 @@ pub enum UpdateProductError {
     UrlRequired,
     #[error("product state is invalid")]
     InvalidProductState,
+    #[error("no persisted FX snapshot is available for product sale")]
+    SaleFxSnapshotMissing,
+    #[error("persisted FX snapshot is invalid for product sale")]
+    SaleFxSnapshotInvalid {
+        #[source]
+        source: BoxError,
+    },
+    #[error("FX snapshot lookup is temporarily unavailable for product sale")]
+    SaleFxSnapshotUnavailable {
+        #[source]
+        source: BoxError,
+    },
+    #[error("generic update cannot reopen a sold product")]
+    SoldProductReopenRequiresExplicitOperation,
     #[error("product already exists for shop product identity")]
     ShopProductAlreadyExists,
     #[error("product slug already exists")]
@@ -158,20 +178,28 @@ pub trait UpdateProductUseCase: Send + Sync {
     ) -> Result<UpdateProductResult, UpdateProductError>;
 }
 
-pub struct UpdateProductHandler<U, R, E, A> {
+pub struct UpdateProductHandler<U, R, E, A, F> {
     unit_of_work: U,
     products: R,
     events: E,
     authorizer: A,
+    fx_rates: F,
 }
 
-impl<U, R, E, A> UpdateProductHandler<U, R, E, A> {
-    pub fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
+impl<U, R, E, A, F> UpdateProductHandler<U, R, E, A, F> {
+    pub fn new_with_fx_rates(
+        unit_of_work: U,
+        products: R,
+        events: E,
+        authorizer: A,
+        fx_rates: F,
+    ) -> Self {
         Self {
             unit_of_work,
             products,
             events,
             authorizer,
+            fx_rates,
         }
     }
 }
@@ -181,12 +209,13 @@ enum UpdateProductTarget {
     Key(ProductKey),
 }
 
-impl<U, R, E, A> UpdateProductHandler<U, R, E, A>
+impl<U, R, E, A, F> UpdateProductHandler<U, R, E, A, F>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     async fn persist_for_target(
         &self,
@@ -238,8 +267,16 @@ where
         };
         let expected_event_id = loaded.version;
         let mut product = loaded.value;
+        let sale_valuation = if matches!(command.state, PatchField::Set(ProductState::Sold))
+            && product.state() != ProductState::Sold
+        {
+            let sold_at = time::OffsetDateTime::now_utc();
+            Some(sale_valuation(&self.fx_rates, tx, sold_at).await?)
+        } else {
+            None
+        };
 
-        apply_command(&mut product, command)?;
+        apply_command(&mut product, command, sale_valuation)?;
         let events = product.take_pending_events();
         let event_id = events.last().map(|event| event.event_id);
 
@@ -263,12 +300,13 @@ where
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, A> UpdateProductUseCase for UpdateProductHandler<U, R, E, A>
+impl<U, R, E, A, F> UpdateProductUseCase for UpdateProductHandler<U, R, E, A, F>
 where
     U: UnitOfWork,
     R: ProductRepositoryFactory<U::Tx>,
     E: ProductEventStoreFactory<U::Tx>,
     A: PartnerProductAuthorizerFactory<U::Tx>,
+    F: FxRateSnapshotRepositoryFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "update_product",
@@ -347,6 +385,7 @@ where
 fn apply_command(
     product: &mut product_core::product::Product,
     command: UpdateProductCommand,
+    sale_valuation: Option<ProductSaleValuation>,
 ) -> Result<(), UpdateProductError> {
     match command.address {
         PatchField::Unchanged => {}
@@ -377,9 +416,7 @@ fn apply_command(
     });
     match command.state {
         PatchField::Unchanged => {}
-        PatchField::Set(state) => {
-            product.change_state(state);
-        }
+        PatchField::Set(state) => apply_state(product, state, sale_valuation)?,
         PatchField::Clear => return Err(UpdateProductError::StateRequired),
     }
     match command.url {
@@ -414,6 +451,27 @@ fn apply_command(
         auction.end = value;
     });
 
+    Ok(())
+}
+
+fn apply_state(
+    product: &mut product_core::product::Product,
+    state: ProductState,
+    sale_valuation: Option<ProductSaleValuation>,
+) -> Result<(), UpdateProductError> {
+    if product.state() == state {
+        return Ok(());
+    }
+    match state {
+        ProductState::Listed => product.mark_listed()?,
+        ProductState::Available => product.mark_available()?,
+        ProductState::Reserved => product.mark_reserved()?,
+        ProductState::Sold => {
+            product.mark_sold(sale_valuation.ok_or(UpdateProductError::SaleFxSnapshotMissing)?)?
+        }
+        ProductState::Removed => product.mark_removed()?,
+        ProductState::Unknown => product.mark_unknown()?,
+    };
     Ok(())
 }
 
@@ -453,6 +511,51 @@ fn apply_auction_patch(
             let mut auction = product.auction();
             apply(&mut auction, None);
             product.replace_auction(auction);
+        }
+    }
+}
+
+async fn sale_valuation<Tx, F>(
+    fx_rates: &F,
+    tx: &mut Tx,
+    sold_at: time::OffsetDateTime,
+) -> Result<ProductSaleValuation, UpdateProductError>
+where
+    F: FxRateSnapshotRepositoryFactory<Tx>,
+{
+    let mut repository = fx_rates.in_transaction(tx);
+    let snapshot = repository
+        .find_latest_at_or_before(sold_at)
+        .await
+        .map_err(UpdateProductError::from)?
+        .ok_or(UpdateProductError::SaleFxSnapshotMissing)?;
+    Ok(ProductSaleValuation {
+        sold_at,
+        fx_rate_id: snapshot.id(),
+    })
+}
+
+impl From<ProductStateTransitionError> for UpdateProductError {
+    fn from(error: ProductStateTransitionError) -> Self {
+        match error {
+            ProductStateTransitionError::SoldProductReopenRequiresExplicitOperation => {
+                Self::SoldProductReopenRequiresExplicitOperation
+            }
+        }
+    }
+}
+
+impl From<FxRateSnapshotRepositoryError> for UpdateProductError {
+    fn from(error: FxRateSnapshotRepositoryError) -> Self {
+        match error {
+            FxRateSnapshotRepositoryError::InsertFailed { source }
+            | FxRateSnapshotRepositoryError::ReadFailed { source } => {
+                Self::SaleFxSnapshotUnavailable { source }
+            }
+            FxRateSnapshotRepositoryError::InvalidPersistedSnapshot { source } => {
+                Self::SaleFxSnapshotInvalid { source }
+            }
+            FxRateSnapshotRepositoryError::CapturedAtNotMonotonic => Self::SaleFxSnapshotMissing,
         }
     }
 }
@@ -545,6 +648,73 @@ impl From<ProductRepositoryError> for UpdateProductError {
                 Self::InvalidAggregateStatePersisted
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+struct MissingFxRateSnapshotFactory;
+
+#[cfg(test)]
+struct MissingFxRateSnapshotRepository;
+
+#[cfg(test)]
+impl<Tx> FxRateSnapshotRepositoryFactory<Tx> for MissingFxRateSnapshotFactory {
+    fn in_transaction<'tx>(&'tx self, _tx: &'tx mut Tx) -> impl FxRateSnapshotRepository + 'tx {
+        MissingFxRateSnapshotRepository
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl FxRateSnapshotRepository for MissingFxRateSnapshotRepository {
+    async fn find_latest(
+        &mut self,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_latest_at_or_before(
+        &mut self,
+        _timestamp: time::OffsetDateTime,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_by_id(
+        &mut self,
+        _id: common::fx_rate_id::FxRateId,
+    ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(None)
+    }
+
+    async fn find_by_ids(
+        &mut self,
+        _ids: &[common::fx_rate_id::FxRateId],
+    ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
+        Ok(Vec::new())
+    }
+
+    async fn insert(
+        &mut self,
+        _snapshot: &fxrate_core::NewFxRateSnapshot,
+        _source_event_id: &str,
+    ) -> Result<fxrate_service::ports::FxRateSnapshotInsertOutcome, FxRateSnapshotRepositoryError>
+    {
+        Ok(fxrate_service::ports::FxRateSnapshotInsertOutcome::Duplicate)
+    }
+}
+
+#[cfg(test)]
+impl<U, R, E, A> UpdateProductHandler<U, R, E, A, MissingFxRateSnapshotFactory> {
+    fn new(unit_of_work: U, products: R, events: E, authorizer: A) -> Self {
+        Self::new_with_fx_rates(
+            unit_of_work,
+            products,
+            events,
+            authorizer,
+            MissingFxRateSnapshotFactory,
+        )
     }
 }
 
@@ -821,6 +991,7 @@ mod tests {
         FakeRepositoryFactory,
         FakeEventStoreFactory,
         AllowPartnerProductAuthorizer,
+        MissingFxRateSnapshotFactory,
     > {
         UpdateProductHandler::new(
             uow(state),
@@ -876,6 +1047,7 @@ mod tests {
                 price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 ..Default::default()
             },
+            sale_valuation: None,
             state: ProductState::Listed,
             url: url("https://shop.example/products/1")?,
             images: IndexSet::new(),
@@ -894,6 +1066,33 @@ mod tests {
         };
 
         assert!(command.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_not_persist_or_commit_when_sold_transition_has_no_persisted_fx_snapshot()
+    -> Result<(), url::ParseError> {
+        let state = state();
+        let product = product()?;
+        let product_id = product.id();
+        lock_state(&state).find_by_id_result = Some(Ok(Some(versioned_product(product))));
+        let command = UpdateProductCommand {
+            state: PatchField::Set(ProductState::Sold),
+            ..Default::default()
+        };
+
+        let result = handler(&state)
+            .execute(&context(), product_id, command)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(UpdateProductError::SaleFxSnapshotMissing)
+        ));
+        let state = lock_state(&state);
+        assert_eq!(0, state.update_count);
+        assert_eq!(0, state.append_count);
+        assert_eq!(0, state.commit_count);
+        Ok(())
     }
 
     #[tokio::test]

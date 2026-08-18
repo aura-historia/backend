@@ -3,11 +3,13 @@ use common::error::boxed::BoxError;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use search_filter_core::PriceMatchValuation;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterMatchCandidate {
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
+    pub price_match_valuation: Option<PriceMatchValuation>,
     pub enhanced_match_reason: Option<EnhancedMatchReason>,
 }
 
@@ -16,6 +18,7 @@ pub struct ActiveSearchFilterMatchCandidate {
     pub user_id: UserId,
     pub search_filter_id: UserSearchFilterId,
     pub search_filter_name: UserSearchFilterName,
+    pub price_match_valuation: Option<PriceMatchValuation>,
     pub enhanced_match_reason: Option<EnhancedMatchReason>,
 }
 

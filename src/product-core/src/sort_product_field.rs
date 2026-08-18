@@ -2,7 +2,6 @@
 pub enum SortProductField {
     #[default]
     Score,
-    Price,
     Updated,
     Created,
 }
@@ -18,7 +17,6 @@ mod tests {
 
     #[rstest::rstest]
     #[case(SortProductField::Score)]
-    #[case(SortProductField::Price)]
     #[case(SortProductField::Updated)]
     #[case(SortProductField::Created)]
     fn should_clone_and_compare_all_variants(#[case] field: SortProductField) {

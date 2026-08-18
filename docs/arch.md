@@ -1703,7 +1703,7 @@ PostgreSQL owns business truth for:
 * partner-shop applications;
 * products;
 * product events;
-* product FX snapshots plus EUR-based conversion rows;
+* immutable canonical FX snapshots with generation and EUR-base `units_per_eur` quotes;
 * product translations;
 * product watchlists;
 * search filters;
@@ -1838,7 +1838,7 @@ An older or equal version MUST NOT overwrite a newer projection state.
 
 Idempotency SHOULD be enforced in the target write through conditional updates, unique constraints, or version checks rather than through in-memory checks.
 
-Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. For Product events, `products.event_id` is the current revision and must equal `product_events.event_id`. Processed, duplicate, stale, missing-source, and ignored-event outcomes are operationally distinct.
+Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. For Product events, `products.event_id` is the current revision and must equal `product_events.event_id`. Processed, duplicate, stale, missing-source, and ignored-event outcomes are operationally distinct.
 
 ### 12.6 Building projections
 

@@ -23,7 +23,7 @@ async fn should_apply_business_schema_migrations() {
         "shops",
         "user_partner_shops",
         "partner_shop_applications",
-        "fx_rate_conversions",
+        "fx_rate_quotes",
         "fx_rates",
         "products",
         "product_events",

@@ -2,14 +2,15 @@ mod api_support;
 
 use api_support::{
     assert_problem, aura_api_app_with_failed_search_embedding, json_response, product_route_slugs,
-    seed_product,
+    seed_current_fx_snapshot, seed_product,
 };
 use opensearch::IndexParts;
 use serde_json::{Value, json};
 use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, OpenSearch, Postgres, aura_integration_test,
-    get_opensearch_client, refresh_index,
+    get_opensearch_client, get_postgres_client, refresh_index,
 };
+use time::{Duration, OffsetDateTime};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");
 const DYNAMODB: DynamoDB = DynamoDB();
@@ -34,6 +35,13 @@ async fn should_get_product_details_by_id() {
 
     assert_eq!(reqwest::StatusCode::OK, status);
     assert_eq!(json!(product_id.to_string()), body["item"]["productId"]);
+    assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);
+    assert!(body["item"]["pricing"].get("source").is_some());
+    assert!(body["item"]["pricing"].get("display").is_some());
+    assert!(body["item"].get("price").is_none());
+    assert!(body["item"].get("priceEstimateMin").is_none());
+    assert!(body["item"].get("priceEstimateMax").is_none());
+    assert!(body["item"].get("currency").is_none());
     assert!(body.get("userState").is_none());
     assert_eq!(
         Some("public, max-age=180, s-maxage=900".to_owned()),
@@ -140,7 +148,7 @@ async fn should_return_pending_similar_products_by_slug() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
-async fn should_page_product_search_by_price_without_duplicates() {
+async fn should_page_product_search_without_duplicates_when_using_cursor() {
     let products = [
         search_document(
             "Price page cabinet",
@@ -178,7 +186,7 @@ async fn should_page_product_search_by_price_without_duplicates() {
     index_search_documents(products.iter().map(|(_, document)| document.clone())).await;
 
     let (first_response, _) = get_json(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=price&order=asc&size=2".to_owned(),
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2".to_owned(),
     )
     .await;
     let cache_control = first_response
@@ -195,7 +203,9 @@ async fn should_page_product_search_by_price_without_duplicates() {
         vec![products[0].0.clone(), products[1].0.clone()],
         product_ids(&first_body)
     );
-    assert!(first_body["searchAfter"].is_array());
+    assert!(first_body["searchAfter"].is_object());
+    assert!(first_body["searchAfter"]["fxRateId"].is_string());
+    assert!(first_body["searchAfter"]["searchAfter"].is_array());
     assert_eq!(
         Some("public, max-age=60, s-maxage=300".to_owned()),
         cache_control
@@ -204,7 +214,7 @@ async fn should_page_product_search_by_price_without_duplicates() {
     let search_after = serde_json::to_string(&first_body["searchAfter"])
         .unwrap_or_else(|error| panic!("failed to encode search cursor: {error}"));
     let (second_response, _) = get_json(format!(
-        "/api/v1/products?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=price&order=asc&size=2&searchAfter={}",
+        "/api/v1/products?language=en&currency=USD&productQuery[0]=Price%20page%20cabinet&sort=created&order=asc&size=2&searchAfter={}",
         url_encode(&search_after)
     ))
     .await;
@@ -219,6 +229,124 @@ async fn should_page_product_search_by_price_without_duplicates() {
         product_ids(&first_body)
             .iter()
             .all(|id| !product_ids(&second_body).contains(id))
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_keep_product_search_fx_snapshot_pinned_across_pages_when_newer_snapshot_is_captured()
+ {
+    let products = [
+        search_document(
+            "Pinned FX cursor cabinet",
+            100,
+            "AVAILABLE",
+            "ACTIVE",
+            "Pinned FX Shop",
+            "2025-01-01T00:00:00Z",
+        ),
+        search_document(
+            "Pinned FX cursor cabinet",
+            100,
+            "AVAILABLE",
+            "ACTIVE",
+            "Pinned FX Shop",
+            "2025-01-02T00:00:00Z",
+        ),
+    ];
+    index_search_documents(products.iter().map(|(_, document)| document.clone())).await;
+
+    let captured_at = OffsetDateTime::now_utc();
+    let original_fx_rate_id = capture_fx_snapshot(captured_at, 2_000_000).await;
+    let first_page_path = "/api/v1/products?language=en&currency=EUR&productQuery[0]=Pinned%20FX%20cursor&price[min]=50&price[max]=50&sort=created&order=asc&size=1".to_owned();
+    let (first_response, _) = get_json(first_page_path.clone()).await;
+    let (first_status, first_body) = json_response(first_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, first_status);
+    assert_eq!(vec![products[0].0.clone()], product_ids(&first_body));
+    assert_eq!(
+        json!({ "amount": 50, "currency": "EUR" }),
+        first_body["items"][0]["item"]["displayPrice"]
+    );
+    assert_eq!(
+        json!(original_fx_rate_id.to_string()),
+        first_body["searchAfter"]["fxRateId"]
+    );
+
+    let search_after = serde_json::to_string(&first_body["searchAfter"])
+        .unwrap_or_else(|error| panic!("failed to encode search cursor: {error}"));
+    let newer_fx_rate_id = capture_fx_snapshot(OffsetDateTime::now_utc(), 1_000_000).await;
+    assert_ne!(original_fx_rate_id, newer_fx_rate_id);
+
+    let (second_response, _) = get_json(format!(
+        "{first_page_path}&searchAfter={}",
+        url_encode(&search_after)
+    ))
+    .await;
+    let (second_status, second_body) = json_response(second_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, second_status);
+    assert_eq!(vec![products[1].0.clone()], product_ids(&second_body));
+    assert_eq!(
+        json!({ "amount": 50, "currency": "EUR" }),
+        second_body["items"][0]["item"]["displayPrice"]
+    );
+    assert_eq!(
+        json!(original_fx_rate_id.to_string()),
+        second_body["searchAfter"]["fxRateId"]
+    );
+
+    let (fresh_response, _) = get_json(first_page_path).await;
+    let (fresh_status, fresh_body) = json_response(fresh_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, fresh_status);
+    assert!(product_ids(&fresh_body).is_empty());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
+async fn should_keep_sold_display_when_fx_snapshot_changes() {
+    let captured_at = OffsetDateTime::now_utc() + Duration::days(730);
+    let sale_fx_rate_id = capture_fx_snapshot(captured_at, 2_000_000).await;
+    let (product_id, mut document) = search_document(
+        "Immutable sold cabinet",
+        1_000,
+        "SOLD",
+        "ACTIVE",
+        "Sold FX Shop",
+        "2025-01-01T00:00:00Z",
+    );
+    document["sourcePrice"] = Value::Null;
+    document["salePrices"] = json!({
+        "eur": 40, "gbp": 40, "usd": 40, "aud": 40,
+        "cad": 40, "nzd": 40, "cny": 40, "brl": 40,
+        "pln": 40, "try": 40, "jpy": 40, "czk": 40,
+        "rub": 40, "aed": 40, "sar": 40, "hkd": 40,
+        "sgd": 40, "chf": 40
+    });
+    document["saleFxRateId"] = json!(sale_fx_rate_id.to_string());
+    document["soldAt"] = json!("2025-01-01T00:00:00Z");
+    index_search_documents([document]).await;
+
+    let path = "/api/v1/products?language=en&currency=EUR&productQuery[0]=Immutable%20sold%20cabinet&price[min]=40&price[max]=40&sort=created&order=asc".to_owned();
+    let (before_response, _) = get_json(path.clone()).await;
+    let (before_status, before_body) = json_response(before_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, before_status);
+    assert_eq!(vec![product_id.clone()], product_ids(&before_body));
+    assert_eq!(json!("SOLD"), before_body["items"][0]["item"]["state"]);
+    assert_eq!(
+        json!({ "amount": 40, "currency": "EUR" }),
+        before_body["items"][0]["item"]["displayPrice"]
+    );
+
+    capture_fx_snapshot(captured_at + Duration::days(1), 1_000_000).await;
+    let (after_response, _) = get_json(path).await;
+    let (after_status, after_body) = json_response(after_response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, after_status);
+    assert_eq!(vec![product_id], product_ids(&after_body));
+    assert_eq!(
+        json!({ "amount": 40, "currency": "EUR" }),
+        after_body["items"][0]["item"]["displayPrice"]
     );
 }
 
@@ -255,8 +383,14 @@ async fn should_return_matching_product_search_summary() {
         json!("Renaissance walnut cabinet"),
         body["items"][0]["item"]["title"]["text"]
     );
-    assert_eq!(json!("USD"), body["items"][0]["item"]["price"]["currency"]);
-    assert_eq!(json!(125), body["items"][0]["item"]["price"]["amount"]);
+    assert_eq!(
+        json!("USD"),
+        body["items"][0]["item"]["displayPrice"]["currency"]
+    );
+    assert_eq!(
+        json!(125),
+        body["items"][0]["item"]["displayPrice"]["amount"]
+    );
     assert_eq!(json!("AVAILABLE"), body["items"][0]["item"]["state"]);
     assert_eq!(json!("ACTIVE"), body["items"][0]["item"]["lifecycle"]);
     assert!(body["items"][0].get("userState").is_none());
@@ -382,7 +516,10 @@ async fn should_intersect_product_search_filters() {
         body["items"][0]["item"]["shopName"]
     );
     assert_eq!(json!("LISTED"), body["items"][0]["item"]["state"]);
-    assert_eq!(json!(550), body["items"][0]["item"]["price"]["amount"]);
+    assert_eq!(
+        json!(550),
+        body["items"][0]["item"]["displayPrice"]["amount"]
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, OPENSEARCH, &AURA_API])]
@@ -555,7 +692,46 @@ async fn get_json_from(base_url: &str, path: &str) -> (reqwest::Response, String
     (response, url)
 }
 
+async fn capture_fx_snapshot(captured_at: OffsetDateTime, usd_units_per_eur: i64) -> uuid::Uuid {
+    let fx_rate_id = uuid::Uuid::new_v4();
+    let pool = get_postgres_client().await;
+    sqlx::query(
+        "INSERT INTO fx_rates (fx_rate_id, captured_at, source, source_event_id) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(fx_rate_id)
+    .bind(captured_at)
+    .bind("fxratesapi")
+    .bind(fx_rate_id.to_string())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to capture FX snapshot: {error}"));
+
+    for currency in [
+        "EUR", "GBP", "USD", "AUD", "CAD", "NZD", "CNY", "BRL", "PLN", "TRY", "JPY", "CZK", "RUB",
+        "AED", "SAR", "HKD", "SGD", "CHF",
+    ] {
+        let units_per_eur = match currency {
+            "EUR" => 1_000_000,
+            "USD" => usd_units_per_eur,
+            _ => 1_250_000,
+        };
+        sqlx::query(
+            "INSERT INTO fx_rate_quotes (fx_rate_id, currency, units_per_eur) VALUES ($1, $2, $3)",
+        )
+        .bind(fx_rate_id)
+        .bind(currency)
+        .bind(units_per_eur)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to capture FX quote: {error}"));
+    }
+
+    fx_rate_id
+}
+
 async fn index_search_documents(documents: impl IntoIterator<Item = Value>) {
+    let pool = get_postgres_client().await;
+    seed_current_fx_snapshot(&pool).await;
     let client = get_opensearch_client().await;
     for document in documents {
         let product_id = document["productId"]
@@ -641,8 +817,7 @@ fn search_document_with_shop(
             "titleFr": null,
             "titleEs": null,
             "titleIt": null,
-            "priceEur": null,
-            "priceUsd": price_usd,
+            "sourcePrice": { "amount": price_usd, "currency": "USD" },
             "state": state,
             "lifecycle": lifecycle,
             "url": "https://shop.example/product",

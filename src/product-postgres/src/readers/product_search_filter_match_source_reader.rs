@@ -21,8 +21,7 @@ use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use product_core::{
     description::Description,
-    fx_rate_id::FxRateId,
-    product::{ProductAddress, ProductAuction, ProductPricing},
+    product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
     product_image::ProductImage,
     prohibited_content::ProhibitedContent,
     title::Title,
@@ -48,7 +47,9 @@ struct SqlxProductSearchFilterMatchSourceReader<'tx> {
 struct SourceRow {
     event_id: uuid::Uuid,
     event_group: String,
+    origin_event_time: OffsetDateTime,
     current_event_id: uuid::Uuid,
+    projection_version: i64,
     product_id: uuid::Uuid,
     product_slug_id: String,
     shop_id: uuid::Uuid,
@@ -77,11 +78,13 @@ struct SourceRow {
     price_estimate_min_currency: Option<String>,
     price_estimate_max_amount: Option<i64>,
     price_estimate_max_currency: Option<String>,
-    fx_rate_id: Option<uuid::Uuid>,
+    sale_fx_rate_id: Option<uuid::Uuid>,
+    sold_at: Option<OffsetDateTime>,
     state: String,
     lifecycle: String,
     url: String,
     product_images: serde_json::Value,
+    embedding: Option<Vec<f32>>,
     auction_start: Option<OffsetDateTime>,
     auction_end: Option<OffsetDateTime>,
     created: OffsetDateTime,
@@ -158,7 +161,9 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
             SELECT
                 event.event_id,
                 event.event_group,
+                event.event_time AS origin_event_time,
                 product.event_id AS current_event_id,
+                product.projection_version,
                 product.product_id,
                 product.product_slug_id,
                 shop.shop_id,
@@ -187,11 +192,13 @@ impl ProductSearchFilterMatchSourceReader for SqlxProductSearchFilterMatchSource
                 product.price_estimate_min_currency,
                 product.price_estimate_max_amount,
                 product.price_estimate_max_currency,
-                product.fx_rate_id,
+                product.sale_fx_rate_id,
+                product.sold_at,
                 product.state,
                 product.lifecycle,
                 product.url,
                 product.product_images,
+                product.embedding,
                 product.auction_start,
                 product.auction_end,
                 product.created,
@@ -250,8 +257,8 @@ fn source_from_rows(rows: Vec<SourceRow>) -> Result<Option<ProductSearchFilterMa
             row.price_estimate_max_amount,
             row.price_estimate_max_currency.as_deref(),
         )?,
-        fx_rate_id: row.fx_rate_id.map(FxRateId::from),
     };
+    let sale_valuation = sale_valuation(row.sale_fx_rate_id, row.sold_at)?;
     let images = images(&row.product_images)?;
     let url = Url::parse(&row.url).map_err(|_| ())?;
     let shop_slug_id = ShopSlugId::raw(&row.shop_slug_id).map_err(|_| ())?;
@@ -259,7 +266,9 @@ fn source_from_rows(rows: Vec<SourceRow>) -> Result<Option<ProductSearchFilterMa
     Ok(Some(ProductSearchFilterMatchSource {
         event_id: EventId::from(row.event_id),
         event_kind: event_kind(&row.event_group),
+        origin_event_time: row.origin_event_time,
         current_event_id: EventId::from(row.current_event_id),
+        projection_version: row.projection_version,
         product_id: ProductId::from(row.product_id),
         product_slug_id: ProductSlugId::raw(&row.product_slug_id).map_err(|_| ())?,
         shop_id: ShopId::from(row.shop_id),
@@ -276,12 +285,14 @@ fn source_from_rows(rows: Vec<SourceRow>) -> Result<Option<ProductSearchFilterMa
         titles,
         descriptions,
         pricing,
+        sale_valuation,
         state: product_state(&row.state)?,
         lifecycle: lifecycle(&row.lifecycle)?,
         view_url: append_utm_params(url.clone()),
         url,
         image: images.iter().next().cloned(),
         images,
+        embedding: row.embedding.clone(),
         auction: ProductAuction {
             start: row.auction_start,
             end: row.auction_end,
@@ -426,6 +437,20 @@ fn price(amount: Option<i64>, currency_value: Option<&str>) -> Result<Option<Pri
             MonetaryAmount::from(u64::try_from(amount).map_err(|_| ())?),
             currency(currency_value)?,
         ))),
+        (None, None) => Ok(None),
+        _ => Err(()),
+    }
+}
+
+fn sale_valuation(
+    fx_rate_id: Option<uuid::Uuid>,
+    sold_at: Option<OffsetDateTime>,
+) -> Result<Option<ProductSaleValuation>, ()> {
+    match (fx_rate_id, sold_at) {
+        (Some(fx_rate_id), Some(sold_at)) => Ok(Some(ProductSaleValuation {
+            fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+            sold_at,
+        })),
         (None, None) => Ok(None),
         _ => Err(()),
     }
@@ -582,6 +607,24 @@ mod tests {
             ProductSearchFilterMatchSourceEventKind::Ignored,
             event_kind("POLICY")
         );
+    }
+
+    #[test]
+    fn should_map_sale_valuation_only_when_both_persisted_columns_are_present() {
+        assert_eq!(Ok(None), sale_valuation(None, None));
+
+        let fx_rate_id = uuid::Uuid::new_v4();
+        let sold_at = OffsetDateTime::UNIX_EPOCH;
+        assert_eq!(
+            Ok(Some(ProductSaleValuation {
+                fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+                sold_at,
+            })),
+            sale_valuation(Some(fx_rate_id), Some(sold_at))
+        );
+
+        assert!(sale_valuation(Some(uuid::Uuid::new_v4()), None).is_err());
+        assert!(sale_valuation(None, Some(sold_at)).is_err());
     }
 
     #[test]

@@ -40,12 +40,11 @@ info:
 
     ## Data and response conventions
 
-    - Product detail and similar-product reads accept an optional **`language`** parameter. Detail resolves
-      current title and description from persisted translations; similar reads resolve projected result titles.
-      Product history remains immutable and is not localized.
-      Detail and history prices remain their stored source amount and currency; their `pricing` snapshots
-      include `fxRateId`, but no currency conversion is performed. Source → EUR → requested-currency conversion is deferred to
-      [#1466](https://github.com/aura-historia/backend/issues/1466).
+    - Product detail, watchlist, and saved-search match reads accept optional **`language`** and
+      **`currency`** parameters. Currency defaults to `EUR`. Detail pricing contains the seller's source
+      amounts, converted display amounts, and FX valuation metadata. Active products use the latest persisted
+      snapshot; sold products use their immutable sale snapshot. Product history remains immutable, source-only,
+      and is not localized.
     - Errors are returned as **`application/problem+json`** using a consistent RFC 9457-style structure
       with `status`, `title`, `error`, optional `source`, and optional `detail`
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`
@@ -962,8 +961,13 @@ paths:
       description: |
         Retrieves a single product by its `productId`.
 
-        Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
-        `fxRateId`; this endpoint performs no currency conversion.
+        `pricing.source` preserves seller-supplied source amounts and currencies. `pricing.display` contains
+        HalfUp-converted amounts in the requested currency, and `pricing.valuation` identifies the persisted
+        snapshot used. A sold Product may have no main price; then display prices are omitted while its immutable
+        `SALE` valuation remains present. Currency defaults to `EUR`.
+
+        Anonymous responses use freshness caching only: no `ETag` or `Last-Modified` validator is emitted because
+        current display pricing may change when the selected persisted FX snapshot changes.
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
         adds optional top-level `userState`; authenticated responses are not cached.
@@ -986,6 +990,12 @@ paths:
           description: Requested current title and description language. Defaults to `en`; unavailable translations fall back to stored content.
           schema:
             $ref: "#/components/schemas/LanguageData"
+        - name: currency
+          in: query
+          required: false
+          description: Display currency. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
       security:
         - BearerAuth: []
         - {}
@@ -1002,18 +1012,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/LanguageData"
               example: "de"
-            ETag:
-              description: The event ID of the product for caching
-              schema:
-                type: string
-                format: uuid
-              example: '"550e8400-e29b-41d4-a716-446655440001"'
-            Last-Modified:
-              description: When the product was last updated
-              schema:
-                type: string
-                format: http-date
-              example: "Wed, 01 Jan 2020 00:00:00 GMT"
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -1064,8 +1062,13 @@ paths:
       description: |
         Retrieves a single product by its shop slug ID and product slug ID.
 
-        Product prices remain stored source amounts and currencies. The `pricing` snapshot includes
-        `fxRateId`; this endpoint performs no currency conversion.
+        `pricing.source` preserves seller-supplied source amounts and currencies. `pricing.display` contains
+        HalfUp-converted amounts in the requested currency, and `pricing.valuation` identifies the persisted
+        snapshot used. A sold Product may have no main price; then display prices are omitted while its immutable
+        `SALE` valuation remains present. Currency defaults to `EUR`.
+
+        Anonymous responses use freshness caching only: no `ETag` or `Last-Modified` validator is emitted because
+        current display pricing may change when the selected persisted FX snapshot changes.
 
         Responses always contain `item`, the product data. A valid user or delegated-user bearer token
         adds optional top-level `userState`; authenticated responses are not cached.
@@ -1103,6 +1106,12 @@ paths:
           description: Requested current title and description language. Defaults to `en`; unavailable translations fall back to stored content.
           schema:
             $ref: "#/components/schemas/LanguageData"
+        - name: currency
+          in: query
+          required: false
+          description: Display currency. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
       security:
         - BearerAuth: []
         - {}
@@ -1119,18 +1128,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/LanguageData"
               example: "de"
-            ETag:
-              description: The event ID of the product for caching
-              schema:
-                type: string
-                format: uuid
-              example: '"550e8400-e29b-41d4-a716-446655440001"'
-            Last-Modified:
-              description: When the product was last updated
-              schema:
-                type: string
-                format: http-date
-              example: "Wed, 01 Jan 2020 00:00:00 GMT"
+
             Access-Control-Allow-Origin:
               description: CORS header
               schema:
@@ -1183,8 +1181,8 @@ paths:
         Returns an array of immutable events representing state changes, price changes, and other
         product lifecycle events, ordered chronologically.
 
-        Price snapshots preserve the stored source amount and currency and include the recorded
-        `fxRateId`. This endpoint performs no currency conversion.
+        Price snapshots preserve stored source amounts and currencies. A sale event records its
+        immutable `saleValuation` separately. This endpoint performs no currency conversion.
       operationId: getProductHistory
       tags:
         - Products
@@ -1223,7 +1221,6 @@ paths:
                           price:
                             currency: "EUR"
                             amount: 3000
-                          fxRateId: "750e8400-e29b-41d4-a716-446655440010"
                         state: "LISTED"
                         url: "https://shop.example/products/6ba7b810"
                         images: []
@@ -1237,12 +1234,10 @@ paths:
                           price:
                             currency: "EUR"
                             amount: 3000
-                          fxRateId: "750e8400-e29b-41d4-a716-446655440010"
                         newPricing:
                           price:
                             currency: "EUR"
                             amount: 2999
-                          fxRateId: "850e8400-e29b-41d4-a716-446655440010"
                       timestamp: "2024-01-15T09:15:00Z"
         "400":
           description: Bad request - Invalid parameters
@@ -1280,8 +1275,9 @@ paths:
         When the product embedding is ready, the endpoint returns matching products. If it is absent,
         the endpoint returns `202 Accepted` with a polling location.
 
-        Returned prices remain stored source amounts and currencies; this endpoint performs no currency
-        conversion. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
+        Ready entries return `displayPrice` in the requested currency and `priceValuation` metadata.
+        Active Products use one persisted snapshot pinned for the request; sold Products use immutable
+        sale-time values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds
         `userState`. Personalized KNN results use `Cache-Control: no-store`.
       operationId: getSimilarProducts
       tags:
@@ -1301,6 +1297,12 @@ paths:
           description: Language used for localized KNN result titles. Defaults to `en`.
           schema:
             $ref: "#/components/schemas/LanguageData"
+        - name: currency
+          in: query
+          required: false
+          description: Display currency for KNN result prices. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
       security:
         - BearerAuth: []
         - {}
@@ -1355,7 +1357,7 @@ paths:
   /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/history:
     get:
       summary: Get product event history by slug
-      description: Returns immutable history for a shop/product slug pair. Price snapshots preserve their stored source amounts and currencies and include `fxRateId`; no conversion is performed.
+      description: Returns immutable history for a shop/product slug pair. Price snapshots preserve stored source amounts and currencies; sale valuation is recorded separately; no conversion is performed.
       operationId: getProductHistoryBySlug
       tags:
         - Products
@@ -1388,7 +1390,7 @@ paths:
   /api/v1/by-slug/shops/{shopSlugId}/products/{productSlugId}/similar:
     get:
       summary: Get similar products by slug
-      description: Returns KNN matches when the product embedding is ready, or `202 Accepted` with a polling location when it is absent. Returned prices are stored source amounts and currencies; no conversion is performed. Every ready entry contains `item`; a valid user or delegated-user bearer token adds `userState`. Anonymous responses omit it and remain cacheable.
+      description: Returns KNN matches when the product embedding is ready, or `202 Accepted` with a polling location when it is absent. Ready entries return `displayPrice` in the requested currency and `priceValuation`; active Products use one persisted request snapshot and sold Products use immutable sale values. Every ready entry contains `item`; a valid user or delegated-user bearer token adds `userState`. Anonymous responses omit it and remain cacheable.
       operationId: getSimilarProductsBySlug
       tags:
         - Products
@@ -1411,6 +1413,12 @@ paths:
           description: Language used for localized KNN result titles. Defaults to `en`.
           schema:
             $ref: "#/components/schemas/LanguageData"
+        - name: currency
+          in: query
+          required: false
+          description: Display currency for KNN result prices. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
       security:
         - BearerAuth: []
         - {}
@@ -1833,12 +1841,12 @@ paths:
           in: query
           required: false
           description: |
-            Cursor value for pagination (search-after pattern).
-            This is a JSON value returned as `searchAfter` in the previous response.
+            Opaque Product cursor for pagination. Pass the complete JSON object returned as
+            `searchAfter` in the previous response as one query value. It pins the FX snapshot
+            for the full cursor chain.
           schema:
-            type: array
-            items: {}
-          example: '[2999, "6ba7b810-9dad-11d1-80b4-00c04fd430c8"]'
+            $ref: "#/components/schemas/ProductSearchCursorData"
+          example: '{"fxRateId":"6ba7b810-9dad-11d1-80b4-00c04fd430c8","searchAfter":[2999,"550e8400-e29b-41d4-a716-446655440000"]}'
         - name: size
           in: query
           required: false
@@ -2830,6 +2838,12 @@ paths:
           schema:
             $ref: "#/components/schemas/LanguageData"
           example: de
+        - name: currency
+          in: query
+          required: false
+          description: Display currency. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
         - name: searchAfter
           in: query
           required: false
@@ -2881,7 +2895,15 @@ paths:
                       sellerName: "Golden Shop"
                       shopSlugId: "golden-shop"
                       sellerSlugId: "golden-shop"
-                      pricing: {}
+                      pricing:
+                        source:
+                          price: { amount: 12500, currency: GBP }
+                        display:
+                          price: { amount: 14780, currency: EUR }
+                        valuation:
+                          type: CURRENT
+                          fxRateId: "550e8400-e29b-41d4-a716-446655440444"
+                          capturedAt: "2026-08-15T10:00:00Z"
                       state: AVAILABLE
                       lifecycle: ACTIVE
                       url: "https://example.test/accessory-1"
@@ -2978,6 +3000,16 @@ paths:
                 status: 500
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
+        "503":
+          description: Product details, persisted FX snapshots, or notification state are temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "SEARCH_FILTER_TEMPORARILY_UNAVAILABLE"
 
   /api/v1/me/search-filters/{userSearchFilterId}/matches/{productId}:
     patch:
@@ -3194,6 +3226,12 @@ paths:
           schema:
             $ref: "#/components/schemas/LanguageData"
           example: de
+        - name: currency
+          in: query
+          required: false
+          description: Display currency. Defaults to `EUR`.
+          schema:
+            $ref: "#/components/schemas/CurrencyData"
         - name: size
           in: query
           required: false
@@ -3307,6 +3345,16 @@ paths:
                 status: 500
                 title: "Internal Server Error"
                 error: "INTERNAL_SERVER_ERROR"
+        "503":
+          description: Product details, persisted FX snapshots, or notification state are temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: "Service Unavailable"
+                error: "WATCHLIST_TEMPORARILY_UNAVAILABLE"
     post:
       summary: Add product to watchlist
       description: |
@@ -9900,6 +9948,7 @@ components:
         - viewUrl
         - images
         - updated
+        - priceValuation
       properties:
         productId:
           type: string
@@ -9935,11 +9984,13 @@ components:
           allOf:
             - $ref: "#/components/schemas/LocalizedTextData"
           nullable: true
-        price:
+        displayPrice:
           allOf:
             - $ref: "#/components/schemas/PriceData"
           nullable: true
-          description: Product price in its stored source currency; conversion is not applied.
+          description: Main Product price converted into the requested display currency.
+        priceValuation:
+          $ref: "#/components/schemas/ProductSummaryPriceValuationData"
         state:
           $ref: "#/components/schemas/ProductStateData"
         lifecycle:
@@ -9961,6 +10012,33 @@ components:
           type: string
           format: date-time
           description: When the product was last updated (RFC3339 format).
+    ProductSummaryPriceValuationData:
+      oneOf:
+        - type: object
+          required: [type, fxRateId, capturedAt]
+          properties:
+            type:
+              type: string
+              enum: [CURRENT]
+            fxRateId:
+              type: string
+              format: uuid
+            capturedAt:
+              type: string
+              format: date-time
+        - type: object
+          required: [type, fxRateId, soldAt]
+          properties:
+            type:
+              type: string
+              enum: [SALE]
+            fxRateId:
+              type: string
+              format: uuid
+            soldAt:
+              type: string
+              format: date-time
+
     ProductDetailsData:
       type: object
       description: Canonical Product detail data inside a personalized response wrapper.
@@ -10035,40 +10113,15 @@ components:
           nullable: true
         pricing:
           type: object
-          description: Stored source pricing. `fxRateId` identifies the source FX snapshot; no conversion occurs.
+          required: [source, display, valuation]
+          description: Source pricing, converted display pricing, and the persisted FX snapshot used.
           properties:
-            price:
-              allOf:
-                - $ref: "#/components/schemas/PriceData"
-              nullable: true
-            priceEstimateMin:
-              allOf:
-                - $ref: "#/components/schemas/PriceData"
-              nullable: true
-            priceEstimateMax:
-              allOf:
-                - $ref: "#/components/schemas/PriceData"
-              nullable: true
-            fxRateId:
-              type: string
-              format: uuid
-              nullable: true
-        price:
-          allOf:
-            - $ref: "#/components/schemas/PriceData"
-          nullable: true
-        priceEstimateMin:
-          allOf:
-            - $ref: "#/components/schemas/PriceData"
-          nullable: true
-        priceEstimateMax:
-          allOf:
-            - $ref: "#/components/schemas/PriceData"
-          nullable: true
-        currency:
-          allOf:
-            - $ref: "#/components/schemas/CurrencyData"
-          nullable: true
+            source:
+              $ref: "#/components/schemas/ProductPricingSourceData"
+            display:
+              $ref: "#/components/schemas/ProductPricingSourceData"
+            valuation:
+              $ref: "#/components/schemas/ProductPricingValuationData"
         state:
           $ref: "#/components/schemas/ProductStateData"
         lifecycle:
@@ -10100,6 +10153,52 @@ components:
         updated:
           type: string
           format: date-time
+
+    ProductPricingSourceData:
+      type: object
+      properties:
+        price:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        priceEstimateMin:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+        priceEstimateMax:
+          allOf:
+            - $ref: "#/components/schemas/PriceData"
+          nullable: true
+
+    ProductPricingValuationData:
+      oneOf:
+        - type: object
+          required: [type, fxRateId, capturedAt]
+          properties:
+            type:
+              type: string
+              enum: [CURRENT]
+            fxRateId:
+              type: string
+              format: uuid
+            capturedAt:
+              type: string
+              format: date-time
+        - type: object
+          required: [type, fxRateId, capturedAt, soldAt]
+          properties:
+            type:
+              type: string
+              enum: [SALE]
+            fxRateId:
+              type: string
+              format: uuid
+            capturedAt:
+              type: string
+              format: date-time
+            soldAt:
+              type: string
+              format: date-time
 
     PersonalizedProductDetailsData:
       type: object
@@ -10187,11 +10286,28 @@ components:
           description: Total matching products for BM25 search when the backend provides it. Hybrid BM25 plus KNN search omits this value because its fused candidate pool is not a reliable total.
           example: 127
         searchAfter:
+          allOf:
+            - $ref: "#/components/schemas/ProductSearchCursorData"
+          nullable: true
+          description: Opaque cursor for the next page. It must be sent back as one JSON-encoded `searchAfter` query value.
+
+    ProductSearchCursorData:
+      type: object
+      required:
+        - fxRateId
+        - searchAfter
+      properties:
+        fxRateId:
+          type: string
+          format: uuid
+          description: Persisted FX snapshot used for active Product filtering and display values in this cursor chain.
+        searchAfter:
           type: array
           items: {}
-          nullable: true
-          description: Cursor for the next page. Pass it back as `searchAfter` query values.
-          example: [2999, "550e8400-e29b-41d4-a716-446655440000"]
+          description: Internal OpenSearch continuation token.
+      example:
+        fxRateId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+        searchAfter: [2999, "550e8400-e29b-41d4-a716-446655440000"]
 
     PersonalizedProductSearchResultData:
       type: object
@@ -10523,7 +10639,7 @@ components:
           description: Unique identifier for this event
         payload:
           type: object
-          description: Immutable event snapshot. Created and price-change snapshots expose `pricing` / `oldPricing` / `newPricing` with stored source `price`, estimate bounds, and `fxRateId`; no conversion is applied.
+          description: Immutable event snapshot. Created and price-change snapshots expose `pricing` / `oldPricing` / `newPricing` with stored source price and estimate bounds; sale events expose immutable `saleValuation`; no conversion is applied.
         timestamp:
           type: string
           format: date-time
@@ -10748,15 +10864,14 @@ components:
 
     SortProductFieldData:
       type: string
-      enum: [score, price, updated, created]
+      enum: [score, updated, created]
       description: |
         Fields available for sorting:
         - score: Sort by relevance score (default, only available when searching with text query)
-        - price: Sort by product price
         - updated: Sort by last updated timestamp
         - created: Sort by creation timestamp
       default: score
-      example: price
+      example: updated
 
     ProductEventTypeData:
       type: string

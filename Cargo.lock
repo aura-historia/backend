@@ -226,6 +226,7 @@ dependencies = [
  "billing-stripe",
  "common",
  "embedding",
+ "fxrate-postgres",
  "geo",
  "google-cloud-auth",
  "http 1.5.0",
@@ -294,7 +295,11 @@ dependencies = [
  "cognito-post-confirmation",
  "common",
  "embedding",
+ "fxrate-core",
+ "fxrate-fxratesapi",
  "fxrate-lambda",
+ "fxrate-postgres",
+ "fxrate-service",
  "geo",
  "image-fetcher",
  "large-language-model",
@@ -317,7 +322,6 @@ dependencies = [
  "product-api",
  "product-api-partner",
  "product-core",
- "product-fxratesapi",
  "product-lambda",
  "product-lambda-delete-product",
  "product-opensearch",
@@ -370,6 +374,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "common",
  "embedding",
+ "fxrate-postgres",
  "google-cloud-auth",
  "indexmap 2.14.0",
  "large-language-model",
@@ -378,6 +383,7 @@ dependencies = [
  "notification-service",
  "opensearch",
  "product-core",
+ "product-opensearch",
  "product-postgres",
  "product-service",
  "reqwest 0.12.28",
@@ -2972,16 +2978,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "fxrate-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "rstest",
+ "strum 0.28.0",
+ "thiserror 2.0.20",
+ "time",
+]
+
+[[package]]
+name = "fxrate-fxratesapi"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fxrate-core",
+ "fxrate-service",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "strum 0.28.0",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "fxrate-lambda"
 version = "0.1.0"
 dependencies = [
  "async-trait",
  "aws_lambda_events",
  "common",
+ "fxrate-fxratesapi",
+ "fxrate-postgres",
+ "fxrate-service",
  "lambda_runtime",
- "product-fxratesapi",
- "product-postgres",
- "product-service",
  "reqwest 0.12.28",
  "serde_json",
  "serial_test",
@@ -2992,6 +3024,38 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "fxrate-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fxrate-core",
+ "fxrate-service",
+ "serial_test",
+ "sqlx",
+ "strum 0.28.0",
+ "test-api",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "fxrate-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "fxrate-core",
+ "strum 0.28.0",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5906,20 +5970,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "product-fxratesapi"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "common",
- "product-service",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "strum 0.28.0",
- "thiserror 2.0.20",
-]
-
-[[package]]
 name = "product-lambda"
 version = "0.1.0"
 dependencies = [
@@ -6047,6 +6097,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "fxrate-core",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
@@ -6126,6 +6177,8 @@ dependencies = [
  "common",
  "embedding",
  "fake",
+ "fxrate-core",
+ "fxrate-service",
  "geo",
  "html-to-markdown-rs",
  "indexmap 2.14.0",
@@ -7175,6 +7228,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "fxrate-core",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
@@ -7188,6 +7242,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "shop-core",
+ "strum 0.28.0",
  "test-api",
  "thiserror 2.0.20",
  "time",
@@ -7252,6 +7307,8 @@ dependencies = [
  "common",
  "embedding",
  "futures",
+ "fxrate-core",
+ "fxrate-service",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
@@ -7264,6 +7321,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shop-core",
+ "strum 0.28.0",
  "thiserror 2.0.20",
  "time",
  "tokio",
@@ -7933,6 +7991,9 @@ dependencies = [
  "async-trait",
  "aws_lambda_events",
  "common",
+ "fxrate-core",
+ "fxrate-postgres",
+ "fxrate-service",
  "html-to-markdown-rs",
  "indexmap 2.14.0",
  "lambda_runtime",
@@ -7946,8 +8007,10 @@ dependencies = [
  "shop-postgres",
  "shop-service",
  "sqlx",
+ "strum 0.28.0",
  "test-api",
  "thiserror 2.0.20",
+ "time",
  "tokio",
  "tracing",
  "url",
@@ -9861,11 +9924,14 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "fxrate-core",
+ "fxrate-service",
  "notification-core",
  "notification-service",
  "product-core",
  "product-service",
  "serde-email",
+ "strum 0.28.0",
  "thiserror 2.0.20",
  "time",
  "tokio",
