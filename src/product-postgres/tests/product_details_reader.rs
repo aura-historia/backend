@@ -238,8 +238,7 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
     assert!(user_state.watchlist.watching);
     assert!(!user_state.watchlist.notifications);
     assert!(user_state.prohibited_content.consent);
-    assert!(user_state.notification.seen);
-    assert_eq!(None, user_state.notification.origin_event_id);
+    assert!(user_state.notification.unseen_notification_ids.is_empty());
     assert!(user_state.search_filter.matched);
     assert!(!user_state.search_filter.hidden);
     assert_eq!(

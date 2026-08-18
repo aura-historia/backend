@@ -1,5 +1,11 @@
 crate::uuid_v7_newtype!(UserSearchFilterId);
 
+impl From<UserSearchFilterId> for uuid::Uuid {
+    fn from(id: UserSearchFilterId) -> Self {
+        id.0
+    }
+}
+
 #[cfg(feature = "api")]
 pub mod api {
     use crate::{

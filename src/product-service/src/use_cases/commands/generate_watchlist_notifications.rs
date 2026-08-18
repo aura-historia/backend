@@ -9,9 +9,11 @@ use common::{
     product_id::ProductId,
     transaction::{Transaction, UnitOfWork},
 };
-use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
-use notification_service::use_cases::commands::create_notification::{
-    CreateNotificationCommand, CreateNotificationResult, CreateNotificationUseCase,
+use notification_core::notification::{
+    NotificationContent, NotificationWatchlistChange, ProductNotificationSnapshot,
+};
+use notification_service::use_cases::commands::create_notifications::{
+    CreateNotificationIntent, CreateNotificationsCommand, CreateNotificationsUseCase,
 };
 use std::collections::HashMap;
 
@@ -92,7 +94,7 @@ where
     U: UnitOfWork,
     S: ProductWatchlistNotificationSourceReaderFactory<U::Tx>,
     R: WatchlistNotificationRecipientReaderFactory<U::Tx>,
-    N: CreateNotificationUseCase,
+    N: CreateNotificationsUseCase,
 {
     #[tracing::instrument(name = "generate_watchlist_notifications", skip_all, fields(event_id = %command.event_id, product_id = %command.product_id))]
     async fn execute(
@@ -139,28 +141,28 @@ where
                 already_exists_count: 0,
             });
         }
-        let notification_payload = notification_payload(source);
-        let mut inserted_count = 0;
-        let mut already_exists_count = 0;
-        for recipient in recipients {
-            match self
-                .notifications
-                .execute(CreateNotificationCommand {
-                    user_id: recipient.user_id,
-                    origin_event_id: command.event_id,
-                    notification_payload: notification_payload.clone(),
-                    external: recipient.external,
-                })
-                .await
-                .map_err(
-                    |source| GenerateWatchlistNotificationsError::NotificationCreateFailed {
-                        source: box_error(source),
-                    },
-                )? {
-                CreateNotificationResult::Created { .. } => inserted_count += 1,
-                CreateNotificationResult::AlreadyExists => already_exists_count += 1,
-            }
-        }
+        let content = notification_content(command.event_id, source);
+        let outcomes = self
+            .notifications
+            .execute(CreateNotificationsCommand {
+                intents: recipients
+                    .into_iter()
+                    .map(|recipient| CreateNotificationIntent {
+                        user_id: recipient.user_id,
+                        content: content.clone(),
+                        deliver_email: recipient.external,
+                    })
+                    .collect(),
+            })
+            .await
+            .map_err(
+                |source| GenerateWatchlistNotificationsError::NotificationCreateFailed {
+                    source: box_error(source),
+                },
+            )?
+            .outcomes;
+        let inserted_count = outcomes.iter().filter(|outcome| matches!(outcome, notification_service::ports::notification_creator::NotificationCreationOutcome::Inserted { .. })).count();
+        let already_exists_count = outcomes.len() - inserted_count;
 
         Ok(GenerateWatchlistNotificationsResult {
             recipient_count,
@@ -170,35 +172,41 @@ where
     }
 }
 
-fn notification_payload(source: ProductWatchlistNotificationSource) -> NotificationPayload {
-    let watchlist_payload = match source.change {
+fn notification_content(
+    origin_event_id: EventId,
+    source: ProductWatchlistNotificationSource,
+) -> NotificationContent {
+    let change = match source.change {
         ProductWatchlistNotificationChange::PriceChanged {
             old_price,
             new_price,
-        } => NotificationWatchlistPayload::PriceChange {
+        } => NotificationWatchlistChange::PriceChange {
             old_price: old_price.map(price_map).unwrap_or_default(),
             new_price: new_price.map(price_map).unwrap_or_default(),
         },
         ProductWatchlistNotificationChange::StateChanged {
             old_state,
             new_state,
-        } => NotificationWatchlistPayload::StateChange {
+        } => NotificationWatchlistChange::StateChange {
             old_state,
             new_state,
         },
     };
-    NotificationPayload::Watchlist {
+    NotificationContent::Watchlist {
+        origin_event_id,
         product_id: source.product_id,
-        shop_id: source.shop_id,
-        shops_product_id: source.shops_product_id,
-        shop_slug_id: source.shop_slug_id,
-        product_slug_id: source.product_slug_id,
-        shop_name: source.shop_name,
-        title: source.title,
-        image: source.image,
-        url: source.url,
-        view_url: source.view_url,
-        watchlist_payload,
+        snapshot: ProductNotificationSnapshot {
+            shop_id: source.shop_id,
+            shops_product_id: source.shops_product_id,
+            shop_slug_id: source.shop_slug_id,
+            product_slug_id: source.product_slug_id,
+            shop_name: source.shop_name,
+            title: source.title,
+            image: source.image,
+            url: source.url,
+            view_url: source.view_url,
+        },
+        change,
     }
 }
 

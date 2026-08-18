@@ -95,9 +95,7 @@ struct ProhibitedContentUserStateData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NotificationUserStateData {
-    seen: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    origin_event_id: Option<EventId>,
+    unseen_notification_ids: Vec<common::notification_id::NotificationId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -388,8 +386,7 @@ impl From<ProhibitedContentUserState> for ProhibitedContentUserStateData {
 impl From<NotificationUserState> for NotificationUserStateData {
     fn from(state: NotificationUserState) -> Self {
         Self {
-            seen: state.seen,
-            origin_event_id: state.origin_event_id,
+            unseen_notification_ids: state.unseen_notification_ids,
         }
     }
 }

@@ -326,3 +326,191 @@ CREATE INDEX search_filter_matches_user_product_created_idx ON search_filter_mat
 CREATE INDEX search_filter_matches_user_created_rank_idx ON search_filter_matches (user_id, created ASC, user_search_filter_id ASC, product_id ASC);
 CREATE INDEX search_filter_matches_product_id_idx ON search_filter_matches (product_id);
 CREATE INDEX search_filter_matches_origin_event_id_idx ON search_filter_matches (origin_event_id);
+
+CREATE TABLE notifications (
+    notification_id uuid PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+
+    kind text NOT NULL,
+
+    origin_event_id uuid,
+    product_id uuid,
+    user_search_filter_id uuid,
+    partner_shop_application_id uuid,
+
+    payload_version smallint NOT NULL DEFAULT 1,
+    payload jsonb NOT NULL,
+
+    seen boolean NOT NULL DEFAULT false,
+
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT notifications_kind_check CHECK (
+        kind IN (
+            'WATCHLIST_PRICE_CHANGED',
+            'WATCHLIST_STATE_CHANGED',
+            'SEARCH_FILTER_MATCH',
+            'PARTNER_APPLICATION_APPROVED',
+            'PARTNER_APPLICATION_REJECTED'
+        )
+    ),
+
+    CONSTRAINT notifications_payload_version_positive CHECK (
+        payload_version >= 1
+    ),
+
+    CONSTRAINT notifications_payload_object CHECK (
+        jsonb_typeof(payload) = 'object'
+    ),
+
+    CONSTRAINT notifications_source_shape_check CHECK (
+        (
+            kind IN (
+                'WATCHLIST_PRICE_CHANGED',
+                'WATCHLIST_STATE_CHANGED'
+            )
+            AND origin_event_id IS NOT NULL
+            AND product_id IS NOT NULL
+            AND user_search_filter_id IS NULL
+            AND partner_shop_application_id IS NULL
+        )
+        OR
+        (
+            kind = 'SEARCH_FILTER_MATCH'
+            AND origin_event_id IS NOT NULL
+            AND product_id IS NOT NULL
+            AND user_search_filter_id IS NOT NULL
+            AND partner_shop_application_id IS NULL
+        )
+        OR
+        (
+            kind IN (
+                'PARTNER_APPLICATION_APPROVED',
+                'PARTNER_APPLICATION_REJECTED'
+            )
+            AND origin_event_id IS NULL
+            AND product_id IS NULL
+            AND user_search_filter_id IS NULL
+            AND partner_shop_application_id IS NOT NULL
+        )
+    )
+);
+
+CREATE UNIQUE INDEX notifications_watchlist_identity_idx
+    ON notifications (user_id, origin_event_id, kind)
+    WHERE kind IN (
+        'WATCHLIST_PRICE_CHANGED',
+        'WATCHLIST_STATE_CHANGED'
+    );
+
+CREATE UNIQUE INDEX notifications_search_filter_identity_idx
+    ON notifications (
+        user_id,
+        user_search_filter_id,
+        product_id,
+        origin_event_id
+    )
+    WHERE kind = 'SEARCH_FILTER_MATCH';
+
+CREATE UNIQUE INDEX notifications_partner_application_identity_idx
+    ON notifications (
+        user_id,
+        partner_shop_application_id
+    )
+    WHERE kind IN (
+        'PARTNER_APPLICATION_APPROVED',
+        'PARTNER_APPLICATION_REJECTED'
+    );
+
+CREATE INDEX notifications_user_created_idx
+    ON notifications (
+        user_id,
+        created DESC,
+        notification_id DESC
+    );
+
+CREATE INDEX notifications_user_product_unseen_idx
+    ON notifications (
+        user_id,
+        product_id,
+        created DESC,
+        notification_id DESC
+    )
+    WHERE seen = false
+      AND product_id IS NOT NULL;
+
+CREATE TABLE notification_deliveries (
+    notification_delivery_id uuid PRIMARY KEY,
+    notification_id uuid NOT NULL
+        REFERENCES notifications(notification_id)
+        ON DELETE CASCADE,
+
+    channel text NOT NULL,
+    status text NOT NULL DEFAULT 'PENDING',
+
+    attempt_count integer NOT NULL DEFAULT 0,
+
+    lease_token uuid,
+    lease_expires_at timestamptz,
+
+    provider_message_id text,
+    last_error_code text,
+    delivered_at timestamptz,
+
+    created timestamptz NOT NULL DEFAULT now(),
+    updated timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT notification_deliveries_notification_channel_unique
+        UNIQUE (notification_id, channel),
+
+    CONSTRAINT notification_deliveries_channel_check CHECK (
+        channel IN ('EMAIL')
+    ),
+
+    CONSTRAINT notification_deliveries_status_check CHECK (
+        status IN (
+            'PENDING',
+            'PROCESSING',
+            'DELIVERED',
+            'FAILED'
+        )
+    ),
+
+    CONSTRAINT notification_deliveries_attempt_count_nonnegative CHECK (
+        attempt_count >= 0
+    ),
+
+    CONSTRAINT notification_deliveries_lease_shape_check CHECK (
+        (
+            status = 'PROCESSING'
+            AND lease_token IS NOT NULL
+            AND lease_expires_at IS NOT NULL
+        )
+        OR
+        (
+            status <> 'PROCESSING'
+            AND lease_token IS NULL
+            AND lease_expires_at IS NULL
+        )
+    ),
+
+    CONSTRAINT notification_deliveries_delivered_shape_check CHECK (
+        (
+            status = 'DELIVERED'
+            AND delivered_at IS NOT NULL
+        )
+        OR
+        (
+            status <> 'DELIVERED'
+            AND delivered_at IS NULL
+        )
+    )
+);
+
+CREATE INDEX notification_deliveries_status_created_idx
+    ON notification_deliveries (
+        status,
+        created,
+        notification_delivery_id
+    );

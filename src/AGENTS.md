@@ -106,7 +106,8 @@
 - `src/notification/AGENTS.md` — legacy notification crate.
 - `src/notification-core/AGENTS.md` — canonical Notification domain crate.
 - `src/notification-service/AGENTS.md` — canonical Notification service/use-case crate.
-- `src/notification-dynamodb/AGENTS.md` — canonical Notification DynamoDB adapter crate.
+- `src/notification-postgres/AGENTS.md` — canonical Notification PostgreSQL adapter crate.
+
 - `src/notification-api/AGENTS.md` — `notification-api` crate.
 - `src/notification-send/AGENTS.md` — `notification-send` crate.
 - `src/oauth/AGENTS.md` — legacy `oauth` crate.

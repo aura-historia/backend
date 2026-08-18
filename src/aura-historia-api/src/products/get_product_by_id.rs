@@ -306,7 +306,7 @@ mod tests {
     async fn should_serialize_user_state_and_disable_cache_for_authenticated_user()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let origin_event_id = EventId::new();
+        let notification_id = common::notification_id::NotificationId::new();
         let search_filter_id = UserSearchFilterId::new();
         let mut view = product_details_view()?;
         let product_id = view.item.product_id;
@@ -317,8 +317,7 @@ mod tests {
             },
             prohibited_content: ProhibitedContentUserState { consent: false },
             notification: NotificationUserState {
-                seen: false,
-                origin_event_id: Some(origin_event_id),
+                unseen_notification_ids: vec![notification_id],
             },
             search_filter: SearchFilterUserState {
                 matched: true,
@@ -345,10 +344,9 @@ mod tests {
         assert_eq!(true, body["userState"]["watchlist"]["watching"]);
         assert_eq!(false, body["userState"]["watchlist"]["notifications"]);
         assert_eq!(false, body["userState"]["prohibitedContent"]["consent"]);
-        assert_eq!(false, body["userState"]["notification"]["seen"]);
         assert_eq!(
-            json!(origin_event_id.to_string()),
-            body["userState"]["notification"]["originEventId"]
+            json!([notification_id.to_string()]),
+            body["userState"]["notification"]["unseenNotificationIds"]
         );
         assert_eq!(true, body["userState"]["searchFilter"]["matched"]);
         assert_eq!(

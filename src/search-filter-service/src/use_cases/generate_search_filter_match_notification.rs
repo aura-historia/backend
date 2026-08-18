@@ -13,9 +13,10 @@ use common::{
     user_id::UserId,
     user_search_filter_id::UserSearchFilterId,
 };
-use notification_core::notification::{NotificationPayload, NotificationSearchFilterPayload};
-use notification_service::use_cases::commands::create_notification::{
-    CreateNotificationCommand, CreateNotificationResult, CreateNotificationUseCase,
+use notification_core::notification::{NotificationContent, ProductNotificationSnapshot};
+use notification_service::ports::notification_creator::NotificationCreationOutcome;
+use notification_service::use_cases::commands::create_notifications::{
+    CreateNotificationIntent, CreateNotificationsCommand, CreateNotificationsUseCase,
 };
 use product_service::ports::{
     ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
@@ -147,7 +148,7 @@ where
     P: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
     Q: SearchFilterMonthlyMatchQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
-    N: CreateNotificationUseCase,
+    N: CreateNotificationsUseCase,
 {
     #[tracing::instrument(
         name = "generate_search_filter_match_notification",
@@ -190,10 +191,6 @@ where
         if !match_source_matches_command(&match_source, &command) {
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForStaleMatch);
-        }
-        if !match_source.is_selected_filter {
-            tx.commit().await.map_err(commit_error)?;
-            return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForNonSelectedFilter);
         }
 
         let product = self
@@ -241,10 +238,10 @@ where
         }
 
         match create_notification(&self.notifications, match_source, product).await? {
-            CreateNotificationResult::Created { .. } => {
+            NotificationCreationOutcome::Inserted { .. } => {
                 Ok(GenerateSearchFilterMatchNotificationResult::Created)
             }
-            CreateNotificationResult::AlreadyExists => {
+            NotificationCreationOutcome::Duplicate => {
                 Ok(GenerateSearchFilterMatchNotificationResult::AlreadyExists)
             }
         }
@@ -265,38 +262,48 @@ async fn create_notification<N>(
     notifications: &N,
     match_source: SearchFilterMatchNotificationSource,
     product: ProductSearchFilterMatchSource,
-) -> Result<CreateNotificationResult, GenerateSearchFilterMatchNotificationError>
+) -> Result<NotificationCreationOutcome, GenerateSearchFilterMatchNotificationError>
 where
-    N: CreateNotificationUseCase,
+    N: CreateNotificationsUseCase,
 {
-    notifications
-        .execute(CreateNotificationCommand {
-            user_id: match_source.user_id,
-            origin_event_id: match_source.origin_event_id,
-            notification_payload: NotificationPayload::SearchFilter {
-                product_id: product.product_id,
-                shop_id: product.shop_id,
-                shops_product_id: product.shops_product_id,
-                shop_slug_id: product.shop_slug_id,
-                product_slug_id: product.product_slug_id,
-                shop_name: product.shop_name,
-                title: (!product.titles.is_empty()).then_some(product.titles),
-                image: product.image,
-                url: product.url,
-                view_url: product.view_url,
-                search_filter_payload: NotificationSearchFilterPayload {
+    let mut outcomes = notifications
+        .execute(CreateNotificationsCommand {
+            intents: vec![CreateNotificationIntent {
+                user_id: match_source.user_id,
+                content: NotificationContent::SearchFilter {
+                    origin_event_id: match_source.origin_event_id,
+                    product_id: product.product_id,
                     user_search_filter_id: match_source.search_filter_id,
+                    snapshot: ProductNotificationSnapshot {
+                        shop_id: product.shop_id,
+                        shops_product_id: product.shops_product_id,
+                        shop_slug_id: product.shop_slug_id,
+                        product_slug_id: product.product_slug_id,
+                        shop_name: product.shop_name,
+                        title: (!product.titles.is_empty()).then_some(product.titles),
+                        image: product.image,
+                        url: product.url,
+                        view_url: product.view_url,
+                    },
                     user_search_filter_name: match_source.search_filter_name,
                 },
-            },
-            external: match_source.external,
+                deliver_email: match_source.external,
+            }],
         })
         .await
         .map_err(
             |source| GenerateSearchFilterMatchNotificationError::NotificationCreateFailed {
                 source: box_error(source),
             },
-        )
+        )?
+        .outcomes;
+    outcomes.pop().ok_or_else(|| {
+        GenerateSearchFilterMatchNotificationError::NotificationCreateFailed {
+            source: box_error(std::io::Error::other(
+                "notification creator returned no outcome",
+            )),
+        }
+    })
 }
 
 fn match_source_read_error(
@@ -362,6 +369,9 @@ mod tests {
         transaction::TransactionError, user_search_filter_name::UserSearchFilterName,
     };
     use indexmap::IndexSet;
+    use notification_service::use_cases::commands::create_notifications::{
+        CreateNotificationsError, CreateNotificationsResult,
+    };
     use product_core::{
         product::{ProductAddress, ProductAuction, ProductPricing},
         product_image::ProductImage,
@@ -524,22 +534,23 @@ mod tests {
     struct Notifications(Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
-    impl CreateNotificationUseCase for Notifications {
+    impl CreateNotificationsUseCase for Notifications {
         async fn execute(
             &self,
-            command: CreateNotificationCommand,
-        ) -> Result<notification_service::use_cases::commands::create_notification::CreateNotificationResult, notification_service::use_cases::commands::create_notification::CreateNotificationError>{
+            command: CreateNotificationsCommand,
+        ) -> Result<CreateNotificationsResult, CreateNotificationsError> {
             if let Ok(mut state) = self.0.lock() {
                 let commits = state.commits;
                 state.notification_commit_counts.push(commits);
             }
-            Ok(notification_service::use_cases::commands::create_notification::CreateNotificationResult::Created {
-                notification: notification_core::notification::Notification::new(
-                    command.user_id,
-                    command.origin_event_id,
-                    command.notification_payload,
-                    command.external,
-                ),
+            Ok(CreateNotificationsResult {
+                outcomes: command
+                    .intents
+                    .into_iter()
+                    .map(|_| NotificationCreationOutcome::Inserted {
+                        notification_id: common::notification_id::NotificationId::new(),
+                    })
+                    .collect(),
             })
         }
     }
@@ -547,15 +558,18 @@ mod tests {
     struct DuplicateNotifications;
 
     #[async_trait::async_trait]
-    impl CreateNotificationUseCase for DuplicateNotifications {
+    impl CreateNotificationsUseCase for DuplicateNotifications {
         async fn execute(
             &self,
-            _command: CreateNotificationCommand,
-        ) -> Result<
-            notification_service::use_cases::commands::create_notification::CreateNotificationResult,
-            notification_service::use_cases::commands::create_notification::CreateNotificationError,
-        >{
-            Ok(CreateNotificationResult::AlreadyExists)
+            command: CreateNotificationsCommand,
+        ) -> Result<CreateNotificationsResult, CreateNotificationsError> {
+            Ok(CreateNotificationsResult {
+                outcomes: command
+                    .intents
+                    .into_iter()
+                    .map(|_| NotificationCreationOutcome::Duplicate)
+                    .collect(),
+            })
         }
     }
 

@@ -236,7 +236,7 @@ dependencies = [
  "jsonwebtokens",
  "mockall",
  "notification-core",
- "notification-dynamodb",
+ "notification-postgres",
  "notification-service",
  "oauth-core",
  "oauth-dynamodb",
@@ -307,7 +307,7 @@ dependencies = [
  "notification",
  "notification-api",
  "notification-core",
- "notification-dynamodb",
+ "notification-postgres",
  "notification-send",
  "notification-service",
  "oauth",
@@ -370,8 +370,6 @@ name = "aura-historia-worker"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
  "common",
  "embedding",
  "fxrate-postgres",
@@ -379,7 +377,7 @@ dependencies = [
  "indexmap 2.14.0",
  "large-language-model",
  "notification-core",
- "notification-dynamodb",
+ "notification-postgres",
  "notification-service",
  "opensearch",
  "product-core",
@@ -4819,36 +4817,29 @@ dependencies = [
  "product-core",
  "serde",
  "serde-email",
+ "thiserror 2.0.20",
  "url",
  "uuid",
 ]
 
 [[package]]
-name = "notification-dynamodb"
+name = "notification-postgres"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "aws-sdk-dynamodb",
  "common",
- "fake",
- "field",
- "mockall",
  "notification-core",
- "notification-dynamodb",
  "notification-service",
- "product",
  "product-core",
- "rstest",
  "serde",
- "serde_dynamo",
- "serde_fields",
- "serial_test",
+ "serde_json",
+ "sqlx",
  "test-api",
  "thiserror 2.0.20",
  "time",
  "tokio",
- "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -4891,6 +4882,7 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

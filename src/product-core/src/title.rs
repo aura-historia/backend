@@ -1,6 +1,10 @@
 use common::string_newtype;
 
-string_newtype!(Title, struct_only);
+string_newtype!(
+    Title,
+    struct_only,
+    derives(serde::Serialize, serde::Deserialize)
+);
 
 impl From<&str> for Title {
     fn from(s: &str) -> Self {

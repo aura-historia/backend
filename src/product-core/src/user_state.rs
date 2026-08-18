@@ -1,5 +1,5 @@
 use common::enhanced_match_reason::EnhancedMatchReason;
-use common::event_id::EventId;
+use common::notification_id::NotificationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 
@@ -22,19 +22,9 @@ pub struct ProhibitedContentUserState {
     pub consent: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct NotificationUserState {
-    pub seen: bool,
-    pub origin_event_id: Option<EventId>,
-}
-
-impl Default for NotificationUserState {
-    fn default() -> Self {
-        Self {
-            seen: true,
-            origin_event_id: None,
-        }
-    }
+    pub unseen_notification_ids: Vec<NotificationId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -54,15 +44,13 @@ mod tests {
     #[test]
     fn should_default_notification_user_state_seen_to_true() {
         let state = NotificationUserState::default();
-        assert!(state.seen);
-        assert!(state.origin_event_id.is_none());
+        assert!(state.unseen_notification_ids.is_empty());
     }
 
     #[test]
     fn should_default_product_user_state_notification_seen_to_true() {
         let state = ProductUserState::default();
-        assert!(state.notification.seen);
-        assert!(state.notification.origin_event_id.is_none());
+        assert!(state.notification.unseen_notification_ids.is_empty());
     }
 
     #[test]

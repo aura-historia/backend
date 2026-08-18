@@ -17,8 +17,8 @@ use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
-use notification_service::ports::all_notifications_reader::{
-    AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
+use notification_service::ports::product_notification_ids_reader::{
+    ProductNotificationIdsReadError, ProductNotificationIdsReader,
 };
 use product_core::user_state::NotificationUserState;
 use product_service::ports::{
@@ -146,7 +146,7 @@ where
     M: SearchFilterMatchReader,
     P: ProductDetailsBatchReader,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    N: AllNotificationsReader,
+    N: ProductNotificationIdsReader,
 {
     #[tracing::instrument(
         name = "list_search_filter_matches",
@@ -231,22 +231,28 @@ where
             .await
             .map_err(|_| ListSearchFilterMatchesError::CommitPricingTransactionFailed)?;
 
-        let newest_notifications = newest_notifications_by_product(
-            self.notifications
-                .list_all_by_user(&request.user_id)
-                .await
-                .map_err(notification_read_error)?,
-        );
+        let mut notification_ids = self
+            .notifications
+            .unseen_ids_for_products(
+                request.user_id,
+                &products
+                    .iter()
+                    .map(|product| product.item.product_id)
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .map_err(notification_read_error)?;
         for product in &mut products {
             let user_state = product.user_state.as_mut().ok_or(
                 ListSearchFilterMatchesError::ProductDetailsInvalid {
                     source: static_error("matched product is missing user state"),
                 },
             )?;
-            user_state.notification = newest_notifications
-                .get(&product.item.product_id)
-                .copied()
-                .unwrap_or_default();
+            user_state.notification = NotificationUserState {
+                unseen_notification_ids: notification_ids
+                    .remove(&product.item.product_id)
+                    .unwrap_or_default(),
+            };
             if user_state.search_filter.hidden {
                 redact_hidden_product(&mut product.item).map_err(|error| {
                     ListSearchFilterMatchesError::HiddenProductRedactionFailed {
@@ -340,31 +346,6 @@ fn present_with_pricing_snapshot(
     )?)
 }
 
-fn newest_notifications_by_product(
-    notifications: Vec<AllNotificationsReadItem>,
-) -> HashMap<ProductId, NotificationUserState> {
-    let mut newest = HashMap::new();
-
-    for notification in notifications {
-        let Some(product_id) = notification.product_id() else {
-            continue;
-        };
-        let state = NotificationUserState {
-            seen: notification.seen,
-            origin_event_id: Some(notification.origin_event_id),
-        };
-        let replace = newest
-            .get(&product_id)
-            .and_then(|current: &NotificationUserState| current.origin_event_id)
-            .is_none_or(|current_event_id| notification.origin_event_id > current_event_id);
-        if replace {
-            newest.insert(product_id, state);
-        }
-    }
-
-    newest
-}
-
 fn authorize_owner(
     context: &OperationContext,
     user_id: UserId,
@@ -394,7 +375,7 @@ fn product_details_read_error(error: ProductDetailsBatchReadError) -> ListSearch
     }
 }
 
-fn notification_read_error(error: AllNotificationsReadError) -> ListSearchFilterMatchesError {
+fn notification_read_error(error: ProductNotificationIdsReadError) -> ListSearchFilterMatchesError {
     ListSearchFilterMatchesError::NotificationReadFailed {
         source: box_error(error),
     }
@@ -451,6 +432,7 @@ mod tests {
         SearchFilterMatchCursor, SearchFilterMatchListItem, SearchFilterMatchReadError,
     };
     use common::event_id::EventId;
+    use common::notification_id::NotificationId;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::personalized::Personalized;
     use common::product_lifecycle::domain::ProductLifecycle;
@@ -465,6 +447,7 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use notification_service::ports::product_notification_ids_reader::ProductNotificationIdsReader;
     use product_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
@@ -549,15 +532,17 @@ mod tests {
     struct NotificationsReader(SharedState);
 
     #[async_trait::async_trait]
-    impl AllNotificationsReader for NotificationsReader {
-        async fn list_all_by_user(
+    impl ProductNotificationIdsReader for NotificationsReader {
+        async fn unseen_ids_for_products(
             &self,
-            _user_id: &UserId,
-        ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
+            _user_id: UserId,
+            _product_ids: &[ProductId],
+        ) -> Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>
+        {
             let mut state = lock(&self.0);
             state.notification_requests += 1;
             state.notification_after_commit = state.commit_count == 1;
-            Ok(Vec::new())
+            Ok(HashMap::new())
         }
     }
 

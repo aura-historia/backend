@@ -29,6 +29,7 @@ pub mod localized;
 pub mod logging;
 pub mod measurement_unit;
 pub mod mergeable;
+pub mod notification_id;
 pub mod product_id;
 pub mod product_lifecycle;
 pub mod product_slug_id;

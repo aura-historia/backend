@@ -1,5 +1,17 @@
 # Storage Contracts
 
+## Notifications
+
+PostgreSQL is authoritative for notifications and email-delivery intent.
+
+- `notifications` stores one immutable typed content snapshot per semantic reason. `origin_event_id` is provenance only and is absent for partner-application notifications.
+- Watchlist idempotency is `(user_id, origin_event_id, kind)`. Search-filter idempotency is `(user_id, user_search_filter_id, product_id, origin_event_id)`. Partner-application idempotency is `(user_id, partner_shop_application_id)`.
+- A single Product event may create a watchlist notification and one distinct notification for every matching search filter.
+- `notification_deliveries` owns durable email delivery state. A requested email delivery row is inserted in the same PostgreSQL transaction as its notification. It contains no copied notification payload or email address.
+- The email worker consumes committed delivery rows through Sequin CDC. Delivery claims use a lease token and expiry; finalization verifies that lease. The bounded in-memory worker queue remains non-durable by design.
+- Read models and REST mutations use `notification_id`; they never expose `origin_event_id`.
+- Corrupt persisted payload/version/source-shape state is an operation error. It is never silently treated as a missing notification.
+
 ## FX snapshots
 
 PostgreSQL is authoritative for canonical FX data.

@@ -14,12 +14,12 @@ use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 
-use notification_service::ports::all_notifications_reader::{
-    AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
+use notification_service::ports::product_notification_ids_reader::{
+    ProductNotificationIdsReadError, ProductNotificationIdsReader,
 };
 use product_core::title::Title;
 use product_core::user_state::NotificationUserState;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -57,7 +57,7 @@ pub(crate) async fn hydrate_product_summaries<U, N>(
 ) -> Result<(), ProductSummaryPersonalizationError>
 where
     U: ProductUserStateReader,
-    N: AllNotificationsReader,
+    N: ProductNotificationIdsReader,
 {
     if products.is_empty() {
         return Ok(());
@@ -78,14 +78,14 @@ where
             .await
             .map_err(ProductSummaryPersonalizationError::from)
     };
-    let notifications_future = async {
+    let notification_ids_future = async {
         notifications
-            .list_all_by_user(&user_id)
+            .unseen_ids_for_products(user_id, &lookup.product_ids)
             .await
             .map_err(ProductSummaryPersonalizationError::from)
     };
-    let (user_states, notifications) = tokio::try_join!(user_states_future, notifications_future)?;
-    let newest_notifications = newest_notifications_by_product(notifications);
+    let (user_states, mut notification_ids) =
+        tokio::try_join!(user_states_future, notification_ids_future)?;
 
     for product in products {
         let mut user_state = user_states.get(&product.item.product_id).cloned().ok_or(
@@ -93,10 +93,11 @@ where
                 product_id: product.item.product_id,
             },
         )?;
-        user_state.notification = newest_notifications
-            .get(&product.item.product_id)
-            .copied()
-            .unwrap_or_default();
+        user_state.notification = NotificationUserState {
+            unseen_notification_ids: notification_ids
+                .remove(&product.item.product_id)
+                .unwrap_or_default(),
+        };
         let hidden = user_state.search_filter.hidden;
         product.user_state = Some(user_state);
         if hidden {
@@ -105,31 +106,6 @@ where
     }
 
     Ok(())
-}
-
-fn newest_notifications_by_product(
-    notifications: Vec<AllNotificationsReadItem>,
-) -> HashMap<ProductId, NotificationUserState> {
-    let mut newest = HashMap::new();
-
-    for notification in notifications {
-        let Some(product_id) = notification.product_id() else {
-            continue;
-        };
-        let state = NotificationUserState {
-            seen: notification.seen,
-            origin_event_id: Some(notification.origin_event_id),
-        };
-        let replace = newest
-            .get(&product_id)
-            .and_then(|current: &NotificationUserState| current.origin_event_id)
-            .is_none_or(|current_event_id| notification.origin_event_id > current_event_id);
-        if replace {
-            newest.insert(product_id, state);
-        }
-    }
-
-    newest
 }
 
 fn redact_hidden_product_summary(
@@ -191,8 +167,8 @@ impl From<ProductUserStateReadError> for ProductSummaryPersonalizationError {
     }
 }
 
-impl From<AllNotificationsReadError> for ProductSummaryPersonalizationError {
-    fn from(error: AllNotificationsReadError) -> Self {
+impl From<ProductNotificationIdsReadError> for ProductSummaryPersonalizationError {
+    fn from(error: ProductNotificationIdsReadError) -> Self {
         Self::NotificationReadFailed {
             source: box_error(error),
         }

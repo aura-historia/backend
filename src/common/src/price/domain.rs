@@ -1,6 +1,7 @@
 use crate::currency::domain::{Currency, HasMinorUnitExponent};
 use crate::price::data::PriceData;
 use crate::price::record::PriceRecord;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Add, Deref, Sub};
 use strum::{EnumCount, IntoEnumIterator};
@@ -98,7 +99,7 @@ impl FxRate for FixedFxRate {
 }
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MonetaryAmount(#[cfg_attr(feature = "test-data", dummy(faker = "0..=1000000000"))] u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, thiserror::Error)]

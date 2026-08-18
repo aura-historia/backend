@@ -25,8 +25,8 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
-use notification_service::ports::product_notifications_reader::{
-    ProductNotificationsReadError, ProductNotificationsReader,
+use notification_service::ports::product_notification_ids_reader::{
+    ProductNotificationIdsReadError, ProductNotificationIdsReader,
 };
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
@@ -243,7 +243,7 @@ where
     U: UnitOfWork,
     D: ProductDetailsReaderFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    N: ProductNotificationsReader,
+    N: ProductNotificationIdsReader,
 {
     #[tracing::instrument(
         name = "get_product",
@@ -294,18 +294,15 @@ where
                 .user_state
                 .as_mut()
                 .ok_or(GetProductError::ProductDetailsReadModelInvalid)?;
-            let notification = self
-                .product_notifications
-                .list_by_product(&user_id, &details.item.product_id, Some(1), true)
-                .await
-                .map_err(product_notification_read_error)?
-                .into_iter()
-                .next()
-                .map(|notification| NotificationUserState {
-                    seen: notification.seen,
-                    origin_event_id: Some(notification.origin_event_id),
-                })
-                .unwrap_or_default();
+            let notification = NotificationUserState {
+                unseen_notification_ids: self
+                    .product_notifications
+                    .unseen_ids_for_products(user_id, &[details.item.product_id])
+                    .await
+                    .map_err(product_notification_read_error)?
+                    .remove(&details.item.product_id)
+                    .unwrap_or_default(),
+            };
             user_state.notification = notification;
 
             if user_state.search_filter.hidden {
@@ -379,7 +376,7 @@ fn personalization_user_id(principal: &Principal) -> Option<UserId> {
     }
 }
 
-fn product_notification_read_error(error: ProductNotificationsReadError) -> GetProductError {
+fn product_notification_read_error(error: ProductNotificationIdsReadError) -> GetProductError {
     GetProductError::ProductNotificationReadFailed {
         source: box_error(error),
     }
@@ -487,17 +484,17 @@ impl From<ProductPricingPresentationError> for GetProductError {
 mod tests {
     use super::*;
     use crate::ports::ProductDetailsReadModel;
+    use common::notification_id::NotificationId;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::{MonetaryAmount, Price};
     use common::transaction::TransactionError;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
-    use notification_core::notification::{
-        NotificationPartnerApplicationPayload, NotificationPayload,
+    use notification_service::ports::product_notification_ids_reader::{
+        ProductNotificationIdsReadError, ProductNotificationIdsReader,
     };
-    use notification_core::notification_id::NotificationId;
-    use notification_service::ports::product_notifications_reader::ProductNotificationReadItem;
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
 
@@ -514,9 +511,10 @@ mod tests {
             Option<Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>>,
         fx_rate_id_requests: Vec<FxRateId>,
         latest_snapshot_count: usize,
-        notification_result:
-            Option<Result<Vec<ProductNotificationReadItem>, ProductNotificationsReadError>>,
-        notification_requests: Vec<(UserId, ProductId, Option<i32>, bool)>,
+        notification_result: Option<
+            Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>,
+        >,
+        notification_requests: Vec<(UserId, Vec<ProductId>)>,
         notification_called_after_commit: Option<bool>,
         commit_count: usize,
     }
@@ -687,22 +685,21 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ProductNotificationsReader for FakeProductNotificationsReader {
-        async fn list_by_product(
+    impl ProductNotificationIdsReader for FakeProductNotificationsReader {
+        async fn unseen_ids_for_products(
             &self,
-            user_id: &UserId,
-            product_id: &ProductId,
-            limit: Option<i32>,
-            newest_first: bool,
-        ) -> Result<Vec<ProductNotificationReadItem>, ProductNotificationsReadError> {
+            user_id: UserId,
+            product_ids: &[ProductId],
+        ) -> Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>
+        {
             let mut state = lock_state(&self.state);
             state
                 .notification_requests
-                .push((*user_id, *product_id, limit, newest_first));
+                .push((user_id, product_ids.to_vec()));
             state.notification_called_after_commit = Some(state.commit_count == 1);
             match state.notification_result.take() {
                 Some(result) => result,
-                None => Ok(Vec::new()),
+                None => Ok(HashMap::new()),
             }
         }
     }
@@ -823,29 +820,6 @@ mod tests {
     fn prepare_current_snapshot(state: &SharedState) -> Result<(), FxRateSnapshotError> {
         lock_state(state).latest_snapshot_result = Some(Ok(Some(snapshot()?)));
         Ok(())
-    }
-
-    fn notification_item(
-        user_id: UserId,
-        origin_event_id: EventId,
-        seen: bool,
-    ) -> ProductNotificationReadItem {
-        ProductNotificationReadItem {
-            user_id,
-            origin_event_id,
-            notification_id: NotificationId::new(),
-            notification_type: None,
-            notification_payload: NotificationPayload::PartnerApplication {
-                shop_name: ShopName::from("Shop"),
-                image: None,
-                partner_application_payload: NotificationPartnerApplicationPayload::Approved {
-                    partner_application_id:
-                        common::partner_shop_application_id::PartnerShopApplicationId::new(),
-                },
-            },
-            seen,
-            external: false,
-        }
     }
 
     #[test]
@@ -982,11 +956,11 @@ mod tests {
         let mut details = factual_details()?;
         details.user_state = Some(ProductUserState::default());
         let product_id = details.item.product_id;
-        let newest_event_id = EventId::new();
+        let notification_id = NotificationId::new();
         lock_state(&state).find_details_result = Some(Ok(Some(details)));
         prepare_current_snapshot(&state)?;
         lock_state(&state).notification_result =
-            Some(Ok(vec![notification_item(user_id, newest_event_id, false)]));
+            Some(Ok(HashMap::from([(product_id, vec![notification_id])])));
 
         let result = handler(&state)
             .execute(
@@ -996,15 +970,14 @@ mod tests {
             .await?;
 
         let user_state = result.user_state.unwrap_or_default();
-        assert!(!user_state.notification.seen);
         assert_eq!(
-            Some(newest_event_id),
-            user_state.notification.origin_event_id
+            vec![notification_id],
+            user_state.notification.unseen_notification_ids
         );
         let state = lock_state(&state);
         assert_eq!(Some(true), state.notification_called_after_commit);
         assert_eq!(
-            vec![(user_id, product_id, Some(1), true)],
+            vec![(user_id, vec![product_id])],
             state.notification_requests
         );
         Ok(())
@@ -1017,14 +990,11 @@ mod tests {
         let user_id = UserId::new();
         let mut details = factual_details()?;
         let lifecycle = details.item.lifecycle;
-        let event_id = EventId::new();
         let mut user_state = ProductUserState::default();
         user_state.search_filter.hidden = true;
         details.user_state = Some(user_state);
         lock_state(&state).find_details_result = Some(Ok(Some(details)));
         prepare_current_snapshot(&state)?;
-        lock_state(&state).notification_result =
-            Some(Ok(vec![notification_item(user_id, event_id, false)]));
 
         let result = handler(&state)
             .execute(

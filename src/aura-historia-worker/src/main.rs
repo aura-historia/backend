@@ -8,17 +8,17 @@ use aura_historia_worker::search_filter_percolator::consume_search_filter_percol
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{
-    QueueConfig, WorkerDynamoDbConfig, WorkerOpenSearchConfig, WorkerRunError,
-    WorkerRuntimeComposition, WorkerScope, WorkerStartupConfig, WorkerStartupConfigError,
-    WorkerVertexAiConfig, run_until_shutdown_with_runtime,
+    QueueConfig, WorkerOpenSearchConfig, WorkerRunError, WorkerRuntimeComposition, WorkerScope,
+    WorkerStartupConfig, WorkerStartupConfigError, WorkerVertexAiConfig,
+    run_until_shutdown_with_runtime,
 };
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
-use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
-use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
+use notification_postgres::SqlxNotificationCreatorFactory;
+use notification_service::use_cases::commands::create_notifications::CreateNotificationsHandler;
 use opensearch::{
     OpenSearch,
     auth::Credentials,
@@ -84,16 +84,10 @@ async fn main() -> Result<(), MainError> {
                 .await
         }
         WorkerScope::SearchFilterMatchNotification => {
-            let dynamodb = startup
-                .dynamodb()
-                .ok_or(MainError::MissingScopeConfig { scope })?;
-            run_search_filter_match_notifications(worker_config, pool, composition, dynamodb).await
+            run_search_filter_match_notifications(worker_config, pool, composition).await
         }
         WorkerScope::WatchlistNotification => {
-            let dynamodb = startup
-                .dynamodb()
-                .ok_or(MainError::MissingScopeConfig { scope })?;
-            run_watchlist_notifications(worker_config, pool, composition, dynamodb).await
+            run_watchlist_notifications(worker_config, pool, composition).await
         }
         WorkerScope::ProductTranslation => {
             let vertex_ai = startup
@@ -158,9 +152,7 @@ async fn run_search_filter_match_notifications(
     config: aura_historia_worker::WorkerConfig,
     pool: sqlx::PgPool,
     composition: WorkerRuntimeComposition,
-    dynamodb: &WorkerDynamoDbConfig,
 ) -> Result<(), MainError> {
-    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
     let handler: Arc<dyn GenerateSearchFilterMatchNotificationUseCase> =
         Arc::new(GenerateSearchFilterMatchNotificationHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
@@ -168,10 +160,10 @@ async fn run_search_filter_match_notifications(
             SqlxProductSearchFilterMatchSourceReaderFactory::new(),
             SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
-            CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
-                aws_sdk_dynamodb::Client::new(&aws_config),
-                dynamodb.table_name(),
-            )),
+            CreateNotificationsHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                SqlxNotificationCreatorFactory::new(),
+            ),
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_search_filter_match_notification_queue(
@@ -241,19 +233,16 @@ async fn run_watchlist_notifications(
     config: aura_historia_worker::WorkerConfig,
     pool: sqlx::PgPool,
     composition: WorkerRuntimeComposition,
-    dynamodb: &WorkerDynamoDbConfig,
 ) -> Result<(), MainError> {
-    let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
-    let notification_writer = ConditionalDynamoDbNotificationWriter::new(
-        aws_sdk_dynamodb::Client::new(&aws_config),
-        dynamodb.table_name(),
-    );
     let handler: Arc<dyn GenerateWatchlistNotificationsUseCase> =
         Arc::new(GenerateWatchlistNotificationsHandler::new(
-            SqlxUnitOfWork::new(pool),
+            SqlxUnitOfWork::new(pool.clone()),
             SqlxProductWatchlistNotificationSourceReaderFactory::new(),
             SqlxWatchlistNotificationRecipientReaderFactory,
-            CreateNotificationHandler::new(notification_writer),
+            CreateNotificationsHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                SqlxNotificationCreatorFactory::new(),
+            ),
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_watchlist_notification_queue(receiver, handler));

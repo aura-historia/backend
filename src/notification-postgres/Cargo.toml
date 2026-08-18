@@ -1,0 +1,22 @@
+[package]
+name = "notification-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+common = { workspace = true, features = ["postgres"] }
+notification-core = { workspace = true }
+notification-service = { workspace = true }
+product-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["postgres"] }
+tokio = { workspace = true, features = ["macros", "rt"] }

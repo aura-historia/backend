@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ProhibitedContent {
     #[default]
     Unknown,

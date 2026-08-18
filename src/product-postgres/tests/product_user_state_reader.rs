@@ -88,7 +88,7 @@ async fn should_return_complete_state_with_safe_and_unsafe_content_and_free_tier
     assert!(unsafe_state.watchlist.watching);
     assert!(!unsafe_state.watchlist.notifications);
     assert!(!unsafe_state.prohibited_content.consent);
-    assert!(unsafe_state.notification.seen);
+    assert!(unsafe_state.notification.unseen_notification_ids.is_empty());
     assert!(unsafe_state.search_filter.matched);
     assert!(unsafe_state.search_filter.hidden);
     assert_eq!(

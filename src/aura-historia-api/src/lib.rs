@@ -36,10 +36,8 @@ use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGe
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{GoogleGeocoder, GoogleGeocoderConfig};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
-use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
-use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
-use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
-use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
+use notification_postgres::{SqlxNotificationCreatorFactory, SqlxProductNotificationIdsReader};
+use notification_service::use_cases::commands::create_notifications::CreateNotificationsHandler;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -726,10 +724,10 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxShopRepositoryFactory::new(),
         SqlxUserPartnerShopMembershipRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
-        CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
-            (*dynamodb_client).clone(),
-            table_name_ref,
-        )),
+        CreateNotificationsHandler::new(
+            unit_of_work.clone(),
+            SqlxNotificationCreatorFactory::new(),
+        ),
     );
     let product_user_states = SqlxProductUserStateReader::new(pool.clone());
     let get_similar_products = GetSimilarProductsHandler::new(
@@ -738,7 +736,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxFxRateSnapshotRepositoryFactory,
         OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
         product_user_states.clone(),
-        DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+        SqlxProductNotificationIdsReader::new(pool.clone()),
     );
     let search_products = SearchProductsHandler::new(
         unit_of_work.clone(),
@@ -746,13 +744,13 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxFxRateSnapshotRepositoryFactory,
         Arc::clone(&embeddings),
         product_user_states,
-        DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+        SqlxProductNotificationIdsReader::new(pool.clone()),
     );
     let get_product = GetProductHandler::new(
         unit_of_work.clone(),
         SqlxProductDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
-        DynamoDbProductNotificationsReader::new(dynamodb_client, table_name_ref),
+        SqlxProductNotificationIdsReader::new(pool.clone()),
     );
     let create_product = CreateProductHandler::new_with_fx_rates(
         unit_of_work.clone(),
@@ -795,7 +793,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         unit_of_work.clone(),
         SqlxProductWatchlistDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
-        DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+        SqlxProductNotificationIdsReader::new(pool.clone()),
     );
     let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name_ref);
     let oauth_store = OAuthDynamoDbStore::new(dynamodb_client, table_name_ref);
@@ -893,7 +891,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
             search_filter_reader.clone(),
             SqlxProductDetailsBatchReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
-            DynamoDbAllNotificationsReader::new(dynamodb_client, table_name_ref),
+            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
             unit_of_work.clone(),

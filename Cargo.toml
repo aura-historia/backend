@@ -69,7 +69,7 @@ notification-send = { workspace = true }
 notification = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
-notification-dynamodb = { workspace = true }
+notification-postgres = { workspace = true }
 newsletter-api = { workspace = true }
 notification-api = { workspace = true }
 oauth = { workspace = true }
@@ -150,7 +150,7 @@ members = [
     "src/notification",
     "src/notification-core",
     "src/notification-service",
-    "src/notification-dynamodb",
+    "src/notification-postgres",
     "src/notification-api",
     "src/newsletter-api",
     "src/oauth",
@@ -226,7 +226,7 @@ newsletter-api = { path = "src/newsletter-api" }
 notification = { path = "src/notification" }
 notification-core = { path = "src/notification-core" }
 notification-service = { path = "src/notification-service" }
-notification-dynamodb = { path = "src/notification-dynamodb" }
+notification-postgres = { path = "src/notification-postgres" }
 notification-api = { path = "src/notification-api" }
 oauth = { path = "src/oauth" }
 oauth-api = { path = "src/oauth-api" }

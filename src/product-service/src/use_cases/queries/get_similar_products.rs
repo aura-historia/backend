@@ -17,7 +17,7 @@ use common::transaction::{Transaction, UnitOfWork};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
-use notification_service::ports::all_notifications_reader::AllNotificationsReader;
+use notification_service::ports::product_notification_ids_reader::ProductNotificationIdsReader;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,7 +130,7 @@ where
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
     S: ProductSimilarProductsReader,
     P: ProductUserStateReader,
-    N: AllNotificationsReader,
+    N: ProductNotificationIdsReader,
 {
     #[tracing::instrument(
         name = "get_similar_products",
@@ -297,8 +297,8 @@ mod tests {
     use common::transaction::TransactionError;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
-    use notification_service::ports::all_notifications_reader::{
-        AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
+    use notification_service::ports::product_notification_ids_reader::{
+        ProductNotificationIdsReadError, ProductNotificationIdsReader,
     };
     use product_core::title::Title;
     use product_core::user_state::ProductUserState;
@@ -513,12 +513,16 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl AllNotificationsReader for EmptyNotificationsReader {
-        async fn list_all_by_user(
+    impl ProductNotificationIdsReader for EmptyNotificationsReader {
+        async fn unseen_ids_for_products(
             &self,
-            _user_id: &common::user_id::UserId,
-        ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
-            Ok(Vec::new())
+            _user_id: common::user_id::UserId,
+            _product_ids: &[ProductId],
+        ) -> Result<
+            HashMap<ProductId, Vec<common::notification_id::NotificationId>>,
+            ProductNotificationIdsReadError,
+        > {
+            Ok(HashMap::new())
         }
     }
 

@@ -7,9 +7,10 @@ use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, shop_name::ShopName,
     user_id::UserId,
 };
-use notification_service::use_cases::commands::create_notification::{
-    CreateNotificationCommand, CreateNotificationError, CreateNotificationResult,
-    CreateNotificationUseCase,
+use notification_service::ports::notification_creator::NotificationCreationOutcome;
+use notification_service::use_cases::commands::create_notifications::{
+    CreateNotificationsCommand, CreateNotificationsError, CreateNotificationsResult,
+    CreateNotificationsUseCase,
 };
 
 use shop_core::partner_status::ShopPartnerStatus;
@@ -74,12 +75,18 @@ impl UserPartnerShopMembershipRepository for FailingMembershipRepository {
 }
 
 #[async_trait]
-impl CreateNotificationUseCase for FakeNotificationService {
+impl CreateNotificationsUseCase for FakeNotificationService {
     async fn execute(
         &self,
-        _: CreateNotificationCommand,
-    ) -> Result<CreateNotificationResult, CreateNotificationError> {
-        Ok(CreateNotificationResult::AlreadyExists)
+        command: CreateNotificationsCommand,
+    ) -> Result<CreateNotificationsResult, CreateNotificationsError> {
+        Ok(CreateNotificationsResult {
+            outcomes: command
+                .intents
+                .into_iter()
+                .map(|_| NotificationCreationOutcome::Duplicate)
+                .collect(),
+        })
     }
 }
 

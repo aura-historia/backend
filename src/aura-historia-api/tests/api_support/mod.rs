@@ -32,10 +32,8 @@ use embedding::{
 };
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{Geocoder, GeocodingError};
-use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
-use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
-use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
-use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
+use notification_postgres::{SqlxNotificationCreatorFactory, SqlxProductNotificationIdsReader};
+use notification_service::use_cases::commands::create_notifications::CreateNotificationsHandler;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -513,7 +511,7 @@ fn url(value: &str) -> Url {
 async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let client = get_dynamodb_client().await;
     let access_token_store = DynamoDbAccessTokenStore::new(client, "table_1");
     let access_token_use_case =
@@ -531,23 +529,23 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             unit_of_work.clone(),
             SqlxProductDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            DynamoDbProductNotificationsReader::new(client, "table_1"),
+            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(GetSimilarProductsHandler::new(
             unit_of_work.clone(),
             SqlxProductEmbeddingReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
-            SqlxProductUserStateReader::new(get_postgres_client().await),
-            DynamoDbAllNotificationsReader::new(client, "table_1"),
+            SqlxProductUserStateReader::new(pool.clone()),
+            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(SearchProductsHandler::new(
             unit_of_work.clone(),
             OpenSearchProductSearchReader::new(opensearch_client.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
             search_embeddings,
-            SqlxProductUserStateReader::new(get_postgres_client().await),
-            DynamoDbAllNotificationsReader::new(client, "table_1"),
+            SqlxProductUserStateReader::new(pool.clone()),
+            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
@@ -710,9 +708,9 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(ListSearchFilterMatchesHandler::new(
             unit_of_work.clone(),
             search_filter_reader.clone(),
-            SqlxProductDetailsBatchReader::new(get_postgres_client().await),
+            SqlxProductDetailsBatchReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
-            DynamoDbAllNotificationsReader::new(client, "table_1"),
+            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
             unit_of_work.clone(),
@@ -727,7 +725,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             unit_of_work.clone(),
             SqlxProductWatchlistDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            DynamoDbAllNotificationsReader::new(client, "table_1"),
+            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(WatchProductHandler::new(
             unit_of_work.clone(),
@@ -789,10 +787,10 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             shop_postgres::SqlxShopRepositoryFactory::new(),
             SqlxUserPartnerShopMembershipRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
-            CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
-                get_dynamodb_client().await.clone(),
-                "table_1",
-            )),
+            CreateNotificationsHandler::new(
+                unit_of_work.clone(),
+                SqlxNotificationCreatorFactory::new(),
+            ),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

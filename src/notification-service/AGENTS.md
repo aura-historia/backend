@@ -9,12 +9,11 @@
 
 - Depends on `notification-core`; never depend on DynamoDB or runtime adapters.
 - Root modules:
-  - `use_cases/commands` — write use-case handlers/contracts.
-  - `use_cases/queries` — read use-case handlers/contracts and dedicated views.
-  - `ports` — one file per outbound port; port-local errors/read models live in that port file.
-- No compatibility re-export modules.
-- No noop adapter in this crate.
-- Repository writes return persisted notification state; handlers must not read after write for responses. Conditional notification writers return explicit inserted or already-exists outcomes and a dedicated write error; a deduplicated create result never contains a fabricated notification.
+  - `use_cases/commands` — transaction-owned creation handlers/contracts.
+  - `use_cases/queries` — list handler/contracts and dedicated views.
+  - `ports` — creator, list reader, seen writer, deleter, and delivery repository capabilities.
+- Notification creation generates IDs at the application boundary, creates optional delivery intent atomically, and returns an exact inserted-or-duplicate outcome per input.
+- No compatibility re-export modules or noop adapters.
 - Keep runtime and HTTP glue outside.
 
 ## Ownership

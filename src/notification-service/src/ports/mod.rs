@@ -1,12 +1,6 @@
-pub mod all_notifications_reader;
-pub mod external_notification_sender;
-pub mod list_notifications_reader;
-pub mod notification_batch_inserter;
+pub mod notification_creator;
 pub mod notification_deleter;
-pub mod notification_recipient_reader;
-pub mod notification_repository;
-pub mod notification_writer;
-pub mod product_notifications_reader;
-pub use notification_writer::{
-    NotificationWriteError, NotificationWriteOutcome, NotificationWriter,
-};
+pub mod notification_delivery_repository;
+pub mod notification_list_reader;
+pub mod notification_seen_writer;
+pub mod product_notification_ids_reader;

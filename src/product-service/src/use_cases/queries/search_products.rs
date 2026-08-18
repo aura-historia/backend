@@ -31,7 +31,7 @@ use fxrate_service::ports::{
 };
 
 use indexmap::IndexSet;
-use notification_service::ports::all_notifications_reader::AllNotificationsReader;
+use notification_service::ports::product_notification_ids_reader::ProductNotificationIdsReader;
 use product_core::product_image::ProductImage;
 use product_core::product_search::ProductSearch;
 use product_core::sort_product_field::SortProductField;
@@ -193,7 +193,7 @@ where
     F: FxRateSnapshotRepositoryFactory<UoW::Tx>,
     E: EmbeddingGenerator,
     U: ProductUserStateReader,
-    N: AllNotificationsReader,
+    N: ProductNotificationIdsReader,
 {
     #[tracing::instrument(
         name = "search_products",
@@ -431,10 +431,9 @@ mod tests {
     };
     use fxrate_service::ports::FxRateSnapshotRepositoryFactory;
 
-    use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
-    use notification_core::notification_id::NotificationId;
-    use notification_service::ports::all_notifications_reader::{
-        AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
+    use common::notification_id::NotificationId;
+    use notification_service::ports::product_notification_ids_reader::{
+        ProductNotificationIdsReadError, ProductNotificationIdsReader,
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -457,10 +456,11 @@ mod tests {
         used_hybrid_search: bool,
         user_states_result:
             Option<Result<HashMap<ProductId, ProductUserState>, ProductUserStateReadError>>,
-        notifications_result:
-            Option<Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError>>,
+        notifications_result: Option<
+            Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>,
+        >,
         user_state_lookups: Vec<ProductUserStateLookup>,
-        notification_requests: Vec<UserId>,
+        notification_requests: Vec<(UserId, Vec<ProductId>)>,
     }
 
     type SharedState = Arc<Mutex<FakeState>>;
@@ -684,16 +684,20 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl AllNotificationsReader for FakeNotificationsReader {
-        async fn list_all_by_user(
+    impl ProductNotificationIdsReader for FakeNotificationsReader {
+        async fn unseen_ids_for_products(
             &self,
-            user_id: &UserId,
-        ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
+            user_id: UserId,
+            product_ids: &[ProductId],
+        ) -> Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>
+        {
             let mut state = lock_state(&self.state);
-            state.notification_requests.push(*user_id);
+            state
+                .notification_requests
+                .push((user_id, product_ids.to_vec()));
             match state.notifications_result.take() {
                 Some(result) => result,
-                None => Ok(Vec::new()),
+                None => Ok(HashMap::new()),
             }
         }
     }
@@ -742,41 +746,6 @@ mod tests {
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
         }
-    }
-
-    fn notification(
-        user_id: UserId,
-        product_id: ProductId,
-        event_id: EventId,
-        seen: bool,
-    ) -> Result<AllNotificationsReadItem, url::ParseError> {
-        let url = Url::parse("https://example.test/product")?;
-        Ok(AllNotificationsReadItem {
-            user_id,
-            origin_event_id: event_id,
-            notification_id: NotificationId::new(),
-            notification_type: None,
-            notification_payload: NotificationPayload::Watchlist {
-                product_id,
-                shop_id: ShopId::new(),
-                shops_product_id: ShopsProductId::from("product"),
-                shop_slug_id: ShopSlugId::from("shop"),
-                product_slug_id: ProductSlugId::from("product"),
-                shop_name: ShopName::from("Shop"),
-                title: None,
-                image: None,
-                url: url.clone(),
-                view_url: url,
-                watchlist_payload: NotificationWatchlistPayload::StateChange {
-                    old_state: ProductState::Listed,
-                    new_state: ProductState::Available,
-                },
-            },
-            seen,
-            external: false,
-            created: OffsetDateTime::UNIX_EPOCH,
-            updated: OffsetDateTime::UNIX_EPOCH,
-        })
     }
 
     fn search_result() -> Result<ProductSearchReadResult, url::ParseError> {
@@ -1060,23 +1029,22 @@ mod tests {
         let user_id = UserId::new();
         let expected = search_result()?;
         let product_id = expected.items[0].product_id;
-        let event_id = EventId::new();
+        let notification_id = NotificationId::new();
         let mut user_state = ProductUserState::default();
         user_state.watchlist.watching = true;
         user_state.watchlist.notifications = true;
         lock_state(&state).search_result = Some(Ok(expected));
         lock_state(&state).user_states_result = Some(Ok(HashMap::from([(product_id, user_state)])));
-        lock_state(&state).notifications_result = Some(Ok(vec![notification(
-            user_id, product_id, event_id, false,
-        )?]));
+        lock_state(&state).notifications_result =
+            Some(Ok(HashMap::from([(product_id, vec![notification_id])])));
 
         let result = handler(&state)
             .execute(&user_context(user_id), request())
             .await?;
 
         assert_eq!(
-            Some(user_id),
-            lock_state(&state).notification_requests.first().copied()
+            Some(&(user_id, vec![product_id])),
+            lock_state(&state).notification_requests.first()
         );
         let state = lock_state(&state);
         assert_eq!(1, state.user_state_lookups.len());
@@ -1088,8 +1056,10 @@ mod tests {
             .as_ref()
             .ok_or("missing user state")?;
         assert!(user_state.watchlist.watching);
-        assert!(!user_state.notification.seen);
-        assert_eq!(Some(event_id), user_state.notification.origin_event_id);
+        assert_eq!(
+            vec![notification_id],
+            user_state.notification.unseen_notification_ids
+        );
         Ok(())
     }
 
@@ -1131,8 +1101,8 @@ mod tests {
             ProductUserState::default(),
         )])));
         lock_state(&state).notifications_result =
-            Some(Err(AllNotificationsReadError::OperationFailed {
-                source: box_error(std::io::Error::other("dynamodb unavailable")),
+            Some(Err(ProductNotificationIdsReadError::ReadFailed {
+                source: box_error(std::io::Error::other("postgres unavailable")),
             }));
 
         let result = handler(&state)

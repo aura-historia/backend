@@ -8,8 +8,9 @@
 ## Core Design
 
 - Domain-only crate.
-- Root modules: `mail_template`, `notification`, `notification_id`, `notification_type`.
-- `Notification` aggregate has no created/updated or actor metadata.
+- Root modules: `mail_template`, `notification`, `notification_delivery_id`, `notification_kind`.
+- `Notification` aggregate has no created/updated, actor, delivery, or runtime metadata.
+- Typed `NotificationContent` owns semantic source plus immutable display snapshot; kind is derived.
 - Watchlist/search-filter product titles are optional.
 - View types may carry created/updated timestamps.
 - No DynamoDB, transport, or runtime glue.

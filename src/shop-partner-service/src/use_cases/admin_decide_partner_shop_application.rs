@@ -6,13 +6,16 @@ use crate::ports::{
 };
 use common::change_outcome::ChangeOutcome;
 use common::error::boxed::{BoxError, box_error};
-use common::event_id::EventId;
+
 use common::operation_context::{OperationAuthorizationError, OperationContext};
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::transaction::{Transaction, UnitOfWork};
-use notification_core::notification::{NotificationPartnerApplicationPayload, NotificationPayload};
-use notification_service::use_cases::commands::create_notification::{
-    CreateNotificationCommand, CreateNotificationUseCase,
+use notification_core::notification::{
+    NotificationContent, PartnerApplicationDecision as NotificationPartnerApplicationDecision,
+    PartnerApplicationNotificationSnapshot,
+};
+use notification_service::use_cases::commands::create_notifications::{
+    CreateNotificationIntent, CreateNotificationsCommand, CreateNotificationsUseCase,
 };
 pub use shop_partner_core::partner_shop_application::PartnerShopApplicationDecision;
 use shop_partner_core::partner_shop_application::{
@@ -121,7 +124,7 @@ where
     S: ShopRepositoryFactory<U::Tx>,
     M: UserPartnerShopMembershipRepositoryFactory<U::Tx>,
     R: UserAdminReaderFactory<U::Tx>,
-    N: CreateNotificationUseCase,
+    N: CreateNotificationsUseCase,
 {
     #[tracing::instrument(name = "admin_decide_partner_shop_application", skip_all, fields(partner_shop_application_id = %command.application_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -241,32 +244,24 @@ fn decision_notification(
     application: &PartnerShopApplication,
     shop: &shop_core::shop::Shop,
     decision: PartnerShopApplicationDecision,
-) -> Result<CreateNotificationCommand, AdminDecidePartnerShopApplicationError> {
-    let origin_event_id = EventId::try_from(application.id().to_string()).map_err(|source| {
-        AdminDecidePartnerShopApplicationError::Internal {
-            source: box_error(source),
-        }
-    })?;
-    let partner_application_payload = match decision {
-        PartnerShopApplicationDecision::Approve => {
-            NotificationPartnerApplicationPayload::Approved {
-                partner_application_id: application.id(),
-            }
-        }
-        PartnerShopApplicationDecision::Reject => NotificationPartnerApplicationPayload::Rejected {
-            partner_application_id: application.id(),
-        },
+) -> Result<CreateNotificationsCommand, AdminDecidePartnerShopApplicationError> {
+    let decision = match decision {
+        PartnerShopApplicationDecision::Approve => NotificationPartnerApplicationDecision::Approved,
+        PartnerShopApplicationDecision::Reject => NotificationPartnerApplicationDecision::Rejected,
     };
-
-    Ok(CreateNotificationCommand {
-        user_id: application.applicant_user_id(),
-        origin_event_id,
-        notification_payload: NotificationPayload::PartnerApplication {
-            shop_name: shop.name().clone(),
-            image: shop.presentation().image.clone(),
-            partner_application_payload,
-        },
-        external: true,
+    Ok(CreateNotificationsCommand {
+        intents: vec![CreateNotificationIntent {
+            user_id: application.applicant_user_id(),
+            content: NotificationContent::PartnerApplication {
+                partner_shop_application_id: application.id(),
+                snapshot: PartnerApplicationNotificationSnapshot {
+                    shop_name: shop.name().clone(),
+                    image: shop.presentation().image.clone(),
+                },
+                decision,
+            },
+            deliver_email: true,
+        }],
     })
 }
 
@@ -362,8 +357,10 @@ mod tests {
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::transaction::TransactionError;
     use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
-    use notification_service::use_cases::commands::create_notification::{
-        CreateNotificationError, CreateNotificationResult,
+    use notification_service::ports::notification_creator::NotificationCreationOutcome;
+    use notification_service::use_cases::commands::create_notifications::{
+        CreateNotificationsCommand, CreateNotificationsError, CreateNotificationsResult,
+        CreateNotificationsUseCase,
     };
     use shop_core::{
         partner_status::ShopPartnerStatus,
@@ -629,34 +626,40 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl CreateNotificationUseCase for TestNotifier {
+    impl CreateNotificationsUseCase for TestNotifier {
         async fn execute(
             &self,
-            _: CreateNotificationCommand,
-        ) -> Result<CreateNotificationResult, CreateNotificationError> {
+            command: CreateNotificationsCommand,
+        ) -> Result<CreateNotificationsResult, CreateNotificationsError> {
             *self.0.notification_calls.lock().map_err(|_| {
-                CreateNotificationError::InsertFailed(
-                    notification_service::ports::NotificationWriteError::WriteFailed {
+                CreateNotificationsError::CreateFailed(
+                    notification_service::ports::notification_creator::NotificationCreationError::CreateFailed {
                         source: "notification lock failed".into(),
                     },
                 )
             })? += 1;
             let mut fail = self.0.fail_next_notification.lock().map_err(|_| {
-                CreateNotificationError::InsertFailed(
-                    notification_service::ports::NotificationWriteError::WriteFailed {
+                CreateNotificationsError::CreateFailed(
+                    notification_service::ports::notification_creator::NotificationCreationError::CreateFailed {
                         source: "notification failure lock failed".into(),
                     },
                 )
             })?;
             if *fail {
                 *fail = false;
-                return Err(CreateNotificationError::InsertFailed(
-                    notification_service::ports::NotificationWriteError::WriteFailed {
+                return Err(CreateNotificationsError::CreateFailed(
+                    notification_service::ports::notification_creator::NotificationCreationError::CreateFailed {
                         source: "notification failed".into(),
                     },
                 ));
             }
-            Ok(CreateNotificationResult::AlreadyExists)
+            Ok(CreateNotificationsResult {
+                outcomes: command
+                    .intents
+                    .into_iter()
+                    .map(|_| NotificationCreationOutcome::Duplicate)
+                    .collect(),
+            })
         }
     }
 

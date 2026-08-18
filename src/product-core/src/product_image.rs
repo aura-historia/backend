@@ -1,7 +1,8 @@
 use crate::prohibited_content::ProhibitedContent;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProductImage {
     pub url: Url,
     pub prohibited_content: ProhibitedContent,
