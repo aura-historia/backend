@@ -15,7 +15,7 @@ use sqlx::PgConnection;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxProductEventStoreFactory;
 
-pub struct SqlxProductEventStore<'tx> {
+struct SqlxProductEventStore<'tx> {
     connection: &'tx mut PgConnection,
 }
 
@@ -33,12 +33,6 @@ impl ProductEventStoreFactory<common::postgres::SqlxTransaction> for SqlxProduct
         SqlxProductEventStore {
             connection: tx.connection(),
         }
-    }
-}
-
-impl<'tx> SqlxProductEventStore<'tx> {
-    pub fn new(connection: &'tx mut PgConnection) -> Self {
-        Self { connection }
     }
 }
 

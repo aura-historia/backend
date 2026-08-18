@@ -188,6 +188,7 @@ pub struct MatchProductEventHandler<U, S, G, F, I, E, R, W> {
 }
 
 impl<U, S, G, F, I, E, R, W> MatchProductEventHandler<U, S, G, F, I, E, R, W> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
         sources: S,

@@ -34,7 +34,7 @@ use url::Url;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxProductRepositoryFactory;
 
-pub struct SqlxProductRepository<'tx> {
+struct SqlxProductRepository<'tx> {
     connection: &'tx mut PgConnection,
 }
 
@@ -97,12 +97,6 @@ impl ProductRepositoryFactory<common::postgres::SqlxTransaction> for SqlxProduct
         SqlxProductRepository {
             connection: tx.connection(),
         }
-    }
-}
-
-impl<'tx> SqlxProductRepository<'tx> {
-    pub fn new(connection: &'tx mut PgConnection) -> Self {
-        Self { connection }
     }
 }
 

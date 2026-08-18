@@ -607,13 +607,15 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
         let event_one_time = snapshot_a_time + time::Duration::hours(1);
         let event_one = insert_cross_currency_product_with_event(
             &worker.pool,
-            &product_query,
-            event_one_time,
-            Some((10_000, "GBP")),
-            None,
-            None,
-            "LISTED",
-            None,
+            CrossCurrencyProductInput {
+                title: &product_query,
+                event_time: event_one_time,
+                price: Some((10_000, "GBP")),
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: "LISTED",
+                sale_fx_rate_id: None,
+            },
         )
         .await?;
         assert_product_source_price(&worker.pool, event_one.product_id, 10_000, "GBP").await?;
@@ -678,13 +680,15 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
 
         let event_two = insert_cross_currency_product_with_event(
             &worker.pool,
-            &product_query,
-            event_one_time + time::Duration::hours(2),
-            Some((10_000, "GBP")),
-            None,
-            None,
-            "LISTED",
-            None,
+            CrossCurrencyProductInput {
+                title: &product_query,
+                event_time: event_one_time + time::Duration::hours(2),
+                price: Some((10_000, "GBP")),
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: "LISTED",
+                sale_fx_rate_id: None,
+            },
         )
         .await?;
         wait_for_match(&worker.pool, event_two.event_id, all_filters.len() as i64).await?;
@@ -724,13 +728,15 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
 
         let sale_event = insert_cross_currency_product_with_event(
             &worker.pool,
-            &product_query,
-            event_one_time + time::Duration::hours(4),
-            Some((10_000, "GBP")),
-            None,
-            None,
-            "SOLD",
-            Some(snapshot_b),
+            CrossCurrencyProductInput {
+                title: &product_query,
+                event_time: event_one_time + time::Duration::hours(4),
+                price: Some((10_000, "GBP")),
+                price_estimate_min: None,
+                price_estimate_max: None,
+                state: "SOLD",
+                sale_fx_rate_id: Some(snapshot_b),
+            },
         )
         .await?;
         wait_for_match(&worker.pool, sale_event.event_id, all_filters.len() as i64).await?;
@@ -759,13 +765,15 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
 
         let no_price_event = insert_cross_currency_product_with_event(
             &worker.pool,
-            &product_query,
-            event_one_time + time::Duration::hours(4),
-            None,
-            Some((10_000, "GBP")),
-            Some((10_000, "GBP")),
-            "LISTED",
-            None,
+            CrossCurrencyProductInput {
+                title: &product_query,
+                event_time: event_one_time + time::Duration::hours(4),
+                price: None,
+                price_estimate_min: Some((10_000, "GBP")),
+                price_estimate_max: Some((10_000, "GBP")),
+                state: "LISTED",
+                sale_fx_rate_id: None,
+            },
         )
         .await?;
         wait_for_match(&worker.pool, no_price_event.event_id, 1).await?;
@@ -1192,16 +1200,29 @@ struct CrossCurrencyProductEvent {
     event_id: EventId,
 }
 
+struct CrossCurrencyProductInput<'a> {
+    title: &'a str,
+    event_time: time::OffsetDateTime,
+    price: Option<(i64, &'a str)>,
+    price_estimate_min: Option<(i64, &'a str)>,
+    price_estimate_max: Option<(i64, &'a str)>,
+    state: &'a str,
+    sale_fx_rate_id: Option<FxRateId>,
+}
+
 async fn insert_cross_currency_product_with_event(
     pool: &sqlx::PgPool,
-    title: &str,
-    event_time: time::OffsetDateTime,
-    price: Option<(i64, &str)>,
-    price_estimate_min: Option<(i64, &str)>,
-    price_estimate_max: Option<(i64, &str)>,
-    state: &str,
-    sale_fx_rate_id: Option<FxRateId>,
+    input: CrossCurrencyProductInput<'_>,
 ) -> Result<CrossCurrencyProductEvent, sqlx::Error> {
+    let CrossCurrencyProductInput {
+        title,
+        event_time,
+        price,
+        price_estimate_min,
+        price_estimate_max,
+        state,
+        sale_fx_rate_id,
+    } = input;
     let product_id = common::product_id::ProductId::new();
     let product_uuid = uuid::Uuid::from(product_id);
     let event_id = EventId::new();
