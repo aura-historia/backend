@@ -3340,9 +3340,9 @@ dependencies = [
 
 [[package]]
 name = "handlebars"
-version = "6.4.3"
+version = "6.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4633d16a2350341713c379d6d06a4b9e1845329386026a49ce4fd09c2f3b16f6"
+checksum = "75c54236f9045c8004a77942bebc52145b4844639db934a5c70fe08617fbe61a"
 dependencies = [
  "derive_builder",
  "log",
@@ -3470,9 +3470,9 @@ checksum = "c9356095b4b41197bba32173600e1582792cda618f65d12f68e2e77d273413c5"
 
 [[package]]
 name = "html-to-markdown-rs"
-version = "3.10.6"
+version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0736be7417aaf65e02124703aa8db88ad42ceff95df99783d0d48bbed4da3a8"
+checksum = "8f3e479289c322f5982b930575658df32d1161d6fab80b4078ce3e692f491df5"
 dependencies = [
  "ahash",
  "astral-tl",
@@ -9720,9 +9720,9 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "uuid"
-version = "1.24.0"
+version = "1.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf3923a6f5c4c6382e0b653c4117f48d631ea17f38ed86e2a828e6f7412f5239"
+checksum = "2cefc03fd367c0c6d4305de1b312cf00248c4114f4a0418ce6a6af769e3b0bd9"
 dependencies = [
  "atomic",
  "getrandom 0.4.3",
@@ -10384,9 +10384,9 @@ checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "yaml_serde"
-version = "0.10.4"
+version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08c7c1b1a6a7c8a6b2741a6c21a4f8918e51899b111cfa08d1288202656e3975"
+checksum = "ad7a8266fc7ce9d77db272ca5b40b704a1753e2a2e2ab7b1f2da22672941bf93"
 dependencies = [
  "indexmap 2.14.0",
  "itoa 1.0.18",
