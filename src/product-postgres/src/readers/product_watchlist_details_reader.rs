@@ -112,12 +112,12 @@ impl SqlxProductWatchlistDetailsReaderFactory {
     }
 }
 
-impl ProductWatchlistDetailsReaderFactory<common::postgres::SqlxTransaction>
+impl ProductWatchlistDetailsReaderFactory<platform_postgres::SqlxTransaction>
     for SqlxProductWatchlistDetailsReaderFactory
 {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut common::postgres::SqlxTransaction,
+        tx: &'tx mut platform_postgres::SqlxTransaction,
     ) -> impl ProductWatchlistDetailsReader + 'tx {
         SqlxProductWatchlistDetailsReader {
             connection: tx.connection(),

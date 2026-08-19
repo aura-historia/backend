@@ -1,14 +1,14 @@
+use application::transaction::{Transaction, UnitOfWork};
 use common::currency::domain::Currency;
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
-use common::postgres::SqlxUnitOfWork;
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use platform_postgres::SqlxUnitOfWork;
 use product_core::{product::ProductPriceValuationBasis, product_search::ProductSearch};
 use search_filter_core::{
     NewSearchFilter, PriceMatchValuation, SearchFilter, SearchFilterProductMatch,
@@ -241,13 +241,13 @@ fn sample_filter(user_id: UserId, name: &str) -> SearchFilter {
     })
 }
 
-async fn begin(unit: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     unit.begin()
         .await
         .unwrap_or_else(|error| panic!("begin failed: {error:?}"))
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("commit failed: {error:?}"));

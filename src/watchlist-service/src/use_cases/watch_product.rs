@@ -3,13 +3,13 @@ use crate::ports::{
     WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
 };
 use crate::tier_policy::active_watchlist_quota;
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
@@ -229,11 +229,11 @@ mod tests {
         WatchlistQuotaReaderFactory, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
         WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
     };
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use common::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
     };
     use common::resource_state::domain::ResourceState;
-    use common::transaction::{Transaction, TransactionError, UnitOfWork};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;

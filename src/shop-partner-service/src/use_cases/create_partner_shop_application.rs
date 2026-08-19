@@ -2,6 +2,7 @@ use crate::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,
     PartnerShopApplicationRepositoryFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
@@ -9,7 +10,6 @@ use common::language::domain::Language;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::transaction::{Transaction, UnitOfWork};
 use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, shop_name::ShopName,
 };

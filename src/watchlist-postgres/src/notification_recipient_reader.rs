@@ -1,4 +1,5 @@
-use common::{error::boxed::box_error, postgres::SqlxTransaction, product_id::ProductId};
+use common::{error::boxed::box_error, product_id::ProductId};
+use platform_postgres::SqlxTransaction;
 use product_service::ports::{
     WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,

@@ -4,7 +4,6 @@ use common::{
     error::boxed::{BoxError, box_error, static_error},
     event_id::EventId,
     language::domain::Language,
-    postgres::SqlxTransaction,
     product_id::ProductId,
     product_slug_id::ProductSlugId,
     shop_id::ShopId,
@@ -13,6 +12,7 @@ use common::{
     shops_product_id::ShopsProductId,
     utm::append_utm_params,
 };
+use platform_postgres::SqlxTransaction;
 use product_core::title::Title;
 use product_service::ports::{
     ProductWatchlistNotificationChange, ProductWatchlistNotificationSource,

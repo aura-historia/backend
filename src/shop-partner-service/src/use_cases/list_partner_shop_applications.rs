@@ -2,11 +2,11 @@ use crate::ports::{
     PartnerShopApplicationReader, PartnerShopApplicationReaderFactory,
     PartnerShopApplicationRepositoryError, PartnerShopApplicationView,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListPartnerShopApplicationsRequest {
@@ -137,8 +137,8 @@ mod tests {
         PartnerShopApplicationRepositoryError, PartnerShopApplicationStorageVersion,
         VersionedPartnerShopApplication,
     };
+    use application::transaction::{TransactionError, UnitOfWork};
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::transaction::{TransactionError, UnitOfWork};
     use common::{partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId};
     use shop_partner_core::partner_shop_application::{
         NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,

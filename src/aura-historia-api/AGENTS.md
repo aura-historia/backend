@@ -7,7 +7,7 @@
 ## Core Design
 
 - `main.rs` bootstraps logging, config, and graceful shutdown.
-- `lib.rs` owns runtime config, axum router, health/readiness endpoints, server loop, and composition root wiring.
+- `lib.rs` owns runtime config, typed `POSTGRES_*` parsing, axum router, health/readiness endpoints, server loop, and composition root wiring. It uses `platform-postgres` for SQLx pool and transaction mechanics.
 - `state.rs` owns axum application state shared by route modules.
 - `error.rs` owns API problem JSON errors.
 - `auth/` owns bearer auth extraction, Cognito JWT verification via cached JWKS, Aura access-token auth, and mapping to `OperationContext`.

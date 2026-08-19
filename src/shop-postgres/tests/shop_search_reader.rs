@@ -1,12 +1,12 @@
+use application::transaction::{Transaction, UnitOfWork};
 use common::domain::Domain;
 use common::pagination::cursor::Cursor;
-use common::postgres::SqlxUnitOfWork;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
-use common::transaction::{Transaction, UnitOfWork};
+use platform_postgres::SqlxUnitOfWork;
 use shop_core::address::{GeoAddress, StructuredAddress};
 use shop_core::affiliate_configuration::AffiliateConfiguration;
 use shop_core::continent::Continent;
@@ -385,14 +385,14 @@ fn text_query(value: &str) -> TextQuery<0> {
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

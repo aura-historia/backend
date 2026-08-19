@@ -2,9 +2,10 @@ use aura_historia_worker::{
     QueueConfig, WorkerRunError, WorkerRuntime, cdc::WorkerQueue,
     product_opensearch::consume_product_opensearch_queue, serve_with_runtime,
 };
-use common::{event_id::EventId, postgres::SqlxUnitOfWork, product_id::ProductId};
+use common::{event_id::EventId, product_id::ProductId};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use opensearch::GetParts;
+use platform_postgres::SqlxUnitOfWork;
 use product_opensearch::OpenSearchProductSearchProjection;
 use product_postgres::SqlxProductSearchFilterMatchSourceReaderFactory;
 use product_service::use_cases::{ProjectProductHandler, ProjectProductUseCase};

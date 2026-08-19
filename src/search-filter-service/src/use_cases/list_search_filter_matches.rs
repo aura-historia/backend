@@ -1,6 +1,7 @@
 use crate::ports::{
     SearchFilterMatchListQuery, SearchFilterMatchReadError, SearchFilterMatchReader,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::currency::domain::Currency;
 use common::error::boxed::{BoxError, box_error, static_error};
 use common::fx_rate_id::FxRateId;
@@ -10,7 +11,6 @@ use common::operation_context::{
 };
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::product_id::ProductId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
@@ -450,6 +450,7 @@ mod tests {
     use crate::ports::{
         SearchFilterMatchCursor, SearchFilterMatchListItem, SearchFilterMatchReadError,
     };
+    use application::transaction::TransactionError;
     use common::event_id::EventId;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::personalized::Personalized;
@@ -460,7 +461,6 @@ mod tests {
     use common::shop_name::ShopName;
     use common::shop_slug_id::ShopSlugId;
     use common::shops_product_id::ShopsProductId;
-    use common::transaction::TransactionError;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };

@@ -1,8 +1,8 @@
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
+use application::transaction::{Transaction, UnitOfWork};
 use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
 };
+use platform_postgres::SqlxUnitOfWork;
 use shop_partner_core::partner_shop_application::{
     NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
 };
@@ -91,14 +91,14 @@ async fn seed_shop(pool: &sqlx::PgPool, slug: &str) -> ShopId {
     shop_id
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     unit_of_work
         .begin()
         .await
         .unwrap_or_else(|error| panic!("failed to begin transaction: {error}"))
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("failed to commit transaction: {error}"));

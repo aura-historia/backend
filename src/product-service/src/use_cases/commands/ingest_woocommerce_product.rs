@@ -5,6 +5,7 @@ use crate::ports::{
 use crate::use_cases::{
     UpdateProductError, UpdateProductResult, UpsertProductError, UpsertProductResult,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::localized::Localized;
 use common::operation_context::{CredentialCapability, OperationContext, Principal};
@@ -13,7 +14,6 @@ use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -769,9 +769,9 @@ mod tests {
         );
     }
 
+    use application::transaction::TransactionError;
     use common::event_id::EventId;
     use common::operation_context::{CorrelationId, RequestId};
-    use common::transaction::TransactionError;
     use common::versioned::Versioned;
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};

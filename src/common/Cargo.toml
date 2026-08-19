@@ -21,6 +21,7 @@ itertools = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 slug = { workspace = true }
+application = { workspace = true }
 
 # Optional dependencies via feature-flags
 aws-config = { workspace = true, optional = true }
@@ -37,6 +38,7 @@ httpdate = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
+platform-postgres = { workspace = true, optional = true }
 
 
 [dev-dependencies]
@@ -49,7 +51,7 @@ default = []
 dynamodb = ["serde_dynamo", "aws-sdk-dynamodb"]
 event_bridge = ["aws_lambda_events/eventbridge", "aws_lambda_events/sqs", "aws_lambda_events/dynamodb", "sqs", "dynamodb"]
 opensearch = ["dep:opensearch", "serde_json", "aws-config"]
-postgres = ["dep:sqlx"]
+postgres = ["dep:sqlx", "dep:platform-postgres"]
 sqs = ["aws-sdk-sqs", "serde_json"]
 api = [
     "aws_lambda_events/apigw",

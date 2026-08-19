@@ -1,10 +1,10 @@
 use crate::ports::{UserDetailsView, UserRepository, UserRepositoryError, UserRepositoryFactory};
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::stripe_customer_id::StripeCustomerId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,8 +1,8 @@
-use common::postgres::SqlxUnitOfWork;
+use application::transaction::{Transaction, UnitOfWork};
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use platform_postgres::SqlxUnitOfWork;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use watchlist_core::WatchlistProduct;
 use watchlist_postgres::{
@@ -134,13 +134,13 @@ async fn should_return_already_exists_when_watchlist_entry_exists() {
     ));
 }
 
-async fn begin(unit: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     unit.begin()
         .await
         .unwrap_or_else(|error| panic!("begin failed: {error:?}"))
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("commit failed: {error:?}"));

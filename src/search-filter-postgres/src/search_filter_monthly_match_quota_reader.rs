@@ -1,6 +1,5 @@
-use common::{
-    error::boxed::box_error, event_id::EventId, postgres::SqlxTransaction, user_id::UserId,
-};
+use common::{error::boxed::box_error, event_id::EventId, user_id::UserId};
+use platform_postgres::SqlxTransaction;
 use search_filter_service::ports::{
     SearchFilterMonthlyMatchQuotaReadError, SearchFilterMonthlyMatchQuotaReader,
     SearchFilterMonthlyMatchQuotaReaderFactory,

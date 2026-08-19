@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_api::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
@@ -21,11 +22,9 @@ use billing_service::use_cases::{
 };
 use common::domain::Domain;
 use common::fx_rate_id::FxRateId;
-use common::postgres::SqlxUnitOfWork;
 use common::product_id::ProductId;
 use common::shop_id::ShopId;
 use common::stripe_customer_id::StripeCustomerId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
@@ -43,6 +42,7 @@ use oauth_service::use_cases::{
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
+use platform_postgres::SqlxUnitOfWork;
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsBatchReader,

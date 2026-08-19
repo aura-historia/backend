@@ -1,3 +1,4 @@
+use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_api::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
@@ -5,10 +6,9 @@ use aura_historia_api::auth::{
 use aura_historia_api::state::ShopsState;
 use aura_historia_api::{app, state::AppState};
 use common::domain::Domain;
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use geo::{Geocoder, GeocodingError};
+use platform_postgres::SqlxUnitOfWork;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{
     NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration, WoocommerceIntegration,

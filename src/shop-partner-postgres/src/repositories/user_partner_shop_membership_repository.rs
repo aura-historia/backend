@@ -1,6 +1,6 @@
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
 use common::{shop_id::ShopId, user_id::UserId};
+use platform_postgres::SqlxTransaction;
 use shop_partner_service::ports::{
     UserPartnerShopMembershipRepository, UserPartnerShopMembershipRepositoryError,
     UserPartnerShopMembershipRepositoryFactory,

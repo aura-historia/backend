@@ -1,6 +1,6 @@
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
+use application::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName};
+use platform_postgres::SqlxUnitOfWork;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, WoocommerceIntegration};
 use shop_core::shop_type::ShopType;

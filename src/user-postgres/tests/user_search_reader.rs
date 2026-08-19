@@ -1,14 +1,14 @@
+use ::application::transaction::{Transaction, UnitOfWork};
 use ::common::currency::domain::Currency;
 use ::common::language::domain::Language;
 use ::common::measurement_unit::domain::MeasurementUnit;
 use ::common::pagination::cursor::Cursor;
-use ::common::postgres::SqlxUnitOfWork;
 use ::common::query::range_query::RangeQuery;
 use ::common::query::text_query::TextQuery;
 use ::common::sort::{Sort, SortOrder};
 use ::common::stripe_customer_id::StripeCustomerId;
-use ::common::transaction::{Transaction, UnitOfWork};
 use ::common::user_id::UserId;
+use ::platform_postgres::SqlxUnitOfWork;
 use geo::core::{address::StructuredAddress, continent::Continent};
 use isocountry::CountryCode;
 use serde_email::Email;
@@ -403,7 +403,7 @@ fn sample_user_with_profile(
 
 async fn search_users(
     search: &SqlxUserSearchReaderFactory,
-    tx: &mut ::common::postgres::SqlxTransaction,
+    tx: &mut ::platform_postgres::SqlxTransaction,
     request: SearchUsersRequest,
 ) -> user_service::use_cases::queries::search_users::SearchUsersResult {
     match search.in_transaction(tx).search(&request).await {
@@ -455,14 +455,14 @@ fn datetime(value: &str) -> OffsetDateTime {
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> ::common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> ::platform_postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: ::common::postgres::SqlxTransaction) {
+async fn commit(tx: ::platform_postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

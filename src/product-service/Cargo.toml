@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+application = { workspace = true }
 common = { workspace = true }
 embedding = { workspace = true }
 fxrate-core = { workspace = true }

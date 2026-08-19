@@ -6,10 +6,11 @@ use aura_historia_worker::{
     },
     serve_with_runtime,
 };
-use common::{event_id::EventId, postgres::SqlxUnitOfWork, product_id::ProductId};
+use common::{event_id::EventId, product_id::ProductId};
 use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
+use platform_postgres::SqlxUnitOfWork;
 use product_postgres::{SqlxProductTranslationSourceReader, SqlxProductTranslationWriterFactory};
 use product_service::use_cases::{TranslateProductEventHandler, TranslateProductEventUseCase};
 use std::{sync::Arc, time::Duration};

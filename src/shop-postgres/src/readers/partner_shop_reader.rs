@@ -1,7 +1,7 @@
 use crate::mapping::ShopSummaryRow;
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
 use common::user_id::UserId;
+use platform_postgres::SqlxTransaction;
 use shop_service::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
 use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
 use shop_service::use_cases::queries::search_shops::ShopSummary;

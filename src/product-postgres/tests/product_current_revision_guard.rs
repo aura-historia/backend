@@ -1,9 +1,6 @@
-use common::{
-    event_id::EventId,
-    postgres::SqlxUnitOfWork,
-    product_id::ProductId,
-    transaction::{Transaction, UnitOfWork},
-};
+use application::transaction::{Transaction, UnitOfWork};
+use common::{event_id::EventId, product_id::ProductId};
+use platform_postgres::SqlxUnitOfWork;
 use product_postgres::SqlxProductCurrentRevisionGuardFactory;
 use product_service::ports::{
     ProductCurrentRevisionCheck, ProductCurrentRevisionGuard, ProductCurrentRevisionGuardFactory,

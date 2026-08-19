@@ -12,7 +12,6 @@ use aura_historia_worker::{
     WorkerRuntimeComposition, WorkerScope, WorkerStartupConfig, WorkerStartupConfigError,
     WorkerVertexAiConfig, run_until_shutdown_with_runtime,
 };
-use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
@@ -24,6 +23,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+use platform_postgres::{PostgresConnectError, SqlxUnitOfWork};
 use product_opensearch::OpenSearchProductSearchProjection;
 use product_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductEmbeddingSourceReader,

@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application = { workspace = true }
 aura-historia-api = { workspace = true }
 aura-historia-worker = { workspace = true }
+platform-postgres = { workspace = true }
 aws-tests = { workspace = true }
 acceptance-tests = { workspace = true }
 cognito = { workspace = true }
@@ -85,6 +87,7 @@ partner-shop-application-lambda = { workspace = true }
 [workspace]
 members = [
     "src/acceptance-tests",
+    "src/application",
     "src/aura-historia-api",
     "src/aura-historia-worker",
     "src/aws-tests",
@@ -110,6 +113,7 @@ members = [
     "src/product-core",
     "src/product-service",
     "src/product-postgres",
+    "src/platform-postgres",
     "src/fxrate-core",
     "src/fxrate-service",
     "src/fxrate-postgres",
@@ -198,6 +202,8 @@ derive_builder = "0.20.2"
 fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 acceptance-tests = { path = "src/acceptance-tests" }
+application = { path = "src/application" }
+platform-postgres = { path = "src/platform-postgres" }
 search-filter = { path = "src/search-filter" }
 search-filter-core = { path = "src/search-filter-core" }
 search-filter-service = { path = "src/search-filter-service" }

@@ -7,7 +7,9 @@ edition = "2024"
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
-common = { workspace = true, features = ["postgres"] }
+application = { workspace = true }
+common = { workspace = true }
+platform-postgres = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }
 large-language-model = { workspace = true }

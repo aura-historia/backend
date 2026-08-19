@@ -1,7 +1,7 @@
 use crate::mapping::{WatchlistRow, format_state};
-use common::postgres::SqlxTransaction;
 use common::product_id::ProductId;
 use common::user_id::UserId;
+use platform_postgres::SqlxTransaction;
 use time::OffsetDateTime;
 use watchlist_core::WatchlistProduct;
 use watchlist_service::ports::{

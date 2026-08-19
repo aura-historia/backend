@@ -2,6 +2,7 @@ use crate::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsReadError, ProductDetailsReadRequest,
     ProductDetailsReader, ProductDetailsReaderFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::currency::domain::Currency;
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
@@ -18,7 +19,6 @@ use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use fxrate_core::{FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use fxrate_service::ports::{
@@ -487,9 +487,9 @@ impl From<ProductPricingPresentationError> for GetProductError {
 mod tests {
     use super::*;
     use crate::ports::ProductDetailsReadModel;
+    use application::transaction::TransactionError;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::{MonetaryAmount, Price};
-    use common::transaction::TransactionError;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };

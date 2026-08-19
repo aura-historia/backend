@@ -7,12 +7,12 @@
 
 ## Core Design
 
-- Depends on `user-core` and shared `common` app contracts.
+- Depends on `user-core`, shared `common` types, and shared `application` transaction contracts.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - `use_cases::authorization` owns shared service-layer admin actor policy helpers.
 - Admin actor checks use transaction-scoped `UserAdminReader::find_admin_actor`, not controller checks.
 - Own-user reads and admin-user reads are separate use cases: `GetOwnUserUseCase` and `AdminGetUserUseCase`.
-- Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
+- Operational handlers use `application::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
 - User read/search/update/delete use cases authorize self where allowed, service/system, or admin actor in service layer.
 - Repository writes return persisted user state; handlers must not read after write for responses.
 - Ports are public because adapter crates implement them.

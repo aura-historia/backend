@@ -1,4 +1,5 @@
-use common::{event_id::EventId, postgres::SqlxTransaction};
+use common::event_id::EventId;
+use platform_postgres::SqlxTransaction;
 use product_service::ports::{
     ProductTranslationWrite, ProductTranslationWriteError, ProductTranslationWriteOutcome,
     ProductTranslationWriter, ProductTranslationWriterFactory,

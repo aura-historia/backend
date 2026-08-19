@@ -1,14 +1,14 @@
+use application::transaction::{Transaction, UnitOfWork};
 use common::currency::domain::Currency;
 use common::language::domain::Language;
 use common::localized::Localized;
-use common::postgres::SqlxUnitOfWork;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductId;
 use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
-use common::transaction::{Transaction, UnitOfWork};
 use indexmap::IndexSet;
+use platform_postgres::SqlxUnitOfWork;
 use product_core::description::Description;
 use product_core::product::{NewProduct, Product, ProductAddress, ProductAuction, ProductPricing};
 use product_core::product_image::ProductImage;
@@ -133,14 +133,14 @@ fn url(value: &str) -> Url {
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

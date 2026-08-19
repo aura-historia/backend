@@ -1,9 +1,9 @@
 use crate::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use shop_core::{partner_status::ShopPartnerStatus, shop::Shop};
 use user_service::use_cases::queries::check_user_admin::{
@@ -240,9 +240,9 @@ impl From<ShopRepositoryError> for ChangeShopPartnerStatusError {
 mod tests {
     use super::*;
     use crate::ports::{ShopRepository, ShopRepositoryFactory, ShopStorageVersion, StoredShop};
+    use application::transaction::{TransactionError, UnitOfWork};
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-    use common::transaction::{TransactionError, UnitOfWork};
 
     use shop_core::shop::{NewShop, ShopContact, ShopPresentation};
     use shop_core::shop_type::ShopType;

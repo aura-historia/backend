@@ -3,13 +3,13 @@ use crate::ports::{
     UserRepositoryError, UserRepositoryFactory,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
+use application::transaction::{Transaction, UnitOfWork};
 use common::change_outcome::ChangeOutcome;
 use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::patch_field::PatchField;
-use common::transaction::{Transaction, UnitOfWork};
 use common::{
     currency::domain::Currency, language::domain::Language,
     measurement_unit::domain::MeasurementUnit, user_id::UserId,

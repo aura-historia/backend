@@ -1,11 +1,8 @@
+use application::transaction::{Transaction, UnitOfWork};
 use common::{
-    event_id::EventId,
-    language::domain::Language,
-    localized::Localized,
-    postgres::SqlxUnitOfWork,
-    product_id::ProductId,
-    transaction::{Transaction, UnitOfWork},
+    event_id::EventId, language::domain::Language, localized::Localized, product_id::ProductId,
 };
+use platform_postgres::SqlxUnitOfWork;
 const EMBEDDING_DIMENSIONS: usize = 768;
 use product_core::title::Title;
 use product_postgres::SqlxProductEmbeddingWriterFactory;

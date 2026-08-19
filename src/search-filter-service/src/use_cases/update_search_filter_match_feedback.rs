@@ -3,13 +3,13 @@ use crate::ports::{
     SearchFilterMatchRepositoryFactory, SearchFilterMatchView, SearchFilterRepository,
     SearchFilterRepositoryError, SearchFilterRepositoryFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::patch_field::PatchField;
 use common::product_id::ProductId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 

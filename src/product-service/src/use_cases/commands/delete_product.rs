@@ -3,13 +3,13 @@ use crate::ports::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::event_id::EventId;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::product_id::{ProductId, ProductKey};
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -379,6 +379,7 @@ impl From<ProductEventStoreError> for DeleteProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::transaction::TransactionError;
     use common::currency::domain::Currency;
     use common::language::domain::Language;
     use common::localized::Localized;
@@ -389,7 +390,6 @@ mod tests {
     use common::product_state::domain::ProductState;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
-    use common::transaction::TransactionError;
     use common::versioned::Versioned;
     use indexmap::IndexSet;
     use product_core::description::Description;

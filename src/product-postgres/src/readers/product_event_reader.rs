@@ -51,12 +51,12 @@ impl SqlxProductEventReaderFactory {
     }
 }
 
-impl ProductEventReaderFactory<common::postgres::SqlxTransaction>
+impl ProductEventReaderFactory<platform_postgres::SqlxTransaction>
     for SqlxProductEventReaderFactory
 {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut common::postgres::SqlxTransaction,
+        tx: &'tx mut platform_postgres::SqlxTransaction,
     ) -> impl ProductEventReader + 'tx {
         SqlxProductEventReader {
             connection: tx.connection(),

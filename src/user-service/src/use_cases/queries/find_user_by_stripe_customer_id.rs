@@ -1,9 +1,9 @@
 use crate::ports::{
     UserStripeCustomerReadError, UserStripeCustomerReader, UserStripeCustomerReaderFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::operation_context::OperationContext;
-use common::transaction::{Transaction, UnitOfWork};
 use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
 use serde_email::Email;
 use user_core::{role::UserRole, tier::UserTier};
@@ -140,8 +140,8 @@ mod tests {
     use user_core::role::UserRole;
     use user_core::tier::UserTier;
 
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-    use common::transaction::{Transaction, TransactionError, UnitOfWork};
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex, MutexGuard};
 

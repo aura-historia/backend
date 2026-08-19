@@ -1,8 +1,8 @@
 use common::currency::domain::Currency;
 use common::error::boxed::box_error;
 use common::language::domain::Language;
-use common::postgres::SqlxTransaction;
 use common::shop_id::ShopId;
+use platform_postgres::SqlxTransaction;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_service::ports::{
     WoocommerceWebhookShop, WoocommerceWebhookShopReadError, WoocommerceWebhookShopReader,

@@ -110,12 +110,12 @@ impl SqlxProductDetailsReaderFactory {
     }
 }
 
-impl ProductDetailsReaderFactory<common::postgres::SqlxTransaction>
+impl ProductDetailsReaderFactory<platform_postgres::SqlxTransaction>
     for SqlxProductDetailsReaderFactory
 {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut common::postgres::SqlxTransaction,
+        tx: &'tx mut platform_postgres::SqlxTransaction,
     ) -> impl ProductDetailsReader + 'tx {
         SqlxProductDetailsReader {
             connection: tx.connection(),

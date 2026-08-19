@@ -2,13 +2,13 @@ use crate::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,
     PartnerShopApplicationRepositoryFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::change_outcome::ChangeOutcome;
 use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use shop_partner_core::partner_shop_application::PartnerShopApplicationTransitionError;
 use shop_service::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};

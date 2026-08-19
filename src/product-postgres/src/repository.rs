@@ -89,10 +89,10 @@ impl SqlxProductRepositoryFactory {
     }
 }
 
-impl ProductRepositoryFactory<common::postgres::SqlxTransaction> for SqlxProductRepositoryFactory {
+impl ProductRepositoryFactory<platform_postgres::SqlxTransaction> for SqlxProductRepositoryFactory {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut common::postgres::SqlxTransaction,
+        tx: &'tx mut platform_postgres::SqlxTransaction,
     ) -> impl ProductRepository + 'tx {
         SqlxProductRepository {
             connection: tx.connection(),

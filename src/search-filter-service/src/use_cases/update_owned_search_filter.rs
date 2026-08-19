@@ -7,6 +7,7 @@ use crate::tier_policy::{
     active_filter_quota, validate_search_feature_changes, validate_search_features,
 };
 use crate::use_cases::embedding_query;
+use application::transaction::{Transaction, UnitOfWork};
 use common::currency::domain::Currency;
 use common::distance::domain::GeoDistanceQuery;
 use common::error::boxed::{BoxError, box_error};
@@ -24,7 +25,6 @@ use common::resource_state::domain::ResourceState;
 use common::seller_slug_id::SellerSlugId;
 use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;

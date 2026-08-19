@@ -25,10 +25,10 @@ impl SqlxProductEventStoreFactory {
     }
 }
 
-impl ProductEventStoreFactory<common::postgres::SqlxTransaction> for SqlxProductEventStoreFactory {
+impl ProductEventStoreFactory<platform_postgres::SqlxTransaction> for SqlxProductEventStoreFactory {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut common::postgres::SqlxTransaction,
+        tx: &'tx mut platform_postgres::SqlxTransaction,
     ) -> impl ProductEventStore + 'tx {
         SqlxProductEventStore {
             connection: tx.connection(),

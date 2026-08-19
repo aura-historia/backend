@@ -1,9 +1,9 @@
 use crate::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, user_id::UserId};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -151,9 +151,9 @@ fn authorize_check(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::transaction::{TransactionError, UnitOfWork};
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, CredentialCapability, Principal, RequestId};
-    use common::transaction::{TransactionError, UnitOfWork};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
 

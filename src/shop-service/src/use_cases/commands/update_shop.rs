@@ -5,6 +5,7 @@ use crate::ports::{
 use crate::use_cases::commands::create_shop::woocommerce_integration;
 use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
 use crate::use_cases::queries::get_shop::ShopDetailsView;
+use application::transaction::{Transaction, UnitOfWork};
 use common::change_outcome::ChangeOutcome;
 use common::currency::domain::Currency;
 use common::domain::Domain;
@@ -15,7 +16,6 @@ use common::operation_context::{
 };
 use common::patch_field::PatchField;
 use common::shop_id::ShopId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use geo::{Geocoder, GeocodingError};
 use serde_email::Email;
@@ -611,11 +611,11 @@ mod tests {
     use crate::ports::{
         ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, StoredShop,
     };
+    use application::transaction::{TransactionError, UnitOfWork};
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::shop_name::ShopName;
     use common::shop_slug_id::ShopSlugId;
-    use common::transaction::{TransactionError, UnitOfWork};
     use shop_core::address::GeoAddress;
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop::NewShop;

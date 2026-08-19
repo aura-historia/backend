@@ -1,8 +1,8 @@
+use application::transaction::Transaction;
 use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::transaction::Transaction;
 use user_core::role::UserRole;
 use user_service::ports::{UserAdminReadError, UserAdminReader, UserAdminReaderFactory};
 

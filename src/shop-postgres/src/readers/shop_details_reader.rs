@@ -1,6 +1,6 @@
 use crate::mapping::{ShopRow, shop_columns};
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
+use platform_postgres::SqlxTransaction;
 use shop_service::ports::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory};
 use shop_service::use_cases::queries::get_shop::{GetShopRequest, ShopDetailsView};
 use sqlx::PgConnection;

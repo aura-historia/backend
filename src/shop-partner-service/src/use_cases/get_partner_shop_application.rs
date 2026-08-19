@@ -2,12 +2,12 @@ use crate::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,
     PartnerShopApplicationRepositoryFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use shop_partner_core::partner_shop_application::PartnerShopApplication;
 
@@ -140,8 +140,8 @@ impl From<PartnerShopApplicationRepositoryError> for GetPartnerShopApplicationEr
 mod tests {
     use super::*;
     use crate::ports::{PartnerShopApplicationStorageVersion, VersionedPartnerShopApplication};
+    use application::transaction::TransactionError;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::transaction::TransactionError;
     use common::{partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId};
     use shop_partner_core::partner_shop_application::{
         NewPartnerShopApplication, PartnerShopApplicationPayload,

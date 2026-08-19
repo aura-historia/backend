@@ -1,6 +1,6 @@
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
+use application::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
+use platform_postgres::SqlxUnitOfWork;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use user_core::tier::UserTier;
@@ -237,13 +237,13 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     );
 }
 
-async fn begin(unit: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     unit.begin()
         .await
         .unwrap_or_else(|error| panic!("failed to begin transaction: {error:?}"))
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("failed to commit transaction: {error:?}"));

@@ -1,11 +1,7 @@
-use common::{
-    event_id::EventId,
-    language::domain::Language,
-    postgres::SqlxUnitOfWork,
-    product_id::ProductId,
-    transaction::{Transaction, UnitOfWork},
-};
+use application::transaction::{Transaction, UnitOfWork};
+use common::{event_id::EventId, language::domain::Language, product_id::ProductId};
 use indexmap::IndexMap;
+use platform_postgres::SqlxUnitOfWork;
 use product_core::title::Title;
 use product_postgres::SqlxProductTranslationWriterFactory;
 use product_service::ports::{

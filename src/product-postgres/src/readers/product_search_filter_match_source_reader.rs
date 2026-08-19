@@ -4,7 +4,6 @@ use common::{
     event_id::EventId,
     language::domain::Language,
     localized::Localized,
-    postgres::SqlxTransaction,
     price::domain::{MonetaryAmount, Price},
     product_id::ProductId,
     product_lifecycle::domain::ProductLifecycle,
@@ -19,6 +18,7 @@ use common::{
 };
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
+use platform_postgres::SqlxTransaction;
 use product_core::{
     description::Description,
     product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},

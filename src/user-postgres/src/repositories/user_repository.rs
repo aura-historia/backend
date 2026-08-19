@@ -3,8 +3,8 @@ use crate::mapping::{
     bind_tier, user_columns, version_to_i64,
 };
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
 use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
+use platform_postgres::SqlxTransaction;
 use serde_email::Email;
 use sqlx::PgConnection;
 use user_core::user::User;

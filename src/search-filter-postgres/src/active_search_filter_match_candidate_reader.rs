@@ -1,8 +1,6 @@
 use crate::mapping::{name, user_search_filter_uuid};
-use common::{
-    error::boxed::box_error, postgres::SqlxTransaction, user_id::UserId,
-    user_search_filter_id::UserSearchFilterId,
-};
+use common::{error::boxed::box_error, user_id::UserId, user_search_filter_id::UserSearchFilterId};
+use platform_postgres::SqlxTransaction;
 use search_filter_service::ports::{
     ActiveSearchFilterMatchCandidate, ActiveSearchFilterMatchCandidateReadError,
     ActiveSearchFilterMatchCandidateReader, ActiveSearchFilterMatchCandidateReaderFactory,

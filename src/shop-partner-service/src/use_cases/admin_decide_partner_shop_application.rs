@@ -4,12 +4,12 @@ use crate::ports::{
     PartnerShopApplicationRepositoryFactory, UserPartnerShopMembershipRepository,
     UserPartnerShopMembershipRepositoryError, UserPartnerShopMembershipRepositoryFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::change_outcome::ChangeOutcome;
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
 use common::operation_context::{OperationAuthorizationError, OperationContext};
 use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::transaction::{Transaction, UnitOfWork};
 use notification_core::notification::{NotificationPartnerApplicationPayload, NotificationPayload};
 use notification_service::use_cases::commands::create_notification::{
     CreateNotificationCommand, CreateNotificationUseCase,
@@ -359,8 +359,8 @@ mod tests {
         PartnerShopApplicationStorageVersion, UserPartnerShopMembershipRepository,
         VersionedPartnerShopApplication,
     };
+    use application::transaction::TransactionError;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::transaction::TransactionError;
     use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
     use notification_service::use_cases::commands::create_notification::{
         CreateNotificationError, CreateNotificationResult,

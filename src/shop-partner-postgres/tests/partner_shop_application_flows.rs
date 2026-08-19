@@ -1,8 +1,7 @@
+use application::transaction::{Transaction, UnitOfWork};
 use async_trait::async_trait;
 use common::error::boxed::static_error;
 use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
 use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, shop_name::ShopName,
     user_id::UserId,
@@ -11,6 +10,7 @@ use notification_service::use_cases::commands::create_notification::{
     CreateNotificationCommand, CreateNotificationError, CreateNotificationResult,
     CreateNotificationUseCase,
 };
+use platform_postgres::SqlxUnitOfWork;
 
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
@@ -49,12 +49,12 @@ struct FailingMembershipFactory;
 
 struct FailingMembershipRepository;
 
-impl UserPartnerShopMembershipRepositoryFactory<common::postgres::SqlxTransaction>
+impl UserPartnerShopMembershipRepositoryFactory<platform_postgres::SqlxTransaction>
     for FailingMembershipFactory
 {
     fn in_transaction<'tx>(
         &'tx self,
-        _: &'tx mut common::postgres::SqlxTransaction,
+        _: &'tx mut platform_postgres::SqlxTransaction,
     ) -> impl UserPartnerShopMembershipRepository + 'tx {
         FailingMembershipRepository
     }

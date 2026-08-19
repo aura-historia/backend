@@ -7,12 +7,12 @@ use crate::use_cases::PersonalizedProductSummary;
 use crate::use_cases::queries::product_summary_personalization::{
     ProductSummaryPersonalizationError, hydrate_product_summaries,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::currency::domain::Currency;
 use common::error::boxed::{BoxError, box_error};
 use common::language::domain::Language;
 use common::operation_context::{OperationContext, Principal};
 use common::personalized::Personalized;
-use common::transaction::{Transaction, UnitOfWork};
 
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -279,6 +279,7 @@ mod tests {
     use super::*;
     use crate::ports::{ProductEmbedding, ProductSimilarProductsReadError};
     use crate::use_cases::{ProductSummary, ProductSummaryPriceValuation};
+    use application::transaction::TransactionError;
     use common::currency::domain::Currency;
     use common::error::boxed::box_error;
     use common::event_id::EventId;
@@ -294,7 +295,6 @@ mod tests {
     use common::shop_name::ShopName;
     use common::shop_slug_id::ShopSlugId;
     use common::shops_product_id::ShopsProductId;
-    use common::transaction::TransactionError;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
     use notification_service::ports::all_notifications_reader::{

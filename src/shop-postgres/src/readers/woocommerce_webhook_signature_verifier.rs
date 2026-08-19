@@ -1,6 +1,6 @@
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
 use common::shop_id::ShopId;
+use platform_postgres::SqlxTransaction;
 use shop_service::ports::{
     WoocommerceWebhookShopReadError, WoocommerceWebhookSignatureVerification,
     WoocommerceWebhookSignatureVerifier, WoocommerceWebhookSignatureVerifierFactory,

@@ -1,7 +1,8 @@
 use common::{
-    error::boxed::box_error, event_id::EventId, postgres::SqlxTransaction, product_id::ProductId,
-    user_id::UserId, user_search_filter_id::UserSearchFilterId,
+    error::boxed::box_error, event_id::EventId, product_id::ProductId, user_id::UserId,
+    user_search_filter_id::UserSearchFilterId,
 };
+use platform_postgres::SqlxTransaction;
 use search_filter_service::ports::{
     SearchFilterMatchNotificationSource, SearchFilterMatchNotificationSourceReadError,
     SearchFilterMatchNotificationSourceReader, SearchFilterMatchNotificationSourceReaderFactory,

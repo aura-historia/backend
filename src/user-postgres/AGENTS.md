@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `user-core`, `user-service`, and shared `common` Postgres UoW primitives.
+- Depends on `user-core`, `user-service`, and shared `platform-postgres` UoW primitives.
 - Exports public SQLx factories only.
 - Keeps SQL rows, SQL, mapping, repositories, and readers private.
 - Readers and repositories bind to caller-owned transactions through service factory ports.

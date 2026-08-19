@@ -1,9 +1,9 @@
+use ::application::transaction::{Transaction, UnitOfWork};
 use ::common::currency::domain::Currency;
 use ::common::language::domain::Language;
 use ::common::measurement_unit::domain::MeasurementUnit;
-use ::common::postgres::SqlxUnitOfWork;
-use ::common::transaction::{Transaction, UnitOfWork};
 use ::common::user_id::UserId;
+use ::platform_postgres::SqlxUnitOfWork;
 use geo::core::{address::StructuredAddress, continent::Continent};
 use isocountry::CountryCode;
 use serde_email::Email;
@@ -89,14 +89,14 @@ fn email(value: &str) -> Email {
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> ::common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> ::platform_postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: ::common::postgres::SqlxTransaction) {
+async fn commit(tx: ::platform_postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

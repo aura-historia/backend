@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-common = { workspace = true, features = ["postgres"] }
+common = { workspace = true }
+platform-postgres = { workspace = true }
 shop-core = { workspace = true }
 shop-partner-core = { workspace = true }
 shop-partner-service = { workspace = true }
@@ -16,6 +17,7 @@ time = { workspace = true, features = ["formatting", "parsing"] }
 uuid = { workspace = true }
 
 [dev-dependencies]
+application = { workspace = true }
 geo = { workspace = true }
 notification-service = { workspace = true }
 shop-postgres = { workspace = true }

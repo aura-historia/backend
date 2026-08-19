@@ -1,7 +1,7 @@
 use crate::mapping::{UserRowMappingError, bind_tier, parse_tier};
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
 use common::user_id::UserId;
+use platform_postgres::SqlxTransaction;
 use sqlx::PgConnection;
 use user_core::tier::UserTier;
 use user_service::ports::{

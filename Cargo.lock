@@ -117,6 +117,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "application"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
 name = "arc-swap"
 version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -217,6 +226,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "aura-historia-api"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
@@ -243,6 +253,7 @@ dependencies = [
  "oauth-service",
  "opensearch",
  "openssl",
+ "platform-postgres",
  "product-core",
  "product-opensearch",
  "product-postgres",
@@ -287,6 +298,7 @@ name = "aura-historia-parent"
 version = "0.1.0"
 dependencies = [
  "acceptance-tests",
+ "application",
  "aura-historia-api",
  "aura-historia-worker",
  "aws-tests",
@@ -318,6 +330,7 @@ dependencies = [
  "partner-shop-application",
  "partner-shop-application-api",
  "partner-shop-application-lambda",
+ "platform-postgres",
  "product",
  "product-api",
  "product-api-partner",
@@ -369,6 +382,7 @@ dependencies = [
 name = "aura-historia-worker"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
@@ -382,6 +396,7 @@ dependencies = [
  "notification-dynamodb",
  "notification-service",
  "opensearch",
+ "platform-postgres",
  "product-core",
  "product-opensearch",
  "product-postgres",
@@ -1796,6 +1811,7 @@ dependencies = [
 name = "common"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
@@ -1807,6 +1823,7 @@ dependencies = [
  "itertools 0.15.0",
  "lambda_runtime",
  "opensearch",
+ "platform-postgres",
  "rstest",
  "serde",
  "serde_dynamo",
@@ -3062,10 +3079,12 @@ dependencies = [
 name = "fxrate-postgres"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "fxrate-core",
  "fxrate-service",
+ "platform-postgres",
  "serial_test",
  "sqlx",
  "strum 0.28.0",
@@ -5812,6 +5831,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "platform-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "sqlx",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6238,11 +6268,13 @@ dependencies = [
 name = "product-postgres"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
+ "platform-postgres",
  "product-core",
  "product-service",
  "rstest",
@@ -6264,6 +6296,7 @@ dependencies = [
 name = "product-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "embedding",
@@ -7371,10 +7404,12 @@ dependencies = [
 name = "search-filter-postgres"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "geo",
  "isocountry",
+ "platform-postgres",
  "product-core",
  "search-filter-core",
  "search-filter-service",
@@ -7394,6 +7429,7 @@ dependencies = [
 name = "search-filter-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "embedding",
@@ -7981,11 +8017,13 @@ dependencies = [
 name = "shop-partner-postgres"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "geo",
  "isocountry",
  "notification-service",
+ "platform-postgres",
  "rstest",
  "serde-email",
  "serial_test",
@@ -8009,6 +8047,7 @@ dependencies = [
 name = "shop-partner-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "fake",
@@ -8033,11 +8072,13 @@ dependencies = [
 name = "shop-postgres"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "geo",
  "isocountry",
  "openssl",
+ "platform-postgres",
  "rstest",
  "serde",
  "serde-email",
@@ -8058,6 +8099,7 @@ dependencies = [
 name = "shop-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "fake",
@@ -9743,10 +9785,12 @@ dependencies = [
 name = "user-postgres"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "geo",
  "isocountry",
+ "platform-postgres",
  "rstest",
  "serde",
  "serde-email",
@@ -9766,6 +9810,7 @@ dependencies = [
 name = "user-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "fake",
@@ -9994,8 +10039,10 @@ dependencies = [
 name = "watchlist-postgres"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
+ "platform-postgres",
  "product-service",
  "serial_test",
  "sqlx",
@@ -10013,6 +10060,7 @@ dependencies = [
 name = "watchlist-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "fxrate-core",

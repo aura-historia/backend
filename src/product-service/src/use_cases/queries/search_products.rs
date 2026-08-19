@@ -5,6 +5,7 @@ use crate::ports::{
 use crate::use_cases::queries::product_summary_personalization::{
     ProductSummaryPersonalizationError, hydrate_product_summaries,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
@@ -23,7 +24,6 @@ use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
-use common::transaction::{Transaction, UnitOfWork};
 use embedding::{EmbeddingGenerator, EmbeddingText};
 use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
@@ -416,6 +416,7 @@ impl From<ProductSummaryPersonalizationError> for SearchProductsError {
 mod tests {
     use super::*;
     use crate::ports::{ProductUserStateLookup, ProductUserStateReadError};
+    use application::transaction::{TransactionError, UnitOfWork};
     use common::currency::domain::Currency;
     use common::error::boxed::box_error;
     use common::event_id::EventId;
@@ -423,7 +424,6 @@ mod tests {
     use common::language::domain::Language;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::MonetaryAmount;
-    use common::transaction::{TransactionError, UnitOfWork};
     use common::user_id::UserId;
     use embedding::{EmbeddingError, EmbeddingVector};
     use fxrate_core::{
@@ -563,7 +563,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl common::transaction::Transaction for FakeTx {
+    impl application::transaction::Transaction for FakeTx {
         async fn commit(self) -> Result<(), TransactionError> {
             let mut state = lock_state(&self.state);
             state.commit_count += 1;

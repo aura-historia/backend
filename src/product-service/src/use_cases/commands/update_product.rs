@@ -3,6 +3,7 @@ use crate::ports::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::event_id::EventId;
 use common::operation_context::{
@@ -12,7 +13,6 @@ use common::patch_field::PatchField;
 use common::price::domain::Price;
 use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -739,9 +739,9 @@ mod tests {
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::{MonetaryAmount, Price};
 
+    use application::transaction::TransactionError;
     use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
-    use common::transaction::TransactionError;
     use common::versioned::Versioned;
     use product_core::description::Description;
     use product_core::product::{NewProduct, Product, ProductDomainEvent};

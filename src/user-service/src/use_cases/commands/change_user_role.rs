@@ -5,9 +5,9 @@ use crate::ports::{
 use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::operation_context::{CredentialCapability, OperationContext};
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use user_core::{role::UserRole, user::User};
 
@@ -223,10 +223,10 @@ mod tests {
         UserRepository, UserRepositoryError, UserRepositoryFactory, UserStorageVersion,
         VersionedUser,
     };
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::stripe_customer_id::StripeCustomerId;
-    use common::transaction::{Transaction, TransactionError, UnitOfWork};
     use common::versioned::Versioned;
     use serde_email::Email;
     use std::collections::BTreeSet;

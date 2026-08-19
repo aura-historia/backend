@@ -3,8 +3,8 @@ use aura_historia_worker::watchlist_notifications::consume_watchlist_notificatio
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use common::currency::domain::Currency;
 use common::event_id::EventId;
-use common::postgres::SqlxUnitOfWork;
 use common::product_id::ProductId;
+use platform_postgres::SqlxUnitOfWork;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

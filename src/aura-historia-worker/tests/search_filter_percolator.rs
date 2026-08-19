@@ -1,3 +1,4 @@
+use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
 use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
@@ -6,11 +7,9 @@ use common::currency::domain::Currency;
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
-use common::postgres::SqlxUnitOfWork;
 use common::price::domain::MonetaryAmount;
 use common::query::range_query::RangeQuery;
 use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
@@ -28,6 +27,7 @@ use notification_service::ports::all_notifications_reader::{
 };
 use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use opensearch::GetParts;
+use platform_postgres::SqlxUnitOfWork;
 use product_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
 };

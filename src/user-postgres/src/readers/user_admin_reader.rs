@@ -1,7 +1,7 @@
 use crate::mapping::bind_role;
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
 use common::user_id::UserId;
+use platform_postgres::SqlxTransaction;
 use user_core::role::UserRole;
 use user_service::ports::{
     UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,

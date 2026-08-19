@@ -1,7 +1,7 @@
 use crate::mapping::WatchlistRow;
-use common::postgres::SqlxTransaction;
 use common::product_id::ProductId;
 use common::user_id::UserId;
+use platform_postgres::SqlxTransaction;
 use watchlist_service::ports::{
     WatchlistProductView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
 };

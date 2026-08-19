@@ -1,7 +1,7 @@
-use common::postgres::SqlxUnitOfWork;
+use application::transaction::UnitOfWork;
 use common::shop_id::ShopId;
-use common::transaction::UnitOfWork;
 use common::user_id::UserId;
+use platform_postgres::SqlxUnitOfWork;
 use product_postgres::SqlxPartnerProductAuthorizerFactory;
 use product_service::ports::{
     PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,

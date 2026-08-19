@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-common = { workspace = true, features = ["postgres"] }
+common = { workspace = true }
+platform-postgres = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 product-service = { workspace = true }
@@ -16,6 +17,7 @@ watchlist-core = { workspace = true }
 watchlist-service = { workspace = true }
 
 [dev-dependencies]
+application = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt"] }

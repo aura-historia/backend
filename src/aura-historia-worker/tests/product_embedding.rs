@@ -2,11 +2,12 @@ use aura_historia_worker::{
     QueueConfig, WorkerRunError, WorkerRuntime, cdc::WorkerQueue,
     product_embedding::consume_product_embedding_queue, serve_with_runtime,
 };
-use common::{event_id::EventId, postgres::SqlxUnitOfWork, product_id::ProductId};
+use common::{event_id::EventId, product_id::ProductId};
 use embedding::{
     EMBEDDING_DIMENSIONS, EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText,
     EmbeddingVector,
 };
+use platform_postgres::SqlxUnitOfWork;
 use product_postgres::{SqlxProductEmbeddingSourceReader, SqlxProductEmbeddingWriterFactory};
 use product_service::use_cases::{EmbedProductEventHandler, EmbedProductEventUseCase};
 use std::{sync::Arc, time::Duration};

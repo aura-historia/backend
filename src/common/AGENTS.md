@@ -14,7 +14,7 @@
 - Library crate. Keep domain, persistence, and service seams explicit.
 - `operation_context` owns service principals and `CredentialCapability`. Cognito user sessions are `Principal::User` with open-world capability. Aura access tokens are `Principal::DelegatedUser` with explicit closed-world capabilities.
 - `Principal` exposes lean `require*` guards and chainable principal requirements. Use `Principal` in services instead of direct `Actor` matching.
-- `postgres` feature provides env parsing, SQLx pool construction, and SQLx unit-of-work primitives.
+- `transaction` re-exports `application`; `postgres` re-exports SQLx primitives from `platform-postgres` and retains legacy `POSTGRES_*` parsing. Remove both shims after legacy consumers migrate.
 - `price` FX helpers use scaled unsigned `Rate` values; do not calculate exchange rates with floating point.
 
 ## Ownership

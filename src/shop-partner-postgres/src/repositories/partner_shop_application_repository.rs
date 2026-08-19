@@ -3,8 +3,8 @@ use crate::mapping::{
     version_to_i64,
 };
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
 use common::{partner_shop_application_id::PartnerShopApplicationId, user_id::UserId};
+use platform_postgres::SqlxTransaction;
 use shop_partner_core::partner_shop_application::PartnerShopApplication;
 use shop_partner_service::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,

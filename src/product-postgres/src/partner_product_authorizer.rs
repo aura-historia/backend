@@ -1,7 +1,7 @@
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
 use common::shop_id::ShopId;
 use common::user_id::UserId;
+use platform_postgres::SqlxTransaction;
 use product_service::ports::{
     PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,
 };

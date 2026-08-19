@@ -345,7 +345,7 @@ fn monthly_match_quota_error(
 }
 
 fn commit_error(
-    source: common::transaction::TransactionError,
+    source: application::transaction::TransactionError,
 ) -> GenerateSearchFilterMatchNotificationError {
     GenerateSearchFilterMatchNotificationError::CommitTransactionFailed {
         source: box_error(source),

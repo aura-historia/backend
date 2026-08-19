@@ -5,12 +5,12 @@ use crate::ports::{
     SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError, SearchFilterMatchWriter,
     SearchFilterMatchWriterFactory,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
 #[cfg(test)]
 use fxrate_core::FxRateSnapshot;
 use fxrate_service::ports::{

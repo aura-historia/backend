@@ -4,8 +4,8 @@ use crate::mapping::{
     version_to_i64,
 };
 use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
 use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
+use platform_postgres::SqlxTransaction;
 use shop_core::shop::Shop;
 use shop_service::ports::{
     ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, StoredShop,

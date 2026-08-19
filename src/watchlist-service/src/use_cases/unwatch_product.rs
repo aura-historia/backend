@@ -1,9 +1,9 @@
 use crate::ports::{WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory};
+use application::transaction::{Transaction, UnitOfWork};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::product_id::ProductId;
-use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -155,11 +155,11 @@ mod tests {
         WatchlistProductView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
         WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
     };
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use common::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
     };
     use common::resource_state::domain::ResourceState;
-    use common::transaction::{Transaction, TransactionError, UnitOfWork};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;

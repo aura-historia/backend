@@ -31,7 +31,6 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
-use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{GoogleGeocoder, GoogleGeocoderConfig};
@@ -52,6 +51,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
 
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
@@ -150,6 +150,14 @@ pub const ZOHO_CLIENT_SECRET_ENV: &str = "ZOHO_CLIENT_SECRET";
 pub const ZOHO_REFRESH_TOKEN_ENV: &str = "ZOHO_REFRESH_TOKEN";
 pub const ZOHO_ACCOUNTS_URL_ENV: &str = "ZOHO_ACCOUNTS_URL";
 pub const ZOHO_CAMPAIGNS_URL_ENV: &str = "ZOHO_CAMPAIGNS_URL";
+const POSTGRES_HOST_ENV: &str = "POSTGRES_HOST";
+const POSTGRES_PORT_ENV: &str = "POSTGRES_PORT";
+const POSTGRES_DATABASE_ENV: &str = "POSTGRES_DATABASE";
+const POSTGRES_USERNAME_ENV: &str = "POSTGRES_USERNAME";
+const POSTGRES_PASSWORD_ENV: &str = "POSTGRES_PASSWORD";
+const POSTGRES_MAX_CONNECTIONS_ENV: &str = "POSTGRES_MAX_CONNECTIONS";
+const DEFAULT_POSTGRES_PORT: u16 = 5432;
+const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 2;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -580,7 +588,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
 }
 
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
-    let pool = common::postgres::connect_from_env().await?;
+    let pool = postgres_pool_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let get_product_events =
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
@@ -992,6 +1000,42 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     .with_readiness(readiness))
 }
 
+async fn postgres_pool_from_env() -> Result<PgPool, ApiStateError> {
+    let host = required_postgres_env(POSTGRES_HOST_ENV)?;
+    let database = required_postgres_env(POSTGRES_DATABASE_ENV)?;
+    let username = required_postgres_env(POSTGRES_USERNAME_ENV)?;
+    let password = required_postgres_env(POSTGRES_PASSWORD_ENV)?;
+    let port = optional_postgres_env(POSTGRES_PORT_ENV, DEFAULT_POSTGRES_PORT)?;
+    let max_connections = optional_postgres_env(
+        POSTGRES_MAX_CONNECTIONS_ENV,
+        DEFAULT_POSTGRES_MAX_CONNECTIONS,
+    )?;
+    let config = PostgresPoolConfig::new(host, port, database, username, password, max_connections)
+        .map_err(|_| ApiStateError::InvalidPostgresMaxConnections)?;
+
+    Ok(config
+        .connect()
+        .await
+        .map_err(PostgresConnectError::Connect)?)
+}
+
+fn required_postgres_env(name: &'static str) -> Result<String, ApiStateError> {
+    std::env::var(name).map_err(|_| ApiStateError::MissingEnv { name })
+}
+
+fn optional_postgres_env<T>(name: &'static str, default: T) -> Result<T, ApiStateError>
+where
+    T: std::str::FromStr,
+{
+    match std::env::var(name) {
+        Ok(value) => value
+            .parse()
+            .map_err(|_| ApiStateError::InvalidPostgresInteger { name, value }),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(std::env::VarError::NotUnicode(_)) => Err(ApiStateError::MissingEnv { name }),
+    }
+}
+
 fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
     let endpoint =
         std::env::var("OPENSEARCH_ENDPOINT_URL").map_err(|_| ApiStateError::MissingEnv {
@@ -1056,6 +1100,10 @@ pub enum ApiStateError {
     Postgres(#[from] PostgresConnectError),
     #[error(transparent)]
     Config(#[from] ApiConfigError),
+    #[error("invalid integer in environment variable {name}: {value}")]
+    InvalidPostgresInteger { name: &'static str, value: String },
+    #[error("POSTGRES_MAX_CONNECTIONS must be greater than zero")]
+    InvalidPostgresMaxConnections,
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
     #[error("failed to configure OpenSearch: {detail}")]
