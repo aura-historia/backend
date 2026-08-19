@@ -6,7 +6,7 @@ use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::image_validation::{ImageValidation, ImageValidator};
 
 #[test]
-fn should_classify_no_valid_images_as_terminal_failure() {
+fn should_reject_no_valid_images_as_candidate_data() {
     assert_eq!(
         NormalizationError::NoValidImages { candidates: 2 }.failure_scope(),
         NormalizationFailureScope::CandidateData

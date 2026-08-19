@@ -2,7 +2,7 @@ use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, Raw
 use crate::scraper::normalization::error::{NormalizationError, NormalizationFailureScope};
 use crate::scraper::normalization::product::NormalizedProduct;
 use crate::scraper::normalization::product_normalization_service::{
-    NormalizationFailure, NormalizationSuccess,
+    NormalizationFailure, NormalizationSuccess, prepare_product,
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
@@ -114,8 +114,29 @@ impl ScraperServiceImpl {
                 Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
                 Err(err) => return Err(ScraperError::NormalizationError(err)),
             };
+            if let Err(err) = prepare_product(
+                candidate.raw.clone(),
+                url.clone(),
+                candidate.schema.default_currency.map(Into::into),
+            ) {
+                debug!(
+                    candidate_schema_index = candidate.schema_index,
+                    candidate_rejection_reason = err.failure_reason(),
+                    "Cached candidate rejected during deterministic preparation"
+                );
+                candidate.raw.title.clear();
+                candidate.raw.description.clear();
+                candidate.raw.price = None;
+                candidate.raw.price_estimate_min = None;
+                candidate.raw.price_estimate_max = None;
+                candidate.raw.state.clear();
+                candidate.raw.images.clear();
+                candidate.score = score_raw_product(&candidate.raw);
+                continue;
+            }
             candidate.score = score_raw_product(&candidate.raw);
         }
+        candidates.retain(|candidate| !candidate.raw.title.is_empty());
         rank_candidates(&mut candidates);
         for candidate in &candidates {
             debug!(

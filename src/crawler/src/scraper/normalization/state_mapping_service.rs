@@ -41,6 +41,9 @@ pub enum StateMappingServiceError {
     #[error("Database error: {0}")]
     DatabaseError(#[from] sqlx::Error),
 
+    #[error("Database error after state-mapping LLM call: {0}")]
+    DatabaseErrorAfterLlm(#[source] sqlx::Error),
+
     #[error(
         "state text too long ({len} bytes, max {max}): CSS selector is likely extracting wrong content"
     )]
@@ -417,7 +420,13 @@ impl ProductStateMappingService for ProductStateMappingServiceImpl {
         );
         let persisted = self
             .save_state_mapping(&persist_key, normalized, mapping_type)
-            .await?;
+            .await
+            .map_err(|error| match error {
+                StateMappingServiceError::DatabaseError(source) => {
+                    StateMappingServiceError::DatabaseErrorAfterLlm(source)
+                }
+                other => other,
+            })?;
         Ok((persisted, true))
     }
 }

@@ -163,6 +163,28 @@ pub fn rank_applicable_schema_indices(
 ) -> Vec<usize> {
     let parsed = Html::parse_document(html);
     let mut candidates = collect_applicable_candidates(schemas, &parsed).candidates;
+    let base_url = url::Url::parse("https://example.com/").expect("static ranking base URL");
+    candidates.retain_mut(|candidate| {
+        // Keep this fixture seam on the same deterministic lifecycle as
+        // production. Network image probing is unavailable here, so only
+        // obvious thumbnail/invalid URL candidates are discarded locally.
+        candidate.raw.images.retain(|image| {
+            let trimmed = image.trim();
+            !trimmed.to_ascii_lowercase().contains("thumb")
+                && (url::Url::parse(trimmed).is_ok() || base_url.join(trimmed).is_ok())
+        });
+        if crate::scraper::normalization::product_normalization_service::prepare_product(
+            candidate.raw.clone(),
+            base_url.clone(),
+            candidate.schema.default_currency.map(Into::into),
+        )
+        .is_err()
+        {
+            return false;
+        }
+        candidate.score = score_raw_product(&candidate.raw);
+        true
+    });
     rank_candidates(&mut candidates);
     candidates
         .into_iter()

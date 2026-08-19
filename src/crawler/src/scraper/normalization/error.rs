@@ -87,6 +87,9 @@ impl NormalizationError {
                 StateMappingServiceError::RawStateTooLong { .. } => "state_text_too_long",
                 StateMappingServiceError::LLMError(_) => "state_llm_error",
                 StateMappingServiceError::DatabaseError(_) => "state_database_error",
+                StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
+                    "state_database_error_after_llm"
+                }
             },
             Self::ShopsProductIdEmpty => "shops_product_id_empty",
             Self::TitleEmpty => "title_empty",
@@ -110,12 +113,17 @@ impl NormalizationError {
         match self {
             Self::StateMappingError(error) => match error {
                 StateMappingServiceError::NoTextResponse(_)
-                | StateMappingServiceError::UnparsableResponse(_)
-                | StateMappingServiceError::RawStateTooLong { .. } => {
+                | StateMappingServiceError::UnparsableResponse(_) => {
+                    NormalizationFailureScope::External
+                }
+                StateMappingServiceError::RawStateTooLong { .. } => {
                     NormalizationFailureScope::CandidateData
                 }
                 StateMappingServiceError::LLMError(_)
-                | StateMappingServiceError::DatabaseError(_) => NormalizationFailureScope::External,
+                | StateMappingServiceError::DatabaseError(_)
+                | StateMappingServiceError::DatabaseErrorAfterLlm(_) => {
+                    NormalizationFailureScope::External
+                }
             },
             Self::ShopsProductIdEmpty
             | Self::TitleEmpty

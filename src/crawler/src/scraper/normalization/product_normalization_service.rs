@@ -16,7 +16,10 @@ use crate::scraper::normalization::{
 };
 
 use common::currency::domain::Currency;
+use common::localized::Localized;
 use common::product_state::domain::ProductState;
+use common::shops_product_id::ShopsProductId;
+use product::core::{description::Description, product_image::ProductImage, title::Title};
 
 use tracing::debug;
 use url::Url;
@@ -72,6 +75,98 @@ pub struct NormalizationFailure {
 
 pub type ProductNormalizationResult = Result<NormalizationSuccess, NormalizationFailure>;
 
+/// Deterministic, candidate-local product data. State is deliberately absent:
+/// resolving it may query and write the database or call the LLM.
+#[derive(Debug, Clone)]
+pub struct PreparedProduct {
+    pub shops_product_id: ShopsProductId,
+    pub title: Localized<common::language::domain::Language, Title>,
+    pub description: Option<Localized<common::language::domain::Language, Description>>,
+    pub price: Option<common::price::domain::Price>,
+    pub price_estimate_min: Option<common::price::domain::Price>,
+    pub price_estimate_max: Option<common::price::domain::Price>,
+    pub seller_name: Option<String>,
+    pub images: Vec<ProductImage>,
+    pub auction_start: Option<time::OffsetDateTime>,
+    pub auction_end: Option<time::OffsetDateTime>,
+    pub raw_attributes: std::collections::BTreeMap<String, Vec<String>>,
+    pub raw_state: String,
+    pub url: Url,
+}
+
+/// Run all deterministic normalization rules. This function must stay free of
+/// state mapping, LLM calls, and database side effects.
+pub fn prepare_product(
+    raw: RawExtractedProduct,
+    url: Url,
+    default_currency: Option<Currency>,
+) -> Result<PreparedProduct, NormalizationError> {
+    let state_len = raw.state.trim().len();
+    if state_len > crate::scraper::normalization::state_mapping_service::MAX_STATE_RAW_LEN {
+        return Err(NormalizationError::StateTextTooLong {
+            len: state_len,
+            max: crate::scraper::normalization::state_mapping_service::MAX_STATE_RAW_LEN,
+        });
+    }
+    let shops_product_id =
+        normalize_shops_product_id_with_url_sha_fallback(&raw.shops_product_id, &url);
+    let title = normalize_title(&raw.title)?;
+    let title_language = detect_language(title.as_ref());
+    let description_language = detect_description_language(&raw.description);
+    let title = localize_normalized_title(title, title_language, description_language)?;
+    let description = normalize_description(raw.description, title_language)?;
+    let seller_name = raw.seller_name.and_then(|value| match value.trim() {
+        "" => None,
+        trimmed => Some(trimmed.to_string()),
+    });
+    let price = normalize_price_field(
+        raw.price,
+        "price",
+        &url,
+        default_currency,
+        |r| NormalizationError::PriceUnknownCurrency { raw: r },
+        |r| NormalizationError::PriceParseError { raw: r },
+    )?;
+    let price_estimate_min = normalize_price_field(
+        raw.price_estimate_min,
+        "price_estimate_min",
+        &url,
+        default_currency,
+        |r| NormalizationError::PriceEstimateMinUnknownCurrency { raw: r },
+        |r| NormalizationError::PriceEstimateMinParseError { raw: r },
+    )?;
+    let price_estimate_max = normalize_price_field(
+        raw.price_estimate_max,
+        "price_estimate_max",
+        &url,
+        default_currency,
+        |r| NormalizationError::PriceEstimateMaxUnknownCurrency { raw: r },
+        |r| NormalizationError::PriceEstimateMaxParseError { raw: r },
+    )?;
+    let images = normalize_images(raw.images, &url)?;
+    let auction_start = normalize_datetime_field(raw.auction_start, |r| {
+        NormalizationError::AuctionStartParseError { raw: r }
+    })?;
+    let auction_end = normalize_datetime_field(raw.auction_end, |r| {
+        NormalizationError::AuctionEndParseError { raw: r }
+    })?;
+    Ok(PreparedProduct {
+        shops_product_id,
+        title,
+        description,
+        price,
+        price_estimate_min,
+        price_estimate_max,
+        seller_name,
+        images,
+        auction_start,
+        auction_end,
+        raw_attributes: raw.raw_attributes,
+        raw_state: raw.state,
+        url,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
@@ -111,100 +206,50 @@ impl ProductNormalizationService for ProductNormalizationServiceImpl {
             has_auction_end = raw.auction_end.is_some(),
             "Normalizing raw extracted product"
         );
-        // Resolve state first — this is the only async step.
-        let (state_record, state_llm_called) = self
-            .state_mapping_service
-            .get_state_mapping(&raw.state)
-            .await
-            .map_err(|e| match e {
-                StateMappingServiceError::RawStateTooLong { len, max } => {
-                    NormalizationError::StateTextTooLong { len, max }
-                }
-                other => NormalizationError::StateMappingError(other),
-            })
-            .map_err(|error| NormalizationFailure {
+        let prepared =
+            prepare_product(raw, url, default_currency).map_err(|error| NormalizationFailure {
                 error,
                 llm_calls_used: 0,
             })?;
+
+        let (state_record, state_llm_called) = self
+            .state_mapping_service
+            .get_state_mapping(&prepared.raw_state)
+            .await
+            .map_err(|error| NormalizationFailure {
+                llm_calls_used: match &error {
+                    StateMappingServiceError::NoTextResponse(_)
+                    | StateMappingServiceError::UnparsableResponse(_)
+                    | StateMappingServiceError::LLMError(_)
+                    | StateMappingServiceError::DatabaseErrorAfterLlm(_) => 1,
+                    StateMappingServiceError::RawStateTooLong { .. }
+                    | StateMappingServiceError::DatabaseError(_) => 0,
+                },
+                error: match error {
+                    StateMappingServiceError::RawStateTooLong { len, max } => {
+                        NormalizationError::StateTextTooLong { len, max }
+                    }
+                    other => NormalizationError::StateMappingError(other),
+                },
+            })?;
         let state = ProductState::from(state_record.normalized);
         let llm_calls_used = u32::from(state_llm_called);
-        let fail = |error| NormalizationFailure {
-            error,
-            llm_calls_used,
-        };
-
-        let shops_product_id =
-            normalize_shops_product_id_with_url_sha_fallback(&raw.shops_product_id, &url);
-        let title = normalize_title(&raw.title).map_err(fail)?;
-        let title_language = detect_language(title.as_ref());
-        let description_language = detect_description_language(&raw.description);
-        let title =
-            localize_normalized_title(title, title_language, description_language).map_err(fail)?;
-        let description = normalize_description(raw.description, title_language).map_err(fail)?;
-        let seller_name = raw.seller_name.and_then(|value| match value.trim() {
-            "" => None,
-            trimmed => Some(trimmed.to_string()),
-        });
-
-        debug!(
-            default_currency = ?default_currency,
-            "Using schema default_currency as fallback for price normalization"
-        );
-
-        let price = normalize_price_field(
-            raw.price,
-            "price",
-            &url,
-            default_currency,
-            |r| NormalizationError::PriceUnknownCurrency { raw: r },
-            |r| NormalizationError::PriceParseError { raw: r },
-        )
-        .map_err(fail)?;
-        let price_estimate_min = normalize_price_field(
-            raw.price_estimate_min,
-            "price_estimate_min",
-            &url,
-            default_currency,
-            |r| NormalizationError::PriceEstimateMinUnknownCurrency { raw: r },
-            |r| NormalizationError::PriceEstimateMinParseError { raw: r },
-        )
-        .map_err(fail)?;
-        let price_estimate_max = normalize_price_field(
-            raw.price_estimate_max,
-            "price_estimate_max",
-            &url,
-            default_currency,
-            |r| NormalizationError::PriceEstimateMaxUnknownCurrency { raw: r },
-            |r| NormalizationError::PriceEstimateMaxParseError { raw: r },
-        )
-        .map_err(fail)?;
-
-        let images = normalize_images(raw.images, &url).map_err(fail)?;
-
-        let auction_start = normalize_datetime_field(raw.auction_start, |r| {
-            NormalizationError::AuctionStartParseError { raw: r }
-        })
-        .map_err(fail)?;
-        let auction_end = normalize_datetime_field(raw.auction_end, |r| {
-            NormalizationError::AuctionEndParseError { raw: r }
-        })
-        .map_err(fail)?;
 
         Ok(NormalizationSuccess {
             product: NormalizedProduct {
-                shops_product_id,
-                title,
-                description,
-                price,
-                price_estimate_min,
-                price_estimate_max,
-                seller_name,
+                shops_product_id: prepared.shops_product_id,
+                title: prepared.title,
+                description: prepared.description,
+                price: prepared.price,
+                price_estimate_min: prepared.price_estimate_min,
+                price_estimate_max: prepared.price_estimate_max,
+                seller_name: prepared.seller_name,
                 state,
-                url,
-                images,
-                auction_start,
-                auction_end,
-                raw_attributes: raw.raw_attributes,
+                url: prepared.url,
+                images: prepared.images,
+                auction_start: prepared.auction_start,
+                auction_end: prepared.auction_end,
+                raw_attributes: prepared.raw_attributes,
             },
             llm_calls_used,
         })
@@ -531,8 +576,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_return_llm_usage_when_state_mapping_llm_succeeds_but_later_normalization_fails()
-    {
+    async fn should_reject_deterministic_failure_before_state_mapping() {
         let record = mapping_record("available", ProductStateRecord::Available);
         let mut mock = MockProductStateMappingService::new();
         mock.expect_get_state_mapping().returning(move |_| {
@@ -546,7 +590,7 @@ mod tests {
 
         let err = svc.normalize(raw, base_url(), None).await.unwrap_err();
         assert!(matches!(err.error, NormalizationError::TitleEmpty));
-        assert_eq!(err.llm_calls_used, 1);
+        assert_eq!(err.llm_calls_used, 0);
     }
 
     #[tokio::test]
