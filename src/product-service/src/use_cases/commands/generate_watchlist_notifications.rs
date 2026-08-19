@@ -137,7 +137,9 @@ where
                     recipient.user_id,
                     notification_content(command.event_id, source.clone()),
                 ),
-                external_delivery_requested: recipient.external_delivery_requested,
+                email_delivery_id: recipient
+                    .external_delivery_requested
+                    .then(notification_core::notification_delivery_id::NotificationDeliveryId::new),
             })
             .collect::<Vec<_>>();
         let outcomes = self

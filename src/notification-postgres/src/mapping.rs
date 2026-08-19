@@ -26,7 +26,7 @@ use notification_core::{
 };
 use product_core::{product_image::ProductImage, title::Title};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 use url::Url;
 
@@ -54,6 +54,8 @@ pub(crate) enum NotificationMappingError {
     UnknownKind(String),
     #[error("unknown notification title language {0}")]
     UnknownLanguage(String),
+    #[error("notification title contains duplicate language {0}")]
+    DuplicateTitleLanguage(String),
     #[error("unsupported notification payload version {0}")]
     UnsupportedPayloadVersion(i16),
     #[error("notification payload serialization failed")]
@@ -156,9 +158,18 @@ impl TryFrom<ProductNotificationSnapshotV1> for ProductNotificationSnapshot {
         let title = snapshot
             .title
             .map(|titles| {
+                let mut seen_languages = HashSet::new();
                 titles
                     .into_iter()
-                    .map(|title| Ok((parse_language(&title.language)?, title.title)))
+                    .map(|title| {
+                        let language = parse_language(&title.language)?;
+                        if !seen_languages.insert(language) {
+                            return Err(NotificationMappingError::DuplicateTitleLanguage(
+                                title.language,
+                            ));
+                        }
+                        Ok((language, title.title))
+                    })
                     .collect::<Result<HashMap<_, _>, NotificationMappingError>>()
             })
             .transpose()?;

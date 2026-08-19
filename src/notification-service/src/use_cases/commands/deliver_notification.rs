@@ -79,6 +79,7 @@ where
             .deliveries
             .claim_and_load_source(
                 command.notification_delivery_id,
+                command.notification_id,
                 now,
                 now + DELIVERY_LEASE_DURATION,
                 lease_token,
@@ -97,12 +98,11 @@ where
             ClaimNotificationDeliveryOutcome::AlreadyClaimed => {
                 return Ok(DeliverNotificationResult::AlreadyClaimed);
             }
+            ClaimNotificationDeliveryOutcome::NotificationMismatch => {
+                return Err(DeliverNotificationError::NotificationMismatch);
+            }
             ClaimNotificationDeliveryOutcome::Claimed { delivery, source } => (delivery, source),
         };
-
-        if claimed.notification_id != command.notification_id {
-            return Err(DeliverNotificationError::NotificationMismatch);
-        }
 
         let Some(source) = *source else {
             let completed = self
@@ -111,6 +111,7 @@ where
                     claimed.notification_delivery_id,
                     claimed.lease_token,
                     "NOTIFICATION_SOURCE_MISSING",
+                    OffsetDateTime::now_utc(),
                 )
                 .await?;
             return if completed {
@@ -146,6 +147,7 @@ where
                         claimed.notification_delivery_id,
                         claimed.lease_token,
                         error.code(),
+                        OffsetDateTime::now_utc(),
                     )
                     .await?;
                 if completed {
@@ -161,6 +163,7 @@ where
                         claimed.notification_delivery_id,
                         claimed.lease_token,
                         error.code(),
+                        OffsetDateTime::now_utc(),
                     )
                     .await?;
                 if completed {
@@ -182,6 +185,33 @@ mod tests {
     };
 
     #[tokio::test]
+    async fn should_reject_mismatched_delivery_before_sending() {
+        let notification_delivery_id = NotificationDeliveryId::new();
+        let notification_id = NotificationId::new();
+        let mut deliveries = MockNotificationDeliveryRepository::new();
+        deliveries
+            .expect_claim_and_load_source()
+            .times(1)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async { Ok(ClaimNotificationDeliveryOutcome::NotificationMismatch) })
+            });
+        let sender = MockNotificationDeliverySender::new();
+        let handler = DeliverNotificationHandler::new(deliveries, sender);
+
+        let result = handler
+            .execute(DeliverNotificationCommand {
+                notification_delivery_id,
+                notification_id,
+            })
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeliverNotificationError::NotificationMismatch)
+        ));
+    }
+
+    #[tokio::test]
     async fn should_skip_delivery_when_another_worker_holds_the_lease()
     -> Result<(), DeliverNotificationError> {
         let notification_delivery_id = NotificationDeliveryId::new();
@@ -190,7 +220,7 @@ mod tests {
         deliveries
             .expect_claim_and_load_source()
             .times(1)
-            .returning(|_, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(ClaimNotificationDeliveryOutcome::AlreadyClaimed) })
             });
         let sender = MockNotificationDeliverySender::new();

@@ -32,6 +32,12 @@ struct DeliveryClaimRow {
 }
 
 #[derive(Debug, sqlx::FromRow)]
+struct DeliveryStatusRow {
+    notification_id: Uuid,
+    status: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
 struct DeliverySourceRow {
     recipient_email: String,
     recipient_first_name: Option<String>,
@@ -56,6 +62,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
     async fn claim_and_load_source(
         &self,
         notification_delivery_id: NotificationDeliveryId,
+        notification_id: NotificationId,
         now: OffsetDateTime,
         lease_expires_at: OffsetDateTime,
         lease_token: Uuid,
@@ -66,9 +73,10 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
             }
         })?;
         let row = sqlx::query_as::<_, DeliveryClaimRow>(
-            "UPDATE notification_deliveries SET status = 'PROCESSING', lease_token = $2, lease_expires_at = $3, attempt_count = attempt_count + 1, updated = now() WHERE notification_delivery_id = $1 AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_expires_at <= $4)) RETURNING notification_delivery_id, notification_id, lease_token, lease_expires_at, attempt_count",
+            "UPDATE notification_deliveries SET status = 'PROCESSING', lease_token = $3, lease_expires_at = $4, attempt_count = attempt_count + 1, updated = now() WHERE notification_delivery_id = $1 AND notification_id = $2 AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_expires_at <= $5)) RETURNING notification_delivery_id, notification_id, lease_token, lease_expires_at, attempt_count",
         )
         .bind(Uuid::from(notification_delivery_id))
+        .bind(Uuid::from(notification_id))
         .bind(lease_token)
         .bind(lease_expires_at)
         .bind(now)
@@ -77,8 +85,8 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         .map_err(|source| NotificationDeliveryError::OperationFailed { source: box_error(source) })?;
 
         let Some(row) = row else {
-            let status = sqlx::query_scalar::<_, String>(
-                "SELECT status FROM notification_deliveries WHERE notification_delivery_id = $1",
+            let status = sqlx::query_as::<_, DeliveryStatusRow>(
+                "SELECT notification_id, status FROM notification_deliveries WHERE notification_delivery_id = $1",
             )
             .bind(Uuid::from(notification_delivery_id))
             .fetch_optional(&mut *transaction)
@@ -91,11 +99,20 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
                     source: box_error(source),
                 }
             })?;
-            return match status.as_deref() {
+            return match status {
                 None => Ok(ClaimNotificationDeliveryOutcome::Missing),
-                Some("DELIVERED") => Ok(ClaimNotificationDeliveryOutcome::Delivered),
-                Some("FAILED") => Ok(ClaimNotificationDeliveryOutcome::PermanentlyFailed),
-                Some("PENDING" | "PROCESSING") => {
+                Some(row) if row.notification_id != Uuid::from(notification_id) => {
+                    Ok(ClaimNotificationDeliveryOutcome::NotificationMismatch)
+                }
+                Some(DeliveryStatusRow { status, .. }) if status == "DELIVERED" => {
+                    Ok(ClaimNotificationDeliveryOutcome::Delivered)
+                }
+                Some(DeliveryStatusRow { status, .. }) if status == "FAILED" => {
+                    Ok(ClaimNotificationDeliveryOutcome::PermanentlyFailed)
+                }
+                Some(DeliveryStatusRow { status, .. })
+                    if matches!(status.as_str(), "PENDING" | "PROCESSING") =>
+                {
                     Ok(ClaimNotificationDeliveryOutcome::AlreadyClaimed)
                 }
                 Some(_) => Err(NotificationDeliveryError::InvalidPersistedState {
@@ -134,23 +151,25 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         provider_message_id: &str,
         delivered_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
-        complete(&self.pool, "UPDATE notification_deliveries SET status = 'DELIVERED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = $3, delivered_at = $4, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2", notification_delivery_id, lease_token, provider_message_id, Some(delivered_at)).await
+        complete(&self.pool, "UPDATE notification_deliveries SET status = 'DELIVERED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = $3, delivered_at = $4, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $5", notification_delivery_id, lease_token, provider_message_id, Some(delivered_at), delivered_at).await
     }
     async fn mark_retryable_failure(
         &self,
         notification_delivery_id: NotificationDeliveryId,
         lease_token: Uuid,
         error_code: &str,
+        completed_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
-        complete(&self.pool, "UPDATE notification_deliveries SET status = 'PENDING', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2", notification_delivery_id, lease_token, error_code, None).await
+        complete(&self.pool, "UPDATE notification_deliveries SET status = 'PENDING', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
     }
     async fn mark_permanent_failure(
         &self,
         notification_delivery_id: NotificationDeliveryId,
         lease_token: Uuid,
         error_code: &str,
+        completed_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
-        complete(&self.pool, "UPDATE notification_deliveries SET status = 'FAILED', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2", notification_delivery_id, lease_token, error_code, None).await
+        complete(&self.pool, "UPDATE notification_deliveries SET status = 'FAILED', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
     }
 }
 
@@ -271,6 +290,7 @@ async fn complete(
     lease_token: Uuid,
     value: &str,
     delivered_at: Option<OffsetDateTime>,
+    completed_at: OffsetDateTime,
 ) -> Result<bool, NotificationDeliveryError> {
     let mut query = sqlx::query(sql)
         .bind(uuid::Uuid::from(id))
@@ -279,12 +299,12 @@ async fn complete(
     if let Some(delivered_at) = delivered_at {
         query = query.bind(delivered_at);
     }
-    let result =
-        query
-            .execute(pool)
-            .await
-            .map_err(|source| NotificationDeliveryError::OperationFailed {
-                source: box_error(source),
-            })?;
+    let result = query
+        .bind(completed_at)
+        .execute(pool)
+        .await
+        .map_err(|source| NotificationDeliveryError::OperationFailed {
+            source: box_error(source),
+        })?;
     Ok(result.rows_affected() == 1)
 }

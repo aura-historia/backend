@@ -7,13 +7,17 @@ use common::{
     transaction::{Transaction, TransactionError, UnitOfWork},
     user_id::UserId,
 };
-use notification_core::notification::{Notification, NotificationContent};
+use notification_core::{
+    notification::{Notification, NotificationContent},
+    notification_delivery_id::NotificationDeliveryId,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateNotificationIntent {
+    pub notification_id: NotificationId,
     pub user_id: UserId,
     pub content: NotificationContent,
-    pub external_delivery_requested: bool,
+    pub email_delivery_id: Option<NotificationDeliveryId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,11 +75,11 @@ where
             .into_iter()
             .map(|intent| NewNotification {
                 notification: Notification::new(
-                    NotificationId::new(),
+                    intent.notification_id,
                     intent.user_id,
                     intent.content,
                 ),
-                external_delivery_requested: intent.external_delivery_requested,
+                email_delivery_id: intent.email_delivery_id,
             })
             .collect::<Vec<_>>();
         let mut tx = self.unit_of_work.begin().await?;

@@ -293,7 +293,9 @@ async fn create_notification(
                 user_search_filter_name: match_source.search_filter_name,
             },
         ),
-        external_delivery_requested: match_source.external_delivery_requested,
+        email_delivery_id: match_source
+            .external_delivery_requested
+            .then(notification_core::notification_delivery_id::NotificationDeliveryId::new),
     };
     let mut outcomes = notifications.create_many(&[notification]).await.map_err(
         |source: NotificationCreationError| {

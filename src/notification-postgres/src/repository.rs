@@ -1,6 +1,6 @@
 use crate::mapping::{NotificationWriteValues, PAYLOAD_VERSION, mapping_error};
 use common::{error::boxed::box_error, postgres::SqlxTransaction};
-use notification_core::notification_delivery_id::NotificationDeliveryId;
+
 use notification_service::ports::notification_creator::{
     NewNotification, NotificationCreationError, NotificationCreationOutcome, NotificationCreator,
     NotificationCreatorFactory,
@@ -133,12 +133,9 @@ async fn insert_email_deliveries(
         .iter()
         .filter_map(|item| {
             let notification_id = uuid::Uuid::from(item.notification.notification_id());
-            (item.external_delivery_requested && inserted.contains(&notification_id)).then(|| {
-                (
-                    uuid::Uuid::from(NotificationDeliveryId::new()),
-                    notification_id,
-                )
-            })
+            item.email_delivery_id
+                .filter(|_| inserted.contains(&notification_id))
+                .map(|delivery_id| (uuid::Uuid::from(delivery_id), notification_id))
         })
         .collect::<Vec<_>>();
     for deliveries in deliveries.chunks(INSERT_CHUNK_SIZE) {

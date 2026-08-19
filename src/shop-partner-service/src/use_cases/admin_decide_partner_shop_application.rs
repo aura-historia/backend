@@ -263,7 +263,9 @@ fn decision_notification(
                 decision,
             },
         ),
-        external_delivery_requested: true,
+        email_delivery_id: Some(
+            notification_core::notification_delivery_id::NotificationDeliveryId::new(),
+        ),
     })
 }
 

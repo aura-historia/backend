@@ -46,6 +46,7 @@ pub enum ClaimNotificationDeliveryOutcome {
     Delivered,
     PermanentlyFailed,
     AlreadyClaimed,
+    NotificationMismatch,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -68,6 +69,7 @@ pub trait NotificationDeliveryRepository: Send + Sync {
     async fn claim_and_load_source(
         &self,
         notification_delivery_id: NotificationDeliveryId,
+        notification_id: NotificationId,
         now: OffsetDateTime,
         lease_expires_at: OffsetDateTime,
         lease_token: Uuid,
@@ -86,6 +88,7 @@ pub trait NotificationDeliveryRepository: Send + Sync {
         notification_delivery_id: NotificationDeliveryId,
         lease_token: Uuid,
         error_code: &str,
+        completed_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError>;
 
     async fn mark_permanent_failure(
@@ -93,5 +96,6 @@ pub trait NotificationDeliveryRepository: Send + Sync {
         notification_delivery_id: NotificationDeliveryId,
         lease_token: Uuid,
         error_code: &str,
+        completed_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError>;
 }
