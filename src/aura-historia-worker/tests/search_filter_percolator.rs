@@ -4,12 +4,12 @@ use aura_historia_worker::search_filter_match_notifications::consume_search_filt
 use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
 use common::query::range_query::RangeQuery;
 use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use fxrate_core::FxRateId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,

@@ -163,7 +163,6 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
     use common::event_id::EventId;
-    use common::fx_rate_id::FxRateId;
     use common::operation_context::OperationContext;
     use common::personalized::Personalized;
     use common::product_id::ProductId;
@@ -172,6 +171,7 @@ mod tests {
     use common::product_state::domain::ProductState;
     use common::shops_product_id::ShopsProductId;
     use common::user_id::UserId;
+    use fxrate_core::FxRateId;
     use localization::Language;
     use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
     use product_core::user_state::ProductUserState;

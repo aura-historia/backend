@@ -9,11 +9,11 @@ use crate::{
     shop_type_document::ShopTypeDocument,
 };
 use common::{
-    event_id::EventId, fx_rate_id::FxRateId, product_id::ProductId,
+    event_id::EventId, product_id::ProductId,
     product_lifecycle::document::ProductLifecycleDocument, product_slug_id::ProductSlugId,
     shops_product_id::ShopsProductId,
 };
-use fxrate_core::{FxRateSnapshot, FxRateSnapshotError, RoundingMode};
+use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use indexmap::IndexSet;
 use isocountry::CountryCode;
 use localization::Language;

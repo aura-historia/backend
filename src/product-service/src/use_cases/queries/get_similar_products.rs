@@ -282,14 +282,13 @@ mod tests {
     use application::transaction::TransactionError;
     use common::error::boxed::box_error;
     use common::event_id::EventId;
-    use common::fx_rate_id::FxRateId;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::product_id::ProductId;
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
     use common::product_state::domain::ProductState;
     use common::shops_product_id::ShopsProductId;
-    use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+    use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
     use localization::Localized;
     use money::Currency;

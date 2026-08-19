@@ -1,5 +1,7 @@
-use common::{fx_rate_id::FxRateId, query::range_query::RangeQuery};
-use fxrate_core::{DisplayAmountRange, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
+use common::query::range_query::RangeQuery;
+use fxrate_core::{
+    DisplayAmountRange, FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode,
+};
 use money::Currency;
 use money::MonetaryAmount;
 

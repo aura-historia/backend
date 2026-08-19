@@ -1,8 +1,8 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
-use common::fx_rate_id::FxRateId;
 use common::postgres::SqlxUnitOfWork;
 use common::transaction::{Transaction, UnitOfWork};
+use fxrate_core::FxRateId;
 use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use fxrate_service::ports::{

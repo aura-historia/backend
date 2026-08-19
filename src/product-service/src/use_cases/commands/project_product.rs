@@ -228,12 +228,12 @@ mod tests {
         ProductSearchProjectionWriteError,
     };
     use common::{
-        error::boxed::box_error, fx_rate_id::FxRateId, product_slug_id::ProductSlugId,
+        error::boxed::box_error, product_slug_id::ProductSlugId,
         product_state::domain::ProductState, shops_product_id::ShopsProductId,
         transaction::TransactionError,
     };
     use fxrate_core::{
-        FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
+        FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
     use localization::{Language, Localized};

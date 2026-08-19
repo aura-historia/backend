@@ -4,12 +4,12 @@ use crate::ports::{
 };
 use common::{
     error::boxed::{BoxError, box_error},
-    fx_rate_id::FxRateId,
     operation_context::{OperationAuthorizationError, OperationContext},
     transaction::{Transaction, UnitOfWork},
 };
 use fxrate_core::{
-    FX_RATE_SCALE, FxRateGeneration, FxRateQuote as SnapshotQuote, FxRateSource, NewFxRateSnapshot,
+    FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote as SnapshotQuote, FxRateSource,
+    NewFxRateSnapshot,
 };
 use money::Currency;
 use time::OffsetDateTime;

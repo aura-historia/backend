@@ -468,14 +468,14 @@ impl FxRateSnapshotRepository for MissingFxRateSnapshotRepository {
 
     async fn find_by_id(
         &mut self,
-        _id: common::fx_rate_id::FxRateId,
+        _id: fxrate_core::FxRateId,
     ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(None)
     }
 
     async fn find_by_ids(
         &mut self,
-        _ids: &[common::fx_rate_id::FxRateId],
+        _ids: &[fxrate_core::FxRateId],
     ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(Vec::new())
     }
@@ -619,14 +619,14 @@ mod tests {
 
         async fn find_by_id(
             &mut self,
-            _id: common::fx_rate_id::FxRateId,
+            _id: fxrate_core::FxRateId,
         ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
             Ok(None)
         }
 
         async fn find_by_ids(
             &mut self,
-            _ids: &[common::fx_rate_id::FxRateId],
+            _ids: &[fxrate_core::FxRateId],
         ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
             Ok(Vec::new())
         }
@@ -827,7 +827,7 @@ mod tests {
 
     fn snapshot() -> fxrate_core::FxRateSnapshot {
         let captured = fxrate_core::NewFxRateSnapshot::capture_eur(
-            common::fx_rate_id::FxRateId::new(),
+            fxrate_core::FxRateId::new(),
             time::OffsetDateTime::UNIX_EPOCH,
             fxrate_core::FxRateSource::FxRatesApi,
             Currency::Eur,

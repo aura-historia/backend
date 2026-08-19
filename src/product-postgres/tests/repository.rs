@@ -1,11 +1,11 @@
 use application::transaction::{Transaction, UnitOfWork};
 use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
 use common::product_id::{ProductId, ProductKey};
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
 use common::versioned::Versioned;
+use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;

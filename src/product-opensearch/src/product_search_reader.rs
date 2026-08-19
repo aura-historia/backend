@@ -846,11 +846,11 @@ mod tests {
         CurrencyDocument, LanguageDocument, SalePricesDocument, SourcePriceDocument, TextDocument,
     };
     use common::{
-        event_id::EventId, fx_rate_id::FxRateId, product_id::ProductId,
+        event_id::EventId, product_id::ProductId,
         product_lifecycle::document::ProductLifecycleDocument, product_slug_id::ProductSlugId,
         shops_product_id::ShopsProductId,
     };
-    use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+    use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use geo::core::distance::{Distance, DistanceUnit, GeoDistanceQuery};
     use indexmap::IndexSet;
     use money::MonetaryAmount;

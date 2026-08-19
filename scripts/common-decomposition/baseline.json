@@ -110,7 +110,6 @@
       "cognito": ["api"],
       "cognito-post-confirmation": ["postgres"],
       "crawler": [],
-      "fxrate-core": [],
       "fxrate-fxratesapi": [],
       "fxrate-lambda": ["postgres"],
       "fxrate-postgres": [],

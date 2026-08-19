@@ -1,6 +1,5 @@
 use common::enhanced_match_reason::EnhancedMatchReason;
 use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::personalized::Personalized;
 use common::product_id::ProductId;
@@ -11,6 +10,7 @@ use common::shops_product_id::ShopsProductId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use common::utm::append_utm_params;
+use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;

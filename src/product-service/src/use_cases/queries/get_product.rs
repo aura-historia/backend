@@ -5,7 +5,6 @@ use crate::ports::{
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
 use common::operation_context::{OperationContext, Principal};
 use common::personalized::Personalized;
 use common::product_id::ProductId;
@@ -14,7 +13,7 @@ use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
-use fxrate_core::{FxRateSnapshot, FxRateSnapshotError, RoundingMode};
+use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };

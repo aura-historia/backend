@@ -80,7 +80,6 @@ mod tests {
     use axum::http::{Request, StatusCode, header};
     use common::enhanced_match_reason::EnhancedMatchReason;
     use common::event_id::EventId;
-    use common::fx_rate_id::FxRateId;
     use common::operation_context::OperationContext;
     use common::personalized::Personalized;
     use common::product_lifecycle::domain::ProductLifecycle;
@@ -90,6 +89,7 @@ mod tests {
     use common::user_id::UserId;
     use common::user_search_filter_id::UserSearchFilterId;
     use common::user_search_filter_name::UserSearchFilterName;
+    use fxrate_core::FxRateId;
     use localization::{Language, Localized};
     use money::Currency;
     use money::{MonetaryAmount, Price};

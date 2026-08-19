@@ -8,7 +8,6 @@ use crate::use_cases::queries::product_summary_personalization::{
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
 use common::operation_context::{OperationContext, Principal};
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::personalized::Personalized;
@@ -19,7 +18,7 @@ use common::product_state::domain::ProductState;
 use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
 use embedding::{EmbeddingGenerator, EmbeddingText};
-use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
+use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
@@ -419,12 +418,11 @@ mod tests {
     use application::transaction::{TransactionError, UnitOfWork};
     use common::error::boxed::box_error;
     use common::event_id::EventId;
-    use common::fx_rate_id::FxRateId;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::user_id::UserId;
     use embedding::{EmbeddingError, EmbeddingVector};
     use fxrate_core::{
-        FX_RATE_SCALE, FxRateQuote, FxRateSnapshot, FxRateSource, NewFxRateSnapshot,
+        FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSnapshot, FxRateSource, NewFxRateSnapshot,
     };
     use fxrate_service::ports::FxRateSnapshotRepositoryFactory;
     use localization::Language;

@@ -3,7 +3,7 @@
 ## Purpose
 
 - Own `fxrate-core` crate.
-- Own immutable EUR-base FX snapshots and exact money conversion.
+- Own `FxRateId`, immutable EUR-base FX snapshots, and exact money conversion.
 
 ## Core Design
 

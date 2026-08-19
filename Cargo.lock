@@ -236,6 +236,7 @@ dependencies = [
  "billing-stripe",
  "common",
  "embedding",
+ "fxrate-core",
  "fxrate-postgres",
  "geo",
  "google-cloud-auth",
@@ -392,6 +393,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "common",
  "embedding",
+ "fxrate-core",
  "fxrate-postgres",
  "google-cloud-auth",
  "indexmap 2.14.0",
@@ -1827,6 +1829,7 @@ dependencies = [
  "aws_lambda_events",
  "domain-primitives",
  "fake",
+ "fxrate-core",
  "geo",
  "http 1.5.0",
  "httpdate",
@@ -3053,12 +3056,16 @@ dependencies = [
 name = "fxrate-core"
 version = "0.1.0"
 dependencies = [
- "common",
+ "domain-primitives",
+ "fake",
  "money",
  "rstest",
+ "serde",
+ "serde_json",
  "strum 0.28.0",
  "thiserror 2.0.20",
  "time",
+ "uuid",
 ]
 
 [[package]]
@@ -6138,6 +6145,7 @@ dependencies = [
  "common",
  "domain-primitives",
  "fake",
+ "fxrate-core",
  "geo",
  "html-escape",
  "indexmap 2.14.0",
@@ -6341,6 +6349,7 @@ dependencies = [
  "application",
  "async-trait",
  "common",
+ "fxrate-core",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
@@ -7352,6 +7361,7 @@ dependencies = [
  "common",
  "domain-primitives",
  "fake",
+ "fxrate-core",
  "localization",
  "money",
  "product-core",
@@ -7487,6 +7497,7 @@ dependencies = [
  "application",
  "async-trait",
  "common",
+ "fxrate-core",
  "geo",
  "isocountry",
  "localization",

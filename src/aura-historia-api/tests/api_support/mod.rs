@@ -20,13 +20,13 @@ use billing_service::use_cases::{
     BillingPriceIds, CreateBillingCheckoutSessionHandler, CreateBillingManagementSessionHandler,
     CreateBillingPortalSessionHandler,
 };
-use common::fx_rate_id::FxRateId;
 use common::product_id::ProductId;
 use common::stripe_customer_id::StripeCustomerId;
 use common::user_id::UserId;
 use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
 };
+use fxrate_core::FxRateId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{Geocoder, GeocodingError};
 use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;

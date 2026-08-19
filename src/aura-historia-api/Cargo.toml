@@ -13,6 +13,7 @@ billing-service = { workspace = true }
 billing-stripe = { workspace = true }
 common = { workspace = true, features = ["api"] }
 embedding = { workspace = true }
+fxrate-core = { workspace = true }
 fxrate-postgres = { workspace = true }
 geo = { workspace = true, features = ["data"] }
 google-cloud-auth = { workspace = true }

@@ -9,6 +9,7 @@ use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use fxrate_core::FxRateId;
 use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 
 use geo::{
@@ -274,7 +275,7 @@ fn price_match_valuation(
             product_core::product::ProductPriceValuationBasis::from_db_str(basis)
                 .map(|basis| search_filter_core::PriceMatchValuation {
                     basis,
-                    fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+                    fx_rate_id: FxRateId::from(fx_rate_id),
                 })
                 .ok_or(SearchFilterRowMappingError::InvalidPriceMatchValuation)
                 .map(Some)

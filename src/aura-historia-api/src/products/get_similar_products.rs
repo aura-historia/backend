@@ -519,7 +519,7 @@ mod tests {
                 }),
                 display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 price_valuation: ProductSummaryPriceValuation::Current {
-                    fx_rate_id: common::fx_rate_id::FxRateId::new(),
+                    fx_rate_id: fxrate_core::FxRateId::new(),
                     captured_at: OffsetDateTime::UNIX_EPOCH,
                 },
                 state: ProductState::Listed,

@@ -8,6 +8,7 @@ use common::{
     shops_product_id::ShopsProductId,
     utm::append_utm_params,
 };
+use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use localization::{Language, Localized};
@@ -446,7 +447,7 @@ fn sale_valuation(
 ) -> Result<Option<ProductSaleValuation>, ()> {
     match (fx_rate_id, sold_at) {
         (Some(fx_rate_id), Some(sold_at)) => Ok(Some(ProductSaleValuation {
-            fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+            fx_rate_id: FxRateId::from(fx_rate_id),
             sold_at,
         })),
         (None, None) => Ok(None),
@@ -615,7 +616,7 @@ mod tests {
         let sold_at = OffsetDateTime::UNIX_EPOCH;
         assert_eq!(
             Ok(Some(ProductSaleValuation {
-                fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+                fx_rate_id: FxRateId::from(fx_rate_id),
                 sold_at,
             })),
             sale_valuation(Some(fx_rate_id), Some(sold_at))

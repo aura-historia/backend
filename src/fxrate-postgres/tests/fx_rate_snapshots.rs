@@ -1,6 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::fx_rate_id::FxRateId;
-use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use fxrate_service::ports::{
     FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryError,

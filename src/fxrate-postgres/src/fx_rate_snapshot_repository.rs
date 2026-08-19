@@ -1,8 +1,7 @@
-use common::{
-    error::boxed::{box_error, static_error},
-    fx_rate_id::FxRateId,
+use common::error::boxed::{box_error, static_error};
+use fxrate_core::{
+    FxRateGeneration, FxRateId, FxRateQuote, FxRateSnapshot, FxRateSource, NewFxRateSnapshot,
 };
-use fxrate_core::{FxRateGeneration, FxRateQuote, FxRateSnapshot, FxRateSource, NewFxRateSnapshot};
 use fxrate_service::ports::{
     FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryError,
     FxRateSnapshotRepositoryFactory,

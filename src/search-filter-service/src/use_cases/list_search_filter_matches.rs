@@ -3,7 +3,6 @@ use crate::ports::{
 };
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error, static_error};
-use common::fx_rate_id::FxRateId;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -11,7 +10,7 @@ use common::pagination::cursor::{Cursor, CursoredResult};
 use common::product_id::ProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
-use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
+use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };

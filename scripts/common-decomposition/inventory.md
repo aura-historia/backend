@@ -35,3 +35,10 @@
 | `common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, seller_slug_id::SellerSlugId, domain::{Domain, NoDomainError}}` | shop identifiers and host value | Shop, Product, Partner Shop, Notification, API, PostgreSQL, and runtime crates | Existing legacy crates | `test-data` | Shop domain | `shop-core` | move | `common` type aliases; legacy slug conversions remain in shim | Legacy Shop consumers migrate |
 | `common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery}` | geo domain values | Product, Search Filter, API, PostgreSQL, and OpenSearch crates | Existing legacy crates | `test-data` | Geo domain | `geo::core` | move | `common::distance::domain` aliases; legacy DTO conversions stay in `common::distance::data` | Legacy geo consumers migrate |
 | `Distance::opensearch_value` | OpenSearch formatting | `product-opensearch` | Legacy Product and User OpenSearch adapters | none | OpenSearch boundary | `geo::opensearch` | split | none | Legacy adapters use `geo::opensearch` directly |
+
+## Iteration 5 — FX-rate ownership
+
+| Current path/type | Kind | Canonical consumers | Legacy consumers | Features | Semantic owner | Target | Action | Compatibility shim | Deletion prerequisite |
+|---|---|---|---|---|---|---|---|---|---|
+| `common::fx_rate_id::FxRateId` | FX snapshot identifier | FX, Product, Search Filter, Watchlist, API, Worker, and PostgreSQL/OpenSearch adapters | Legacy Product and legacy runtimes | `test-data` | FX-rate domain | `fxrate-core` | move | `common::fx_rate_id` re-export | Legacy consumers migrate to `fxrate-core` |
+| `common::price::domain::{FixedFxRate, FxRate, FX_RATE_SCALE}` | historical fixed-rate conversion | none | Legacy Product, API, and acceptance paths | `test-data` | legacy compatibility | `common` | retain-legacy | none | Proven legacy consumers migrate or retire |

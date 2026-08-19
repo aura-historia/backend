@@ -8,6 +8,7 @@ use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
 use common::shops_product_id::ShopsProductId;
 use common::versioned::Versioned;
+use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use localization::Language;
@@ -471,7 +472,7 @@ fn sale_valuation_from_parts(
     match (sold_at, fx_rate_id) {
         (Some(sold_at), Some(fx_rate_id)) => Ok(Some(ProductSaleValuation {
             sold_at,
-            fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+            fx_rate_id: FxRateId::from(fx_rate_id),
         })),
         (None, None) => Ok(None),
         _ => Err(ProductRepositoryError::InvalidAggregateStatePersisted),

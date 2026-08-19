@@ -39,6 +39,7 @@ tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-th
 tracing = { workspace = true }
 
 [dev-dependencies]
+fxrate-core = { workspace = true }
 money = { workspace = true }
 rstest = { workspace = true }
 search-filter-core = { workspace = true }

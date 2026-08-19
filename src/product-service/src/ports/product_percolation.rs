@@ -1,6 +1,5 @@
 use super::ProductSearchFilterMatchSource;
-use common::fx_rate_id::FxRateId;
-use fxrate_core::{FxRateSnapshot, FxRateSnapshotError, RoundingMode};
+use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use money::Currency;
 use money::Price;
 use product_core::product::ProductPriceValuationBasis;

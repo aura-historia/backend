@@ -1,4 +1,4 @@
-use common::fx_rate_id::FxRateId;
+use crate::FxRateId;
 use money::{Currency, HasMinorUnitExponent, MonetaryAmount, Price};
 use std::collections::HashMap;
 use strum::IntoEnumIterator;
