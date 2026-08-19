@@ -9,7 +9,7 @@ use crate::scraper::scraper_service::image_validation::{ImageValidation, ImageVa
 fn should_classify_no_valid_images_as_terminal_failure() {
     assert_eq!(
         NormalizationError::NoValidImages { candidates: 2 }.failure_scope(),
-        NormalizationFailureScope::Terminal
+        NormalizationFailureScope::CandidateData
     );
 }
 
@@ -17,7 +17,7 @@ fn should_classify_no_valid_images_as_terminal_failure() {
 fn should_classify_title_errors_as_cached_schema_fallback_failures() {
     assert_eq!(
         NormalizationError::TitleEmpty.failure_scope(),
-        NormalizationFailureScope::CachedSchemaFallback
+        NormalizationFailureScope::CandidateData
     );
 
     assert_eq!(
@@ -42,7 +42,7 @@ impl ImageValidator for CountingImageValidator {
 }
 
 #[tokio::test]
-async fn should_not_validate_lower_ranked_images_after_richer_candidate_succeeds() {
+async fn should_validate_images_before_ranking_all_cached_candidates() {
     let id = shop_id();
     let url = product_url();
     let mut rich_schema = minimal_schema();
@@ -112,7 +112,7 @@ async fn should_not_validate_lower_ranked_images_after_richer_candidate_succeeds
             .unwrap()
             .is_some()
     );
-    assert_eq!(image_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(image_calls.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
 
 async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
@@ -172,7 +172,7 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
         });
 
     let mut cand_svc = MockScraperCandidateService::new();
-    if expected_scope == NormalizationFailureScope::CachedSchemaFallback {
+    if expected_scope == NormalizationFailureScope::CandidateData {
         expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), UrlState::Available);
     }
 
@@ -187,14 +187,14 @@ async fn assert_tries_next_cached_schema_after(error: NormalizationError) {
 
     let result = service.scrape(&id, &url, None, None).await;
     match expected_scope {
-        NormalizationFailureScope::CachedSchemaFallback => {
+        NormalizationFailureScope::CandidateData => {
             let product = result.unwrap().unwrap();
             assert_eq!(
                 product.product.shops_product_id,
                 ShopsProductId::from("SKU-42")
             );
         }
-        NormalizationFailureScope::Terminal | NormalizationFailureScope::External => {
+        NormalizationFailureScope::External => {
             assert!(matches!(result, Err(ScraperError::NormalizationError(_))));
         }
     }
@@ -206,7 +206,7 @@ async fn should_try_next_cached_schema_after_title_failure() {
 }
 
 #[tokio::test]
-async fn should_stop_cached_selection_after_description_language_failure() {
+async fn should_try_next_cached_schema_after_description_language_failure() {
     assert_tries_next_cached_schema_after(NormalizationError::DescriptionUnknownLanguage {
         text: "garbage".to_string(),
     })
@@ -214,7 +214,7 @@ async fn should_stop_cached_selection_after_description_language_failure() {
 }
 
 #[tokio::test]
-async fn should_stop_cached_selection_after_auction_start_failure() {
+async fn should_try_next_cached_schema_after_auction_start_failure() {
     assert_tries_next_cached_schema_after(NormalizationError::AuctionStartParseError {
         raw: "garbage".to_string(),
     })
@@ -423,7 +423,7 @@ async fn should_generate_fresh_schema_when_cached_data_fails() {
 }
 
 #[tokio::test]
-async fn should_not_generate_fresh_schema_when_cached_candidate_has_terminal_failure() {
+async fn should_abort_without_fresh_schema_when_cached_candidate_has_external_failure() {
     let id = shop_id();
     let url = product_url();
 
@@ -449,10 +449,11 @@ async fn should_not_generate_fresh_schema_when_cached_candidate_has_terminal_fai
     norm_svc.expect_normalize().once().returning(|_, _, _| {
         Box::pin(async {
             Err(normalization_failure(
-                NormalizationError::InvalidImageUrl {
-                    raw: "not-a-url".to_string(),
-                    source: url::Url::parse("://bad").unwrap_err(),
-                },
+                NormalizationError::StateMappingError(
+                    crate::scraper::normalization::state_mapping_service::StateMappingServiceError::DatabaseError(
+                        sqlx::Error::RowNotFound,
+                    ),
+                ),
                 0,
             ))
         })

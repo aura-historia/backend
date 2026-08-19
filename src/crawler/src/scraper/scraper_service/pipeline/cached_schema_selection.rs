@@ -6,7 +6,7 @@ use crate::scraper::normalization::product_normalization_service::{
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
-    collect_applicable_candidates, rank_candidates,
+    collect_applicable_candidates, rank_candidates, score_raw_product,
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -99,6 +99,23 @@ impl ScraperServiceImpl {
             candidate_set.candidates
         };
 
+        // Image validation is candidate-local and does not call the LLM. Do
+        // it before scoring so thumbnails and malformed URLs cannot inflate
+        // richness, while keeping expensive normalization ranked-only.
+        for candidate in &mut candidates {
+            candidate.raw.images = match filter_valid_image_urls(
+                std::mem::take(&mut candidate.raw.images),
+                url,
+                &*self.image_validator,
+            )
+            .await
+            {
+                Ok(images) => images,
+                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
+                Err(err) => return Err(ScraperError::NormalizationError(err)),
+            };
+            candidate.score = score_raw_product(&candidate.raw);
+        }
         rank_candidates(&mut candidates);
         for candidate in &candidates {
             debug!(
@@ -120,18 +137,7 @@ impl ScraperServiceImpl {
         }
 
         for candidate in candidates.drain(..) {
-            let mut raw = candidate.raw;
-            raw.images = match filter_valid_image_urls(
-                std::mem::take(&mut raw.images),
-                url,
-                &*self.image_validator,
-            )
-            .await
-            {
-                Ok(images) => images,
-                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-                Err(err) => return Err(ScraperError::NormalizationError(err)),
-            };
+            let raw = candidate.raw;
             match self
                 .normalize_applied_schema(shop_id, url, candidate.schema, raw)
                 .await
@@ -146,14 +152,26 @@ impl ScraperServiceImpl {
                     return Ok(ExistingSchemaSelection::Normalized(Box::new(product)));
                 }
                 Err(ScraperError::NormalizationError(err))
-                    if err.failure_scope() == NormalizationFailureScope::CachedSchemaFallback =>
+                    if err.failure_scope() == NormalizationFailureScope::CandidateData =>
                 {
                     debug!(
                         candidate_schema_index = candidate.schema_index,
                         candidate_schema_score = candidate.score.as_usize(),
+                        candidate_rejection_reason = err.failure_reason(),
+                        candidate_rejection_scope = "candidate_data",
                         candidate_normalization_result = "candidate_data_failure",
                         "Cached candidate normalization failed; trying next candidate"
                     );
+                }
+                Err(ScraperError::NormalizationError(err)) => {
+                    debug!(
+                        candidate_schema_index = candidate.schema_index,
+                        candidate_schema_score = candidate.score.as_usize(),
+                        normalization_failure_reason = err.failure_reason(),
+                        normalization_failure_scope = "external",
+                        "Cached candidate normalization failed externally; aborting selection"
+                    );
+                    return Err(ScraperError::NormalizationError(err));
                 }
                 Err(err) => return Err(err),
             }

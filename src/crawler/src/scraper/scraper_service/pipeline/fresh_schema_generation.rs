@@ -50,7 +50,7 @@ impl ScraperServiceImpl {
             Ok(images) => images,
             Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
             Err(norm_err)
-                if norm_err.failure_scope() == NormalizationFailureScope::CachedSchemaFallback =>
+                if norm_err.failure_scope() == NormalizationFailureScope::CandidateData =>
             {
                 return Err(ScraperError::FreshSchemaNormalizationFailed {
                     url: ctx.url.clone(),
@@ -114,7 +114,7 @@ impl ScraperServiceImpl {
             }) => {
                 self.consume_llm_budget_n_or_err(ctx.shop_id, ctx.url, llm_calls_used)
                     .await?;
-                if norm_err.failure_scope() == NormalizationFailureScope::CachedSchemaFallback {
+                if norm_err.failure_scope() == NormalizationFailureScope::CandidateData {
                     return Err(ScraperError::FreshSchemaNormalizationFailed {
                         url: ctx.url.clone(),
                         attempts: 1,

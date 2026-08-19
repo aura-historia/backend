@@ -12,8 +12,8 @@ use scraper::Html;
 /// Each populated logical field contributes exactly one point, regardless of
 /// how many values it holds:
 ///
-/// * Image candidates count once when the raw extraction is non-empty. Image
-///   validation happens later, only for candidates being normalized.
+/// * Image candidates count once when the extraction contains validated image
+///   URLs. The production pipeline prepares images before scoring.
 /// * Multiple description fragments count as one populated `description` field.
 /// * Every non-empty `raw_attributes` key counts as one distinct attribute.
 ///

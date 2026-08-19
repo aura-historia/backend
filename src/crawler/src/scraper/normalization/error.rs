@@ -2,8 +2,7 @@ use crate::scraper::normalization::state_mapping_service::StateMappingServiceErr
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NormalizationFailureScope {
-    CachedSchemaFallback,
-    Terminal,
+    CandidateData,
     External,
 }
 
@@ -80,24 +79,59 @@ pub enum NormalizationError {
 }
 
 impl NormalizationError {
+    pub(crate) const fn failure_reason(&self) -> &'static str {
+        match self {
+            Self::StateMappingError(error) => match error {
+                StateMappingServiceError::NoTextResponse(_) => "state_no_text_response",
+                StateMappingServiceError::UnparsableResponse(_) => "state_unparsable_response",
+                StateMappingServiceError::RawStateTooLong { .. } => "state_text_too_long",
+                StateMappingServiceError::LLMError(_) => "state_llm_error",
+                StateMappingServiceError::DatabaseError(_) => "state_database_error",
+            },
+            Self::ShopsProductIdEmpty => "shops_product_id_empty",
+            Self::TitleEmpty => "title_empty",
+            Self::TitleUnknownLanguage { .. } => "title_unknown_language",
+            Self::DescriptionUnknownLanguage { .. } => "description_unknown_language",
+            Self::PriceUnknownCurrency { .. } => "price_unknown_currency",
+            Self::PriceParseError { .. } => "price_parse_error",
+            Self::PriceEstimateMinUnknownCurrency { .. } => "price_estimate_min_unknown_currency",
+            Self::PriceEstimateMinParseError { .. } => "price_estimate_min_parse_error",
+            Self::PriceEstimateMaxUnknownCurrency { .. } => "price_estimate_max_unknown_currency",
+            Self::PriceEstimateMaxParseError { .. } => "price_estimate_max_parse_error",
+            Self::InvalidImageUrl { .. } => "invalid_image_url",
+            Self::NoValidImages { .. } => "no_valid_images",
+            Self::AuctionStartParseError { .. } => "auction_start_parse_error",
+            Self::AuctionEndParseError { .. } => "auction_end_parse_error",
+            Self::StateTextTooLong { .. } => "state_text_too_long",
+        }
+    }
+
     pub(crate) const fn failure_scope(&self) -> NormalizationFailureScope {
         match self {
-            Self::StateMappingError(_) => NormalizationFailureScope::External,
-            Self::TitleEmpty
+            Self::StateMappingError(error) => match error {
+                StateMappingServiceError::NoTextResponse(_)
+                | StateMappingServiceError::UnparsableResponse(_)
+                | StateMappingServiceError::RawStateTooLong { .. } => {
+                    NormalizationFailureScope::CandidateData
+                }
+                StateMappingServiceError::LLMError(_)
+                | StateMappingServiceError::DatabaseError(_) => NormalizationFailureScope::External,
+            },
+            Self::ShopsProductIdEmpty
+            | Self::TitleEmpty
             | Self::TitleUnknownLanguage { .. }
+            | Self::DescriptionUnknownLanguage { .. }
             | Self::PriceUnknownCurrency { .. }
             | Self::PriceParseError { .. }
             | Self::PriceEstimateMinUnknownCurrency { .. }
             | Self::PriceEstimateMinParseError { .. }
             | Self::PriceEstimateMaxUnknownCurrency { .. }
             | Self::PriceEstimateMaxParseError { .. }
-            | Self::StateTextTooLong { .. } => NormalizationFailureScope::CachedSchemaFallback,
-            Self::ShopsProductIdEmpty
-            | Self::DescriptionUnknownLanguage { .. }
             | Self::InvalidImageUrl { .. }
             | Self::NoValidImages { .. }
             | Self::AuctionStartParseError { .. }
-            | Self::AuctionEndParseError { .. } => NormalizationFailureScope::Terminal,
+            | Self::AuctionEndParseError { .. }
+            | Self::StateTextTooLong { .. } => NormalizationFailureScope::CandidateData,
         }
     }
 }
