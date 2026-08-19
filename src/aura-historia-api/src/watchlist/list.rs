@@ -386,7 +386,10 @@ mod tests {
             product_id.to_string(),
             body["items"][0]["item"]["productId"]
         );
-        assert_eq!(true, body["items"][0]["userState"]["notification"]["seen"]);
+        assert_eq!(
+            serde_json::json!([]),
+            body["items"][0]["userState"]["notification"]["unseenNotificationIds"]
+        );
         assert!(matches!(
             lock(&requests)[0].1,
             ListWatchlistRequest {

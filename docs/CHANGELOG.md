@@ -6,6 +6,12 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-08-19 - Product User-State Unseen Notification IDs
+
+### Changed
+
+- **Breaking:** Canonical Product user-state responses now replace `notification.seen` and `notification.originEventId` with required `notification.unseenNotificationIds`: unseen notification UUIDs ordered newest first, or `[]` when none exist. Legacy notification API routes are unchanged.
+
 ## 2026-08-11 - Wire Canonical Google Geocoding
 
 ### Changed

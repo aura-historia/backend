@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct FakeProductNotificationsReader {
+    struct FakeProductNotificationIdsReader {
         state: SharedState,
     }
 
@@ -685,7 +685,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ProductNotificationIdsReader for FakeProductNotificationsReader {
+    impl ProductNotificationIdsReader for FakeProductNotificationIdsReader {
         async fn unseen_ids_for_products(
             &self,
             user_id: UserId,
@@ -710,7 +710,7 @@ mod tests {
         FakeUnitOfWork,
         FakeDetailsReaderFactory,
         FakeFxRateSnapshotRepositoryFactory,
-        FakeProductNotificationsReader,
+        FakeProductNotificationIdsReader,
     > {
         GetProductHandler::new(
             FakeUnitOfWork {
@@ -722,7 +722,7 @@ mod tests {
             FakeFxRateSnapshotRepositoryFactory {
                 state: Arc::clone(state),
             },
-            FakeProductNotificationsReader {
+            FakeProductNotificationIdsReader {
                 state: Arc::clone(state),
             },
         )

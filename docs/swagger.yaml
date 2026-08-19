@@ -10394,26 +10394,17 @@ components:
 
     NotificationUserStateData:
       type: object
-      description: |
-        User's newest notification state for a product. The newest notification is selected from the
-        notification product index; it is not an aggregate "any unseen" flag. `seen` defaults to
-        `true` and `originEventId` is omitted when no notification exists.
+      description: Unseen notification IDs for this product, ordered newest first.
       required:
-        - seen
+        - unseenNotificationIds
       properties:
-        seen:
-          type: boolean
-          description: Whether the newest notification for this product has been seen by the user. Defaults to `true` when no notifications exist.
-          default: true
-          example: true
-        originEventId:
-          type: string
-          format: uuid
-          description: |
-            The ID of the domain event that triggered the latest notification for this product.
-            Present whenever at least one notification exists for the user on this product (seen or unseen).
-            Absent (`undefined` / omitted) when no notifications exist for this product.
-          example: "550e8400-e29b-41d4-a716-446655440001"
+        unseenNotificationIds:
+          type: array
+          description: Every unseen notification UUID for this product. Empty when none exist.
+          default: []
+          items:
+            type: string
+            format: uuid
 
     SearchFilterUserStateData:
       type: object
