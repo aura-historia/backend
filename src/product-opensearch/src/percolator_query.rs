@@ -1,8 +1,8 @@
 use crate::product_document::ProductDocumentSerdeField;
 use crate::product_search_reader::build_common_filter_clauses;
-use common::currency::domain::Currency;
-use common::language::domain::Language;
 use common::query::text_query::TextQuery;
+use localization::Language;
+use money::Currency;
 use product_core::product_search::ProductSearch;
 use serde_json::json;
 
@@ -121,7 +121,8 @@ fn build_text_match_clause(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{price::domain::MonetaryAmount, query::range_query::RangeQuery};
+    use common::query::range_query::RangeQuery;
+    use money::MonetaryAmount;
 
     #[test]
     fn should_preserve_usd_price_bounds_without_fx_conversion()

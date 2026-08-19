@@ -228,8 +228,7 @@ mod tests {
         ProductSearchProjectionWriteError,
     };
     use common::{
-        currency::domain::Currency, error::boxed::box_error, fx_rate_id::FxRateId,
-        language::domain::Language, localized::Localized, product_slug_id::ProductSlugId,
+        error::boxed::box_error, fx_rate_id::FxRateId, product_slug_id::ProductSlugId,
         product_state::domain::ProductState, seller_slug_id::SellerSlugId, shop_id::ShopId,
         shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
         transaction::TransactionError,
@@ -238,6 +237,8 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use localization::{Language, Localized};
+    use money::Currency;
     use product_core::{
         description::Description,
         product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
@@ -564,10 +565,7 @@ mod tests {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
-        source.pricing.price = Some(common::price::domain::Price::new(
-            100_u64.into(),
-            Currency::Eur,
-        ));
+        source.pricing.price = Some(money::Price::new(100_u64.into(), Currency::Eur));
         source.sale_valuation = Some(ProductSaleValuation {
             sold_at: time::OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: snapshot.id(),
@@ -617,10 +615,7 @@ mod tests {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
-        source.pricing.price = Some(common::price::domain::Price::new(
-            100_u64.into(),
-            Currency::Eur,
-        ));
+        source.pricing.price = Some(money::Price::new(100_u64.into(), Currency::Eur));
         source.sale_valuation = Some(ProductSaleValuation {
             sold_at: time::OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: snapshot.id(),
@@ -651,10 +646,7 @@ mod tests {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
-        source.pricing.price = Some(common::price::domain::Price::new(
-            100_u64.into(),
-            Currency::Eur,
-        ));
+        source.pricing.price = Some(money::Price::new(100_u64.into(), Currency::Eur));
         source.sale_valuation = Some(ProductSaleValuation {
             sold_at: time::OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: snapshot.id(),

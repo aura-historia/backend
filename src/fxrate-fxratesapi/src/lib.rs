@@ -1,7 +1,5 @@
-use common::{
-    currency::{data::CurrencyData, domain::Currency},
-    error::boxed::{box_error, static_error},
-};
+use common::error::boxed::{box_error, static_error};
+use money::Currency;
 
 use fxrate_service::ports::{
     FxRateQuote, FxRateQuoteProvider, FxRateQuoteProviderError, FxRateQuoteSet,
@@ -22,8 +20,56 @@ pub struct FxRatesApiQuoteProvider {
 #[derive(Debug, Deserialize)]
 struct FxRatesApiResponse {
     success: bool,
-    base: CurrencyData,
-    rates: HashMap<CurrencyData, serde_json::Number>,
+    base: ProviderCurrency,
+    rates: HashMap<ProviderCurrency, serde_json::Number>,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum ProviderCurrency {
+    Eur,
+    Gbp,
+    Usd,
+    Aud,
+    Cad,
+    Nzd,
+    Cny,
+    Brl,
+    Pln,
+    Try,
+    Jpy,
+    Czk,
+    Rub,
+    Aed,
+    Sar,
+    Hkd,
+    Sgd,
+    Chf,
+}
+
+impl From<ProviderCurrency> for Currency {
+    fn from(currency: ProviderCurrency) -> Self {
+        match currency {
+            ProviderCurrency::Eur => Self::Eur,
+            ProviderCurrency::Gbp => Self::Gbp,
+            ProviderCurrency::Usd => Self::Usd,
+            ProviderCurrency::Aud => Self::Aud,
+            ProviderCurrency::Cad => Self::Cad,
+            ProviderCurrency::Nzd => Self::Nzd,
+            ProviderCurrency::Cny => Self::Cny,
+            ProviderCurrency::Brl => Self::Brl,
+            ProviderCurrency::Pln => Self::Pln,
+            ProviderCurrency::Try => Self::Try,
+            ProviderCurrency::Jpy => Self::Jpy,
+            ProviderCurrency::Czk => Self::Czk,
+            ProviderCurrency::Rub => Self::Rub,
+            ProviderCurrency::Aed => Self::Aed,
+            ProviderCurrency::Sar => Self::Sar,
+            ProviderCurrency::Hkd => Self::Hkd,
+            ProviderCurrency::Sgd => Self::Sgd,
+            ProviderCurrency::Chf => Self::Chf,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]

@@ -1,10 +1,6 @@
 use common::{
-    currency::domain::Currency,
     error::boxed::{BoxError, box_error, static_error},
     event_id::EventId,
-    language::domain::Language,
-    localized::Localized,
-    price::domain::{MonetaryAmount, Price},
     product_id::ProductId,
     product_lifecycle::domain::ProductLifecycle,
     product_slug_id::ProductSlugId,
@@ -18,6 +14,8 @@ use common::{
 };
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
 use platform_postgres::SqlxTransaction;
 use product_core::{
     description::Description,

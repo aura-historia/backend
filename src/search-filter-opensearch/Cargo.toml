@@ -9,6 +9,8 @@ common = { workspace = true, features = ["opensearch"] }
 fxrate-core = { workspace = true }
 geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 opensearch = { workspace = true }
 product-core = { workspace = true }
 product-opensearch = { workspace = true }

@@ -1,10 +1,12 @@
 use common::{
-    event_id::EventId, language::domain::Language, localized::Localized, product_id::ProductId,
-    product_lifecycle::domain::ProductLifecycle, product_slug_id::ProductSlugId,
-    product_state::domain::ProductState, seller_slug_id::SellerSlugId, shop_id::ShopId,
-    shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
+    event_id::EventId, product_id::ProductId, product_lifecycle::domain::ProductLifecycle,
+    product_slug_id::ProductSlugId, product_state::domain::ProductState,
+    seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
+    shops_product_id::ShopsProductId,
 };
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
 use product_core::{
     description::Description,
     product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},

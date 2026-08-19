@@ -697,12 +697,12 @@ fn product_match_response_schema() -> serde_json::Value {
 
 fn product_text(
     product: &ProductSearchFilterMatchSource,
-    search_language: common::language::domain::Language,
+    search_language: localization::Language,
 ) -> (&str, &str) {
     let title = product
         .titles
         .get(&search_language)
-        .or_else(|| product.titles.get(&common::language::domain::Language::En))
+        .or_else(|| product.titles.get(&localization::Language::En))
         .map(AsRef::as_ref)
         .or_else(|| {
             product
@@ -714,11 +714,7 @@ fn product_text(
     let description = product
         .descriptions
         .get(&search_language)
-        .or_else(|| {
-            product
-                .descriptions
-                .get(&common::language::domain::Language::En)
-        })
+        .or_else(|| product.descriptions.get(&localization::Language::En))
         .map(AsRef::as_ref)
         .unwrap_or("");
     (title, description)
@@ -770,20 +766,10 @@ mod tests {
         SearchFilterIndexQuery, SearchFilterProjectionWriteOutcome, SearchFilterView,
     };
     use common::{
-        currency::domain::Currency,
-        language::domain::Language,
-        price::domain::{MonetaryAmount, Price},
-        product_lifecycle::domain::ProductLifecycle,
-        product_slug_id::ProductSlugId,
-        product_state::domain::ProductState,
-        query::range_query::RangeQuery,
-        shop_id::ShopId,
-        shop_name::ShopName,
-        shop_slug_id::ShopSlugId,
-        shops_product_id::ShopsProductId,
-        transaction::TransactionError,
-        user_id::UserId,
-        user_search_filter_id::UserSearchFilterId,
+        product_lifecycle::domain::ProductLifecycle, product_slug_id::ProductSlugId,
+        product_state::domain::ProductState, query::range_query::RangeQuery, shop_id::ShopId,
+        shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
+        transaction::TransactionError, user_id::UserId, user_search_filter_id::UserSearchFilterId,
         user_search_filter_name::UserSearchFilterName,
     };
     use fxrate_core::{
@@ -794,6 +780,8 @@ mod tests {
         FxRateSnapshotRepositoryFactory,
     };
     use indexmap::IndexSet;
+    use localization::Language;
+    use money::{Currency, MonetaryAmount, Price};
     use product_core::{
         product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
         product_image::ProductImage,

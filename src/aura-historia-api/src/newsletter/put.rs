@@ -1,11 +1,10 @@
 use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::NewsletterState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
 use serde::Deserialize;
 use serde_email::Email;
 use user_core::{first_name::FirstName, last_name::LastName};
@@ -198,14 +197,8 @@ mod tests {
         let commands = lock(&use_case.commands);
         assert_eq!(1, commands.len());
         assert_eq!("ada@example.com", commands[0].email.to_string());
-        assert_eq!(
-            Some(common::language::domain::Language::En),
-            commands[0].language
-        );
-        assert_eq!(
-            Some(common::currency::domain::Currency::Eur),
-            commands[0].currency
-        );
+        assert_eq!(Some(localization::Language::En), commands[0].language);
+        assert_eq!(Some(money::Currency::Eur), commands[0].currency);
     }
 
     #[tokio::test]

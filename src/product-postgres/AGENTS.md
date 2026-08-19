@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `product-core`, `product-service`, and shared `platform-postgres` UoW primitives.
+- Depends on `product-core`, `product-service`, `money`/`localization` canonical values, and shared `platform-postgres` UoW primitives.
 - Exports public SQLx repository, event-store, factual product-details, product-history, product-embedding, Product user-state, batch product-details, batch watchlist-details, search-filter match source reader, and current-revision guard factories only. Factual detail, batch-detail, watchlist-detail, and match-source readers return source pricing plus optional immutable sale valuation; service owns exact-FX lookup and final pricing presentation. The match-source reader exposes immutable `product_events.event_time`, source event kind, and current Product event ID for stale-safe percolation. The current-revision guard holds `products` `FOR SHARE` through final match commit. Embedding source reader and writer reread committed current Product state, then lock/revalidate the source revision and atomically store vectors plus `ENRICHMENT_EMBEDDED` provenance events.
 - The ordinary Product user-state reader resolves an OpenSearch result page in one set-based query: profile consent/tier, watchlist, selected search-filter match, and Free-tier monthly hide state.
 - Keeps SQL rows, SQL, mappings, repositories, event stores, and reader internals private.

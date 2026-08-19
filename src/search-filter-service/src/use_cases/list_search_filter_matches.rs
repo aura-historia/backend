@@ -2,10 +2,8 @@ use crate::ports::{
     SearchFilterMatchListQuery, SearchFilterMatchReadError, SearchFilterMatchReader,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use common::currency::domain::Currency;
 use common::error::boxed::{BoxError, box_error, static_error};
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -17,6 +15,8 @@ use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
+use localization::Language;
+use money::Currency;
 use notification_service::ports::all_notifications_reader::{
     AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
 };

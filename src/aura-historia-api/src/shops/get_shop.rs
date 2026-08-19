@@ -54,13 +54,13 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::currency::domain::Currency;
     use common::domain::Domain;
-    use common::language::domain::Language;
     use common::operation_context::{CredentialCapability, OperationContext, Principal};
     use common::shop_name::ShopName;
     use common::shop_slug_id::ShopSlugId;
     use common::user_id::UserId;
+    use localization::Language;
+    use money::Currency;
     use serde_json::{Value, json};
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop_type::ShopType;

@@ -97,6 +97,8 @@
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
 - `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.
 - `src/large-language-model/AGENTS.md` — reusable typed Vertex AI Gemini invocation adapter crate.
+- `src/localization/AGENTS.md` — pure language and localization values.
+- `src/money/AGENTS.md` — pure currency, amount, and price values.
 - `src/crawler/AGENTS.md` — `crawler` crate.
 - `src/fxrate-core/AGENTS.md` — canonical FX domain crate.
 - `src/fxrate-service/AGENTS.md` — canonical FX service/use-case crate.

@@ -8,15 +8,12 @@ use crate::tier_policy::{
 };
 use crate::use_cases::embedding_query;
 use application::transaction::{Transaction, UnitOfWork};
-use common::currency::domain::Currency;
 use common::distance::domain::GeoDistanceQuery;
 use common::error::boxed::{BoxError, box_error};
-use common::language::domain::Language;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::patch_field::PatchField;
-use common::price::domain::MonetaryAmount;
 use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
@@ -31,6 +28,8 @@ use common::user_search_filter_name::UserSearchFilterName;
 use embedding::{EmbeddingError, EmbeddingGenerator};
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
+use localization::Language;
+use money::{Currency, MonetaryAmount};
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use shop_core::shop_type::ShopType;
 use time::OffsetDateTime;

@@ -8,7 +8,7 @@
 
 ## Core Design
 
-- Depends on `watchlist-core`, Product and FX read contracts, Notification read contracts, shared `common` types/ports, and shared `application` transaction contracts.
+- Depends on `watchlist-core`, Product and FX read contracts, Notification read contracts, shared `common` identifiers/ports, pure `money`/`localization` values, and shared `application` transaction contracts.
 - Write use cases own transactions.
 - Persistence hidden behind repository factory.
 - Repository writes return persisted watchlist state.

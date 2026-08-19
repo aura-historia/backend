@@ -1,4 +1,5 @@
-use common::{currency::domain::Currency, error::boxed::BoxError};
+use common::error::boxed::BoxError;
+use money::Currency;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FxRateQuote {

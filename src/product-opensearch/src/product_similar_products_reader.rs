@@ -123,11 +123,10 @@ pub(crate) fn build_similar_products_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        currency::domain::Currency, fx_rate_id::FxRateId, language::domain::Language,
-        product_id::ProductId,
-    };
+    use common::{fx_rate_id::FxRateId, product_id::ProductId};
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+    use localization::Language;
+    use money::Currency;
     use product_service::ports::ProductPriceFilterPlan;
     use serde_json::json;
     use strum::IntoEnumIterator;

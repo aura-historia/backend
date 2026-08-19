@@ -1,8 +1,6 @@
-use common::currency::domain::Currency;
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
 use common::pagination::cursor::Cursor;
-use common::price::domain::MonetaryAmount;
 use common::product_id::ProductId;
 use common::product_slug_id::ProductSlugId;
 use common::query::range_query::RangeQuery;
@@ -10,6 +8,8 @@ use common::seller_slug_id::SellerSlugId;
 use common::shop_id::ShopId;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
+use money::Currency;
+use money::MonetaryAmount;
 use opensearch::IndexParts;
 use product_core::product_search::ProductSearch;
 use product_service::ports::{
@@ -40,7 +40,7 @@ async fn should_search_active_and_sold_products_with_one_pinned_price_plan_impl(
     index_products([active.document, sold.document]).await?;
 
     let result = search(
-        ProductSearch::new(common::language::domain::Language::En, Currency::Usd).with_price_query(
+        ProductSearch::new(localization::Language::En, Currency::Usd).with_price_query(
             RangeQuery {
                 min: Some(MonetaryAmount::from(110_u64)),
                 max: Some(MonetaryAmount::from(110_u64)),
@@ -57,7 +57,7 @@ async fn should_search_active_and_sold_products_with_one_pinned_price_plan_impl(
     assert_eq!(2, result.items.len());
     assert!(result.items.iter().all(|item| {
         item.display_price
-            == Some(common::price::domain::Price::new(
+            == Some(money::Price::new(
                 MonetaryAmount::from(110_u64),
                 Currency::Usd,
             ))
@@ -85,7 +85,7 @@ async fn should_return_sold_product_without_main_price_for_non_price_search_and_
     index_products([sold_without_price.document]).await?;
 
     let non_price_result = search(
-        ProductSearch::new(common::language::domain::Language::En, Currency::Usd),
+        ProductSearch::new(localization::Language::En, Currency::Usd),
         price_filter(None)?,
     )
     .await?;
@@ -99,7 +99,7 @@ async fn should_return_sold_product_without_main_price_for_non_price_search_and_
     ));
 
     let price_result = search(
-        ProductSearch::new(common::language::domain::Language::En, Currency::Usd).with_price_query(
+        ProductSearch::new(localization::Language::En, Currency::Usd).with_price_query(
             RangeQuery {
                 min: Some(MonetaryAmount::from(1_u64)),
                 max: Some(MonetaryAmount::from(1_000_u64)),

@@ -1,8 +1,8 @@
 use crate::ports::PersonalizedProductDetailsReadModel;
-use common::language::domain::Language;
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::product_id::ProductId;
 use common::user_id::UserId;
+use localization::Language;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -46,7 +46,8 @@ pub(crate) fn embedding_query(
 #[cfg(test)]
 mod tests {
     use super::embedding_query;
-    use common::{currency::domain::Currency, language::domain::Language};
+    use localization::Language;
+    use money::Currency;
     use search_filter_core::ProductSearch;
 
     #[test]

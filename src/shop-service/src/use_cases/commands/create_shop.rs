@@ -1,15 +1,15 @@
 use crate::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use crate::use_cases::queries::get_shop::ShopDetailsView;
 use application::transaction::{Transaction, UnitOfWork};
-use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
-use common::language::domain::Language;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId};
 use geo::{Geocoder, GeocodingError};
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 use shop_core::{
     address::{GeoAddress, StructuredAddress},

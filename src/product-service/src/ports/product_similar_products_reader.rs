@@ -1,5 +1,6 @@
 use crate::{ports::ProductPriceFilterPlan, use_cases::ProductSummary};
-use common::{error::boxed::BoxError, language::domain::Language, product_id::ProductId};
+use common::{error::boxed::BoxError, product_id::ProductId};
+use localization::Language;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductSimilarProductsRequest {

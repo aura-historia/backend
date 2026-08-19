@@ -8,6 +8,8 @@ async-trait = { workspace = true }
 application = { workspace = true }
 common = { workspace = true }
 geo = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 openssl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

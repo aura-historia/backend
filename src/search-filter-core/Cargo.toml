@@ -10,6 +10,10 @@ product-core = { workspace = true }
 fake = { workspace = true, optional = true }
 serde_fields = { workspace = true }
 
+[dev-dependencies]
+localization = { workspace = true }
+money = { workspace = true }
+
 [features]
 default = []
 test-data = ["fake", "common/test-data", "domain-primitives/test-data", "product-core/test-data"]

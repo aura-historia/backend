@@ -2,17 +2,17 @@ use crate::continent_document::ContinentDocument;
 use crate::product_document::{ProductDocument, ProductDocumentSerdeField};
 use crate::product_state_document::ProductStateDocument;
 use crate::shop_type_document::ShopTypeDocument;
-use common::currency::domain::Currency;
-use common::language::domain::Language;
-use common::localized::Localized;
 use common::opensearch::search_response::{SearchHit, SearchResponse};
 use common::pagination::cursor::{Cursor, CursoredResult};
-use common::price::domain::Price;
 use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::text_query::TextQuery;
 use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
+use localization::{Language, Localized};
+use money::Currency;
+
+use money::Price;
 use opensearch::http::Method;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
@@ -841,21 +841,17 @@ fn apply_any_of_filter<T: Hash + Eq + EnumCount>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::product_document::{SalePricesDocument, SourcePriceDocument};
+    use crate::product_document::{
+        CurrencyDocument, LanguageDocument, SalePricesDocument, SourcePriceDocument, TextDocument,
+    };
     use common::{
-        event_id::EventId,
-        fx_rate_id::FxRateId,
-        language::document::{LanguageDocument, TextDocument},
-        price::domain::MonetaryAmount,
-        product_id::ProductId,
-        product_lifecycle::document::ProductLifecycleDocument,
-        product_slug_id::ProductSlugId,
-        shop_id::ShopId,
-        shop_slug_id::ShopSlugId,
-        shops_product_id::ShopsProductId,
+        event_id::EventId, fx_rate_id::FxRateId, product_id::ProductId,
+        product_lifecycle::document::ProductLifecycleDocument, product_slug_id::ProductSlugId,
+        shop_id::ShopId, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
     };
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
+    use money::MonetaryAmount;
     use strum::IntoEnumIterator;
     use time::{OffsetDateTime, macros::datetime};
     use url::Url;
@@ -930,7 +926,7 @@ mod tests {
             title_it: None,
             source_price: Some(SourcePriceDocument {
                 amount: 100,
-                currency: common::currency::data::CurrencyData::Eur,
+                currency: CurrencyDocument::Eur,
             }),
             sale_prices: None,
             sale_fx_rate_id: None,

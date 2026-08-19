@@ -1,8 +1,4 @@
-use common::currency::data::CurrencyData;
 use common::distance::data::GeoDistanceQueryData;
-use common::language::data::LanguageData;
-
-use common::price::domain::MonetaryAmount;
 use common::product_id::ProductId;
 use common::product_lifecycle::data::ProductLifecycleData;
 use common::product_state::domain::ProductState;
@@ -18,6 +14,8 @@ use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
+use localization::Language;
+use money::{Currency, MonetaryAmount};
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use product_opensearch::build_percolator_query;
 use search_filter_service::ports::{SearchFilterProjection, SearchFilterView};
@@ -132,8 +130,8 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductSearchDocument {
-    language: LanguageData,
-    currency: CurrencyData,
+    language: LanguageDocument,
+    currency: CurrencyDocument,
     #[serde(rename = "productQuery")]
     product_query: Vec<TextQuery<1>>,
     #[serde(rename = "enhancedSearchDescription")]
@@ -178,6 +176,138 @@ struct ProductSearchDocument {
     auction_start_query: Option<TimeRangeDocument>,
     #[serde(rename = "auctionEnd")]
     auction_end_query: Option<TimeRangeDocument>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum LanguageDocument {
+    De,
+    En,
+    Fr,
+    Es,
+    It,
+    Zh,
+    Pt,
+    Pl,
+    Tr,
+    Nl,
+    Cs,
+    Ja,
+    Ru,
+    Ar,
+}
+
+impl From<Language> for LanguageDocument {
+    fn from(value: Language) -> Self {
+        match value {
+            Language::De => Self::De,
+            Language::En => Self::En,
+            Language::Fr => Self::Fr,
+            Language::Es => Self::Es,
+            Language::It => Self::It,
+            Language::Zh => Self::Zh,
+            Language::Pt => Self::Pt,
+            Language::Pl => Self::Pl,
+            Language::Tr => Self::Tr,
+            Language::Nl => Self::Nl,
+            Language::Cs => Self::Cs,
+            Language::Ja => Self::Ja,
+            Language::Ru => Self::Ru,
+            Language::Ar => Self::Ar,
+        }
+    }
+}
+impl From<LanguageDocument> for Language {
+    fn from(value: LanguageDocument) -> Self {
+        match value {
+            LanguageDocument::De => Self::De,
+            LanguageDocument::En => Self::En,
+            LanguageDocument::Fr => Self::Fr,
+            LanguageDocument::Es => Self::Es,
+            LanguageDocument::It => Self::It,
+            LanguageDocument::Zh => Self::Zh,
+            LanguageDocument::Pt => Self::Pt,
+            LanguageDocument::Pl => Self::Pl,
+            LanguageDocument::Tr => Self::Tr,
+            LanguageDocument::Nl => Self::Nl,
+            LanguageDocument::Cs => Self::Cs,
+            LanguageDocument::Ja => Self::Ja,
+            LanguageDocument::Ru => Self::Ru,
+            LanguageDocument::Ar => Self::Ar,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum CurrencyDocument {
+    Eur,
+    Gbp,
+    Usd,
+    Aud,
+    Cad,
+    Nzd,
+    Cny,
+    Brl,
+    Pln,
+    Try,
+    Jpy,
+    Czk,
+    Rub,
+    Aed,
+    Sar,
+    Hkd,
+    Sgd,
+    Chf,
+}
+
+impl From<Currency> for CurrencyDocument {
+    fn from(value: Currency) -> Self {
+        match value {
+            Currency::Eur => Self::Eur,
+            Currency::Gbp => Self::Gbp,
+            Currency::Usd => Self::Usd,
+            Currency::Aud => Self::Aud,
+            Currency::Cad => Self::Cad,
+            Currency::Nzd => Self::Nzd,
+            Currency::Cny => Self::Cny,
+            Currency::Brl => Self::Brl,
+            Currency::Pln => Self::Pln,
+            Currency::Try => Self::Try,
+            Currency::Jpy => Self::Jpy,
+            Currency::Czk => Self::Czk,
+            Currency::Rub => Self::Rub,
+            Currency::Aed => Self::Aed,
+            Currency::Sar => Self::Sar,
+            Currency::Hkd => Self::Hkd,
+            Currency::Sgd => Self::Sgd,
+            Currency::Chf => Self::Chf,
+        }
+    }
+}
+impl From<CurrencyDocument> for Currency {
+    fn from(value: CurrencyDocument) -> Self {
+        match value {
+            CurrencyDocument::Eur => Self::Eur,
+            CurrencyDocument::Gbp => Self::Gbp,
+            CurrencyDocument::Usd => Self::Usd,
+            CurrencyDocument::Aud => Self::Aud,
+            CurrencyDocument::Cad => Self::Cad,
+            CurrencyDocument::Nzd => Self::Nzd,
+            CurrencyDocument::Cny => Self::Cny,
+            CurrencyDocument::Brl => Self::Brl,
+            CurrencyDocument::Pln => Self::Pln,
+            CurrencyDocument::Try => Self::Try,
+            CurrencyDocument::Jpy => Self::Jpy,
+            CurrencyDocument::Czk => Self::Czk,
+            CurrencyDocument::Rub => Self::Rub,
+            CurrencyDocument::Aed => Self::Aed,
+            CurrencyDocument::Sar => Self::Sar,
+            CurrencyDocument::Hkd => Self::Hkd,
+            CurrencyDocument::Sgd => Self::Sgd,
+            CurrencyDocument::Chf => Self::Chf,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -446,9 +576,9 @@ fn product_search_from_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::language::domain::Language;
     use common::query::range_query::RangeQuery;
+    use localization::Language;
+    use money::Currency;
     use search_filter_service::ports::SearchFilterProjection;
     use time::macros::datetime;
 

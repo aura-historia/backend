@@ -8,6 +8,8 @@ async-trait = { workspace = true }
 application = { workspace = true }
 common = { workspace = true }
 geo = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 serde = { workspace = true }

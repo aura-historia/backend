@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
+money = { workspace = true }
 strum = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }

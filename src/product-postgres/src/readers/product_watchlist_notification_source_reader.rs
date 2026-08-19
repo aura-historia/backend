@@ -1,9 +1,9 @@
+use localization::Language;
 use std::collections::HashMap;
 
 use common::{
     error::boxed::{BoxError, box_error, static_error},
     event_id::EventId,
-    language::domain::Language,
     product_id::ProductId,
     product_slug_id::ProductSlugId,
     shop_id::ShopId,

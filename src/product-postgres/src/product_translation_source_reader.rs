@@ -1,9 +1,9 @@
 use common::{
     error::boxed::{box_error, static_error},
     event_id::EventId,
-    language::domain::Language,
     product_id::ProductId,
 };
+use localization::Language;
 use product_core::title::Title;
 use product_service::ports::{
     ProductTranslationSource, ProductTranslationSourceReadError, ProductTranslationSourceReader,

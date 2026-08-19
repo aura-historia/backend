@@ -1,10 +1,7 @@
-use common::currency::data::CurrencyData;
+use crate::values::{CurrencyData, LanguageData};
 use common::distance::data::GeoDistanceQueryData;
-
 use common::event_id::EventId;
-use common::language::data::LanguageData;
 use common::patch_field::PatchField;
-use common::price::domain::MonetaryAmount;
 use common::product_id::ProductId;
 use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
@@ -17,6 +14,7 @@ use common::shop_slug_id::ShopSlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use money::MonetaryAmount;
 
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
@@ -542,7 +540,7 @@ pub(super) struct PaginatedData<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::language::domain::Language;
+    use localization::Language;
 
     #[test]
     fn should_map_only_supplied_nested_search_fields_to_product_search_patch()

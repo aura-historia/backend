@@ -6,8 +6,6 @@ use crate::ports::{
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::event_id::EventId;
-use common::language::domain::Language;
-use common::localized::Localized;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
@@ -21,6 +19,8 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
 use product_core::description::Description;
 use product_core::product::{
     NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
@@ -519,9 +519,9 @@ impl From<ProductEventStoreError> for CreateProductError {
 mod tests {
     use super::*;
     use application::transaction::TransactionError;
-    use common::currency::domain::Currency;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;

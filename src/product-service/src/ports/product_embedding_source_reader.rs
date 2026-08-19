@@ -1,7 +1,6 @@
-use common::{
-    error::boxed::BoxError, event_id::EventId, language::domain::Language, localized::Localized,
-    product_id::ProductId,
-};
+use common::{error::boxed::BoxError, event_id::EventId, product_id::ProductId};
+use localization::Language;
+use localization::Localized;
 use product_core::{description::Description, title::Title};
 use url::Url;
 

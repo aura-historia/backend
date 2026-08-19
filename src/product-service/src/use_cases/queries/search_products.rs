@@ -9,12 +9,9 @@ use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::localized::Localized;
 use common::operation_context::{OperationContext, Principal};
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::personalized::Personalized;
-use common::price::domain::Price;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
@@ -29,6 +26,9 @@ use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
+use localization::Language;
+use localization::Localized;
+use money::Price;
 
 use indexmap::IndexSet;
 use notification_service::ports::all_notifications_reader::AllNotificationsReader;
@@ -417,19 +417,19 @@ mod tests {
     use super::*;
     use crate::ports::{ProductUserStateLookup, ProductUserStateReadError};
     use application::transaction::{TransactionError, UnitOfWork};
-    use common::currency::domain::Currency;
     use common::error::boxed::box_error;
     use common::event_id::EventId;
     use common::fx_rate_id::FxRateId;
-    use common::language::domain::Language;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::MonetaryAmount;
     use common::user_id::UserId;
     use embedding::{EmbeddingError, EmbeddingVector};
     use fxrate_core::{
         FX_RATE_SCALE, FxRateQuote, FxRateSnapshot, FxRateSource, NewFxRateSnapshot,
     };
     use fxrate_service::ports::FxRateSnapshotRepositoryFactory;
+    use localization::Language;
+    use money::Currency;
+    use money::MonetaryAmount;
 
     use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
     use notification_core::notification_id::NotificationId;

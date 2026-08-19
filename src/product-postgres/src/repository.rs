@@ -1,11 +1,7 @@
 #![allow(dead_code)]
 
-use common::currency::domain::Currency;
 use common::error::boxed::box_error;
 use common::event_id::EventId;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::{ProductId, ProductKey};
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
@@ -15,6 +11,10 @@ use common::shops_product_id::ShopsProductId;
 use common::versioned::Versioned;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Currency;
+use money::{MonetaryAmount, Price};
 use product_core::description::Description;
 use product_core::product::{
     Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,

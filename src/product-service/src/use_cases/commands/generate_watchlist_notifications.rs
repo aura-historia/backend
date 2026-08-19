@@ -202,8 +202,6 @@ fn notification_payload(source: ProductWatchlistNotificationSource) -> Notificat
     }
 }
 
-fn price_map(
-    price: common::price::domain::Price,
-) -> HashMap<common::currency::domain::Currency, common::price::domain::MonetaryAmount> {
+fn price_map(price: money::Price) -> HashMap<money::Currency, money::MonetaryAmount> {
     HashMap::from([(price.currency, price.monetary_amount)])
 }

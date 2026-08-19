@@ -155,7 +155,8 @@ impl SearchFilterProductMatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{currency::domain::Currency, language::domain::Language};
+    use localization::Language;
+    use money::Currency;
 
     fn sample_filter() -> SearchFilter {
         SearchFilter::create(NewSearchFilter {

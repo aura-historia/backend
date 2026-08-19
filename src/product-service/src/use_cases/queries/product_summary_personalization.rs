@@ -2,8 +2,6 @@ use crate::ports::{ProductUserStateLookup, ProductUserStateReadError, ProductUse
 use crate::use_cases::queries::search_products::PersonalizedProductSummary;
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
-use common::language::domain::Language;
-use common::localized::Localized;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
@@ -13,6 +11,8 @@ use common::shop_name::ShopName;
 use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
+use localization::Language;
+use localization::Localized;
 
 use notification_service::ports::all_notifications_reader::{
     AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,

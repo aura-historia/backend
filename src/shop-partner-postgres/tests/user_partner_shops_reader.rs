@@ -1,12 +1,11 @@
 use ::application::transaction::{Transaction, UnitOfWork};
-use ::common::currency::domain::Currency;
-use ::common::language::domain::Language;
-use ::common::measurement_unit::domain::MeasurementUnit;
 use ::common::shop_id::ShopId;
 use ::common::user_id::UserId;
 use ::platform_postgres::SqlxUnitOfWork;
 use geo::core::{address::StructuredAddress, continent::Continent};
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 use shop_partner_postgres::SqlxUserPartnerShopsReaderFactory;
 use shop_partner_service::ports::{UserPartnerShopsReader, UserPartnerShopsReaderFactory};
@@ -14,6 +13,7 @@ use shop_partner_service::use_cases::list_partner_shops::ListPartnerShopsRequest
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
+use user_core::measurement_unit::MeasurementUnit;
 use user_core::role::UserRole;
 use user_core::tier::UserTier;
 use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};

@@ -11,6 +11,7 @@ pub mod shops;
 pub mod state;
 pub mod transport;
 pub mod users;
+pub(crate) mod values;
 pub mod watchlist;
 pub mod webhooks;
 

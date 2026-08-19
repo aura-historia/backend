@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `shop-core`, `shop-service`, and shared `platform-postgres` UoW primitives.
+- Depends on `shop-core`, `shop-service`, pure `money`/`localization` values, and shared `platform-postgres` UoW primitives.
 - Exports public SQLx factories only.
 - Keeps SQL rows, SQL, mapping, repositories, and readers private.
 - Shop repository writes use `RETURNING` and expose only storage-neutral persisted shop state.

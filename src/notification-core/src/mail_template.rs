@@ -1,4 +1,4 @@
-use common::language::domain::Language;
+use localization::Language;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]

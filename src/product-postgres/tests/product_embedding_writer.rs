@@ -1,7 +1,7 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::{
-    event_id::EventId, language::domain::Language, localized::Localized, product_id::ProductId,
-};
+use common::{event_id::EventId, product_id::ProductId};
+use localization::Language;
+use localization::Localized;
 use platform_postgres::SqlxUnitOfWork;
 const EMBEDDING_DIMENSIONS: usize = 768;
 use product_core::title::Title;

@@ -106,8 +106,8 @@ mod tests {
             Some(NewsletterProfile {
                 first_name: Some(FirstName::from("Ada")),
                 last_name: Some(LastName::from("Lovelace")),
-                language: Some(common::language::domain::Language::En),
-                currency: Some(common::currency::domain::Currency::Eur),
+                language: Some(localization::Language::En),
+                currency: Some(money::Currency::Eur),
             }),
             profile
         );

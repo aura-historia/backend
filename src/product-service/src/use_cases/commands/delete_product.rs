@@ -380,11 +380,7 @@ impl From<ProductEventStoreError> for DeleteProductError {
 mod tests {
     use super::*;
     use application::transaction::TransactionError;
-    use common::currency::domain::Currency;
-    use common::language::domain::Language;
-    use common::localized::Localized;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
     use common::product_state::domain::ProductState;
@@ -392,6 +388,10 @@ mod tests {
     use common::shops_product_id::ShopsProductId;
     use common::versioned::Versioned;
     use indexmap::IndexSet;
+    use localization::Language;
+    use localization::Localized;
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
     use product_core::description::Description;
     use product_core::product::{
         NewProduct, Product, ProductAddress, ProductAuction, ProductDomainEvent, ProductPricing,

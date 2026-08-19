@@ -147,10 +147,7 @@ fn event_payload_json(payload: &ProductDomainEventPayload) -> Value {
 }
 
 fn localized_title_json(
-    title: &common::localized::Localized<
-        common::language::domain::Language,
-        product_core::title::Title,
-    >,
+    title: &localization::Localized<localization::Language, product_core::title::Title>,
 ) -> Value {
     json!({
         "language": title.localization.as_str(),
@@ -159,8 +156,8 @@ fn localized_title_json(
 }
 
 fn localized_description_json(
-    description: &common::localized::Localized<
-        common::language::domain::Language,
+    description: &localization::Localized<
+        localization::Language,
         product_core::description::Description,
     >,
 ) -> Value {
@@ -204,7 +201,7 @@ fn sale_valuation_json(valuation: Option<product_core::product::ProductSaleValua
     })
 }
 
-fn price_json(price: common::price::domain::Price) -> Value {
+fn price_json(price: money::Price) -> Value {
     json!({
         "amount": u64::from(price.monetary_amount),
         "currency": price.currency.as_str(),
@@ -235,14 +232,14 @@ fn auction_json(auction: ProductAuction) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
+    use money::Currency;
 
-    use common::language::domain::Language;
-    use common::localized::Localized;
-    use common::price::domain::{MonetaryAmount, Price};
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_state::domain::ProductState;
     use indexmap::IndexSet;
+    use localization::Language;
+    use localization::Localized;
+    use money::{MonetaryAmount, Price};
     use product_core::description::Description;
     use product_core::product::{
         ProductAddressChanged, ProductAuctionChanged, ProductCreated, ProductDeleted,

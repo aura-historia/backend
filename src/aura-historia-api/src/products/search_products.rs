@@ -4,17 +4,15 @@ use crate::products::product_data::{
     PersonalizedProductSummaryData, personalized_product_summary_data,
 };
 use crate::state::ProductsState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
 use common::distance::data::GeoDistanceQueryData;
 use common::fx_rate_id::FxRateId;
-use common::language::data::LanguageData;
 use common::operation_context::Principal;
 use common::pagination::cursor::Cursor;
-use common::price::domain::MonetaryAmount;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_state::domain::ProductState;
@@ -26,6 +24,7 @@ use common::shop_slug_id::ShopSlugId;
 use common::sort::{Sort, SortOrder};
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
+use money::MonetaryAmount;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use product_core::sort_product_field::SortProductField;
 use product_service::use_cases::{ProductSearchCursor, SearchProductsRequest};
@@ -416,11 +415,11 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::currency::domain::Currency;
-    use common::language::domain::Language;
     use common::operation_context::OperationContext;
     use common::pagination::cursor::Cursor;
     use common::sort::SortOrder;
+    use localization::Language;
+    use money::Currency;
     use product_service::use_cases::{
         GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,

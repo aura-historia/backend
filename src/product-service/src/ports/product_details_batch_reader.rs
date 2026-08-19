@@ -1,9 +1,9 @@
 use crate::ports::PersonalizedProductDetailsReadModel;
 use common::error::boxed::BoxError;
-use common::language::domain::Language;
 use common::product_id::ProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
+use localization::Language;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

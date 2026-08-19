@@ -3,7 +3,6 @@ use crate::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use common::{
-    currency::domain::Currency,
     error::boxed::{BoxError, box_error},
     fx_rate_id::FxRateId,
     operation_context::{OperationAuthorizationError, OperationContext},
@@ -12,6 +11,7 @@ use common::{
 use fxrate_core::{
     FX_RATE_SCALE, FxRateGeneration, FxRateQuote as SnapshotQuote, FxRateSource, NewFxRateSnapshot,
 };
+use money::Currency;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

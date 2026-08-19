@@ -1,8 +1,7 @@
 use crate::products::product_data::ProductImageData;
+use crate::values::{LocalizedTextData, PriceData};
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
-use common::language::data::LocalizedTextData;
-use common::price::data::PriceData;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_state::domain::ProductState;

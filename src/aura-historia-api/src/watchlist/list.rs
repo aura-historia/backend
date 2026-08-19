@@ -5,12 +5,11 @@ use crate::products::product_data::{
     PersonalizedProductDetailsData, personalized_product_details_data,
 };
 use crate::state::WatchlistState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
 use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
 use common::product_id::ProductId;
 use product_service::ports::ProductWatchlistDetailsCursor;
@@ -165,7 +164,6 @@ mod tests {
     use axum::http::{Request, StatusCode, header};
     use common::event_id::EventId;
     use common::fx_rate_id::FxRateId;
-    use common::language::domain::Language;
     use common::operation_context::OperationContext;
     use common::personalized::Personalized;
     use common::product_id::ProductId;
@@ -177,6 +175,7 @@ mod tests {
     use common::shop_slug_id::ShopSlugId;
     use common::shops_product_id::ShopsProductId;
     use common::user_id::UserId;
+    use localization::Language;
     use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
     use product_core::user_state::ProductUserState;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -392,7 +391,7 @@ mod tests {
             ListWatchlistRequest {
                 user_id: actual_user_id,
                 language: Language::De,
-                currency: common::currency::domain::Currency::Eur,
+                currency: money::Currency::Eur,
                 cursor: Cursor { size: 21, search_after: None },
             } if actual_user_id == user_id
         ));

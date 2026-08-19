@@ -7,10 +7,8 @@ use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequ
 use crate::use_cases::queries::get_shop::ShopDetailsView;
 use application::transaction::{Transaction, UnitOfWork};
 use common::change_outcome::ChangeOutcome;
-use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
-use common::language::domain::Language;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
@@ -18,6 +16,8 @@ use common::patch_field::PatchField;
 use common::shop_id::ShopId;
 use common::user_id::UserId;
 use geo::{Geocoder, GeocodingError};
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 use shop_core::{
     address::StructuredAddress,

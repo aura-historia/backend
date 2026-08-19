@@ -10,6 +10,8 @@ platform-postgres = { workspace = true }
 geo = { workspace = true }
 indexmap = { workspace = true }
 isocountry = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 product-core = { workspace = true }
 product-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

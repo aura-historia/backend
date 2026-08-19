@@ -10,6 +10,7 @@
 - `lib.rs` owns runtime config, typed `POSTGRES_*` parsing, axum router, health/readiness endpoints, server loop, and composition root wiring. It uses `platform-postgres` for SQLx pool and transaction mechanics.
 - `state.rs` owns axum application state shared by route modules.
 - `error.rs` owns API problem JSON errors.
+- `values.rs` owns crate-private REST currency, price, language, and localized-text DTOs. It preserves legacy JSON spellings and language aliases, then maps to `money` and `localization` at the API boundary.
 - `auth/` owns bearer auth extraction, Cognito JWT verification via cached JWKS, Aura access-token auth, and mapping to `OperationContext`.
 - Auth accepts Cognito access JWTs and Aura access tokens through one interface. Cognito needs `AURA_HISTORIA_COGNITO_ISSUER`, `AURA_HISTORIA_COGNITO_JWKS_URL`, and comma-separated `AURA_HISTORIA_COGNITO_APP_CLIENT_IDS`; it fetches JWKS with bounded cache/refresh. Cognito maps to open-world first-party `Principal::User`; Aura access tokens map explicit scopes to closed-world delegated capabilities.
 - Auth extractors only authenticate. Required capability and business policy checks belong in service/use-case code, not controllers.

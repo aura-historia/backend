@@ -1,6 +1,4 @@
-use common::currency::domain::Currency;
 use common::event_id::EventId;
-use common::language::domain::Language;
 use common::pagination::cursor::Cursor;
 use common::query::text_query::TextQuery;
 use common::resource_state::domain::ResourceState;
@@ -8,6 +6,8 @@ use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use indexmap::IndexSet;
+use localization::Language;
+use money::Currency;
 use product_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
     product_image::ProductImage,

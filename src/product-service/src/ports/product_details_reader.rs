@@ -2,8 +2,6 @@
 
 use crate::use_cases::queries::get_product::ProductLookup;
 use common::event_id::EventId;
-use common::language::domain::Language;
-use common::localized::Localized;
 use common::personalized::Personalized;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
@@ -15,6 +13,8 @@ use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_image::ProductImage;

@@ -18,6 +18,8 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 application = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 geo = { workspace = true }
 notification-service = { workspace = true }
 shop-postgres = { workspace = true }

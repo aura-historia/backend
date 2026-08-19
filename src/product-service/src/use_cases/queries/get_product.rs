@@ -3,12 +3,9 @@ use crate::ports::{
     ProductDetailsReader, ProductDetailsReaderFactory,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use common::currency::domain::Currency;
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::localized::Localized;
 use common::operation_context::{OperationContext, Principal};
 use common::personalized::Personalized;
 use common::product_id::ProductId;
@@ -25,6 +22,9 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Currency;
 use notification_service::ports::product_notifications_reader::{
     ProductNotificationsReadError, ProductNotificationsReader,
 };
@@ -61,9 +61,9 @@ pub struct ProductPricingPresentation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayProductPricing {
-    pub price: Option<common::price::domain::Price>,
-    pub price_estimate_min: Option<common::price::domain::Price>,
-    pub price_estimate_max: Option<common::price::domain::Price>,
+    pub price: Option<money::Price>,
+    pub price_estimate_min: Option<money::Price>,
+    pub price_estimate_max: Option<money::Price>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,7 +109,7 @@ pub fn present_product_pricing(
         });
     }
 
-    let convert = |price: Option<common::price::domain::Price>| {
+    let convert = |price: Option<money::Price>| {
         price
             .map(|price| snapshot.convert(price, display_currency, RoundingMode::HalfUp))
             .transpose()
@@ -489,10 +489,10 @@ mod tests {
     use crate::ports::ProductDetailsReadModel;
     use application::transaction::TransactionError;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
+    use money::{MonetaryAmount, Price};
     use notification_core::notification::{
         NotificationPartnerApplicationPayload, NotificationPayload,
     };

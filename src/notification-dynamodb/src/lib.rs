@@ -1,12 +1,15 @@
 pub mod all_notifications_reader;
 pub mod batch_writer;
 pub mod conditional_writer;
+pub(crate) mod currency_record;
 pub mod deleter;
+pub(crate) mod language_record;
 pub mod list_notifications_reader;
 pub mod notification_reason_record;
-pub mod notification_record;
+pub(crate) mod notification_record;
 pub mod notification_record_update;
 pub mod notification_type_record;
+pub(crate) mod price_record;
 pub mod product_notifications_reader;
 pub(crate) mod reader_common;
 pub mod repository;

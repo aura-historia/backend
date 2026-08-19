@@ -1,8 +1,6 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::currency::domain::Currency;
 use common::error::boxed::{BoxError, box_error};
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -13,6 +11,8 @@ use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
+use localization::Language;
+use money::Currency;
 use notification_service::ports::all_notifications_reader::{
     AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
 };
@@ -374,10 +374,8 @@ mod tests {
     use super::*;
     use application::transaction::TransactionError;
     use common::event_id::EventId;
-    use common::localized::Localized;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::personalized::Personalized;
-    use common::price::domain::{MonetaryAmount, Price};
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
     use common::product_state::domain::ProductState;
@@ -388,6 +386,8 @@ mod tests {
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
+    use localization::Localized;
+    use money::{MonetaryAmount, Price};
     use product_core::description::Description;
     use product_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,

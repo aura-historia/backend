@@ -10,6 +10,8 @@ geo = { workspace = true }
 fxrate-core = { workspace = true }
 indexmap = { workspace = true }
 isocountry = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 opensearch = { workspace = true }
 product-core = { workspace = true }
 product-service = { workspace = true }

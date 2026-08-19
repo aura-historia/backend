@@ -1,29 +1,24 @@
 use crate::{
     continent_document::ContinentDocument,
-    product_document::{ProductDocument, SalePricesDocument, SourcePriceDocument},
+    product_document::{
+        CurrencyDocument, LanguageDocument, ProductDocument, SalePricesDocument,
+        SourcePriceDocument, TextDocument,
+    },
     product_image_document::ProductImageDocument,
     product_state_document::ProductStateDocument,
     shop_type_document::ShopTypeDocument,
 };
 use common::{
-    currency::{data::CurrencyData, domain::Currency},
-    event_id::EventId,
-    fx_rate_id::FxRateId,
-    language::{
-        document::{LanguageDocument, TextDocument},
-        domain::Language,
-    },
-    product_id::ProductId,
-    product_lifecycle::document::ProductLifecycleDocument,
-    product_slug_id::ProductSlugId,
-    seller_slug_id::SellerSlugId,
-    shop_id::ShopId,
-    shop_slug_id::ShopSlugId,
+    event_id::EventId, fx_rate_id::FxRateId, product_id::ProductId,
+    product_lifecycle::document::ProductLifecycleDocument, product_slug_id::ProductSlugId,
+    seller_slug_id::SellerSlugId, shop_id::ShopId, shop_slug_id::ShopSlugId,
     shops_product_id::ShopsProductId,
 };
 use fxrate_core::{FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use indexmap::IndexSet;
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
 use product_service::ports::{
     ProductPercolationInput, ProductPricesByCurrency, ProductSearchFilterMatchShopType,
     ProductSearchFilterMatchSource,
@@ -293,7 +288,7 @@ pub(crate) fn product_document(
         title_it: translated_title(product, Language::It),
         source_price: product.pricing.price.map(|price| SourcePriceDocument {
             amount: price.monetary_amount.into(),
-            currency: CurrencyData::from(price.currency),
+            currency: CurrencyDocument::from(price.currency),
         }),
         sale_prices,
         sale_fx_rate_id,
@@ -356,7 +351,7 @@ fn sale_projection(
 
 fn sale_prices(
     snapshot: &FxRateSnapshot,
-    source_price: common::price::domain::Price,
+    source_price: money::Price,
 ) -> Result<SalePricesDocument, ProductPercolationDocumentError> {
     let amount_in = |currency| {
         snapshot
@@ -433,7 +428,7 @@ fn translated_title(
 mod tests {
     use super::*;
     use common::{
-        event_id::EventId, localized::Localized, product_lifecycle::domain::ProductLifecycle,
+        event_id::EventId, product_lifecycle::domain::ProductLifecycle,
         product_slug_id::ProductSlugId, product_state::domain::ProductState,
         query::range_query::RangeQuery, shop_id::ShopId, shop_name::ShopName,
         shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
@@ -442,6 +437,7 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use localization::Localized;
     use product_core::product_search::ProductSearch;
     use product_core::{
         product::{
@@ -552,7 +548,7 @@ mod tests {
         source_currency: Currency,
         source_amount: u64,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let source_currency = serde_json::to_value(CurrencyData::from(source_currency))?;
+        let source_currency = serde_json::to_value(CurrencyDocument::from(source_currency))?;
         let active_ranges = price_clause
             .pointer("/bool/should")
             .and_then(Value::as_array)
@@ -643,7 +639,7 @@ mod tests {
         )?
         .into_persisted(FxRateGeneration::try_from(1)?);
         let mut product = source()?;
-        let source_price = common::price::domain::Price::new(12_500_u64.into(), Currency::Gbp);
+        let source_price = money::Price::new(12_500_u64.into(), Currency::Gbp);
         product.pricing.price = Some(source_price);
         product.sale_valuation = Some(ProductSaleValuation {
             fx_rate_id: snapshot.id(),
@@ -749,10 +745,7 @@ mod tests {
                         .ok_or("normal Product price query misses a source currency")?;
 
                     for source_amount in boundary_amounts(native_range.lower, native_range.upper) {
-                        let source_price = common::price::domain::Price::new(
-                            source_amount.into(),
-                            source_currency,
-                        );
+                        let source_price = money::Price::new(source_amount.into(), source_currency);
                         let prices = ProductPricesByCurrency::convert_all(&snapshot, source_price)?;
                         let mut product = source()?;
                         product.pricing.price = Some(source_price);

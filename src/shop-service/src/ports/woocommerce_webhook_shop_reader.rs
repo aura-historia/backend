@@ -1,7 +1,7 @@
-use common::currency::domain::Currency;
 use common::error::boxed::BoxError;
-use common::language::domain::Language;
 use common::shop_id::ShopId;
+use localization::Language;
+use money::Currency;
 use shop_core::partner_status::ShopPartnerStatus;
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,10 +1,10 @@
-use common::currency::domain::Currency;
 use common::domain::Domain;
-use common::language::domain::Language;
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use geo::core::address::{GeoAddress, StructuredAddress};
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use shop_core::affiliate_configuration::AffiliateConfiguration;

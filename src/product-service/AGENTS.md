@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `product-core`, `shop-core`/`shop-service` for Shopify intake eligibility, `notification-service`, shared `common` types, shared `application` transaction contracts, and product-neutral `embedding`. Product text search passes semantic query text to `EmbeddingGenerator::embed_search_query`; embedding failure falls back to BM25.
+- Depends on `product-core`, `money`/`localization` canonical values, `shop-core`/`shop-service` for Shopify intake eligibility, `notification-service`, shared `common` IDs/contracts, shared `application` transaction contracts, and product-neutral `embedding`. Product text search passes semantic query text to `EmbeddingGenerator::embed_search_query`; embedding failure falls back to BM25.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - Write handlers use `application::transaction::UnitOfWork` and transaction-scoped repository/event-store factories. Sold Product creation and transitions capture `sold_at`, then rehydrate latest persisted FX snapshot at or before that instant through a transaction-scoped FX repository, then store immutable sale valuation; missing or invalid data rejects the write.
 - Partner Product create, update, upsert, and delete use cases authorize admins or linked partner users inside their Product transaction. Partner-key writes use `(shopId, shopsProductId)` aggregate lookup. Shopify intake resolves published partner shops through `shop-service` then delegates the authoritative product/event transaction to Product upsert. WooCommerce intake is one Product use case: it uses direct transaction-scoped Shop membership/config/signature ports, maps provider payloads, writes canonical Product state/events, then commits once. It does not call Shop or Product use cases.
@@ -23,6 +23,7 @@
 - `ProductSearchFilterMatchSourceReader` is a transaction-scoped canonical source for accepted current Product CDC events. It returns typed Product, Shop, localized text, image, native pricing, optional immutable `ProductSaleValuation`, immutable `product_events.event_time`, and query data; adapter rows stay private. `ProductCurrentRevisionGuard` locks and verifies the authoritative Product event ID in the final match-write transaction. `ProductPercolationInput` carries only source plus closed-world converted values; no adapter receives an FX snapshot.
 - Ports are public because adapter crates implement them.
 - Port errors carry boxed sources for adapter/read-model failures; do not swallow underlying causes.
+- Legacy Shop and Notification contract values map only through the private `legacy_values` bridge; canonical Product types stay `money`/`localization`.
 - No SQLx, DynamoDB, OpenSearch, transport, or legacy `product` dependency.
 
 ## Ownership

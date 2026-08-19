@@ -1,12 +1,11 @@
+use crate::values::{LocalizedTextData, PriceData};
 use axum::Json;
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
-use common::language::data::LocalizedTextData;
 use common::operation_context::Principal;
 use common::personalized::api::PersonalizedData;
-use common::price::data::PriceData;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;

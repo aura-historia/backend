@@ -1,5 +1,6 @@
 use crate::title::Title;
-use common::{language::domain::Language, localized::Localized};
+use localization::Language;
+use localization::Localized;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]

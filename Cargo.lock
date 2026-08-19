@@ -244,7 +244,9 @@ dependencies = [
  "indexmap 2.14.0",
  "isocountry",
  "jsonwebtokens",
+ "localization",
  "mockall",
+ "money",
  "notification-core",
  "notification-dynamodb",
  "notification-service",
@@ -394,6 +396,8 @@ dependencies = [
  "google-cloud-auth",
  "indexmap 2.14.0",
  "large-language-model",
+ "localization",
+ "money",
  "notification-core",
  "notification-dynamodb",
  "notification-service",
@@ -3047,6 +3051,7 @@ name = "fxrate-core"
 version = "0.1.0"
 dependencies = [
  "common",
+ "money",
  "rstest",
  "strum 0.28.0",
  "thiserror 2.0.20",
@@ -3061,6 +3066,7 @@ dependencies = [
  "common",
  "fxrate-core",
  "fxrate-service",
+ "money",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -3079,6 +3085,7 @@ dependencies = [
  "fxrate-postgres",
  "fxrate-service",
  "lambda_runtime",
+ "money",
  "reqwest 0.12.28",
  "serde_json",
  "serial_test",
@@ -3100,6 +3107,7 @@ dependencies = [
  "common",
  "fxrate-core",
  "fxrate-service",
+ "money",
  "platform-postgres",
  "serial_test",
  "sqlx",
@@ -3118,6 +3126,7 @@ dependencies = [
  "async-trait",
  "common",
  "fxrate-core",
+ "money",
  "strum 0.28.0",
  "thiserror 2.0.20",
  "time",
@@ -4577,6 +4586,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d818ff6435f38d279c0a1e7ad62606336e437be5a2c838a59c966fdf7a3b4f8d"
 
 [[package]]
+name = "localization"
+version = "0.1.0"
+dependencies = [
+ "fake",
+ "rstest",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4773,6 +4792,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "money"
+version = "0.1.0"
+dependencies = [
+ "fake",
+ "rstest",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "mrml"
 version = "6.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4927,6 +4957,8 @@ version = "0.1.0"
 dependencies = [
  "common",
  "fake",
+ "localization",
+ "money",
  "product-core",
  "serde",
  "serde-email",
@@ -4943,7 +4975,9 @@ dependencies = [
  "common",
  "fake",
  "field",
+ "localization",
  "mockall",
+ "money",
  "notification-core",
  "notification-dynamodb",
  "notification-service",
@@ -4953,6 +4987,7 @@ dependencies = [
  "serde",
  "serde_dynamo",
  "serde_fields",
+ "serde_json",
  "serial_test",
  "test-api",
  "thiserror 2.0.20",
@@ -4995,7 +5030,9 @@ dependencies = [
  "async-trait",
  "common",
  "fake",
+ "localization",
  "mockall",
+ "money",
  "notification-core",
  "notification-service",
  "rstest",
@@ -6101,6 +6138,8 @@ dependencies = [
  "html-escape",
  "indexmap 2.14.0",
  "isocountry",
+ "localization",
+ "money",
  "regex",
  "rstest",
  "serde",
@@ -6247,6 +6286,8 @@ dependencies = [
  "geo",
  "indexmap 2.14.0",
  "isocountry",
+ "localization",
+ "money",
  "opensearch",
  "product-core",
  "product-service",
@@ -6299,6 +6340,8 @@ dependencies = [
  "geo",
  "indexmap 2.14.0",
  "isocountry",
+ "localization",
+ "money",
  "platform-postgres",
  "product-core",
  "product-service",
@@ -6331,6 +6374,8 @@ dependencies = [
  "geo",
  "html-to-markdown-rs",
  "indexmap 2.14.0",
+ "localization",
+ "money",
  "notification-core",
  "notification-service",
  "product-core",
@@ -7302,6 +7347,8 @@ dependencies = [
  "common",
  "domain-primitives",
  "fake",
+ "localization",
+ "money",
  "product-core",
  "serde_fields",
 ]
@@ -7382,6 +7429,8 @@ dependencies = [
  "geo",
  "indexmap 2.14.0",
  "isocountry",
+ "localization",
+ "money",
  "opensearch",
  "product-core",
  "product-opensearch",
@@ -7435,6 +7484,8 @@ dependencies = [
  "common",
  "geo",
  "isocountry",
+ "localization",
+ "money",
  "platform-postgres",
  "product-core",
  "search-filter-core",
@@ -7466,6 +7517,8 @@ dependencies = [
  "indexmap 2.14.0",
  "isocountry",
  "large-language-model",
+ "localization",
+ "money",
  "notification-core",
  "notification-service",
  "product-core",
@@ -7992,6 +8045,8 @@ dependencies = [
  "fake",
  "geo",
  "isocountry",
+ "localization",
+ "money",
  "percent-encoding",
  "serde",
  "serde-email",
@@ -8049,6 +8104,8 @@ dependencies = [
  "common",
  "geo",
  "isocountry",
+ "localization",
+ "money",
  "notification-service",
  "platform-postgres",
  "rstest",
@@ -8079,6 +8136,8 @@ dependencies = [
  "common",
  "fake",
  "geo",
+ "localization",
+ "money",
  "notification-core",
  "notification-service",
  "serde",
@@ -8104,6 +8163,8 @@ dependencies = [
  "common",
  "geo",
  "isocountry",
+ "localization",
+ "money",
  "openssl",
  "platform-postgres",
  "rstest",
@@ -8131,6 +8192,8 @@ dependencies = [
  "common",
  "fake",
  "geo",
+ "localization",
+ "money",
  "openssl",
  "serde",
  "serde-email",
@@ -8157,6 +8220,8 @@ dependencies = [
  "html-to-markdown-rs",
  "indexmap 2.14.0",
  "lambda_runtime",
+ "localization",
+ "money",
  "product-core",
  "product-postgres",
  "product-service",
@@ -9727,6 +9792,8 @@ dependencies = [
  "geo",
  "http 1.5.0",
  "isocountry",
+ "localization",
+ "money",
  "prefixed-api-key",
  "rstest",
  "serde",
@@ -9818,6 +9885,8 @@ dependencies = [
  "common",
  "geo",
  "isocountry",
+ "localization",
+ "money",
  "platform-postgres",
  "rstest",
  "serde",
@@ -9843,6 +9912,8 @@ dependencies = [
  "common",
  "fake",
  "geo",
+ "localization",
+ "money",
  "serde",
  "serde-email",
  "serde_json",
@@ -9859,6 +9930,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
+ "localization",
+ "money",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -10093,6 +10166,8 @@ dependencies = [
  "common",
  "fxrate-core",
  "fxrate-service",
+ "localization",
+ "money",
  "notification-core",
  "notification-service",
  "product-core",

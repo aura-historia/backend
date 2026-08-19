@@ -1,6 +1,6 @@
-use common::{
-    currency::domain::Currency, error::boxed::BoxError, language::domain::Language, user_id::UserId,
-};
+use common::{error::boxed::BoxError, user_id::UserId};
+use localization::Language;
+use money::Currency;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NotificationRecipient {

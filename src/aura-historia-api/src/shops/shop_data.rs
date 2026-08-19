@@ -1,9 +1,8 @@
 use crate::shops::types::{ShopPartnerStatusData, ShopTypeData};
+use crate::values::{CurrencyData, LanguageData};
 use axum::Json;
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
 use common::operation_context::Principal;
 use common::shop_id::ShopId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};

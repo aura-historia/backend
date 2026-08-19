@@ -10,12 +10,12 @@ use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::patch_field::PatchField;
-use common::{
-    currency::domain::Currency, language::domain::Language,
-    measurement_unit::domain::MeasurementUnit, user_id::UserId,
-};
+use common::user_id::UserId;
 use geo::core::address::StructuredAddress;
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
+use user_core::measurement_unit::MeasurementUnit;
 use user_core::user::{RehydrateUserError, User, UserPreferences, UserProfile};
 use user_core::{first_name::FirstName, last_name::LastName};
 

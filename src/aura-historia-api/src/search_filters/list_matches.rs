@@ -5,12 +5,12 @@ use crate::products::product_data::{
     PersonalizedProductDetailsData, personalized_product_details_data,
 };
 use crate::state::SearchFiltersState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
+
 use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
 use common::product_id::ProductId;
 use common::sort::SortOrder;

@@ -1,29 +1,20 @@
 use crate::{
+    currency_record::CurrencyRecord, language_record::LanguageRecord,
     notification_reason_record::NotificationReasonRecord,
-    notification_type_record::NotificationTypeRecord,
+    notification_type_record::NotificationTypeRecord, price_record::PriceRecord,
 };
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use common::{
-    currency::domain::Currency,
-    error::missing_field::MissingPersistenceField,
-    event_id::EventId,
-    language::domain::Language,
-    price::{
-        domain::{MonetaryAmount, Price},
-        record::PriceRecord,
-    },
-    product_id::ProductId,
-    product_slug_id::ProductSlugId,
-    product_state::domain::ProductState,
-    shop_id::ShopId,
-    shop_name::ShopName,
-    shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId,
+    error::missing_field::MissingPersistenceField, event_id::EventId, product_id::ProductId,
+    product_slug_id::ProductSlugId, product_state::domain::ProductState, shop_id::ShopId,
+    shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
     user_id::UserId,
 };
 use field::field;
+use localization::Language;
+use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
         Notification, NotificationPartnerApplicationPayload, NotificationPayload,
@@ -45,7 +36,7 @@ use std::collections::HashMap;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
-pub struct NotificationRecord {
+pub(crate) struct NotificationRecord {
     pub pk: String,
     pub sk: String,
     pub lsi1_sk: String,
@@ -250,9 +241,35 @@ fn derive_notification_reason(
 
 fn extract_currency_amount(
     prices: &HashMap<Currency, MonetaryAmount>,
-    currency: &Currency,
+    currency: CurrencyRecord,
 ) -> Option<u64> {
-    prices.get(currency).map(|amount| (*amount).into())
+    prices.get(&currency.into()).map(|amount| (*amount).into())
+}
+
+fn title_for_language(
+    title: Option<&HashMap<Language, Title>>,
+    language: LanguageRecord,
+) -> Option<String> {
+    title
+        .and_then(|title| title.get(&language.into()))
+        .map(|title| String::from(title.clone()))
+}
+
+fn build_title(record: &NotificationRecord) -> Option<HashMap<Language, Title>> {
+    let title: HashMap<Language, Title> = [
+        (LanguageRecord::De, record.title_de.as_ref()),
+        (LanguageRecord::En, record.title_en.as_ref()),
+        (LanguageRecord::Fr, record.title_fr.as_ref()),
+        (LanguageRecord::Es, record.title_es.as_ref()),
+        (LanguageRecord::It, record.title_it.as_ref()),
+    ]
+    .into_iter()
+    .filter_map(|(language, title)| {
+        title.map(|title| (language.into(), Title::from(title.clone())))
+    })
+    .collect();
+
+    (!title.is_empty()).then_some(title)
 }
 
 fn compute_ttl(created: &OffsetDateTime) -> i64 {
@@ -361,43 +378,43 @@ impl NotificationRecord {
                         });
                         (
                             new_native,
-                            extract_currency_amount(new_price, &Currency::Eur),
-                            extract_currency_amount(new_price, &Currency::Usd),
-                            extract_currency_amount(new_price, &Currency::Gbp),
-                            extract_currency_amount(new_price, &Currency::Aud),
-                            extract_currency_amount(new_price, &Currency::Cad),
-                            extract_currency_amount(new_price, &Currency::Nzd),
-                            extract_currency_amount(new_price, &Currency::Cny),
-                            extract_currency_amount(new_price, &Currency::Brl),
-                            extract_currency_amount(new_price, &Currency::Pln),
-                            extract_currency_amount(new_price, &Currency::Try),
-                            extract_currency_amount(new_price, &Currency::Jpy),
-                            extract_currency_amount(new_price, &Currency::Czk),
-                            extract_currency_amount(new_price, &Currency::Rub),
-                            extract_currency_amount(new_price, &Currency::Aed),
-                            extract_currency_amount(new_price, &Currency::Sar),
-                            extract_currency_amount(new_price, &Currency::Hkd),
-                            extract_currency_amount(new_price, &Currency::Sgd),
-                            extract_currency_amount(new_price, &Currency::Chf),
+                            extract_currency_amount(new_price, CurrencyRecord::Eur),
+                            extract_currency_amount(new_price, CurrencyRecord::Usd),
+                            extract_currency_amount(new_price, CurrencyRecord::Gbp),
+                            extract_currency_amount(new_price, CurrencyRecord::Aud),
+                            extract_currency_amount(new_price, CurrencyRecord::Cad),
+                            extract_currency_amount(new_price, CurrencyRecord::Nzd),
+                            extract_currency_amount(new_price, CurrencyRecord::Cny),
+                            extract_currency_amount(new_price, CurrencyRecord::Brl),
+                            extract_currency_amount(new_price, CurrencyRecord::Pln),
+                            extract_currency_amount(new_price, CurrencyRecord::Try),
+                            extract_currency_amount(new_price, CurrencyRecord::Jpy),
+                            extract_currency_amount(new_price, CurrencyRecord::Czk),
+                            extract_currency_amount(new_price, CurrencyRecord::Rub),
+                            extract_currency_amount(new_price, CurrencyRecord::Aed),
+                            extract_currency_amount(new_price, CurrencyRecord::Sar),
+                            extract_currency_amount(new_price, CurrencyRecord::Hkd),
+                            extract_currency_amount(new_price, CurrencyRecord::Sgd),
+                            extract_currency_amount(new_price, CurrencyRecord::Chf),
                             old_native,
-                            extract_currency_amount(old_price, &Currency::Eur),
-                            extract_currency_amount(old_price, &Currency::Usd),
-                            extract_currency_amount(old_price, &Currency::Gbp),
-                            extract_currency_amount(old_price, &Currency::Aud),
-                            extract_currency_amount(old_price, &Currency::Cad),
-                            extract_currency_amount(old_price, &Currency::Nzd),
-                            extract_currency_amount(old_price, &Currency::Cny),
-                            extract_currency_amount(old_price, &Currency::Brl),
-                            extract_currency_amount(old_price, &Currency::Pln),
-                            extract_currency_amount(old_price, &Currency::Try),
-                            extract_currency_amount(old_price, &Currency::Jpy),
-                            extract_currency_amount(old_price, &Currency::Czk),
-                            extract_currency_amount(old_price, &Currency::Rub),
-                            extract_currency_amount(old_price, &Currency::Aed),
-                            extract_currency_amount(old_price, &Currency::Sar),
-                            extract_currency_amount(old_price, &Currency::Hkd),
-                            extract_currency_amount(old_price, &Currency::Sgd),
-                            extract_currency_amount(old_price, &Currency::Chf),
+                            extract_currency_amount(old_price, CurrencyRecord::Eur),
+                            extract_currency_amount(old_price, CurrencyRecord::Usd),
+                            extract_currency_amount(old_price, CurrencyRecord::Gbp),
+                            extract_currency_amount(old_price, CurrencyRecord::Aud),
+                            extract_currency_amount(old_price, CurrencyRecord::Cad),
+                            extract_currency_amount(old_price, CurrencyRecord::Nzd),
+                            extract_currency_amount(old_price, CurrencyRecord::Cny),
+                            extract_currency_amount(old_price, CurrencyRecord::Brl),
+                            extract_currency_amount(old_price, CurrencyRecord::Pln),
+                            extract_currency_amount(old_price, CurrencyRecord::Try),
+                            extract_currency_amount(old_price, CurrencyRecord::Jpy),
+                            extract_currency_amount(old_price, CurrencyRecord::Czk),
+                            extract_currency_amount(old_price, CurrencyRecord::Rub),
+                            extract_currency_amount(old_price, CurrencyRecord::Aed),
+                            extract_currency_amount(old_price, CurrencyRecord::Sar),
+                            extract_currency_amount(old_price, CurrencyRecord::Hkd),
+                            extract_currency_amount(old_price, CurrencyRecord::Sgd),
+                            extract_currency_amount(old_price, CurrencyRecord::Chf),
                             None,
                             None,
                         )
@@ -470,26 +487,11 @@ impl NotificationRecord {
                     shop_id: Some(shop_id),
                     shops_product_id: Some(shops_product_id),
                     shop_name: Some(String::from(shop_name)),
-                    title_de: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::De))
-                        .map(|t| String::from(t.clone())),
-                    title_en: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::En))
-                        .map(|t| String::from(t.clone())),
-                    title_fr: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::Fr))
-                        .map(|t| String::from(t.clone())),
-                    title_es: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::Es))
-                        .map(|t| String::from(t.clone())),
-                    title_it: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::It))
-                        .map(|t| String::from(t.clone())),
+                    title_de: title_for_language(title.as_ref(), LanguageRecord::De),
+                    title_en: title_for_language(title.as_ref(), LanguageRecord::En),
+                    title_fr: title_for_language(title.as_ref(), LanguageRecord::Fr),
+                    title_es: title_for_language(title.as_ref(), LanguageRecord::Es),
+                    title_it: title_for_language(title.as_ref(), LanguageRecord::It),
                     user_search_filter_id: None,
                     user_search_filter_name: None,
                     url: Some(url),
@@ -576,26 +578,11 @@ impl NotificationRecord {
                     shop_id: Some(shop_id),
                     shops_product_id: Some(shops_product_id),
                     shop_name: Some(String::from(shop_name)),
-                    title_de: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::De))
-                        .map(|t| String::from(t.clone())),
-                    title_en: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::En))
-                        .map(|t| String::from(t.clone())),
-                    title_fr: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::Fr))
-                        .map(|t| String::from(t.clone())),
-                    title_es: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::Es))
-                        .map(|t| String::from(t.clone())),
-                    title_it: title
-                        .as_ref()
-                        .and_then(|title| title.get(&Language::It))
-                        .map(|t| String::from(t.clone())),
+                    title_de: title_for_language(title.as_ref(), LanguageRecord::De),
+                    title_en: title_for_language(title.as_ref(), LanguageRecord::En),
+                    title_fr: title_for_language(title.as_ref(), LanguageRecord::Fr),
+                    title_es: title_for_language(title.as_ref(), LanguageRecord::Es),
+                    title_it: title_for_language(title.as_ref(), LanguageRecord::It),
                     user_search_filter_id: Some(search_filter_payload.user_search_filter_id),
                     user_search_filter_name: Some(String::from(
                         search_filter_payload.user_search_filter_name,
@@ -751,7 +738,7 @@ impl NotificationRecord {
 
 fn build_price_map(
     native: Option<PriceRecord>,
-    currency_amounts: &[(Currency, Option<u64>)],
+    currency_amounts: &[(CurrencyRecord, Option<u64>)],
 ) -> HashMap<Currency, MonetaryAmount> {
     let mut map = HashMap::new();
     if let Some(native) = native {
@@ -759,8 +746,8 @@ fn build_price_map(
         map.insert(price.currency, price.monetary_amount);
     }
     for &(currency, amount) in currency_amounts {
-        if let Some(v) = amount {
-            map.insert(currency, MonetaryAmount::from(v));
+        if let Some(amount) = amount {
+            map.insert(currency.into(), amount.into());
         }
     }
     map
@@ -793,23 +780,7 @@ impl TryFrom<NotificationRecord> for Notification {
                 partner_application_payload,
             }
         } else {
-            let mut title = HashMap::new();
-            if let Some(t) = record.title_de {
-                title.insert(Language::De, Title::from(t));
-            }
-            if let Some(t) = record.title_en {
-                title.insert(Language::En, Title::from(t));
-            }
-            if let Some(t) = record.title_fr {
-                title.insert(Language::Fr, Title::from(t));
-            }
-            if let Some(t) = record.title_es {
-                title.insert(Language::Es, Title::from(t));
-            }
-            if let Some(t) = record.title_it {
-                title.insert(Language::It, Title::from(t));
-            }
-            let title = if title.is_empty() { None } else { Some(title) };
+            let title = build_title(&record);
 
             let product_id = record.product_id.ok_or_else(|| {
                 MissingPersistenceField::new(field!(product_id@NotificationRecord))
@@ -889,47 +860,47 @@ impl TryFrom<NotificationRecord> for Notification {
                         old_price: build_price_map(
                             record.old_price_native,
                             &[
-                                (Currency::Eur, record.old_price_eur),
-                                (Currency::Usd, record.old_price_usd),
-                                (Currency::Gbp, record.old_price_gbp),
-                                (Currency::Aud, record.old_price_aud),
-                                (Currency::Cad, record.old_price_cad),
-                                (Currency::Nzd, record.old_price_nzd),
-                                (Currency::Cny, record.old_price_cny),
-                                (Currency::Brl, record.old_price_brl),
-                                (Currency::Pln, record.old_price_pln),
-                                (Currency::Try, record.old_price_try),
-                                (Currency::Jpy, record.old_price_jpy),
-                                (Currency::Czk, record.old_price_czk),
-                                (Currency::Rub, record.old_price_rub),
-                                (Currency::Aed, record.old_price_aed),
-                                (Currency::Sar, record.old_price_sar),
-                                (Currency::Hkd, record.old_price_hkd),
-                                (Currency::Sgd, record.old_price_sgd),
-                                (Currency::Chf, record.old_price_chf),
+                                (CurrencyRecord::Eur, record.old_price_eur),
+                                (CurrencyRecord::Usd, record.old_price_usd),
+                                (CurrencyRecord::Gbp, record.old_price_gbp),
+                                (CurrencyRecord::Aud, record.old_price_aud),
+                                (CurrencyRecord::Cad, record.old_price_cad),
+                                (CurrencyRecord::Nzd, record.old_price_nzd),
+                                (CurrencyRecord::Cny, record.old_price_cny),
+                                (CurrencyRecord::Brl, record.old_price_brl),
+                                (CurrencyRecord::Pln, record.old_price_pln),
+                                (CurrencyRecord::Try, record.old_price_try),
+                                (CurrencyRecord::Jpy, record.old_price_jpy),
+                                (CurrencyRecord::Czk, record.old_price_czk),
+                                (CurrencyRecord::Rub, record.old_price_rub),
+                                (CurrencyRecord::Aed, record.old_price_aed),
+                                (CurrencyRecord::Sar, record.old_price_sar),
+                                (CurrencyRecord::Hkd, record.old_price_hkd),
+                                (CurrencyRecord::Sgd, record.old_price_sgd),
+                                (CurrencyRecord::Chf, record.old_price_chf),
                             ],
                         ),
                         new_price: build_price_map(
                             record.new_price_native,
                             &[
-                                (Currency::Eur, record.new_price_eur),
-                                (Currency::Usd, record.new_price_usd),
-                                (Currency::Gbp, record.new_price_gbp),
-                                (Currency::Aud, record.new_price_aud),
-                                (Currency::Cad, record.new_price_cad),
-                                (Currency::Nzd, record.new_price_nzd),
-                                (Currency::Cny, record.new_price_cny),
-                                (Currency::Brl, record.new_price_brl),
-                                (Currency::Pln, record.new_price_pln),
-                                (Currency::Try, record.new_price_try),
-                                (Currency::Jpy, record.new_price_jpy),
-                                (Currency::Czk, record.new_price_czk),
-                                (Currency::Rub, record.new_price_rub),
-                                (Currency::Aed, record.new_price_aed),
-                                (Currency::Sar, record.new_price_sar),
-                                (Currency::Hkd, record.new_price_hkd),
-                                (Currency::Sgd, record.new_price_sgd),
-                                (Currency::Chf, record.new_price_chf),
+                                (CurrencyRecord::Eur, record.new_price_eur),
+                                (CurrencyRecord::Usd, record.new_price_usd),
+                                (CurrencyRecord::Gbp, record.new_price_gbp),
+                                (CurrencyRecord::Aud, record.new_price_aud),
+                                (CurrencyRecord::Cad, record.new_price_cad),
+                                (CurrencyRecord::Nzd, record.new_price_nzd),
+                                (CurrencyRecord::Cny, record.new_price_cny),
+                                (CurrencyRecord::Brl, record.new_price_brl),
+                                (CurrencyRecord::Pln, record.new_price_pln),
+                                (CurrencyRecord::Try, record.new_price_try),
+                                (CurrencyRecord::Jpy, record.new_price_jpy),
+                                (CurrencyRecord::Czk, record.new_price_czk),
+                                (CurrencyRecord::Rub, record.new_price_rub),
+                                (CurrencyRecord::Aed, record.new_price_aed),
+                                (CurrencyRecord::Sar, record.new_price_sar),
+                                (CurrencyRecord::Hkd, record.new_price_hkd),
+                                (CurrencyRecord::Sgd, record.new_price_sgd),
+                                (CurrencyRecord::Chf, record.new_price_chf),
                             ],
                         ),
                     }

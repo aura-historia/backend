@@ -1,7 +1,4 @@
-use common::currency::domain::Currency;
 use common::distance::domain::GeoDistanceQuery;
-use common::language::domain::Language;
-use common::price::domain::MonetaryAmount;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_state::domain::ProductState;
@@ -14,6 +11,9 @@ use common::shop_slug_id::ShopSlugId;
 use common::string_newtype;
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
+use money::MonetaryAmount;
 use serde_fields::SerdeField;
 use shop_core::shop_type::ShopType;
 use time::OffsetDateTime;

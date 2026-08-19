@@ -2,11 +2,10 @@ use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, BAD_QUERY_PARAMETER_VALUE};
 use crate::products::product_data::product_response;
 use crate::state::ProductsState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
 use common::product_slug_id::ProductSlugId;
 use common::shop_slug_id::ShopSlugId;
 use product_service::use_cases::{GetProductRequest, ProductLookup};
@@ -91,8 +90,8 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use common::language::domain::Language;
     use common::operation_context::OperationContext;
+    use localization::Language;
     use product_service::use_cases::{
         GetProductError, GetProductUseCase, GetSimilarProductsError, GetSimilarProductsRequest,
         GetSimilarProductsResult, GetSimilarProductsUseCase, SearchProductsError,
@@ -184,7 +183,7 @@ mod tests {
                     product_slug_id,
                 },
                 language: Language::En,
-                currency: common::currency::domain::Currency::Eur,
+                currency: money::Currency::Eur,
             }] if shop_slug_id.as_ref() == raw_shop_slug_id
                 && product_slug_id.as_ref() == raw_product_slug_id
         ));
@@ -209,7 +208,7 @@ mod tests {
             [GetProductRequest {
                 lookup: ProductLookup::BySlug { .. },
                 language: Language::De,
-                currency: common::currency::domain::Currency::Usd,
+                currency: money::Currency::Usd,
             }]
         ));
         Ok(())

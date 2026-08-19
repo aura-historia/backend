@@ -1,12 +1,12 @@
 use crate::description::Description;
 use crate::product_image::ProductImage;
 use crate::title::Title;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::Price;
 use common::product_state::domain::ProductState;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Price;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -212,8 +212,8 @@ mod faker_payloads {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::price::domain::MonetaryAmount;
+    use money::Currency;
+    use money::MonetaryAmount;
 
     fn price(amount: u64, currency: Currency) -> Price {
         Price::new(MonetaryAmount::from(amount), currency)

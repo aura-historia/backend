@@ -1,9 +1,9 @@
 use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
-use common::currency::domain::Currency;
 use common::event_id::EventId;
 use common::product_id::ProductId;
+use money::{Currency, MonetaryAmount};
 use platform_postgres::SqlxUnitOfWork;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -502,11 +502,11 @@ fn assert_price_change(
         return Err(std::io::Error::other("notification was not a watchlist price change").into());
     };
     assert_eq!(
-        Some(&common::price::domain::MonetaryAmount::from(old_amount)),
+        Some(&MonetaryAmount::from(old_amount)),
         old_price.get(&Currency::Eur)
     );
     assert_eq!(
-        Some(&common::price::domain::MonetaryAmount::from(new_amount)),
+        Some(&MonetaryAmount::from(new_amount)),
         new_price.get(&Currency::Eur)
     );
     Ok(())

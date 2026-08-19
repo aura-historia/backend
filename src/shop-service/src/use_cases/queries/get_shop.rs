@@ -1,11 +1,11 @@
 use crate::ports::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory, StoredShop};
 use application::transaction::{Transaction, UnitOfWork};
-use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::error::boxed::BoxError;
-use common::language::domain::Language;
 use common::operation_context::OperationContext;
 use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 use shop_core::{
     address::{GeoAddress, StructuredAddress},

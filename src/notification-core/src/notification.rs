@@ -3,20 +3,12 @@ use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use common::{
-    currency::domain::Currency,
-    event_id::EventId,
-    language::domain::Language,
-    localized::Localized,
-    price::domain::{MonetaryAmount, Price},
-    product_id::ProductId,
-    product_slug_id::ProductSlugId,
-    product_state::domain::ProductState,
-    shop_id::ShopId,
-    shop_name::ShopName,
-    shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId,
-    user_id::UserId,
+    event_id::EventId, product_id::ProductId, product_slug_id::ProductSlugId,
+    product_state::domain::ProductState, shop_id::ShopId, shop_name::ShopName,
+    shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId, user_id::UserId,
 };
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
 use product_core::product_image::ProductImage;
 use product_core::title::Title;
 use std::collections::HashMap;

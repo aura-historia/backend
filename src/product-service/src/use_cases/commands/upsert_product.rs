@@ -10,13 +10,13 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 
-use common::language::domain::Language;
-use common::localized::Localized;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::price::domain::Price;
 use common::product_id::{ProductId, ProductKey};
+use localization::Language;
+use localization::Localized;
+use money::Price;
 
 use application::transaction::{Transaction, UnitOfWork};
 use common::product_state::domain::ProductState;
@@ -632,11 +632,11 @@ impl From<ProductEventStoreError> for UpsertProductError {
 mod tests {
     use super::*;
     use application::transaction::TransactionError;
-    use common::currency::domain::Currency;
     use common::event_id::EventId;
     use common::operation_context::{CorrelationId, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
     use common::versioned::Versioned;
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};
 

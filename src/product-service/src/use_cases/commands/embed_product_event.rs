@@ -254,12 +254,11 @@ impl From<ProductEmbeddingWriteError> for EmbedProductEventError {
 mod tests {
     use super::*;
     use common::{
-        language::domain::Language,
-        localized::Localized,
         operation_context::{CorrelationId, Principal, RequestId},
         transaction::TransactionError,
     };
     use embedding::{EMBEDDING_DIMENSIONS, EmbeddingVector};
+    use localization::{Language, Localized};
     use product_core::{description::Description, title::Title};
     use std::sync::{Arc, Mutex};
     use url::Url;

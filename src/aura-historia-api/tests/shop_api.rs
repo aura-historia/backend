@@ -584,8 +584,8 @@ async fn seed_shop() -> Shop {
         }),
         woocommerce: Some(WoocommerceIntegration {
             webhook_secret: Some(WoocommerceWebhookSecret::from("secret")),
-            currency: Some(common::currency::domain::Currency::Eur),
-            language: Some(common::language::domain::Language::De),
+            currency: Some(money::Currency::Eur),
+            language: Some(localization::Language::De),
         }),
         presentation: ShopPresentation {
             url: Some(url("https://api-integration-shop.example/")),

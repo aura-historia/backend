@@ -15,6 +15,8 @@ user-core = { workspace = true }
 user-service = { workspace = true }
 
 [dev-dependencies]
+localization = { workspace = true }
+money = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 url = { workspace = true }
 wiremock = "0.6"

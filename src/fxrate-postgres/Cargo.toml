@@ -9,6 +9,7 @@ common = { workspace = true }
 platform-postgres = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
+money = { workspace = true }
 sqlx = { workspace = true }
 strum = { workspace = true }
 thiserror = { workspace = true }

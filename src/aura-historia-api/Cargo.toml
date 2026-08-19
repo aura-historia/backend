@@ -19,6 +19,8 @@ google-cloud-auth = { workspace = true }
 http = { workspace = true }
 httpdate = { workspace = true }
 indexmap = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 oauth-core = { workspace = true }
 oauth-dynamodb = { workspace = true }
 oauth-service = { workspace = true }

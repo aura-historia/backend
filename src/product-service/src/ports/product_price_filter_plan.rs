@@ -1,8 +1,7 @@
-use common::{
-    currency::domain::Currency, fx_rate_id::FxRateId, price::domain::MonetaryAmount,
-    query::range_query::RangeQuery,
-};
+use common::{fx_rate_id::FxRateId, query::range_query::RangeQuery};
 use fxrate_core::{DisplayAmountRange, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
+use money::Currency;
+use money::MonetaryAmount;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductPriceFilterPlan {
@@ -79,7 +78,7 @@ impl ProductPriceFilterPlan {
     ) -> Result<u64, FxRateSnapshotError> {
         self.snapshot
             .convert(
-                common::price::domain::Price::new(source_amount.into(), source_currency),
+                money::Price::new(source_amount.into(), source_currency),
                 self.target_currency,
                 RoundingMode::HalfUp,
             )
@@ -233,7 +232,7 @@ mod tests {
                             });
                         let percolated_amount = ProductPricesByCurrency::convert_all(
                             &snapshot,
-                            common::price::domain::Price::new(amount.into(), source_currency),
+                            money::Price::new(amount.into(), source_currency),
                         )?
                         .amount_in(target_currency);
                         let saved_filter_membership = range

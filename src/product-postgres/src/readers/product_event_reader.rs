@@ -1,11 +1,11 @@
-use common::currency::domain::Currency;
 use common::event_id::EventId;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_state::domain::ProductState;
+use localization::Language;
+use localization::Localized;
+use money::Currency;
+use money::{MonetaryAmount, Price};
 
 use common::fx_rate_id::FxRateId;
 use indexmap::IndexSet;

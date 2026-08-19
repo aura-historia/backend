@@ -2,12 +2,12 @@ use crate::ports::list_notifications_reader::{
     ListNotificationsReadError, ListNotificationsReader,
 };
 use common::{
-    currency::domain::Currency,
     event_id::EventId,
-    language::domain::Language,
     pagination::cursor::{Cursor, CursoredResult},
     user_id::UserId,
 };
+use localization::Language;
+use money::Currency;
 use notification_core::{
     notification::LocalizedNotificationPayload, notification_id::NotificationId,
 };

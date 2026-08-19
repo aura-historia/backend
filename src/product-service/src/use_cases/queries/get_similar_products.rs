@@ -8,11 +8,11 @@ use crate::use_cases::queries::product_summary_personalization::{
     ProductSummaryPersonalizationError, hydrate_product_summaries,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use common::currency::domain::Currency;
 use common::error::boxed::{BoxError, box_error};
-use common::language::domain::Language;
 use common::operation_context::{OperationContext, Principal};
 use common::personalized::Personalized;
+use localization::Language;
+use money::Currency;
 
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -280,13 +280,10 @@ mod tests {
     use crate::ports::{ProductEmbedding, ProductSimilarProductsReadError};
     use crate::use_cases::{ProductSummary, ProductSummaryPriceValuation};
     use application::transaction::TransactionError;
-    use common::currency::domain::Currency;
     use common::error::boxed::box_error;
     use common::event_id::EventId;
     use common::fx_rate_id::FxRateId;
-    use common::localized::Localized;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
     use common::product_id::ProductId;
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
@@ -297,6 +294,9 @@ mod tests {
     use common::shops_product_id::ShopsProductId;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
+    use localization::Localized;
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
     use notification_service::ports::all_notifications_reader::{
         AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
     };

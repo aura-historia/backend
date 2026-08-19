@@ -1,13 +1,13 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::currency::domain::Currency;
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
 use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use localization::Language;
+use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
 use product_core::{product::ProductPriceValuationBasis, product_search::ProductSearch};
 use search_filter_core::{

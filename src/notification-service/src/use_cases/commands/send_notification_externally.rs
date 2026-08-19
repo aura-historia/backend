@@ -117,12 +117,12 @@ mod tests {
     use super::*;
     use crate::ports::notification_recipient_reader::NotificationRecipient;
     use common::{
-        currency::domain::Currency,
         error::boxed::{BoxError, box_error},
-        language::domain::Language,
         partner_shop_application_id::PartnerShopApplicationId,
         shop_name::ShopName,
     };
+    use localization::Language;
+    use money::Currency;
     use notification_core::{
         notification::{
             NotificationPartnerApplicationPayload, NotificationPayload, RehydratedNotificationState,

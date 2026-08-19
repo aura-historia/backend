@@ -1,7 +1,6 @@
-use common::{
-    error::boxed::BoxError, event_id::EventId, language::domain::Language, product_id::ProductId,
-};
+use common::{error::boxed::BoxError, event_id::EventId, product_id::ProductId};
 use indexmap::IndexMap;
+use localization::Language;
 use product_core::title::Title;
 
 #[derive(Debug, Clone, PartialEq)]

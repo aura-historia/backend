@@ -1,9 +1,7 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
-use common::currency::domain::Currency;
 use common::domain::Domain;
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
 use common::postgres::SqlxUnitOfWork;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;
@@ -14,6 +12,8 @@ use fxrate_service::ports::{
     FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryFactory,
 };
 use lambda_runtime::{Context, LambdaEvent};
+use localization::Language;
+use money::Currency;
 use product_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
 };

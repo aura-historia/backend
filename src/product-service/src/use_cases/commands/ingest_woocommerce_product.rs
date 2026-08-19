@@ -7,9 +7,7 @@ use crate::use_cases::{
 };
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
-use common::localized::Localized;
 use common::operation_context::{CredentialCapability, OperationContext, Principal};
-use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
@@ -19,6 +17,8 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
+use localization::Localized;
+use money::{MonetaryAmount, Price};
 use product_core::description::Description;
 use product_core::product::{
     NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
@@ -138,8 +138,8 @@ pub trait IngestWoocommerceProductUseCase: Send + Sync {
 struct CanonicalWoocommerceProduct {
     shop_id: ShopId,
     shops_product_id: ShopsProductId,
-    title: Localized<common::language::domain::Language, Title>,
-    description: Option<Localized<common::language::domain::Language, Description>>,
+    title: Localized<localization::Language, Title>,
+    description: Option<Localized<localization::Language, Description>>,
     price: Option<Price>,
     state: ProductState,
     url: Url,
@@ -695,7 +695,7 @@ impl From<WoocommerceWebhookShopReadError> for IngestWoocommerceProductError {
 
 fn parse_price(
     value: Option<&str>,
-    currency: Option<common::currency::domain::Currency>,
+    currency: Option<money::Currency>,
 ) -> Result<Option<Price>, IngestWoocommerceProductError> {
     let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
@@ -747,10 +747,7 @@ mod tests {
 
     #[test]
     fn should_parse_woocommerce_price_with_truncated_minor_digits() {
-        let price = parse_price(
-            Some("42.699"),
-            Some(common::currency::domain::Currency::Eur),
-        );
+        let price = parse_price(Some("42.699"), Some(money::Currency::Eur));
         assert!(matches!(
             price,
             Ok(Some(value)) if value.monetary_amount == MonetaryAmount::from(4_269_u64)
@@ -773,6 +770,8 @@ mod tests {
     use common::event_id::EventId;
     use common::operation_context::{CorrelationId, RequestId};
     use common::versioned::Versioned;
+    use localization::Language;
+    use money::Currency;
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -847,8 +846,8 @@ mod tests {
             shop: Some(WoocommerceWebhookShop {
                 shop_id,
                 partner_status: ShopPartnerStatus::Partnered,
-                currency: Some(common::currency::domain::Currency::Eur),
-                language: Some(common::language::domain::Language::En),
+                currency: Some(Currency::Eur),
+                language: Some(Language::En),
             }),
             ..Default::default()
         }))

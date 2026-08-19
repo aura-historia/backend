@@ -1,7 +1,6 @@
 use crate::shops::types::ShopTypeData;
-use common::currency::data::CurrencyData;
+use crate::values::{CurrencyData, LanguageData};
 use common::domain::Domain;
-use common::language::data::LanguageData;
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::shop_id::ShopId;
 use common::shop_name::ShopName;

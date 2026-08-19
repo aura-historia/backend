@@ -1,6 +1,4 @@
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
-use common::measurement_unit::data::MeasurementUnitData;
+use crate::values::{CurrencyData, LanguageData, MeasurementUnitData};
 use common::user_id::UserId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};

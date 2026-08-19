@@ -1,5 +1,5 @@
+use common::error::boxed::box_error;
 use common::event_id::EventId;
-use common::language::data::LanguageData;
 use common::product_id::ProductId;
 use common::product_lifecycle::data::ProductLifecycleData;
 use common::product_state::domain::ProductState;
@@ -12,10 +12,11 @@ use common::shop_slug_id::ShopSlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
-use common::{currency::data::CurrencyData, error::boxed::box_error};
 
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};
 use search_filter_service::ports::{
@@ -300,8 +301,8 @@ pub(crate) fn name(v: String) -> Result<UserSearchFilterName, SearchFilterRowMap
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductSearchJson {
-    language: LanguageData,
-    currency: CurrencyData,
+    language: LanguageJson,
+    currency: CurrencyJson,
     product_query: Vec<common::query::text_query::TextQuery<1>>,
     enhanced_search_description: Option<String>,
     exclude_product_id_query: HashSet<ProductId>,
@@ -325,6 +326,140 @@ struct ProductSearchJson {
     auction_start_query: Option<TimeRangeJson>,
     auction_end_query: Option<TimeRangeJson>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum LanguageJson {
+    De,
+    En,
+    Fr,
+    Es,
+    It,
+    Zh,
+    Pt,
+    Pl,
+    Tr,
+    Nl,
+    Cs,
+    Ja,
+    Ru,
+    Ar,
+}
+
+impl From<Language> for LanguageJson {
+    fn from(value: Language) -> Self {
+        match value {
+            Language::De => Self::De,
+            Language::En => Self::En,
+            Language::Fr => Self::Fr,
+            Language::Es => Self::Es,
+            Language::It => Self::It,
+            Language::Zh => Self::Zh,
+            Language::Pt => Self::Pt,
+            Language::Pl => Self::Pl,
+            Language::Tr => Self::Tr,
+            Language::Nl => Self::Nl,
+            Language::Cs => Self::Cs,
+            Language::Ja => Self::Ja,
+            Language::Ru => Self::Ru,
+            Language::Ar => Self::Ar,
+        }
+    }
+}
+
+impl From<LanguageJson> for Language {
+    fn from(value: LanguageJson) -> Self {
+        match value {
+            LanguageJson::De => Self::De,
+            LanguageJson::En => Self::En,
+            LanguageJson::Fr => Self::Fr,
+            LanguageJson::Es => Self::Es,
+            LanguageJson::It => Self::It,
+            LanguageJson::Zh => Self::Zh,
+            LanguageJson::Pt => Self::Pt,
+            LanguageJson::Pl => Self::Pl,
+            LanguageJson::Tr => Self::Tr,
+            LanguageJson::Nl => Self::Nl,
+            LanguageJson::Cs => Self::Cs,
+            LanguageJson::Ja => Self::Ja,
+            LanguageJson::Ru => Self::Ru,
+            LanguageJson::Ar => Self::Ar,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum CurrencyJson {
+    Eur,
+    Gbp,
+    Usd,
+    Aud,
+    Cad,
+    Nzd,
+    Cny,
+    Brl,
+    Pln,
+    Try,
+    Jpy,
+    Czk,
+    Rub,
+    Aed,
+    Sar,
+    Hkd,
+    Sgd,
+    Chf,
+}
+
+impl From<Currency> for CurrencyJson {
+    fn from(value: Currency) -> Self {
+        match value {
+            Currency::Eur => Self::Eur,
+            Currency::Gbp => Self::Gbp,
+            Currency::Usd => Self::Usd,
+            Currency::Aud => Self::Aud,
+            Currency::Cad => Self::Cad,
+            Currency::Nzd => Self::Nzd,
+            Currency::Cny => Self::Cny,
+            Currency::Brl => Self::Brl,
+            Currency::Pln => Self::Pln,
+            Currency::Try => Self::Try,
+            Currency::Jpy => Self::Jpy,
+            Currency::Czk => Self::Czk,
+            Currency::Rub => Self::Rub,
+            Currency::Aed => Self::Aed,
+            Currency::Sar => Self::Sar,
+            Currency::Hkd => Self::Hkd,
+            Currency::Sgd => Self::Sgd,
+            Currency::Chf => Self::Chf,
+        }
+    }
+}
+
+impl From<CurrencyJson> for Currency {
+    fn from(value: CurrencyJson) -> Self {
+        match value {
+            CurrencyJson::Eur => Self::Eur,
+            CurrencyJson::Gbp => Self::Gbp,
+            CurrencyJson::Usd => Self::Usd,
+            CurrencyJson::Aud => Self::Aud,
+            CurrencyJson::Cad => Self::Cad,
+            CurrencyJson::Nzd => Self::Nzd,
+            CurrencyJson::Cny => Self::Cny,
+            CurrencyJson::Brl => Self::Brl,
+            CurrencyJson::Pln => Self::Pln,
+            CurrencyJson::Try => Self::Try,
+            CurrencyJson::Jpy => Self::Jpy,
+            CurrencyJson::Czk => Self::Czk,
+            CurrencyJson::Rub => Self::Rub,
+            CurrencyJson::Aed => Self::Aed,
+            CurrencyJson::Sar => Self::Sar,
+            CurrencyJson::Hkd => Self::Hkd,
+            CurrencyJson::Sgd => Self::Sgd,
+            CurrencyJson::Chf => Self::Chf,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 enum ShopTypeJson {
@@ -528,8 +663,8 @@ pub(crate) fn product_search_to_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::language::domain::Language;
+    use localization::Language;
+    use money::Currency;
     #[test]
     fn should_round_trip_full_product_search_json() {
         let search = ProductSearch::new(Language::De, Currency::Usd).with_product_query(

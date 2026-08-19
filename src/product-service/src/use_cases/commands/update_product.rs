@@ -10,7 +10,6 @@ use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::patch_field::PatchField;
-use common::price::domain::Price;
 use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
 use common::user_id::UserId;
@@ -18,6 +17,7 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
+use money::Price;
 use product_core::product::{
     ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     ProductStateTransitionError,
@@ -733,11 +733,11 @@ impl From<ProductEventStoreError> for UpdateProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::language::domain::Language;
-    use common::localized::Localized;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
+    use localization::Language;
+    use localization::Localized;
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
 
     use application::transaction::TransactionError;
     use common::shop_id::ShopId;

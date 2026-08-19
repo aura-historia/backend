@@ -1,5 +1,7 @@
 use application::transaction::{Transaction, UnitOfWork};
 use common::{shop_id::ShopId, shop_name::ShopName};
+use localization::Language;
+use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, WoocommerceIntegration};
@@ -49,14 +51,8 @@ async fn should_read_safe_woocommerce_webhook_validation_configuration() {
     };
     assert_eq!(shop.id(), webhook_shop.shop_id);
     assert_eq!(ShopPartnerStatus::Partnered, webhook_shop.partner_status);
-    assert_eq!(
-        Some(common::currency::domain::Currency::Eur),
-        webhook_shop.currency
-    );
-    assert_eq!(
-        Some(common::language::domain::Language::En),
-        webhook_shop.language
-    );
+    assert_eq!(Some(Currency::Eur), webhook_shop.currency);
+    assert_eq!(Some(Language::En), webhook_shop.language);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -122,8 +118,8 @@ fn shop(name: &str, secret: Option<&str>) -> Shop {
         shopify: None,
         woocommerce: Some(WoocommerceIntegration {
             webhook_secret: secret.map(WoocommerceWebhookSecret::from),
-            currency: Some(common::currency::domain::Currency::Eur),
-            language: Some(common::language::domain::Language::En),
+            currency: Some(Currency::Eur),
+            language: Some(Language::En),
         }),
         presentation: ShopPresentation::default(),
         address: None,

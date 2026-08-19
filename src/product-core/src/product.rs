@@ -2,9 +2,6 @@ use crate::description::Description;
 use crate::product_image::ProductImage;
 use crate::title::Title;
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::Price;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
@@ -14,6 +11,9 @@ use common::shops_product_id::ShopsProductId;
 use domain_primitives::{change_outcome::ChangeOutcome, event::Event, event_id::EventId};
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Price;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -569,8 +569,8 @@ fn replace_if_changed<T: PartialEq>(target: &mut T, value: T) -> ChangeOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::price::domain::MonetaryAmount;
+    use money::Currency;
+    use money::MonetaryAmount;
 
     fn test_url() -> Url {
         match Url::parse("https://shop.example/products/1") {

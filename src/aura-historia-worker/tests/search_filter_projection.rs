@@ -1,9 +1,7 @@
 use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
-use common::currency::domain::Currency;
 use common::event_id::EventId;
-use common::language::domain::Language;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
@@ -17,6 +15,8 @@ use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use localization::{Language, Localized};
+use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
 use product_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
@@ -391,10 +391,7 @@ fn product_source(
         seller_name: ShopName::from("Test seller"),
         shops_product_id: ShopsProductId::from("test-product-1"),
         address: ProductAddress::default(),
-        product_title: Some(common::localized::Localized::new(
-            Language::En,
-            title.clone(),
-        )),
+        product_title: Some(Localized::new(Language::En, title.clone())),
         product_description: None,
         titles: std::collections::HashMap::from([(Language::En, title)]),
         descriptions: std::collections::HashMap::new(),

@@ -1,10 +1,6 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::currency::domain::Currency;
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::{ProductId, ProductKey};
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
@@ -13,6 +9,10 @@ use common::shop_id::ShopId;
 use common::shop_name::ShopName;
 use common::versioned::Versioned;
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Currency;
+use money::{MonetaryAmount, Price};
 use platform_postgres::SqlxUnitOfWork;
 use product_core::description::Description;
 use product_core::product::{

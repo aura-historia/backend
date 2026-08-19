@@ -14,6 +14,8 @@ fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
 isocountry = { workspace = true }
 large-language-model = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 product-core = { workspace = true }

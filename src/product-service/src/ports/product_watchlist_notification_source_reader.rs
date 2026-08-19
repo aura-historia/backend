@@ -1,9 +1,10 @@
 use common::{
-    error::boxed::BoxError, event_id::EventId, language::domain::Language, price::domain::Price,
-    product_id::ProductId, product_slug_id::ProductSlugId, product_state::domain::ProductState,
-    shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId,
+    error::boxed::BoxError, event_id::EventId, product_id::ProductId,
+    product_slug_id::ProductSlugId, product_state::domain::ProductState, shop_id::ShopId,
+    shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
 };
+use localization::Language;
+use money::Price;
 use product_core::{product_image::ProductImage, title::Title};
 use std::collections::HashMap;
 use url::Url;

@@ -157,11 +157,12 @@ fn index_error(error: SearchFilterIndexError) -> ProjectSearchFilterChangeError 
 mod tests {
     use super::*;
     use crate::ports::{SearchFilterIndexQuery, SearchFilterProjection, SearchFilterView};
-    use common::currency::domain::Currency;
     use common::pagination::cursor::CursoredResult;
     use common::resource_state::domain::ResourceState;
     use common::user_id::UserId;
     use common::user_search_filter_name::UserSearchFilterName;
+    use localization::Language;
+    use money::Currency;
     use product_core::product_search::ProductSearch;
     use std::sync::Mutex;
     use time::macros::datetime;
@@ -253,7 +254,7 @@ mod tests {
                 name: UserSearchFilterName::from("daily"),
                 notifications: true,
                 state: ResourceState::Active,
-                search: ProductSearch::new(common::language::domain::Language::En, Currency::Usd),
+                search: ProductSearch::new(Language::En, Currency::Usd),
                 embedding: None,
                 created: datetime!(2026-01-01 0:00 UTC),
                 updated: datetime!(2026-01-01 0:00 UTC),

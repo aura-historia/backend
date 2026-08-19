@@ -6,7 +6,6 @@ use crate::{
 use common::{
     error::boxed::{BoxError, box_error},
     event_id::EventId,
-    language::domain::Language,
     logging::LlmOperation,
     operation_context::{CorrelationId, OperationContext, Principal, RequestId},
     product_id::ProductId,
@@ -15,6 +14,7 @@ use indexmap::IndexMap;
 use large_language_model::{
     GenerationOptions, LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
+use localization::Language;
 use product_core::title::Title;
 use product_service::{
     ports::{ProductTitleTranslationError, ProductTitleTranslator},

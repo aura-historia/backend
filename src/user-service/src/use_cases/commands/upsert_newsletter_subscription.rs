@@ -3,7 +3,8 @@ use crate::ports::{
 };
 use common::error::boxed::BoxError;
 use common::operation_context::{OperationContext, Principal};
-use common::{currency::domain::Currency, language::domain::Language};
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 use user_core::{
     first_name::FirstName, last_name::LastName, newsletter_subscription::NewsletterSubscription,
@@ -164,6 +165,8 @@ mod tests {
     use common::error::boxed::{BoxError, box_error};
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::user_id::UserId;
+    use localization::Language;
+    use money::Currency;
     use serde_email::Email;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::newsletter_subscription::NewsletterSubscription;
@@ -328,8 +331,8 @@ mod tests {
         lock(&reader.state).profile = Some(NewsletterProfile {
             first_name: Some("Ada".into()),
             last_name: Some("Lovelace".into()),
-            language: Some(common::language::domain::Language::En),
-            currency: Some(common::currency::domain::Currency::Eur),
+            language: Some(Language::En),
+            currency: Some(Currency::Eur),
         });
         let writer = FakeNewsletterSubscriptionWriter::default();
 
@@ -349,14 +352,8 @@ mod tests {
             Some("Lovelace"),
             subscription.last_name().map(AsRef::as_ref)
         );
-        assert_eq!(
-            Some(common::language::domain::Language::En),
-            subscription.language()
-        );
-        assert_eq!(
-            Some(common::currency::domain::Currency::Eur),
-            subscription.currency()
-        );
+        assert_eq!(Some(Language::En), subscription.language());
+        assert_eq!(Some(Currency::Eur), subscription.currency());
         assert_eq!(Some(user_id), subscription.user_id());
     }
 
@@ -367,15 +364,15 @@ mod tests {
         lock(&reader.state).profile = Some(NewsletterProfile {
             first_name: Some("Profile".into()),
             last_name: Some("Name".into()),
-            language: Some(common::language::domain::Language::En),
-            currency: Some(common::currency::domain::Currency::Eur),
+            language: Some(Language::En),
+            currency: Some(Currency::Eur),
         });
         let writer = FakeNewsletterSubscriptionWriter::default();
         let command = UpsertNewsletterSubscriptionCommand {
             first_name: Some("Request".into()),
             last_name: Some("Override".into()),
-            language: Some(common::language::domain::Language::De),
-            currency: Some(common::currency::domain::Currency::Usd),
+            language: Some(Language::De),
+            currency: Some(Currency::Usd),
             ..command()
         };
 
@@ -403,14 +400,8 @@ mod tests {
             Some("Override"),
             subscription.last_name().map(AsRef::as_ref)
         );
-        assert_eq!(
-            Some(common::language::domain::Language::De),
-            subscription.language()
-        );
-        assert_eq!(
-            Some(common::currency::domain::Currency::Usd),
-            subscription.currency()
-        );
+        assert_eq!(Some(Language::De), subscription.language());
+        assert_eq!(Some(Currency::Usd), subscription.currency());
     }
 
     #[tokio::test]
