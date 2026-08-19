@@ -1,7 +1,7 @@
 use ::application::transaction::{Transaction, UnitOfWork};
-use ::common::shop_id::ShopId;
 use ::common::user_id::UserId;
 use ::platform_postgres::SqlxUnitOfWork;
+use ::shop_core::shop_id::ShopId;
 use geo::core::{address::StructuredAddress, continent::Continent};
 use isocountry::CountryCode;
 use localization::Language;

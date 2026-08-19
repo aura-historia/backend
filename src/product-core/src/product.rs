@@ -6,7 +6,6 @@ use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use domain_primitives::{change_outcome::ChangeOutcome, event::Event, event_id::EventId};
 use geo::core::address::{GeoAddress, StructuredAddress};
@@ -14,6 +13,7 @@ use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
 use money::Price;
+use shop_core::shop_id::ShopId;
 use time::OffsetDateTime;
 use url::Url;
 

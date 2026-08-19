@@ -5,10 +5,6 @@ use common::{
     product_lifecycle::domain::ProductLifecycle,
     product_slug_id::ProductSlugId,
     product_state::domain::ProductState,
-    seller_slug_id::SellerSlugId,
-    shop_id::ShopId,
-    shop_name::ShopName,
-    shop_slug_id::ShopSlugId,
     shops_product_id::ShopsProductId,
     utm::append_utm_params,
 };
@@ -29,6 +25,10 @@ use product_service::ports::{
     ProductSearchFilterMatchSourceEventKind, ProductSearchFilterMatchSourceReadError,
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
 };
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use sqlx::PgConnection;
 use std::collections::HashMap;
 use time::OffsetDateTime;

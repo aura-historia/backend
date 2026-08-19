@@ -32,4 +32,4 @@ rstest = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "domain-primitives/test-data", "geo/test-data", "localization/test-data", "money/test-data", "shop-core/test-data"]
+test-data = ["fake", "common/test-data", "domain-primitives/test-data", "geo/test-data", "localization/test-data", "money/test-data", "shop-core/test-data"]

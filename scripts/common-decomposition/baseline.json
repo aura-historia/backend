@@ -87,7 +87,7 @@
     "search-filter-api": {"test-data": ["test-data"]},
     "search-filter-core": {"test-data": ["test-data"]},
     "shop": {"data": ["api"], "dynamodb": ["dynamodb"], "opensearch": ["opensearch"], "test-data": ["test-data"]},
-    "shop-core": {"test-data": ["test-data"]},
+
     "shop-partner-core": {"test-data": ["test-data"]},
     "shop-partner-service": {"test-data": ["test-data"]},
     "shop-service": {"test-data": ["test-data"]},
@@ -156,7 +156,7 @@
       "search-filter-service": [],
       "shop": [],
       "shop-api": ["api", "opensearch"],
-      "shop-core": [],
+
       "shop-lambda-opensearch-index": ["api", "dynamodb", "event_bridge", "opensearch"],
       "shop-partner-core": [],
       "shop-partner-postgres": [],

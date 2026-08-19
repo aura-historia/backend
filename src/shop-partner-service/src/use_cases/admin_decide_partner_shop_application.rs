@@ -361,10 +361,12 @@ mod tests {
     };
     use application::transaction::TransactionError;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+    use common::user_id::UserId;
     use notification_service::use_cases::commands::create_notification::{
         CreateNotificationError, CreateNotificationResult,
     };
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
     use shop_core::{
         partner_status::ShopPartnerStatus,
         shop::{NewShop, Shop, ShopContact, ShopPresentation},
@@ -545,7 +547,7 @@ mod tests {
 
         async fn find_by_slug(
             &mut self,
-            _: &common::shop_slug_id::ShopSlugId,
+            _: &shop_core::shop_slug_id::ShopSlugId,
         ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             Ok(None)
         }

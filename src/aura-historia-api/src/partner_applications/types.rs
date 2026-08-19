@@ -1,13 +1,13 @@
 use crate::shops::types::ShopTypeData;
 use crate::values::{CurrencyData, LanguageData};
-use common::domain::Domain;
 use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
 use common::user_id::UserId;
 use geo::data::address_data::StructuredAddressData;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_partner_core::partner_shop_application::{
     PartnerShopApplication, PartnerShopApplicationPayload,

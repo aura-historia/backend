@@ -1,8 +1,7 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::{
-    partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
-};
+use common::{partner_shop_application_id::PartnerShopApplicationId, user_id::UserId};
 use platform_postgres::SqlxUnitOfWork;
+use shop_core::shop_id::ShopId;
 use shop_partner_core::partner_shop_application::{
     NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
 };

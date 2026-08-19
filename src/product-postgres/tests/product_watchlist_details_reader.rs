@@ -2,8 +2,6 @@ use application::transaction::{Transaction, UnitOfWork};
 use common::pagination::cursor::{Cursor, CursoredResult};
 use common::product_id::ProductId;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
 use common::user_id::UserId;
 use indexmap::IndexSet;
 use localization::Language;
@@ -26,6 +24,8 @@ use product_service::ports::{
     ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
     ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;

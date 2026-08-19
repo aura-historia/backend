@@ -1,21 +1,19 @@
-use common::distance::domain::GeoDistanceQuery;
 use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
 use common::string_newtype;
 use geo::core::continent::Continent;
+use geo::core::distance::GeoDistanceQuery;
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
 use money::MonetaryAmount;
 use serde_fields::SerdeField;
 use shop_core::shop_type::ShopType;
+use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use time::OffsetDateTime;
 
 string_newtype!(EnhancedSearchDescription, max_length(1000));

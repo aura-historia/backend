@@ -7,10 +7,6 @@ use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
 use common::resource_state::domain::ResourceState;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
@@ -34,6 +30,10 @@ use search_filter_service::ports::{
 use search_filter_service::use_cases::{
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
 };
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use test_api::{

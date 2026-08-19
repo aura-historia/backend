@@ -7,7 +7,8 @@ use common::error::boxed::{BoxError, static_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::{shop_id::ShopId, user_id::UserId};
+use common::user_id::UserId;
+use shop_core::shop_id::ShopId;
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
 };
@@ -252,10 +253,10 @@ mod tests {
     use application::transaction::{TransactionError, UnitOfWork};
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use shop_core::shop_type::ShopType;
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};

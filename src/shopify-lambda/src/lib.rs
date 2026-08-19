@@ -8,15 +8,13 @@ pub use types::{
 
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{BatchItemFailure, SqsBatchResponse, SqsEvent};
-use common::{
-    domain::Domain,
-    operation_context::{CorrelationId, OperationContext, Principal, RequestId},
-};
+use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use lambda_runtime::LambdaEvent;
 use product_service::use_cases::{
     IngestShopifyProductError, IngestShopifyProductResult, IngestShopifyProductUseCase,
 };
 use serde_json::Value;
+use shop_core::domain::Domain;
 use tracing::{info, warn};
 
 pub const SHOPIFY_TOPIC_PRODUCTS_CREATE: &str = "products/create";

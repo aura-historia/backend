@@ -5,14 +5,16 @@ use aura_historia_api::auth::{
 };
 use aura_historia_api::state::ShopsState;
 use aura_historia_api::{app, state::AppState};
-use common::domain::Domain;
-use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use common::user_id::UserId;
 use geo::{Geocoder, GeocodingError};
 use platform_postgres::SqlxUnitOfWork;
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{
     NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration, WoocommerceIntegration,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_postgres::SqlxShopRepositoryFactory;

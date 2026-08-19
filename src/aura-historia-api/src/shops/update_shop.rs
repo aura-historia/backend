@@ -7,12 +7,12 @@ use crate::values::{CurrencyData, LanguageData};
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::domain::Domain;
 use common::patch_field::PatchField;
-use common::shop_id::ShopId;
 use geo::data::address_data::StructuredAddressData;
 use serde::Deserialize;
 use serde_email::Email;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_service::use_cases::commands::update_shop::UpdateShopCommand;
 

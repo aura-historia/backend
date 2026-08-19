@@ -6,7 +6,6 @@ use common::product_id::{ProductId, ProductKey};
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::versioned::Versioned;
 use geo::core::address::{GeoAddress, StructuredAddress};
@@ -27,6 +26,7 @@ use product_service::ports::product_repository::{
     ProductRepository, ProductRepositoryError, ProductRepositoryFactory,
 };
 use serde::{Deserialize, Serialize};
+use shop_core::shop_id::ShopId;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use url::Url;

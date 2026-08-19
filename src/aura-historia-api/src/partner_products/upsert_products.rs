@@ -6,7 +6,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 
 pub async fn upsert_products(
     State(state): State<PartnerProductsState>,

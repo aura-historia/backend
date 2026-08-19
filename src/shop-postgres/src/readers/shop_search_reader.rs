@@ -1,12 +1,12 @@
 use crate::mapping::{ShopSummaryRow, countries_for_continents, shop_summary_columns};
 use common::error::boxed::box_error;
 use common::pagination::cursor::Cursor;
-use common::shop_id::ShopId;
 use common::sort::{Sort, SortOrder};
 use platform_postgres::SqlxTransaction;
-use shop_core::shop_search::ShopSearch;
+use shop_core::shop_id::ShopId;
 use shop_core::sort_shop_field::SortShopField;
 use shop_service::ports::{ShopSearchReadError, ShopSearchReader, ShopSearchReaderFactory};
+use shop_service::shop_search::ShopSearch;
 use shop_service::use_cases::queries::search_shops::{SearchShopsRequest, SearchShopsResult};
 use sqlx::{PgConnection, Postgres, QueryBuilder};
 

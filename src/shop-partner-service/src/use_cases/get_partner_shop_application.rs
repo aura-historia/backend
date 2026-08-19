@@ -142,7 +142,8 @@ mod tests {
     use crate::ports::{PartnerShopApplicationStorageVersion, VersionedPartnerShopApplication};
     use application::transaction::TransactionError;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::{partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId};
+    use common::partner_shop_application_id::PartnerShopApplicationId;
+    use shop_core::shop_id::ShopId;
     use shop_partner_core::partner_shop_application::{
         NewPartnerShopApplication, PartnerShopApplicationPayload,
     };

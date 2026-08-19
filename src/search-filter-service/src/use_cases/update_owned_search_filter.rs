@@ -8,7 +8,6 @@ use crate::tier_policy::{
 };
 use crate::use_cases::embedding_query;
 use application::transaction::{Transaction, UnitOfWork};
-use common::distance::domain::GeoDistanceQuery;
 use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
@@ -19,19 +18,17 @@ use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::domain::ResourceState;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use embedding::{EmbeddingError, EmbeddingGenerator};
-use geo::core::continent::Continent;
+use geo::core::{continent::Continent, distance::GeoDistanceQuery};
 use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use shop_core::shop_type::ShopType;
+use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use time::OffsetDateTime;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,

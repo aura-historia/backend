@@ -457,9 +457,6 @@ mod tests {
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
     use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
     use common::shops_product_id::ShopsProductId;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
@@ -471,6 +468,7 @@ mod tests {
     use product_core::user_state::ProductUserState;
     use product_service::ports::ProductDetailsReadModel;
     use product_service::use_cases::ProductPricingValuation;
+    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;

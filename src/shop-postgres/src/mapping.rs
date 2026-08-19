@@ -1,5 +1,3 @@
-use common::domain::Domain;
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use geo::core::address::{GeoAddress, StructuredAddress};
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
@@ -8,12 +6,16 @@ use money::Currency;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use shop_core::affiliate_configuration::AffiliateConfiguration;
+use shop_core::domain::Domain;
 use shop_core::lifecycle::ShopLifecycle;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{
     RehydratedShopState, Shop, ShopAddress, ShopContact, ShopPresentation, ShopifyIntegration,
     WoocommerceIntegration,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_service::ports::{ShopStorageVersion, StoredShop};

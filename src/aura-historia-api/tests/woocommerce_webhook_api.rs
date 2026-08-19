@@ -336,7 +336,7 @@ async fn webhook_auth() -> Result<(String, String), Box<dyn std::error::Error>> 
     Ok((shop_id, String::from(token)))
 }
 
-async fn configure_webhook_shop(shop_id: common::shop_id::ShopId) -> Result<(), sqlx::Error> {
+async fn configure_webhook_shop(shop_id: shop_core::shop_id::ShopId) -> Result<(), sqlx::Error> {
     let pool = get_postgres_client().await;
     sqlx::query(
         "UPDATE shops SET woocommerce_webhook_secret = $1, woocommerce_currency = 'EUR', woocommerce_language = 'en' WHERE shop_id = $2",
@@ -348,7 +348,7 @@ async fn configure_webhook_shop(shop_id: common::shop_id::ShopId) -> Result<(), 
     Ok(())
 }
 
-async fn product_count(shop_id: common::shop_id::ShopId) -> Result<i64, sqlx::Error> {
+async fn product_count(shop_id: shop_core::shop_id::ShopId) -> Result<i64, sqlx::Error> {
     let pool = get_postgres_client().await;
     sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE shop_id = $1")
         .bind(uuid::Uuid::from(shop_id))

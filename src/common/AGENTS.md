@@ -17,6 +17,7 @@
 - `change_outcome`, `event`, and `event_id` alias `domain-primitives`; legacy EventId API extraction remains local. Version and newtype macro modules remain legacy copies while canonical owners use `domain-primitives`. Remove each legacy path after consumers migrate.
 - `logging` delegates subscriber setup to `platform-observability` and retains legacy log vocabulary. Remove the setup shims after legacy runtimes migrate.
 - `transaction` re-exports `application`; `postgres` re-exports SQLx primitives from `platform-postgres` and retains legacy `POSTGRES_*` parsing. Remove both shims after legacy consumers migrate.
+- `domain`, `shop_id`, `shop_name`, `shop_slug_id`, and `seller_slug_id` re-export `shop-core`; `distance::domain` aliases `geo::core`. Remove these shims after legacy consumers migrate. Legacy distance DTOs remain only to preserve boundary forms.
 - `price` FX helpers use scaled unsigned `Rate` values; do not calculate exchange rates with floating point.
 
 ## Ownership

@@ -7,18 +7,18 @@ use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequ
 use crate::use_cases::queries::get_shop::ShopDetailsView;
 use application::transaction::{Transaction, UnitOfWork};
 use common::change_outcome::ChangeOutcome;
-use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::patch_field::PatchField;
-use common::shop_id::ShopId;
 use common::user_id::UserId;
 use geo::{Geocoder, GeocodingError};
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
 use shop_core::{
     address::StructuredAddress,
     affiliate_configuration::AffiliateConfiguration,
@@ -614,11 +614,11 @@ mod tests {
     use application::transaction::{TransactionError, UnitOfWork};
     use common::error::boxed::static_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
     use shop_core::address::GeoAddress;
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop::NewShop;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::sync::{Arc, Mutex};
     use user_service::use_cases::queries::check_user_admin::{
         CheckUserAdminRequest, CheckUserAdminResult,

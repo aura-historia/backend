@@ -4,9 +4,6 @@ use common::pagination::cursor::Cursor;
 use common::product_id::ProductId;
 use common::product_slug_id::ProductSlugId;
 use common::query::range_query::RangeQuery;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_id::ShopId;
-use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use money::Currency;
 use money::MonetaryAmount;
@@ -17,6 +14,9 @@ use product_service::ports::{
 };
 use product_service::use_cases::queries::search_products::ProductSearchReadResult;
 use serde_json::{Value, json};
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_slug_id::ShopSlugId;
 use std::io::{Error as IoError, ErrorKind};
 use strum::IntoEnumIterator;
 use test_api::{

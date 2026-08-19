@@ -4,7 +4,9 @@ use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use shop_core::{partner_status::ShopPartnerStatus, shop::Shop};
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,

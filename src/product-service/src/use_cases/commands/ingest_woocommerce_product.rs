@@ -10,7 +10,6 @@ use common::error::boxed::BoxError;
 use common::operation_context::{CredentialCapability, OperationContext, Principal};
 use common::product_id::{ProductId, ProductKey};
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use fxrate_service::ports::{
@@ -27,6 +26,7 @@ use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
 use shop_core::partner_status::ShopPartnerStatus;
+use shop_core::shop_id::ShopId;
 use shop_service::ports::{
     PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory, WoocommerceWebhookShop,
     WoocommerceWebhookShopReadError, WoocommerceWebhookShopReader,

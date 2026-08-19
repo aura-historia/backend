@@ -1,10 +1,12 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::domain::Domain;
-use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use common::user_id::UserId;
 use platform_postgres::SqlxUnitOfWork;
 use shop_core::affiliate_configuration::AffiliateConfiguration;
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_postgres::{
     SqlxPartnerShopReaderFactory, SqlxPartnerShopRepositoryFactory, SqlxShopRepositoryFactory,

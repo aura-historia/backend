@@ -8,8 +8,8 @@ use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use common::product_id::ProductId;
 use common::product_slug_id::ProductSlugId;
-use common::shop_slug_id::ShopSlugId;
 use product_service::use_cases::{GetProductEventsRequest, ProductEventLookup};
+use shop_core::shop_slug_id::ShopSlugId;
 
 const HISTORY_CACHE_CONTROL: &str = "public, max-age=180, s-maxage=900";
 

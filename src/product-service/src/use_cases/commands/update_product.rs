@@ -740,12 +740,12 @@ mod tests {
     use money::{MonetaryAmount, Price};
 
     use application::transaction::TransactionError;
-    use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use common::versioned::Versioned;
     use product_core::description::Description;
     use product_core::product::{NewProduct, Product, ProductDomainEvent};
     use product_core::title::Title;
+    use shop_core::shop_id::ShopId;
     use std::sync::{Arc, Mutex, MutexGuard};
 
     #[derive(Debug, Default)]

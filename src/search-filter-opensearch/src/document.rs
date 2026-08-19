@@ -1,4 +1,3 @@
-use common::distance::data::GeoDistanceQueryData;
 use common::product_id::ProductId;
 use common::product_lifecycle::data::ProductLifecycleData;
 use common::product_state::domain::ProductState;
@@ -6,13 +5,13 @@ use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
 use common::resource_state::document::ResourceStateDocument;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
-use geo::data::continent_data::ContinentData;
+use geo::{
+    core::distance::{Distance, DistanceUnit, GeoDistanceQuery},
+    data::continent_data::ContinentData,
+};
 use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
@@ -22,6 +21,7 @@ use search_filter_service::ports::{SearchFilterProjection, SearchFilterView};
 use serde::ser::Error as _;
 use serde::{Deserialize, Serialize};
 use shop_core::shop_type::ShopType;
+use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -127,6 +127,103 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+struct DistanceDocument {
+    amount: f64,
+    unit: DistanceUnitDocument,
+}
+
+impl From<Distance> for DistanceDocument {
+    fn from(value: Distance) -> Self {
+        Self {
+            amount: value.amount,
+            unit: value.unit.into(),
+        }
+    }
+}
+
+impl From<DistanceDocument> for Distance {
+    fn from(value: DistanceDocument) -> Self {
+        Self {
+            amount: value.amount,
+            unit: value.unit.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+struct GeoDistanceQueryDocument {
+    lat: f64,
+    lon: f64,
+    distance: DistanceDocument,
+}
+
+impl From<GeoDistanceQuery> for GeoDistanceQueryDocument {
+    fn from(value: GeoDistanceQuery) -> Self {
+        Self {
+            lat: value.lat,
+            lon: value.lon,
+            distance: value.distance.into(),
+        }
+    }
+}
+
+impl From<GeoDistanceQueryDocument> for GeoDistanceQuery {
+    fn from(value: GeoDistanceQueryDocument) -> Self {
+        Self {
+            lat: value.lat,
+            lon: value.lon,
+            distance: value.distance.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum DistanceUnitDocument {
+    Miles,
+    Yards,
+    Feet,
+    Inches,
+    Kilometers,
+    Meters,
+    Centimeters,
+    Millimeters,
+    NauticalMiles,
+}
+
+impl From<DistanceUnit> for DistanceUnitDocument {
+    fn from(value: DistanceUnit) -> Self {
+        match value {
+            DistanceUnit::Miles => Self::Miles,
+            DistanceUnit::Yards => Self::Yards,
+            DistanceUnit::Feet => Self::Feet,
+            DistanceUnit::Inches => Self::Inches,
+            DistanceUnit::Kilometers => Self::Kilometers,
+            DistanceUnit::Meters => Self::Meters,
+            DistanceUnit::Centimeters => Self::Centimeters,
+            DistanceUnit::Millimeters => Self::Millimeters,
+            DistanceUnit::NauticalMiles => Self::NauticalMiles,
+        }
+    }
+}
+
+impl From<DistanceUnitDocument> for DistanceUnit {
+    fn from(value: DistanceUnitDocument) -> Self {
+        match value {
+            DistanceUnitDocument::Miles => Self::Miles,
+            DistanceUnitDocument::Yards => Self::Yards,
+            DistanceUnitDocument::Feet => Self::Feet,
+            DistanceUnitDocument::Inches => Self::Inches,
+            DistanceUnitDocument::Kilometers => Self::Kilometers,
+            DistanceUnitDocument::Meters => Self::Meters,
+            DistanceUnitDocument::Centimeters => Self::Centimeters,
+            DistanceUnitDocument::Millimeters => Self::Millimeters,
+            DistanceUnitDocument::NauticalMiles => Self::NauticalMiles,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductSearchDocument {
@@ -161,7 +258,7 @@ struct ProductSearchDocument {
     #[serde(rename = "continent")]
     continent_query: HashSet<ContinentData>,
     #[serde(rename = "geoAddress")]
-    geo_address_distance_query: Option<GeoDistanceQueryData>,
+    geo_address_distance_query: Option<GeoDistanceQueryDocument>,
     #[serde(rename = "price")]
     price_query: Option<RangeQuery<u64>>,
     #[serde(rename = "state")]
@@ -577,6 +674,7 @@ fn product_search_from_value(
 mod tests {
     use super::*;
     use common::query::range_query::RangeQuery;
+    use geo::core::distance::{Distance, DistanceUnit, GeoDistanceQuery};
     use localization::Language;
     use money::Currency;
     use search_filter_service::ports::SearchFilterProjection;
@@ -619,6 +717,32 @@ mod tests {
         );
         assert!(value.get("compiledFxRateId").is_none());
         assert!(value.get("compiledFxGeneration").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn should_round_trip_geo_distance_query_with_legacy_document_shape()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let expected = projection(
+            ProductSearch::new(Language::En, Currency::Usd).with_geo_address_distance_query(
+                GeoDistanceQuery {
+                    lat: 52.52,
+                    lon: 13.405,
+                    distance: Distance {
+                        amount: 50.0,
+                        unit: DistanceUnit::Kilometers,
+                    },
+                },
+            ),
+        );
+        let document = SearchFilterDocument::try_from(&expected)?;
+        let value = serde_json::to_value(&document)?;
+
+        assert_eq!(
+            Some(&serde_json::json!("KILOMETERS")),
+            value.pointer("/search/geoAddress/distance/unit")
+        );
+        assert_eq!(expected.view, SearchFilterView::try_from(document)?);
         Ok(())
     }
 

@@ -5,7 +5,7 @@ use crate::state::ShopsState;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 use shop_service::use_cases::queries::get_shop::GetShopRequest;
 
 pub async fn get_shop(
@@ -54,15 +54,15 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::domain::Domain;
     use common::operation_context::{CredentialCapability, OperationContext, Principal};
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
     use common::user_id::UserId;
     use localization::Language;
     use money::Currency;
     use serde_json::{Value, json};
+    use shop_core::domain::Domain;
     use shop_core::partner_status::ShopPartnerStatus;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use shop_core::shop_type::ShopType;
     use shop_service::use_cases::queries::get_shop::{GetShopError, ShopDetailsView};
     use std::collections::{BTreeSet, HashSet};

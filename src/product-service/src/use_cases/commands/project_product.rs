@@ -229,8 +229,7 @@ mod tests {
     };
     use common::{
         error::boxed::box_error, fx_rate_id::FxRateId, product_slug_id::ProductSlugId,
-        product_state::domain::ProductState, seller_slug_id::SellerSlugId, shop_id::ShopId,
-        shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
+        product_state::domain::ProductState, shops_product_id::ShopsProductId,
         transaction::TransactionError,
     };
     use fxrate_core::{
@@ -244,6 +243,10 @@ mod tests {
         product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
         title::Title,
     };
+    use shop_core::seller_slug_id::SellerSlugId;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::{
         collections::HashMap,
         sync::{Arc, Mutex, MutexGuard},

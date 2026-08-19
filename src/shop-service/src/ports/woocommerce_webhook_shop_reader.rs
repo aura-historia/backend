@@ -1,8 +1,8 @@
 use common::error::boxed::BoxError;
-use common::shop_id::ShopId;
 use localization::Language;
 use money::Currency;
 use shop_core::partner_status::ShopPartnerStatus;
+use shop_core::shop_id::ShopId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WoocommerceWebhookShop {

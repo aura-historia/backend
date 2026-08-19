@@ -9,7 +9,11 @@ pub mod batch;
 pub mod change_outcome {
     pub type ChangeOutcome = domain_primitives::change_outcome::ChangeOutcome;
 }
-pub mod domain;
+// Legacy shim. Owner: shop-core. Remove after legacy common consumers migrate.
+pub mod domain {
+    pub type Domain = shop_core::domain::Domain;
+    pub type NoDomainError = shop_core::domain::NoDomainError;
+}
 pub mod enhanced_match_reason;
 
 #[cfg(feature = "dynamodb")]
@@ -124,11 +128,108 @@ pub mod postgres;
 pub mod price;
 pub mod query;
 pub mod resource_state;
-pub mod seller_slug_id;
+// Legacy shim. Owner: shop-core. Remove after legacy common consumers migrate.
+pub mod seller_slug_id {
+    pub type SellerSlugId = shop_core::seller_slug_id::SellerSlugId;
+
+    impl From<crate::slug_id::SlugId<0>> for SellerSlugId {
+        fn from(value: crate::slug_id::SlugId<0>) -> Self {
+            Self::from(value.to_string())
+        }
+    }
+
+    impl From<SellerSlugId> for crate::slug_id::SlugId<0> {
+        fn from(value: SellerSlugId) -> Self {
+            Self::from(value.to_string())
+        }
+    }
+}
 pub mod serde;
-pub mod shop_id;
-pub mod shop_name;
-pub mod shop_slug_id;
+// Legacy shim. Owner: shop-core. Remove after legacy common consumers migrate.
+pub mod shop_id {
+    pub type ShopId = shop_core::shop_id::ShopId;
+
+    #[cfg(feature = "api")]
+    pub mod api {
+        use crate::{
+            api::{
+                error::ApiError,
+                error_code::{BAD_PATH_PARAMETER_VALUE, INVALID_UUID},
+            },
+            error::missing_field::MissingRequiredField,
+            shop_id::ShopId,
+            shop_slug_id::ShopSlugId,
+        };
+        use std::collections::HashMap;
+
+        pub fn extract_shop_id_path(
+            path_params: &HashMap<String, String>,
+        ) -> Result<ShopId, ApiError> {
+            path_params
+                .get("shopId")
+                .map(ShopId::try_from)
+                .transpose()
+                .map_err(|error| {
+                    let detail = error.to_string();
+                    ApiError::bad_request(INVALID_UUID, Box::new(error))
+                        .with_path_field("shopId")
+                        .with_detail(detail)
+                })?
+                .ok_or(
+                    ApiError::bad_request(
+                        BAD_PATH_PARAMETER_VALUE,
+                        Box::new(MissingRequiredField::new("shopId")),
+                    )
+                    .with_path_field("shopId")
+                    .with_detail("Missing field 'shopId'."),
+                )
+        }
+
+        pub fn extract_shop_slug_id_path(
+            path_params: &HashMap<String, String>,
+        ) -> Result<ShopSlugId, ApiError> {
+            path_params
+                .get("shopSlugId")
+                .map(ShopSlugId::raw)
+                .transpose()
+                .map_err(|error| {
+                    let detail = error.to_string();
+                    ApiError::bad_request(BAD_PATH_PARAMETER_VALUE, Box::new(error))
+                        .with_path_field("shopSlugId")
+                        .with_detail(detail)
+                })?
+                .ok_or(
+                    ApiError::bad_request(
+                        BAD_PATH_PARAMETER_VALUE,
+                        Box::new(MissingRequiredField::new("shopSlugId")),
+                    )
+                    .with_path_field("shopSlugId")
+                    .with_detail("Missing field 'shopSlugId'."),
+                )
+        }
+    }
+}
+// Legacy shim. Owner: shop-core. Remove after legacy common consumers migrate.
+pub mod shop_name {
+    pub type ShopName = shop_core::shop_name::ShopName;
+}
+// Legacy shim. Owner: shop-core. Remove after legacy common consumers migrate.
+pub mod shop_slug_id {
+    pub type InvalidShopSlugId = shop_core::shop_slug_id::InvalidShopSlugId;
+    pub type ShopSlugId = shop_core::shop_slug_id::ShopSlugId;
+
+    impl From<crate::slug_id::SlugId<0>> for ShopSlugId {
+        fn from(value: crate::slug_id::SlugId<0>) -> Self {
+            Self::from(value.to_string())
+        }
+    }
+
+    impl From<ShopSlugId> for crate::slug_id::SlugId<0> {
+        fn from(value: ShopSlugId) -> Self {
+            Self::from(value.to_string())
+        }
+    }
+}
 pub mod shops_product_id;
 pub mod slug_id;
 pub mod sort;

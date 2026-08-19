@@ -1,9 +1,6 @@
 use application::transaction::{Transaction, UnitOfWork};
 use common::product_id::ProductId;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use indexmap::IndexSet;
@@ -28,6 +25,9 @@ use product_service::ports::{
     ProductRepository, ProductRepositoryFactory,
 };
 use product_service::use_cases::queries::get_product::ProductLookup;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;

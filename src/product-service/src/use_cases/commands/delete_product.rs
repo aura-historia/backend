@@ -384,7 +384,6 @@ mod tests {
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
     use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
     use common::shops_product_id::ShopsProductId;
     use common::versioned::Versioned;
     use indexmap::IndexSet;
@@ -398,6 +397,7 @@ mod tests {
         RehydratedProductState,
     };
     use product_core::title::Title;
+    use shop_core::shop_id::ShopId;
     use std::sync::{Arc, Mutex, MutexGuard};
     use url::Url;
 

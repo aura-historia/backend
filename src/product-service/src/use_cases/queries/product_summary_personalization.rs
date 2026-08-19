@@ -6,13 +6,13 @@ use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use localization::Language;
 use localization::Localized;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 
 use notification_service::ports::all_notifications_reader::{
     AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,

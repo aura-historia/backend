@@ -20,10 +20,8 @@ use billing_service::use_cases::{
     BillingPriceIds, CreateBillingCheckoutSessionHandler, CreateBillingManagementSessionHandler,
     CreateBillingPortalSessionHandler,
 };
-use common::domain::Domain;
 use common::fx_rate_id::FxRateId;
 use common::product_id::ProductId;
-use common::shop_id::ShopId;
 use common::stripe_customer_id::StripeCustomerId;
 use common::user_id::UserId;
 use embedding::{
@@ -50,6 +48,8 @@ use product_postgres::{
     SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
     SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
 };
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
 
 use product_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
@@ -358,7 +358,7 @@ pub async fn seed_shop() -> Shop {
     let id = ShopId::new();
     let mut shop = Shop::create(NewShop {
         id,
-        name: common::shop_name::ShopName::from(format!("API Acceptance Shop {id}").as_str()),
+        name: shop_core::shop_name::ShopName::from(format!("API Acceptance Shop {id}").as_str()),
         shop_type: ShopType::CommercialDealer,
         domains: HashSet::from([domain(format!("api-acceptance-{id}.example").as_str())]),
         shopify: None,

@@ -15,6 +15,7 @@ product-postgres = { workspace = true }
 product-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+shop-core = { workspace = true }
 shop-postgres = { workspace = true }
 shop-service = { workspace = true }
 thiserror = { workspace = true }
@@ -31,7 +32,6 @@ fxrate-service = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 sqlx = { workspace = true }
 serial_test = { workspace = true }
-shop-core = { workspace = true }
 common = { workspace = true, features = ["postgres"] }
 uuid = { workspace = true }
 strum = { workspace = true }

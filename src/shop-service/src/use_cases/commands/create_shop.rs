@@ -1,16 +1,19 @@
 use crate::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use crate::use_cases::queries::get_shop::ShopDetailsView;
 use application::transaction::{Transaction, UnitOfWork};
-use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId};
+use common::user_id::UserId;
 use geo::{Geocoder, GeocodingError};
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use shop_core::{
     address::{GeoAddress, StructuredAddress},
     affiliate_configuration::AffiliateConfiguration,

@@ -82,7 +82,7 @@ Class meanings:
 | `search-filter-service` | canonical | — | — |
 | `shop` | legacy | — | — |
 | `shop-api` | legacy | `api`, `opensearch` | — |
-| `shop-core` | canonical | — | — |
+
 | `shop-lambda-opensearch-index` | legacy | `api`, `dynamodb`, `event_bridge`, `opensearch` | — |
 | `shop-partner-core` | canonical | — | — |
 | `shop-partner-postgres` | canonical | `postgres` | — |
@@ -107,7 +107,7 @@ Class meanings:
 | `watchlist-service` | canonical | — | — |
 | `webhook-api` | legacy | `api`, `opensearch` | `test-data` |
 
-Canonical direct-consumer baseline: **42**. Legacy: **35**. Dual: **4**.
+Canonical direct-consumer baseline: **41**. Legacy: **35**. Dual: **4**.
 
 ## Export inventory
 
@@ -193,3 +193,14 @@ Root macro exports follow their defining module: `uuid_v4_newtype!`,
 
 No compatibility shim exists in Iteration 0. A later shim must name its semantic owner
 and deletion prerequisite in code or that iteration report.
+
+## Iteration 4 — shop and geo ownership
+
+`shop-core` now owns `Domain`, `ShopId`, `ShopName`, `ShopSlugId`, and `SellerSlugId`.
+`geo::core` owns `Distance`, `DistanceUnit`, and `GeoDistanceQuery`; `geo::opensearch`
+owns OpenSearch distance formatting. Canonical API, service, PostgreSQL, and OpenSearch
+boundaries map their own transport and stored shapes.
+
+`common` retains documented acyclic aliases for the moved Shop and geo domain paths. Delete
+them only after legacy consumers migrate. `shop-core` is removed from the direct-consumer
+baseline.

@@ -16,9 +16,6 @@ use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::sort::Sort;
 use embedding::{EmbeddingGenerator, EmbeddingText};
@@ -29,6 +26,9 @@ use fxrate_service::ports::{
 use localization::Language;
 use localization::Localized;
 use money::Price;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 
 use indexmap::IndexSet;
 use notification_service::ports::all_notifications_reader::AllNotificationsReader;

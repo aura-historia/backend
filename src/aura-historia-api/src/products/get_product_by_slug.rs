@@ -7,9 +7,9 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use common::product_slug_id::ProductSlugId;
-use common::shop_slug_id::ShopSlugId;
 use product_service::use_cases::{GetProductRequest, ProductLookup};
 use serde::Deserialize;
+use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Deserialize)]
 struct ProductDetailsQuery {

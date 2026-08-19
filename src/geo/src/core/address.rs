@@ -58,20 +58,6 @@ pub struct GeoAddress {
     pub lon: f64,
 }
 
-impl GeoAddress {
-    pub fn to_opensearch_geo_point(self) -> String {
-        format!("{},{}", self.lat, self.lon)
-    }
-
-    pub fn from_opensearch_geo_point(value: &str) -> Option<Self> {
-        let (lat, lon) = value.split_once(',')?;
-        Some(Self {
-            lat: lat.trim().parse().ok()?,
-            lon: lon.trim().parse().ok()?,
-        })
-    }
-}
-
 #[cfg(feature = "test-data")]
 mod faker {
     use super::{Continent, CountryCode, StructuredAddress};

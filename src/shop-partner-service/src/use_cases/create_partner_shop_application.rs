@@ -3,24 +3,24 @@ use crate::ports::{
     PartnerShopApplicationRepositoryFactory,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use common::domain::Domain;
 use common::error::boxed::{BoxError, static_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::{
-    partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, shop_name::ShopName,
-};
+use common::partner_shop_application_id::PartnerShopApplicationId;
 use geo::{Geocoder, GeocodingError};
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
+use shop_core::domain::Domain;
 use shop_core::lifecycle::ShopLifecycle;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{
     NewShop, Shop, ShopAddress, ShopContact, ShopPresentation, ShopifyIntegration,
     WoocommerceIntegration,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_partner_core::partner_shop_application::{

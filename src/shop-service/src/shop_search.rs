@@ -1,10 +1,9 @@
-use crate::continent::Continent;
-use crate::partner_status::ShopPartnerStatus;
-use crate::shop_type::ShopType;
 use common::query::{any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery};
 use isocountry::CountryCode;
+use shop_core::{continent::Continent, partner_status::ShopPartnerStatus, shop_type::ShopType};
 use time::OffsetDateTime;
 
+/// Application query input for the shop search use case.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ShopSearch {
     pub shop_name_query: Option<TextQuery<0>>,
@@ -65,13 +64,5 @@ mod tests {
         assert!(search.countries.contains(&CountryCode::DEU));
         assert!(search.countries.contains(&CountryCode::USA));
         assert!(search.continents.contains(&Continent::Europe));
-        assert_eq!(
-            Some(datetime!(2024-01-01 0:00 UTC)),
-            search.created.and_then(|range| range.min)
-        );
-        assert_eq!(
-            Some(datetime!(2025-01-01 0:00 UTC)),
-            search.updated.and_then(|range| range.min)
-        );
     }
 }

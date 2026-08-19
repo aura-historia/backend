@@ -1,5 +1,6 @@
 use common::error::boxed::BoxError;
-use common::{shop_id::ShopId, user_id::UserId};
+use common::user_id::UserId;
+use shop_core::shop_id::ShopId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UserPartnerShopMembershipRepositoryError {

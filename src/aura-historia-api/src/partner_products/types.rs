@@ -3,7 +3,6 @@ use crate::values::{LocalizedTextData, PriceData};
 use common::patch_field::PatchField;
 use common::product_id::ProductKey;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
@@ -16,6 +15,7 @@ use product_service::use_cases::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use shop_core::shop_id::ShopId;
 use time::OffsetDateTime;
 use url::Url;
 

@@ -16,39 +16,40 @@ pub struct ShopName(
 );
 
 impl Display for ShopName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
     }
 }
 
 impl From<&str> for ShopName {
-    fn from(s: &str) -> Self {
-        if s.len() > 255 {
-            match s.split_at_checked(255) {
+    fn from(value: &str) -> Self {
+        if value.len() > 255 {
+            match value.split_at_checked(255) {
                 Some((truncated, _)) => Self(truncated.into()),
-                None => Self(s.into()),
+                None => Self(value.into()),
             }
         } else {
-            ShopName(s.into())
+            Self(value.into())
         }
     }
 }
 
 impl From<String> for ShopName {
-    fn from(s: String) -> Self {
-        Self::from(s.as_str())
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
     }
 }
 
 impl From<ShopName> for String {
-    fn from(t: ShopName) -> Self {
-        t.0
+    fn from(value: ShopName) -> Self {
+        value.0
     }
 }
 
 impl Deref for ShopName {
     type Target = str;
-    fn deref(&self) -> &str {
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
@@ -59,9 +60,6 @@ impl AsRef<str> for ShopName {
     }
 }
 
-// not ideal but handy for any-of-filter, technically doesn't hurt semantics either
-// as there's at any time a natural and fixed amount of shop-names
-// at most as many as could fit in memory
 impl EnumCount for ShopName {
     const COUNT: usize = usize::MAX;
 }

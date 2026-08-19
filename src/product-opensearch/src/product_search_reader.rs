@@ -7,10 +7,11 @@ use common::pagination::cursor::{Cursor, CursoredResult};
 use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::text_query::TextQuery;
-use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
+use geo::opensearch::distance_to_opensearch_value;
 use localization::{Language, Localized};
 use money::Currency;
+use shop_core::shop_name::ShopName;
 
 use money::Price;
 use opensearch::http::Method;
@@ -619,7 +620,7 @@ pub(crate) fn build_common_filter_clauses(
     if let Some(query) = search.geo_address_distance_query {
         filter.push(json!({
             "geo_distance": {
-                "distance": query.distance.opensearch_value(),
+                "distance": distance_to_opensearch_value(query.distance),
                 ProductDocumentSerdeField::GeoAddress.as_str(): {
                     "lat": query.lat,
                     "lon": query.lon
@@ -847,11 +848,14 @@ mod tests {
     use common::{
         event_id::EventId, fx_rate_id::FxRateId, product_id::ProductId,
         product_lifecycle::document::ProductLifecycleDocument, product_slug_id::ProductSlugId,
-        shop_id::ShopId, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
+        shops_product_id::ShopsProductId,
     };
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+    use geo::core::distance::{Distance, DistanceUnit, GeoDistanceQuery};
     use indexmap::IndexSet;
     use money::MonetaryAmount;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_slug_id::ShopSlugId;
     use strum::IntoEnumIterator;
     use time::{OffsetDateTime, macros::datetime};
     use url::Url;
@@ -902,7 +906,7 @@ mod tests {
             product_id: ProductId::new(),
             product_slug_id: ProductSlugId::from("vase-abcdef"),
             shop_slug_id: ShopSlugId::from("shop"),
-            seller_slug_id: common::seller_slug_id::SellerSlugId::from("seller"),
+            seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
             event_id: EventId::new(),
             shop_id: ShopId::new(),
             seller_id: ShopId::new(),
@@ -942,6 +946,36 @@ mod tests {
             created: datetime!(2025-01-01 0:00 UTC),
             updated: datetime!(2025-01-02 0:00 UTC),
         })
+    }
+
+    #[test]
+    fn should_render_geo_distance_with_opensearch_distance_format()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductSearch::new(Language::En, Currency::Eur)
+            .with_geo_address_distance_query(GeoDistanceQuery {
+                lat: 52.52,
+                lon: 13.405,
+                distance: Distance {
+                    amount: 50.0,
+                    unit: DistanceUnit::Kilometers,
+                },
+            });
+
+        let (_, filters) = build_common_filter_clauses(&search)?;
+        let distance_filter = filters
+            .iter()
+            .find(|filter| filter.get("geo_distance").is_some())
+            .ok_or("missing geo distance filter")?;
+
+        assert_eq!(
+            Some(&json!("50km")),
+            distance_filter.pointer("/geo_distance/distance")
+        );
+        assert_eq!(
+            Some(&json!(52.52)),
+            distance_filter.pointer("/geo_distance/geoAddress/lat")
+        );
+        Ok(())
     }
 
     #[test]

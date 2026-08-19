@@ -1,10 +1,11 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, shop_name::ShopName};
 use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, WoocommerceIntegration};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_postgres::{

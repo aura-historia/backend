@@ -6,9 +6,6 @@ use common::{
     event_id::EventId,
     product_id::ProductId,
     product_slug_id::ProductSlugId,
-    shop_id::ShopId,
-    shop_name::ShopName,
-    shop_slug_id::ShopSlugId,
     shops_product_id::ShopsProductId,
     utm::append_utm_params,
 };
@@ -20,6 +17,9 @@ use product_service::ports::{
     ProductWatchlistNotificationSourceReaderFactory,
 };
 use product_service::use_cases::ProductEventPayload;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use sqlx::PgConnection;
 
 use super::product_details_reader::images;

@@ -1176,7 +1176,7 @@ mod tests {
             shop_name: ShopName::from("Shop"),
             shop_type: ProductSearchFilterMatchShopType::Marketplace,
             seller_id: ShopId::new(),
-            seller_slug_id: common::seller_slug_id::SellerSlugId::from("seller"),
+            seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
             seller_name: ShopName::from("Seller"),
             shops_product_id: ShopsProductId::from("product"),
             address: ProductAddress::default(),

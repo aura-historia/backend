@@ -5,8 +5,6 @@ use common::product_id::{ProductId, ProductKey};
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
 use common::versioned::Versioned;
 use indexmap::IndexSet;
 use localization::Language;
@@ -26,6 +24,8 @@ use product_service::ports::{
     ProductEventStore, ProductEventStoreFactory, ProductRepository, ProductRepositoryError,
     ProductRepositoryFactory,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::OffsetDateTime;

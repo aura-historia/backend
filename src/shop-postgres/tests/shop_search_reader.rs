@@ -1,24 +1,24 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::domain::Domain;
 use common::pagination::cursor::Cursor;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
 use platform_postgres::SqlxUnitOfWork;
 use shop_core::address::{GeoAddress, StructuredAddress};
 use shop_core::affiliate_configuration::AffiliateConfiguration;
 use shop_core::continent::Continent;
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopAddress, ShopContact, ShopPresentation};
-use shop_core::shop_search::ShopSearch;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_core::sort_shop_field::SortShopField;
 use shop_postgres::{SqlxShopRepositoryFactory, SqlxShopSearchReaderFactory};
 use shop_service::ports::{
     ShopRepository, ShopRepositoryFactory, ShopSearchReader, ShopSearchReaderFactory,
 };
+use shop_service::shop_search::ShopSearch;
 use shop_service::use_cases::queries::search_shops::SearchShopsRequest;
 use std::collections::HashSet;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};

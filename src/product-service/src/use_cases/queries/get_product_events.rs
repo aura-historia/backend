@@ -6,9 +6,9 @@ use common::product_id::ProductId;
 use common::product_lifecycle::domain::ProductLifecycle;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
-use common::shop_slug_id::ShopSlugId;
 use localization::Language;
 use localization::Localized;
+use shop_core::shop_slug_id::ShopSlugId;
 
 use indexmap::IndexSet;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};

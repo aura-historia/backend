@@ -1,9 +1,9 @@
 use common::error::boxed::box_error;
-use common::shop_id::ShopId;
 use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxTransaction;
 use shop_core::partner_status::ShopPartnerStatus;
+use shop_core::shop_id::ShopId;
 use shop_service::ports::{
     WoocommerceWebhookShop, WoocommerceWebhookShopReadError, WoocommerceWebhookShopReader,
     WoocommerceWebhookShopReaderFactory,

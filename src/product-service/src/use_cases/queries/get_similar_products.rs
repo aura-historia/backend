@@ -288,9 +288,6 @@ mod tests {
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
     use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
     use common::shops_product_id::ShopsProductId;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
@@ -302,6 +299,9 @@ mod tests {
     };
     use product_core::title::Title;
     use product_core::user_state::ProductUserState;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;

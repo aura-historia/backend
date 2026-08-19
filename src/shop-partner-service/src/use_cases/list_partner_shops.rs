@@ -6,7 +6,10 @@ use common::error::boxed::BoxError;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId};
+use common::user_id::UserId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListPartnerShopsRequest {

@@ -11,7 +11,6 @@ use crate::{
 use common::{
     event_id::EventId, fx_rate_id::FxRateId, product_id::ProductId,
     product_lifecycle::document::ProductLifecycleDocument, product_slug_id::ProductSlugId,
-    seller_slug_id::SellerSlugId, shop_id::ShopId, shop_slug_id::ShopSlugId,
     shops_product_id::ShopsProductId,
 };
 use fxrate_core::{FxRateSnapshot, FxRateSnapshotError, RoundingMode};
@@ -25,6 +24,9 @@ use product_service::ports::{
 };
 use serde::Serialize;
 use serde_json::Value;
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -430,8 +432,7 @@ mod tests {
     use common::{
         event_id::EventId, product_lifecycle::domain::ProductLifecycle,
         product_slug_id::ProductSlugId, product_state::domain::ProductState,
-        query::range_query::RangeQuery, shop_id::ShopId, shop_name::ShopName,
-        shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
+        query::range_query::RangeQuery, shops_product_id::ShopsProductId,
     };
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
@@ -450,6 +451,9 @@ mod tests {
         ProductPercolationValuation, ProductPriceFilterPlan, ProductPricesByCurrency,
         ProductSearchFilterMatchSourceEventKind,
     };
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::collections::HashMap;
     use strum::IntoEnumIterator;
     use url::Url;

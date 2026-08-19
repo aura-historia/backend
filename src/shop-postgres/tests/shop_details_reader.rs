@@ -1,10 +1,11 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::domain::Domain;
-use common::{shop_id::ShopId, shop_name::ShopName};
 use platform_postgres::SqlxUnitOfWork;
 use shop_core::affiliate_configuration::AffiliateConfiguration;
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_postgres::{SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory};
 use shop_service::ports::{
@@ -119,7 +120,7 @@ async fn should_return_none_when_shop_details_rows_are_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let details = SqlxShopDetailsReaderFactory::new();
-    let missing_shop_id = common::shop_id::ShopId::new();
+    let missing_shop_id = shop_core::shop_id::ShopId::new();
 
     let mut tx = begin(&unit_of_work).await;
     let details_by_id = match details

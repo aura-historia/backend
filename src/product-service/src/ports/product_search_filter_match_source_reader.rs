@@ -1,7 +1,6 @@
 use common::{
     event_id::EventId, product_id::ProductId, product_lifecycle::domain::ProductLifecycle,
     product_slug_id::ProductSlugId, product_state::domain::ProductState,
-    seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
     shops_product_id::ShopsProductId,
 };
 use indexmap::IndexSet;
@@ -13,6 +12,10 @@ use product_core::{
     product_image::ProductImage,
     title::Title,
 };
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;

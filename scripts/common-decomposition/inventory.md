@@ -27,3 +27,11 @@
 | `common::language::domain::Language` | domain value | Product, Shop, User, Search Filter, Notification, API, Worker, and canonical runtime fixtures | Existing legacy crates | `test-data` | reusable localization domain | `localization` | split | none; storage/transport conversions are private at their owning boundaries | Legacy consumers migrate or retire |
 | `common::localized::Localized<L, T>` | generic domain wrapper | Product, Search Filter, API, Worker, and canonical adapters | Existing legacy crates | `test-data` | reusable localization domain | `localization` | split | none; legacy `TextRecord`/`LocalizedTextData` conversions stay outside the leaf crate | Legacy consumers migrate or retire |
 | `common::measurement_unit::*` | user preference plus DTO/record mappings | User core, User Postgres, API, and canonical adapter fixtures | Existing legacy crates | `test-data` | User domain | `user-core` | split | none; canonical mapping is private in User Postgres/API | Legacy consumers migrate or retire |
+
+## Iteration 4 — shop and geo ownership
+
+| Current path/type | Kind | Canonical consumers | Legacy consumers | Features | Semantic owner | Target | Action | Compatibility shim | Deletion prerequisite |
+|---|---|---|---|---|---|---|---|---|---|
+| `common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, seller_slug_id::SellerSlugId, domain::{Domain, NoDomainError}}` | shop identifiers and host value | Shop, Product, Partner Shop, Notification, API, PostgreSQL, and runtime crates | Existing legacy crates | `test-data` | Shop domain | `shop-core` | move | `common` type aliases; legacy slug conversions remain in shim | Legacy Shop consumers migrate |
+| `common::distance::domain::{Distance, DistanceUnit, GeoDistanceQuery}` | geo domain values | Product, Search Filter, API, PostgreSQL, and OpenSearch crates | Existing legacy crates | `test-data` | Geo domain | `geo::core` | move | `common::distance::domain` aliases; legacy DTO conversions stay in `common::distance::data` | Legacy geo consumers migrate |
+| `Distance::opensearch_value` | OpenSearch formatting | `product-opensearch` | Legacy Product and User OpenSearch adapters | none | OpenSearch boundary | `geo::opensearch` | split | none | Legacy adapters use `geo::opensearch` directly |

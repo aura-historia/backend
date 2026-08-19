@@ -6,14 +6,15 @@ use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::resource_state::domain::ResourceState;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 
-use geo::data::continent_data::ContinentData;
+use geo::{
+    core::distance::{Distance, DistanceUnit, GeoDistanceQuery},
+    data::continent_data::ContinentData,
+};
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
@@ -298,6 +299,103 @@ pub(crate) fn name(v: String) -> Result<UserSearchFilterName, SearchFilterRowMap
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+struct DistanceJson {
+    amount: f64,
+    unit: DistanceUnitJson,
+}
+
+impl From<Distance> for DistanceJson {
+    fn from(value: Distance) -> Self {
+        Self {
+            amount: value.amount,
+            unit: value.unit.into(),
+        }
+    }
+}
+
+impl From<DistanceJson> for Distance {
+    fn from(value: DistanceJson) -> Self {
+        Self {
+            amount: value.amount,
+            unit: value.unit.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+struct GeoDistanceQueryJson {
+    lat: f64,
+    lon: f64,
+    distance: DistanceJson,
+}
+
+impl From<GeoDistanceQuery> for GeoDistanceQueryJson {
+    fn from(value: GeoDistanceQuery) -> Self {
+        Self {
+            lat: value.lat,
+            lon: value.lon,
+            distance: value.distance.into(),
+        }
+    }
+}
+
+impl From<GeoDistanceQueryJson> for GeoDistanceQuery {
+    fn from(value: GeoDistanceQueryJson) -> Self {
+        Self {
+            lat: value.lat,
+            lon: value.lon,
+            distance: value.distance.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum DistanceUnitJson {
+    Miles,
+    Yards,
+    Feet,
+    Inches,
+    Kilometers,
+    Meters,
+    Centimeters,
+    Millimeters,
+    NauticalMiles,
+}
+
+impl From<DistanceUnit> for DistanceUnitJson {
+    fn from(value: DistanceUnit) -> Self {
+        match value {
+            DistanceUnit::Miles => Self::Miles,
+            DistanceUnit::Yards => Self::Yards,
+            DistanceUnit::Feet => Self::Feet,
+            DistanceUnit::Inches => Self::Inches,
+            DistanceUnit::Kilometers => Self::Kilometers,
+            DistanceUnit::Meters => Self::Meters,
+            DistanceUnit::Centimeters => Self::Centimeters,
+            DistanceUnit::Millimeters => Self::Millimeters,
+            DistanceUnit::NauticalMiles => Self::NauticalMiles,
+        }
+    }
+}
+
+impl From<DistanceUnitJson> for DistanceUnit {
+    fn from(value: DistanceUnitJson) -> Self {
+        match value {
+            DistanceUnitJson::Miles => Self::Miles,
+            DistanceUnitJson::Yards => Self::Yards,
+            DistanceUnitJson::Feet => Self::Feet,
+            DistanceUnitJson::Inches => Self::Inches,
+            DistanceUnitJson::Kilometers => Self::Kilometers,
+            DistanceUnitJson::Meters => Self::Meters,
+            DistanceUnitJson::Centimeters => Self::Centimeters,
+            DistanceUnitJson::Millimeters => Self::Millimeters,
+            DistanceUnitJson::NauticalMiles => Self::NauticalMiles,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductSearchJson {
@@ -317,7 +415,7 @@ struct ProductSearchJson {
     shop_type_query: HashSet<ShopTypeJson>,
     country_query: HashSet<CountryCode>,
     continent_query: HashSet<ContinentData>,
-    geo_address_distance_query: Option<common::distance::data::GeoDistanceQueryData>,
+    geo_address_distance_query: Option<GeoDistanceQueryJson>,
     price_query: Option<RangeQuery<u64>>,
     state_query: HashSet<ProductStateJson>,
     lifecycle_query: HashSet<ProductLifecycleData>,
@@ -665,6 +763,30 @@ mod tests {
     use super::*;
     use localization::Language;
     use money::Currency;
+
+    #[test]
+    fn should_round_trip_geo_distance_query_with_legacy_json_shape()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let search = ProductSearch::new(Language::De, Currency::Usd)
+            .with_geo_address_distance_query(GeoDistanceQuery {
+                lat: 52.52,
+                lon: 13.405,
+                distance: Distance {
+                    amount: 50.0,
+                    unit: DistanceUnit::Kilometers,
+                },
+            });
+
+        let json = product_search_to_json(&search)?;
+
+        assert_eq!(
+            Some(&serde_json::json!("KILOMETERS")),
+            json.pointer("/geo_address_distance_query/distance/unit")
+        );
+        assert_eq!(search, product_search_from_json(json)?);
+        Ok(())
+    }
+
     #[test]
     fn should_round_trip_full_product_search_json() {
         let search = ProductSearch::new(Language::De, Currency::Usd).with_product_query(

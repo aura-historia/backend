@@ -1,7 +1,6 @@
 use crate::partner_shop_application_state::PartnerShopApplicationState;
-use common::{
-    partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
-};
+use common::{partner_shop_application_id::PartnerShopApplicationId, user_id::UserId};
+use shop_core::shop_id::ShopId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartnerShopApplication {

@@ -1,10 +1,7 @@
 use aws_lambda_events::eventbridge::EventBridgeEvent;
 use aws_lambda_events::sqs::{SqsEvent, SqsMessage};
-use common::domain::Domain;
 use common::fx_rate_id::FxRateId;
 use common::postgres::SqlxUnitOfWork;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
 use common::transaction::{Transaction, UnitOfWork};
 use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
@@ -18,8 +15,11 @@ use product_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
 };
 use product_service::use_cases::{IngestShopifyProductHandler, UpsertProductHandler};
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_postgres::{SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory};
 use shop_service::ports::{ShopRepository, ShopRepositoryFactory};

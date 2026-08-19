@@ -20,7 +20,6 @@ use money::Price;
 
 use application::transaction::{Transaction, UnitOfWork};
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use indexmap::IndexSet;
@@ -31,6 +30,7 @@ use product_core::product::{
 };
 use product_core::product_image::ProductImage;
 use product_core::title::Title;
+use shop_core::shop_id::ShopId;
 use url::Url;
 
 const MISSING_PRODUCT_URL: &str = "https://not-provided.invalid";

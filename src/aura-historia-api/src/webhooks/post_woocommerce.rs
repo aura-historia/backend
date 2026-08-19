@@ -6,10 +6,10 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
-use common::shop_id::ShopId;
 use indexmap::IndexSet;
 use product_service::use_cases::{IngestWoocommerceProductCommand, WoocommerceProductEventKind};
 use serde::Deserialize;
+use shop_core::shop_id::ShopId;
 use url::Url;
 
 const TOPIC_HEADER: &str = "x-wc-webhook-topic";

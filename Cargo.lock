@@ -417,6 +417,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
  "sqlx",
  "test-api",
  "thiserror 2.0.20",
@@ -1826,6 +1827,7 @@ dependencies = [
  "aws_lambda_events",
  "domain-primitives",
  "fake",
+ "geo",
  "http 1.5.0",
  "httpdate",
  "itertools 0.15.0",
@@ -1837,6 +1839,7 @@ dependencies = [
  "serde",
  "serde_dynamo",
  "serde_json",
+ "shop-core",
  "slug",
  "sqlx",
  "strum 0.28.0",
@@ -4962,6 +4965,7 @@ dependencies = [
  "product-core",
  "serde",
  "serde-email",
+ "shop-core",
  "url",
  "uuid",
 ]
@@ -6349,6 +6353,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
  "sqlx",
  "strum 0.28.0",
  "test-api",
@@ -8040,7 +8045,6 @@ dependencies = [
 name = "shop-core"
 version = "0.1.0"
 dependencies = [
- "common",
  "domain-primitives",
  "fake",
  "geo",
@@ -8050,9 +8054,12 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde-email",
+ "slug",
+ "strum 0.28.0",
  "thiserror 2.0.20",
  "time",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -8192,6 +8199,7 @@ dependencies = [
  "common",
  "fake",
  "geo",
+ "isocountry",
  "localization",
  "money",
  "openssl",

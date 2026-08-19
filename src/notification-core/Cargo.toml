@@ -9,6 +9,7 @@ localization = { workspace = true }
 money = { workspace = true }
 product-core = { workspace = true }
 serde = { workspace = true }
+shop-core = { workspace = true }
 serde-email = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true }

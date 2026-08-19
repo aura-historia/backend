@@ -9,10 +9,10 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use common::product_id::ProductId;
 use common::product_slug_id::ProductSlugId;
-use common::shop_slug_id::ShopSlugId;
 use product_service::ports::ProductEmbeddingLookup;
 use product_service::use_cases::{GetSimilarProductsRequest, GetSimilarProductsResult};
 use serde::Deserialize;
+use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Deserialize)]
 struct SimilarProductsQuery {
@@ -197,9 +197,6 @@ mod tests {
     use common::product_lifecycle::domain::ProductLifecycle;
     use common::product_slug_id::ProductSlugId;
     use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
     use common::shops_product_id::ShopsProductId;
     use common::user_id::UserId;
     use localization::{Language, Localized};
@@ -214,6 +211,9 @@ mod tests {
         ProductSummaryPriceValuation, SearchProductsError, SearchProductsRequest,
         SearchProductsResult, SearchProductsUseCase,
     };
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use time::OffsetDateTime;

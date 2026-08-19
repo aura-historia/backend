@@ -1,7 +1,6 @@
 use crate::use_cases::{
     UpsertProductCommand, UpsertProductError, UpsertProductResult, UpsertProductUseCase,
 };
-use common::domain::Domain;
 use common::operation_context::OperationContext;
 use common::product_state::domain::ProductState;
 use common::shops_product_id::ShopsProductId;
@@ -13,6 +12,7 @@ use product_core::product::ProductAddress;
 use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_service::use_cases::{GetShopError, GetShopRequest, GetShopUseCase};
 use url::Url;
@@ -228,10 +228,10 @@ impl From<GetShopError> for IngestShopifyProductError {
 mod tests {
     use super::*;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
     use localization::Language;
     use money::Currency;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
     use shop_core::shop_type::ShopType;
     use shop_service::use_cases::ShopDetailsView;
     use std::collections::HashSet;

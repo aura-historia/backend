@@ -12,7 +12,6 @@ use common::operation_context::{
 use common::product_id::ProductId;
 use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use fxrate_service::ports::{
@@ -28,6 +27,7 @@ use product_core::product::{
 };
 use product_core::product_image::ProductImage;
 use product_core::title::Title;
+use shop_core::shop_id::ShopId;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
