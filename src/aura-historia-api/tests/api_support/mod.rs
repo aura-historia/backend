@@ -35,7 +35,6 @@ use geo::{Geocoder, GeocodingError};
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
-    SqlxProductNotificationIdsReader,
 };
 use notification_service::use_cases::commands::delete_notification::DeleteNotificationHandler;
 use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsHandler;
@@ -542,7 +541,6 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             unit_of_work.clone(),
             SqlxProductDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(GetSimilarProductsHandler::new(
             unit_of_work.clone(),
@@ -550,7 +548,6 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
             SqlxProductUserStateReader::new(pool.clone()),
-            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(SearchProductsHandler::new(
             unit_of_work.clone(),
@@ -558,7 +555,6 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             SqlxFxRateSnapshotRepositoryFactory,
             search_embeddings,
             SqlxProductUserStateReader::new(pool.clone()),
-            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
@@ -723,7 +719,6 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             search_filter_reader.clone(),
             SqlxProductDetailsBatchReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
-            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
             unit_of_work.clone(),
@@ -760,7 +755,6 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             unit_of_work.clone(),
             SqlxProductWatchlistDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(WatchProductHandler::new(
             unit_of_work.clone(),

@@ -1,6 +1,7 @@
 use common::currency::domain::Currency;
 use common::language::domain::Language;
 use common::localized::Localized;
+use common::notification_id::NotificationId;
 use common::postgres::SqlxUnitOfWork;
 use common::price::domain::{MonetaryAmount, Price};
 use common::product_id::ProductId;
@@ -231,6 +232,24 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
         match_created,
     )
     .await;
+    let notification_id = NotificationId::new();
+    let notification = sqlx::query(
+        r#"
+        INSERT INTO notifications (
+            notification_id, user_id, kind, origin_event_id, product_id, payload, seen
+        ) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, $5, false)
+        "#,
+    )
+    .bind(uuid::Uuid::from(notification_id))
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::from(product.id()))
+    .bind(serde_json::json!({}))
+    .execute(&pool)
+    .await;
+    if let Err(error) = notification {
+        panic!("failed to seed notification: {error}");
+    }
 
     let view = find_personalized_details(&pool, details_request(product.id(), Some(user_id))).await;
     let user_state = view.user_state.unwrap_or_default();
@@ -238,7 +257,10 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
     assert!(user_state.watchlist.watching);
     assert!(!user_state.watchlist.notifications);
     assert!(user_state.prohibited_content.consent);
-    assert!(user_state.notification.unseen_notification_ids.is_empty());
+    assert_eq!(
+        vec![notification_id],
+        user_state.notification.unseen_notification_ids
+    );
     assert!(user_state.search_filter.matched);
     assert!(!user_state.search_filter.hidden);
     assert_eq!(

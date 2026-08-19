@@ -1,5 +1,5 @@
 use common::currency::domain::Currency;
-use common::error::boxed::{BoxError, box_error};
+use common::error::boxed::BoxError;
 use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::operation_context::{
@@ -13,10 +13,7 @@ use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
-use notification_service::ports::product_notification_ids_reader::{
-    ProductNotificationIdsReadError, ProductNotificationIdsReader,
-};
-use product_core::user_state::NotificationUserState;
+
 use product_service::ports::{
     ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
     ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
@@ -73,11 +70,7 @@ pub enum ListWatchlistError {
         #[source]
         source: FxRateSnapshotError,
     },
-    #[error("watchlist notification read failed")]
-    NotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("failed to begin watchlist transaction")]
     BeginTransactionFailed,
     #[error("failed to commit watchlist transaction")]
@@ -93,31 +86,28 @@ pub trait ListWatchlistUseCase: Send + Sync {
     ) -> Result<ListWatchlistResult, ListWatchlistError>;
 }
 
-pub struct ListWatchlistHandler<U, D, F, N> {
+pub struct ListWatchlistHandler<U, D, F> {
     unit_of_work: U,
     details_reader: D,
     fx_rates: F,
-    notifications_reader: N,
 }
 
-impl<U, D, F, N> ListWatchlistHandler<U, D, F, N> {
-    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F, notifications_reader: N) -> Self {
+impl<U, D, F> ListWatchlistHandler<U, D, F> {
+    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F) -> Self {
         Self {
             unit_of_work,
             details_reader,
             fx_rates,
-            notifications_reader,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, D, F, N> ListWatchlistUseCase for ListWatchlistHandler<U, D, F, N>
+impl<U, D, F> ListWatchlistUseCase for ListWatchlistHandler<U, D, F>
 where
     U: UnitOfWork,
     D: ProductWatchlistDetailsReaderFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    N: ProductNotificationIdsReader,
 {
     #[tracing::instrument(name = "list_watchlist", skip_all, fields(user_id = %request.user_id, principal_type = context.principal.kind(), request_id = %context.request_id, correlation_id = %context.correlation_id))]
     async fn execute(
@@ -172,33 +162,11 @@ where
             .await
             .map_err(|_| ListWatchlistError::CommitTransactionFailed)?;
 
-        if page.items.is_empty() {
-            return Ok(page);
-        }
-
-        let mut notification_ids = self
-            .notifications_reader
-            .unseen_ids_for_products(
-                request.user_id,
-                &page
-                    .items
-                    .iter()
-                    .map(|product| product.item.product_id)
-                    .collect::<Vec<_>>(),
-            )
-            .await
-            .map_err(notification_read_error)?;
-
         for product in &mut page.items {
             let user_state = product
                 .user_state
-                .as_mut()
+                .as_ref()
                 .ok_or(ListWatchlistError::InvalidPersistedState)?;
-            user_state.notification = NotificationUserState {
-                unseen_notification_ids: notification_ids
-                    .remove(&product.item.product_id)
-                    .unwrap_or_default(),
-            };
             if user_state.search_filter.hidden {
                 redact_hidden_product(&mut product.item)
                     .map_err(|_| ListWatchlistError::InvalidPersistedState)?;
@@ -285,12 +253,6 @@ fn present_with_pricing_snapshot(
     )?)
 }
 
-fn notification_read_error(error: ProductNotificationIdsReadError) -> ListWatchlistError {
-    ListWatchlistError::NotificationReadFailed {
-        source: box_error(error),
-    }
-}
-
 fn authorize_read(context: &OperationContext, user_id: UserId) -> Result<(), ListWatchlistError> {
     context
         .require()
@@ -354,6 +316,7 @@ impl From<ProductPricingPresentationError> for ListWatchlistError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common::error::boxed::box_error;
     use common::event_id::EventId;
     use common::localized::Localized;
     use common::notification_id::NotificationId;
@@ -372,18 +335,16 @@ mod tests {
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
-    use notification_service::ports::product_notification_ids_reader::{
-        ProductNotificationIdsReadError, ProductNotificationIdsReader,
-    };
+
     use product_core::description::Description;
     use product_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
     use product_core::title::Title;
-    use product_core::user_state::ProductUserState;
+    use product_core::user_state::{NotificationUserState, ProductUserState};
     use product_service::ports::{PersonalizedProductDetailsReadModel, ProductDetailsReadModel};
     use product_service::use_cases::ProductPricingValuation;
-    use std::collections::HashMap;
+
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
@@ -402,16 +363,12 @@ mod tests {
         latest_snapshot_result:
             Option<Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>>,
         sale_snapshots_result: Option<Result<Vec<FxRateSnapshot>, FxRateSnapshotRepositoryError>>,
-        notifications_result: Option<
-            Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>,
-        >,
+
         begin_count: usize,
         commit_count: usize,
         details_requests: Vec<ProductWatchlistDetailsRequest>,
         latest_snapshot_requests: usize,
         sale_snapshot_requests: Vec<Vec<FxRateId>>,
-        notification_requests: usize,
-        notification_after_commit: bool,
     }
 
     type SharedState = Arc<Mutex<FakeState>>;
@@ -422,8 +379,7 @@ mod tests {
     struct FakeDetailsReaderFactory(SharedState);
     #[derive(Clone)]
     struct FakeFxRateSnapshotRepositoryFactory(SharedState);
-    #[derive(Clone)]
-    struct FakeNotificationsReader(SharedState);
+
     struct FakeTransaction(SharedState);
     struct FakeDetailsReader(SharedState);
     struct FakeFxRateSnapshotRepository(SharedState);
@@ -553,37 +509,17 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
-    impl ProductNotificationIdsReader for FakeNotificationsReader {
-        async fn unseen_ids_for_products(
-            &self,
-            _user_id: UserId,
-            _product_ids: &[ProductId],
-        ) -> Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>
-        {
-            let mut state = lock(&self.0);
-            state.notification_requests += 1;
-            state.notification_after_commit = state.commit_count == 1;
-            state
-                .notifications_result
-                .take()
-                .unwrap_or(Ok(HashMap::new()))
-        }
-    }
-
     fn handler(
         state: &SharedState,
     ) -> ListWatchlistHandler<
         FakeUnitOfWork,
         FakeDetailsReaderFactory,
         FakeFxRateSnapshotRepositoryFactory,
-        FakeNotificationsReader,
     > {
         ListWatchlistHandler::new(
             FakeUnitOfWork(Arc::clone(state)),
             FakeDetailsReaderFactory(Arc::clone(state)),
             FakeFxRateSnapshotRepositoryFactory(Arc::clone(state)),
-            FakeNotificationsReader(Arc::clone(state)),
         )
     }
 
@@ -729,8 +665,33 @@ mod tests {
         let state = lock(&state);
         assert_eq!(1, state.latest_snapshot_requests);
         assert!(state.sale_snapshot_requests.is_empty());
-        assert_eq!(1, state.notification_requests);
-        assert!(state.notification_after_commit);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_retain_canonical_notification_user_state()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let user_id = UserId::new();
+        let expected_user_state = ProductUserState {
+            notification: NotificationUserState {
+                unseen_notification_ids: vec![NotificationId::new()],
+            },
+            ..Default::default()
+        };
+        let mut product = details(ProductId::new())?;
+        product.user_state = Some(expected_user_state.clone());
+        let state = state();
+        lock(&state).details_result = Some(Ok(page(vec![product])));
+        lock(&state).latest_snapshot_result = Some(Ok(Some(snapshot(FxRateId::new())?)));
+
+        let result = handler(&state)
+            .execute(&context(user_id), request(user_id))
+            .await?;
+
+        assert_eq!(
+            Some(&expected_user_state),
+            result.items[0].user_state.as_ref()
+        );
         Ok(())
     }
 
@@ -828,7 +789,6 @@ mod tests {
         ));
         let state = lock(&state);
         assert_eq!(0, state.commit_count);
-        assert_eq!(0, state.notification_requests);
         Ok(())
     }
 
@@ -850,7 +810,6 @@ mod tests {
         ));
         let state = lock(&state);
         assert_eq!(0, state.commit_count);
-        assert_eq!(0, state.notification_requests);
         Ok(())
     }
 
@@ -876,13 +835,11 @@ mod tests {
         ));
         let state = lock(&state);
         assert_eq!(0, state.commit_count);
-        assert_eq!(0, state.notification_requests);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_not_read_notifications_for_an_empty_watchlist() -> Result<(), ListWatchlistError>
-    {
+    async fn should_commit_an_empty_watchlist() -> Result<(), ListWatchlistError> {
         let user_id = UserId::new();
         let state = state();
 
@@ -894,39 +851,11 @@ mod tests {
         assert_eq!(0, state.latest_snapshot_requests);
         assert!(state.sale_snapshot_requests.is_empty());
         assert_eq!(1, state.commit_count);
-        assert_eq!(0, state.notification_requests);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_fail_after_commit_when_notification_read_fails()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let user_id = UserId::new();
-        let state = state();
-        lock(&state).details_result = Some(Ok(page(vec![details(ProductId::new())?])));
-        lock(&state).latest_snapshot_result = Some(Ok(Some(snapshot(FxRateId::new())?)));
-        lock(&state).notifications_result =
-            Some(Err(ProductNotificationIdsReadError::ReadFailed {
-                source: box_error(std::io::Error::other("unavailable")),
-            }));
-
-        let result = handler(&state)
-            .execute(&context(user_id), request(user_id))
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(ListWatchlistError::NotificationReadFailed { .. })
-        ));
-        let state = lock(&state);
-        assert_eq!(1, state.commit_count);
-        assert_eq!(1, state.notification_requests);
-        assert!(state.notification_after_commit);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_not_commit_or_read_notifications_when_details_read_fails() {
+    async fn should_not_commit_when_details_read_fails() {
         let user_id = UserId::new();
         let state = state();
         lock(&state).details_result = Some(Err(ProductWatchlistDetailsReadError::QueryFailed));
@@ -942,12 +871,10 @@ mod tests {
         let state = lock(&state);
         assert_eq!(0, state.commit_count);
         assert_eq!(0, state.latest_snapshot_requests);
-        assert_eq!(0, state.notification_requests);
     }
 
     #[tokio::test]
-    async fn should_not_read_notifications_when_commit_fails()
-    -> Result<(), Box<dyn std::error::Error>> {
+    async fn should_return_commit_failure() -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
         let state = state();
         lock(&state).commit_fails = true;
@@ -962,13 +889,12 @@ mod tests {
             result,
             Err(ListWatchlistError::CommitTransactionFailed)
         ));
-        assert_eq!(0, lock(&state).notification_requests);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_reject_missing_user_state_after_notification_hydration()
-    -> Result<(), Box<dyn std::error::Error>> {
+    async fn should_reject_missing_canonical_user_state() -> Result<(), Box<dyn std::error::Error>>
+    {
         let user_id = UserId::new();
         let mut product = details(ProductId::new())?;
         product.user_state = None;
@@ -986,7 +912,6 @@ mod tests {
         ));
         let state = lock(&state);
         assert_eq!(1, state.commit_count);
-        assert_eq!(1, state.notification_requests);
         Ok(())
     }
 

@@ -658,8 +658,7 @@ impl From<ListSearchFilterMatchesError> for ApiError {
             | ListSearchFilterMatchesError::SalePricingFxSnapshotMissing { .. }
             | ListSearchFilterMatchesError::PricingFxSnapshotUnavailable { .. }
             | ListSearchFilterMatchesError::BeginPricingTransactionFailed
-            | ListSearchFilterMatchesError::CommitPricingTransactionFailed
-            | ListSearchFilterMatchesError::NotificationReadFailed { .. } => {
+            | ListSearchFilterMatchesError::CommitPricingTransactionFailed => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter matches are temporarily unavailable.")
             }
@@ -951,7 +950,6 @@ impl From<GetProductError> for ApiError {
             GetProductError::ProductDetailsQueryFailed
             | GetProductError::PricingFxSnapshotMissing
             | GetProductError::PricingFxSnapshotUnavailable { .. }
-            | GetProductError::ProductNotificationReadFailed { .. }
             | GetProductError::BeginTransactionFailed
             | GetProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
@@ -1000,8 +998,7 @@ impl From<GetSimilarProductsError> for ApiError {
             | GetSimilarProductsError::CommitTransactionFailed
             | GetSimilarProductsError::PricingFxSnapshotMissing
             | GetSimilarProductsError::PricingFxSnapshotUnavailable { .. }
-            | GetSimilarProductsError::ProductUserStateQueryFailed { .. }
-            | GetSimilarProductsError::ProductNotificationReadFailed { .. } => {
+            | GetSimilarProductsError::ProductUserStateQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Similar products are temporarily unavailable.")
             }
@@ -1024,8 +1021,7 @@ impl From<SearchProductsError> for ApiError {
             | SearchProductsError::BeginFxRateSnapshotTransactionFailed { .. }
             | SearchProductsError::FxRateSnapshotReadFailed { .. }
             | SearchProductsError::CommitFxRateSnapshotTransactionFailed { .. }
-            | SearchProductsError::ProductUserStateQueryFailed { .. }
-            | SearchProductsError::ProductNotificationReadFailed { .. } => {
+            | SearchProductsError::ProductUserStateQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product search is temporarily unavailable.")
             }
@@ -1455,7 +1451,6 @@ impl From<ListWatchlistError> for ApiError {
             | ListWatchlistError::CurrentPricingFxSnapshotMissing
             | ListWatchlistError::SalePricingFxSnapshotMissing { .. }
             | ListWatchlistError::PricingFxSnapshotUnavailable { .. }
-            | ListWatchlistError::NotificationReadFailed { .. }
             | ListWatchlistError::BeginTransactionFailed
             | ListWatchlistError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
@@ -2091,21 +2086,6 @@ impl IntoResponse for ApiError {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[tokio::test]
-    async fn should_map_product_notification_read_failure_to_service_unavailable()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let response = ApiError::from(GetProductError::ProductNotificationReadFailed {
-            source: common::error::boxed::box_error(std::io::Error::other("dynamodb unavailable")),
-        })
-        .into_response();
-
-        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
-        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
-        assert_eq!(PRODUCT_TEMPORARILY_UNAVAILABLE.to_string(), body["error"]);
-        Ok(())
-    }
 
     #[tokio::test]
     async fn should_map_temporary_jwks_failure_to_service_unavailable()

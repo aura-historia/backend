@@ -40,7 +40,6 @@ use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_postgres::{
     SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
     SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
-    SqlxProductNotificationIdsReader,
 };
 use notification_service::use_cases::commands::delete_notification::DeleteNotificationHandler;
 use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsHandler;
@@ -755,7 +754,6 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxFxRateSnapshotRepositoryFactory,
         OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
         product_user_states.clone(),
-        SqlxProductNotificationIdsReader::new(pool.clone()),
     );
     let search_products = SearchProductsHandler::new(
         unit_of_work.clone(),
@@ -763,13 +761,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxFxRateSnapshotRepositoryFactory,
         Arc::clone(&embeddings),
         product_user_states,
-        SqlxProductNotificationIdsReader::new(pool.clone()),
     );
     let get_product = GetProductHandler::new(
         unit_of_work.clone(),
         SqlxProductDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
-        SqlxProductNotificationIdsReader::new(pool.clone()),
     );
     let create_product = CreateProductHandler::new_with_fx_rates(
         unit_of_work.clone(),
@@ -812,7 +808,6 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         unit_of_work.clone(),
         SqlxProductWatchlistDetailsReaderFactory::new(),
         SqlxFxRateSnapshotRepositoryFactory,
-        SqlxProductNotificationIdsReader::new(pool.clone()),
     );
 
     let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name_ref);
@@ -932,7 +927,6 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
             search_filter_reader.clone(),
             SqlxProductDetailsBatchReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
-            SqlxProductNotificationIdsReader::new(pool.clone()),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
             unit_of_work.clone(),

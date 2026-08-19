@@ -1,4 +1,4 @@
-use super::product_details_reader::{ProductDetailsRow, SELECT_PRODUCT_DETAILS};
+use super::product_details_reader::{ProductDetailsRow, product_details_select};
 use common::{error::boxed::box_error, product_id::ProductId};
 use product_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
@@ -73,7 +73,29 @@ impl ProductDetailsBatchReader for SqlxProductDetailsBatchReader {
             .collect::<Vec<_>>();
         let search_filter_id = uuid::Uuid::parse_str(&request.search_filter_id.to_string())
             .map_err(ProductDetailsBatchSearchFilterIdError)?;
-        let select = SELECT_PRODUCT_DETAILS.replace(
+        let select = product_details_select(
+            r#"
+    requested_products AS (
+        SELECT DISTINCT requested.product_id
+        FROM UNNEST($3::uuid[]) AS requested(product_id)
+    ),
+    notification_states AS (
+        SELECT
+            notification.product_id,
+            array_agg(
+                notification.notification_id
+                ORDER BY notification.created DESC, notification.notification_id DESC
+            ) AS unseen_notification_ids
+        FROM notifications notification
+        JOIN requested_products requested
+            ON requested.product_id = notification.product_id
+        WHERE notification.user_id = $2
+            AND notification.seen = false
+        GROUP BY notification.product_id
+    )
+"#,
+        )
+        .replace(
             "AND matched.product_id = p.product_id",
             "AND matched.product_id = p.product_id AND matched.user_search_filter_id = $4",
         );

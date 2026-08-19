@@ -14,11 +14,8 @@ use common::shop_slug_id::ShopSlugId;
 use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 
-use notification_service::ports::product_notification_ids_reader::{
-    ProductNotificationIdsReadError, ProductNotificationIdsReader,
-};
 use product_core::title::Title;
-use product_core::user_state::NotificationUserState;
+
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
@@ -35,11 +32,7 @@ pub(crate) enum ProductSummaryPersonalizationError {
         #[source]
         source: BoxError,
     },
-    #[error("product notification read failed")]
-    NotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("product user state is missing for product {product_id}")]
     UserStateMissing { product_id: ProductId },
     #[error("hidden product summary could not be constructed")]
@@ -49,15 +42,13 @@ pub(crate) enum ProductSummaryPersonalizationError {
     },
 }
 
-pub(crate) async fn hydrate_product_summaries<U, N>(
+pub(crate) async fn hydrate_product_summaries<U>(
     products: &mut [PersonalizedProductSummary],
     user_id: UserId,
     user_states: &U,
-    notifications: &N,
 ) -> Result<(), ProductSummaryPersonalizationError>
 where
     U: ProductUserStateReader,
-    N: ProductNotificationIdsReader,
 {
     if products.is_empty() {
         return Ok(());
@@ -72,32 +63,18 @@ where
             .into_iter()
             .collect(),
     };
-    let user_states_future = async {
-        user_states
-            .find_for_user(&lookup)
-            .await
-            .map_err(ProductSummaryPersonalizationError::from)
-    };
-    let notification_ids_future = async {
-        notifications
-            .unseen_ids_for_products(user_id, &lookup.product_ids)
-            .await
-            .map_err(ProductSummaryPersonalizationError::from)
-    };
-    let (user_states, mut notification_ids) =
-        tokio::try_join!(user_states_future, notification_ids_future)?;
+    let user_states = user_states
+        .find_for_user(&lookup)
+        .await
+        .map_err(ProductSummaryPersonalizationError::from)?;
 
     for product in products {
-        let mut user_state = user_states.get(&product.item.product_id).cloned().ok_or(
+        let user_state = user_states.get(&product.item.product_id).cloned().ok_or(
             ProductSummaryPersonalizationError::UserStateMissing {
                 product_id: product.item.product_id,
             },
         )?;
-        user_state.notification = NotificationUserState {
-            unseen_notification_ids: notification_ids
-                .remove(&product.item.product_id)
-                .unwrap_or_default(),
-        };
+
         let hidden = user_state.search_filter.hidden;
         product.user_state = Some(user_state);
         if hidden {
@@ -163,14 +140,6 @@ impl From<ProductUserStateReadError> for ProductSummaryPersonalizationError {
             ProductUserStateReadError::InvalidReadModel { source } => {
                 Self::UserStateReadModelInvalid { source }
             }
-        }
-    }
-}
-
-impl From<ProductNotificationIdsReadError> for ProductSummaryPersonalizationError {
-    fn from(error: ProductNotificationIdsReadError) -> Self {
-        Self::NotificationReadFailed {
-            source: box_error(error),
         }
     }
 }

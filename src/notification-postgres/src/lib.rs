@@ -9,6 +9,6 @@ pub mod writers;
 pub use delivery_intent_repository::SqlxNotificationDeliveryIntentRepositoryFactory;
 pub use delivery_repository::SqlxNotificationDeliveryRepository;
 pub use email_delivery_target_reader::SqlxEmailDeliveryTargetReader;
-pub use readers::{SqlxNotificationListReader, SqlxProductNotificationIdsReader};
+pub use readers::SqlxNotificationListReader;
 pub use repository::SqlxNotificationRepositoryFactory;
 pub use writers::{SqlxNotificationDeleter, SqlxNotificationSeenWriter};

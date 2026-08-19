@@ -3,7 +3,7 @@ use crate::ports::{
     ProductDetailsReader, ProductDetailsReaderFactory,
 };
 use common::currency::domain::Currency;
-use common::error::boxed::{BoxError, box_error};
+use common::error::boxed::BoxError;
 use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
@@ -25,14 +25,12 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
-use notification_service::ports::product_notification_ids_reader::{
-    ProductNotificationIdsReadError, ProductNotificationIdsReader,
-};
+
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_image::ProductImage;
 use product_core::title::Title;
-use product_core::user_state::{NotificationUserState, ProductUserState};
+use product_core::user_state::ProductUserState;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -199,11 +197,7 @@ pub enum GetProductError {
         #[source]
         source: FxRateSnapshotError,
     },
-    #[error("product notification read failed")]
-    ProductNotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("failed to begin get product transaction")]
     BeginTransactionFailed,
     #[error("failed to commit get product transaction")]
@@ -219,31 +213,28 @@ pub trait GetProductUseCase: Send + Sync {
     ) -> Result<PersonalizedProductDetailsView, GetProductError>;
 }
 
-pub struct GetProductHandler<U, D, F, N> {
+pub struct GetProductHandler<U, D, F> {
     unit_of_work: U,
     details_reader: D,
     fx_rates: F,
-    product_notifications: N,
 }
 
-impl<U, D, F, N> GetProductHandler<U, D, F, N> {
-    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F, product_notifications: N) -> Self {
+impl<U, D, F> GetProductHandler<U, D, F> {
+    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F) -> Self {
         Self {
             unit_of_work,
             details_reader,
             fx_rates,
-            product_notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, D, F, N> GetProductUseCase for GetProductHandler<U, D, F, N>
+impl<U, D, F> GetProductUseCase for GetProductHandler<U, D, F>
 where
     U: UnitOfWork,
     D: ProductDetailsReaderFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    N: ProductNotificationIdsReader,
 {
     #[tracing::instrument(
         name = "get_product",
@@ -289,25 +280,15 @@ where
             .await
             .map_err(|_| GetProductError::CommitTransactionFailed)?;
 
-        if let Some(user_id) = user_id {
-            let user_state = details
+        if user_id.is_some()
+            && details
                 .user_state
-                .as_mut()
-                .ok_or(GetProductError::ProductDetailsReadModelInvalid)?;
-            let notification = NotificationUserState {
-                unseen_notification_ids: self
-                    .product_notifications
-                    .unseen_ids_for_products(user_id, &[details.item.product_id])
-                    .await
-                    .map_err(product_notification_read_error)?
-                    .remove(&details.item.product_id)
-                    .unwrap_or_default(),
-            };
-            user_state.notification = notification;
-
-            if user_state.search_filter.hidden {
-                redact_hidden_product(&mut details.item)?;
-            }
+                .as_ref()
+                .ok_or(GetProductError::ProductDetailsReadModelInvalid)?
+                .search_filter
+                .hidden
+        {
+            redact_hidden_product(&mut details.item)?;
         }
 
         Ok(details)
@@ -373,12 +354,6 @@ fn personalization_user_id(principal: &Principal) -> Option<UserId> {
     match principal {
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
         Principal::Anonymous | Principal::Service(_) | Principal::System => None,
-    }
-}
-
-fn product_notification_read_error(error: ProductNotificationIdsReadError) -> GetProductError {
-    GetProductError::ProductNotificationReadFailed {
-        source: box_error(error),
     }
 }
 
@@ -484,17 +459,15 @@ impl From<ProductPricingPresentationError> for GetProductError {
 mod tests {
     use super::*;
     use crate::ports::ProductDetailsReadModel;
-    use common::notification_id::NotificationId;
+
+    use common::error::boxed::box_error;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::price::domain::{MonetaryAmount, Price};
     use common::transaction::TransactionError;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
-    use notification_service::ports::product_notification_ids_reader::{
-        ProductNotificationIdsReadError, ProductNotificationIdsReader,
-    };
-    use std::collections::HashMap;
+
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
 
@@ -511,11 +484,7 @@ mod tests {
             Option<Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>>,
         fx_rate_id_requests: Vec<FxRateId>,
         latest_snapshot_count: usize,
-        notification_result: Option<
-            Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>,
-        >,
-        notification_requests: Vec<(UserId, Vec<ProductId>)>,
-        notification_called_after_commit: Option<bool>,
+
         commit_count: usize,
     }
 
@@ -533,11 +502,6 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeFxRateSnapshotRepositoryFactory {
-        state: SharedState,
-    }
-
-    #[derive(Clone)]
-    struct FakeProductNotificationIdsReader {
         state: SharedState,
     }
 
@@ -684,33 +648,12 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
-    impl ProductNotificationIdsReader for FakeProductNotificationIdsReader {
-        async fn unseen_ids_for_products(
-            &self,
-            user_id: UserId,
-            product_ids: &[ProductId],
-        ) -> Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>
-        {
-            let mut state = lock_state(&self.state);
-            state
-                .notification_requests
-                .push((user_id, product_ids.to_vec()));
-            state.notification_called_after_commit = Some(state.commit_count == 1);
-            match state.notification_result.take() {
-                Some(result) => result,
-                None => Ok(HashMap::new()),
-            }
-        }
-    }
-
     fn handler(
         state: &SharedState,
     ) -> GetProductHandler<
         FakeUnitOfWork,
         FakeDetailsReaderFactory,
         FakeFxRateSnapshotRepositoryFactory,
-        FakeProductNotificationIdsReader,
     > {
         GetProductHandler::new(
             FakeUnitOfWork {
@@ -720,9 +663,6 @@ mod tests {
                 state: Arc::clone(state),
             },
             FakeFxRateSnapshotRepositoryFactory {
-                state: Arc::clone(state),
-            },
-            FakeProductNotificationIdsReader {
                 state: Arc::clone(state),
             },
         )
@@ -878,7 +818,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_present_current_pricing_from_latest_snapshot_and_commit_before_enrichment()
+    async fn should_present_current_pricing_from_latest_snapshot_and_commit()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let details = factual_details()?;
@@ -899,7 +839,7 @@ mod tests {
         let state = lock_state(&state);
         assert_eq!(1, state.latest_snapshot_count);
         assert!(state.fx_rate_id_requests.is_empty());
-        assert!(state.notification_requests.is_empty());
+
         assert_eq!(
             Some(ProductDetailsReadRequest {
                 lookup: request.lookup,
@@ -949,18 +889,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_hydrate_newest_notification_after_commit_for_authenticated_user()
+    async fn should_preserve_notification_ids_from_transactional_details_reader()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let user_id = UserId::new();
         let mut details = factual_details()?;
-        details.user_state = Some(ProductUserState::default());
-        let product_id = details.item.product_id;
-        let notification_id = NotificationId::new();
+        let notification_id = common::notification_id::NotificationId::new();
+        let mut user_state = ProductUserState::default();
+        user_state.notification.unseen_notification_ids = vec![notification_id];
+        details.user_state = Some(user_state);
         lock_state(&state).find_details_result = Some(Ok(Some(details)));
         prepare_current_snapshot(&state)?;
-        lock_state(&state).notification_result =
-            Some(Ok(HashMap::from([(product_id, vec![notification_id])])));
 
         let result = handler(&state)
             .execute(
@@ -969,22 +908,20 @@ mod tests {
             )
             .await?;
 
-        let user_state = result.user_state.unwrap_or_default();
         assert_eq!(
             vec![notification_id],
-            user_state.notification.unseen_notification_ids
+            result
+                .user_state
+                .unwrap_or_default()
+                .notification
+                .unseen_notification_ids
         );
-        let state = lock_state(&state);
-        assert_eq!(Some(true), state.notification_called_after_commit);
-        assert_eq!(
-            vec![(user_id, vec![product_id])],
-            state.notification_requests
-        );
+        assert_eq!(1, lock_state(&state).commit_count);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_redact_hidden_product_after_notification_enrichment()
+    async fn should_redact_hidden_product_from_reader_state()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let user_id = UserId::new();
@@ -1039,7 +976,6 @@ mod tests {
         ));
         let state = lock_state(&state);
         assert_eq!(0, state.commit_count);
-        assert!(state.notification_requests.is_empty());
         Ok(())
     }
 

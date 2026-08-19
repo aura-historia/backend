@@ -17,10 +17,7 @@ use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
-use notification_service::ports::product_notification_ids_reader::{
-    ProductNotificationIdsReadError, ProductNotificationIdsReader,
-};
-use product_core::user_state::NotificationUserState;
+
 use product_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
     ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
@@ -98,11 +95,7 @@ pub enum ListSearchFilterMatchesError {
     BeginPricingTransactionFailed,
     #[error("failed to commit matched-product FX transaction")]
     CommitPricingTransactionFailed,
-    #[error("matched product notification read failed")]
-    NotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("matched product could not be redacted")]
     HiddenProductRedactionFailed {
         #[source]
@@ -119,34 +112,31 @@ pub trait ListSearchFilterMatchesUseCase: Send + Sync {
     ) -> Result<ListSearchFilterMatchesResult, ListSearchFilterMatchesError>;
 }
 
-pub struct ListSearchFilterMatchesHandler<U, M, P, F, N> {
+pub struct ListSearchFilterMatchesHandler<U, M, P, F> {
     unit_of_work: U,
     matches: M,
     products: P,
     fx_rates: F,
-    notifications: N,
 }
 
-impl<U, M, P, F, N> ListSearchFilterMatchesHandler<U, M, P, F, N> {
-    pub fn new(unit_of_work: U, matches: M, products: P, fx_rates: F, notifications: N) -> Self {
+impl<U, M, P, F> ListSearchFilterMatchesHandler<U, M, P, F> {
+    pub fn new(unit_of_work: U, matches: M, products: P, fx_rates: F) -> Self {
         Self {
             unit_of_work,
             matches,
             products,
             fx_rates,
-            notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, M, P, F, N> ListSearchFilterMatchesUseCase for ListSearchFilterMatchesHandler<U, M, P, F, N>
+impl<U, M, P, F> ListSearchFilterMatchesUseCase for ListSearchFilterMatchesHandler<U, M, P, F>
 where
     U: UnitOfWork,
     M: SearchFilterMatchReader,
     P: ProductDetailsBatchReader,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    N: ProductNotificationIdsReader,
 {
     #[tracing::instrument(
         name = "list_search_filter_matches",
@@ -231,29 +221,16 @@ where
             .await
             .map_err(|_| ListSearchFilterMatchesError::CommitPricingTransactionFailed)?;
 
-        let mut notification_ids = self
-            .notifications
-            .unseen_ids_for_products(
-                request.user_id,
-                &products
-                    .iter()
-                    .map(|product| product.item.product_id)
-                    .collect::<Vec<_>>(),
-            )
-            .await
-            .map_err(notification_read_error)?;
         for product in &mut products {
-            let user_state = product.user_state.as_mut().ok_or(
-                ListSearchFilterMatchesError::ProductDetailsInvalid {
+            let is_hidden = product
+                .user_state
+                .as_ref()
+                .ok_or(ListSearchFilterMatchesError::ProductDetailsInvalid {
                     source: static_error("matched product is missing user state"),
-                },
-            )?;
-            user_state.notification = NotificationUserState {
-                unseen_notification_ids: notification_ids
-                    .remove(&product.item.product_id)
-                    .unwrap_or_default(),
-            };
-            if user_state.search_filter.hidden {
+                })?
+                .search_filter
+                .hidden;
+            if is_hidden {
                 redact_hidden_product(&mut product.item).map_err(|error| {
                     ListSearchFilterMatchesError::HiddenProductRedactionFailed {
                         source: box_error(error),
@@ -375,12 +352,6 @@ fn product_details_read_error(error: ProductDetailsBatchReadError) -> ListSearch
     }
 }
 
-fn notification_read_error(error: ProductNotificationIdsReadError) -> ListSearchFilterMatchesError {
-    ListSearchFilterMatchesError::NotificationReadFailed {
-        source: box_error(error),
-    }
-}
-
 impl From<FxRateSnapshotRepositoryError> for ListSearchFilterMatchesError {
     fn from(error: FxRateSnapshotRepositoryError) -> Self {
         match error {
@@ -447,11 +418,11 @@ mod tests {
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
-    use notification_service::ports::product_notification_ids_reader::ProductNotificationIdsReader;
+
     use product_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
-    use product_core::user_state::ProductUserState;
+    use product_core::user_state::{NotificationUserState, ProductUserState};
     use product_service::ports::ProductDetailsReadModel;
     use product_service::use_cases::ProductPricingValuation;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -462,8 +433,7 @@ mod tests {
     #[derive(Default)]
     struct State {
         product_requests: Vec<ProductDetailsBatchReadRequest>,
-        notification_requests: usize,
-        notification_after_commit: bool,
+
         begin_count: usize,
         commit_count: usize,
         latest_snapshot_requests: usize,
@@ -526,23 +496,6 @@ mod tests {
         > {
             lock(&self.state).product_requests.push(request.clone());
             Ok(self.products.clone())
-        }
-    }
-
-    struct NotificationsReader(SharedState);
-
-    #[async_trait::async_trait]
-    impl ProductNotificationIdsReader for NotificationsReader {
-        async fn unseen_ids_for_products(
-            &self,
-            _user_id: UserId,
-            _product_ids: &[ProductId],
-        ) -> Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>
-        {
-            let mut state = lock(&self.0);
-            state.notification_requests += 1;
-            state.notification_after_commit = state.commit_count == 1;
-            Ok(HashMap::new())
         }
     }
 
@@ -705,7 +658,6 @@ mod tests {
         MatchesReader,
         ProductsReader,
         FxRateSnapshotFactoryFake,
-        NotificationsReader,
     > {
         ListSearchFilterMatchesHandler::new(
             UnitOfWorkFake(Arc::clone(state)),
@@ -715,7 +667,6 @@ mod tests {
                 products,
             },
             FxRateSnapshotFactoryFake(Arc::clone(state)),
-            NotificationsReader(Arc::clone(state)),
         )
     }
 
@@ -727,7 +678,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_batch_fx_snapshot_reads_present_products_and_enrich_notifications_after_commit()
+    async fn should_batch_fx_snapshot_reads_present_products_and_retain_canonical_user_state()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
         let current_product_id = ProductId::new();
@@ -735,7 +686,14 @@ mod tests {
         let second_sale_product_id = ProductId::new();
         let current_snapshot = snapshot(FxRateId::new())?;
         let sale_snapshot = snapshot(FxRateId::new())?;
-        let current = product(current_product_id)?;
+        let expected_user_state = ProductUserState {
+            notification: NotificationUserState {
+                unseen_notification_ids: vec![NotificationId::new()],
+            },
+            ..Default::default()
+        };
+        let mut current = product(current_product_id)?;
+        current.user_state = Some(expected_user_state.clone());
         let mut first_sale = product(first_sale_product_id)?;
         first_sale.item.sale_valuation = Some(ProductSaleValuation {
             fx_rate_id: sale_snapshot.id(),
@@ -784,6 +742,10 @@ mod tests {
             result.items[0].item.pricing.valuation,
             ProductPricingValuation::Current { fx_rate_id, .. } if fx_rate_id == current_snapshot.id()
         ));
+        assert_eq!(
+            Some(&expected_user_state),
+            result.items[0].user_state.as_ref()
+        );
         assert!(result.items[1..].iter().all(|item| matches!(
             item.item.pricing.valuation,
             ProductPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == sale_snapshot.id()
@@ -799,8 +761,6 @@ mod tests {
             HashSet::from([sale_snapshot.id()]),
             state.sale_snapshot_requests[0].iter().copied().collect()
         );
-        assert_eq!(1, state.notification_requests);
-        assert!(state.notification_after_commit);
         Ok(())
     }
 
@@ -838,7 +798,6 @@ mod tests {
         );
         assert_eq!(0, state.find_by_id_requests);
         assert_eq!(0, state.commit_count);
-        assert_eq!(0, state.notification_requests);
         Ok(())
     }
 }

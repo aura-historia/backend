@@ -1,12 +1,14 @@
 use common::{
     enhanced_match_reason::EnhancedMatchReason,
     error::boxed::{box_error, static_error},
+    notification_id::NotificationId,
     product_id::ProductId,
     user_search_filter_id::UserSearchFilterId,
     user_search_filter_name::UserSearchFilterName,
 };
 use product_core::user_state::{
-    ProductUserState, ProhibitedContentUserState, SearchFilterUserState, WatchlistUserState,
+    NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
+    WatchlistUserState,
 };
 use product_service::ports::{
     ProductUserStateLookup, ProductUserStateReadError, ProductUserStateReader,
@@ -31,6 +33,7 @@ struct ProductUserStateRow {
     selected_match_reason: Option<String>,
     selected_match_feedback: Option<bool>,
     selected_match_month_position: Option<i64>,
+    unseen_notification_ids: Option<Vec<uuid::Uuid>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -137,6 +140,20 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
         FROM users
         WHERE user_id = $1
     ),
+    notification_states AS (
+        SELECT
+            notification.product_id,
+            array_agg(
+                notification.notification_id
+                ORDER BY notification.created DESC, notification.notification_id DESC
+            ) AS unseen_notification_ids
+        FROM notifications notification
+        JOIN requested_products requested
+            ON requested.product_id = notification.product_id
+        WHERE notification.user_id = $1
+            AND notification.seen = false
+        GROUP BY notification.product_id
+    ),
     ranked_requested_matches AS (
         SELECT
             matched.product_id,
@@ -209,7 +226,8 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
         CASE
             WHEN authenticated_user.tier = 'FREE' THEN monthly_match.month_position
             ELSE NULL
-        END AS selected_match_month_position
+        END AS selected_match_month_position,
+        notification_state.unseen_notification_ids
     FROM authenticated_user authenticated_user
     CROSS JOIN requested_rows requested
     LEFT JOIN products product
@@ -222,6 +240,8 @@ const SELECT_PRODUCT_USER_STATES: &str = r#"
     LEFT JOIN ranked_month_matches monthly_match
         ON monthly_match.product_id = selected_match.product_id
         AND monthly_match.user_search_filter_id = selected_match.user_search_filter_id
+    LEFT JOIN notification_states notification_state
+        ON notification_state.product_id = requested.product_id
 "#;
 
 fn product_user_state(
@@ -247,7 +267,14 @@ fn product_user_state(
             prohibited_content: ProhibitedContentUserState {
                 consent: !has_prohibited_content || row.user_prohibited_content_consent,
             },
-            notification: Default::default(),
+            notification: NotificationUserState {
+                unseen_notification_ids: row
+                    .unseen_notification_ids
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(NotificationId::from)
+                    .collect(),
+            },
             search_filter,
         },
     ))

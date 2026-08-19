@@ -17,7 +17,7 @@ use common::transaction::{Transaction, UnitOfWork};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
-use notification_service::ports::product_notification_ids_reader::ProductNotificationIdsReader;
+
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,11 +70,7 @@ pub enum GetSimilarProductsError {
         #[source]
         source: BoxError,
     },
-    #[error("product notification read failed")]
-    ProductNotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("product user state is missing")]
     ProductUserStateMissing,
     #[error("hidden product summary could not be constructed")]
@@ -93,23 +89,21 @@ pub trait GetSimilarProductsUseCase: Send + Sync {
     ) -> Result<GetSimilarProductsResult, GetSimilarProductsError>;
 }
 
-pub struct GetSimilarProductsHandler<U, E, F, S, P, N> {
+pub struct GetSimilarProductsHandler<U, E, F, S, P> {
     unit_of_work: U,
     embedding_reader: E,
     fx_rates: F,
     similar_products_reader: S,
     user_states: P,
-    notifications: N,
 }
 
-impl<U, E, F, S, P, N> GetSimilarProductsHandler<U, E, F, S, P, N> {
+impl<U, E, F, S, P> GetSimilarProductsHandler<U, E, F, S, P> {
     pub fn new(
         unit_of_work: U,
         embedding_reader: E,
         fx_rates: F,
         similar_products_reader: S,
         user_states: P,
-        notifications: N,
     ) -> Self {
         Self {
             unit_of_work,
@@ -117,20 +111,18 @@ impl<U, E, F, S, P, N> GetSimilarProductsHandler<U, E, F, S, P, N> {
             fx_rates,
             similar_products_reader,
             user_states,
-            notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, E, F, S, P, N> GetSimilarProductsUseCase for GetSimilarProductsHandler<U, E, F, S, P, N>
+impl<U, E, F, S, P> GetSimilarProductsUseCase for GetSimilarProductsHandler<U, E, F, S, P>
 where
     U: UnitOfWork,
     E: ProductEmbeddingReaderFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
     S: ProductSimilarProductsReader,
     P: ProductUserStateReader,
-    N: ProductNotificationIdsReader,
 {
     #[tracing::instrument(
         name = "get_similar_products",
@@ -201,13 +193,7 @@ where
             })
             .collect::<Vec<_>>();
         if let Some(user_id) = personalization_user_id(&context.principal) {
-            hydrate_product_summaries(
-                &mut products,
-                user_id,
-                &self.user_states,
-                &self.notifications,
-            )
-            .await?;
+            hydrate_product_summaries(&mut products, user_id, &self.user_states).await?;
         }
 
         Ok(GetSimilarProductsResult::Ready(products))
@@ -261,9 +247,7 @@ impl From<ProductSummaryPersonalizationError> for GetSimilarProductsError {
             ProductSummaryPersonalizationError::UserStateReadModelInvalid { source } => {
                 Self::ProductUserStateReadModelInvalid { source }
             }
-            ProductSummaryPersonalizationError::NotificationReadFailed { source } => {
-                Self::ProductNotificationReadFailed { source }
-            }
+
             ProductSummaryPersonalizationError::UserStateMissing { .. } => {
                 Self::ProductUserStateMissing
             }
@@ -297,9 +281,7 @@ mod tests {
     use common::transaction::TransactionError;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
-    use notification_service::ports::product_notification_ids_reader::{
-        ProductNotificationIdsReadError, ProductNotificationIdsReader,
-    };
+
     use product_core::title::Title;
     use product_core::user_state::ProductUserState;
     use std::collections::HashMap;
@@ -352,9 +334,6 @@ mod tests {
 
     #[derive(Clone, Copy)]
     struct EmptyUserStateReader;
-
-    #[derive(Clone, Copy)]
-    struct EmptyNotificationsReader;
 
     #[derive(Clone)]
     struct StaticUserStateReader {
@@ -513,20 +492,6 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ProductNotificationIdsReader for EmptyNotificationsReader {
-        async fn unseen_ids_for_products(
-            &self,
-            _user_id: common::user_id::UserId,
-            _product_ids: &[ProductId],
-        ) -> Result<
-            HashMap<ProductId, Vec<common::notification_id::NotificationId>>,
-            ProductNotificationIdsReadError,
-        > {
-            Ok(HashMap::new())
-        }
-    }
-
-    #[async_trait::async_trait]
     impl ProductSimilarProductsReader for FakeSimilarProductsReader {
         async fn find_similar_products(
             &self,
@@ -549,7 +514,6 @@ mod tests {
         FakeFxRateSnapshotRepositoryFactory,
         FakeSimilarProductsReader,
         EmptyUserStateReader,
-        EmptyNotificationsReader,
     > {
         GetSimilarProductsHandler::new(
             FakeUnitOfWork {
@@ -563,7 +527,6 @@ mod tests {
                 state: Arc::clone(state),
             },
             EmptyUserStateReader,
-            EmptyNotificationsReader,
         )
     }
 
@@ -701,7 +664,6 @@ mod tests {
             StaticUserStateReader {
                 states: HashMap::from([(product_id, user_state)]),
             },
-            EmptyNotificationsReader,
         );
 
         let result = handler

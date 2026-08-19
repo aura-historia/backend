@@ -1,5 +1,5 @@
 use common::{
-    event_id::EventId, product_id::ProductId, user_id::UserId,
+    event_id::EventId, notification_id::NotificationId, product_id::ProductId, user_id::UserId,
     user_search_filter_id::UserSearchFilterId,
 };
 use product_core::user_state::ProductUserState;
@@ -164,6 +164,104 @@ async fn should_reject_unknown_user_instead_of_defaulting_state() {
         result,
         Err(ProductUserStateReadError::InvalidReadModel { .. })
     ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_return_all_unseen_notification_ids_newest_first_without_cross_product_leakage() {
+    let pool = get_postgres_client().await;
+    let user_id = seed_user(&pool, "PRO", false).await;
+    let product_id = seed_product(&pool).await;
+    let other_product_id = seed_product(&pool).await;
+    let watchlist_notification_id = NotificationId::new();
+    let filter_notification_id = NotificationId::new();
+    let seen_notification_id = NotificationId::new();
+    let other_notification_id = NotificationId::new();
+    let filter_id = UserSearchFilterId::new();
+
+    insert_watchlist_notification(
+        &pool,
+        user_id,
+        product_id,
+        watchlist_notification_id,
+        OffsetDateTime::UNIX_EPOCH + Duration::seconds(1),
+        false,
+    )
+    .await;
+    insert_search_filter_notification(
+        &pool,
+        user_id,
+        product_id,
+        filter_id,
+        filter_notification_id,
+        OffsetDateTime::UNIX_EPOCH + Duration::seconds(2),
+        false,
+    )
+    .await;
+    insert_watchlist_notification(
+        &pool,
+        user_id,
+        product_id,
+        seen_notification_id,
+        OffsetDateTime::UNIX_EPOCH + Duration::seconds(3),
+        true,
+    )
+    .await;
+    insert_watchlist_notification(
+        &pool,
+        user_id,
+        other_product_id,
+        other_notification_id,
+        OffsetDateTime::UNIX_EPOCH + Duration::seconds(4),
+        false,
+    )
+    .await;
+
+    let states = find_for_user(
+        &pool,
+        ProductUserStateLookup {
+            user_id,
+            product_ids: vec![product_id, other_product_id],
+        },
+    )
+    .await;
+
+    assert_eq!(
+        vec![filter_notification_id, watchlist_notification_id],
+        state(&states, product_id)
+            .notification
+            .unseen_notification_ids
+    );
+    assert_eq!(
+        vec![other_notification_id],
+        state(&states, other_product_id)
+            .notification
+            .unseen_notification_ids
+    );
+
+    let update =
+        sqlx::query("UPDATE notifications SET seen = true WHERE user_id = $1 AND product_id = $2")
+            .bind(uuid::Uuid::from(user_id))
+            .bind(uuid::Uuid::from(product_id))
+            .execute(&pool)
+            .await;
+    if let Err(error) = update {
+        panic!("failed to mark product notifications seen: {error}");
+    }
+
+    let states = find_for_user(
+        &pool,
+        ProductUserStateLookup {
+            user_id,
+            product_ids: vec![product_id],
+        },
+    )
+    .await;
+    assert!(
+        state(&states, product_id)
+            .notification
+            .unseen_notification_ids
+            .is_empty()
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -340,6 +438,69 @@ async fn set_product_images(pool: &sqlx::PgPool, product_id: ProductId, images: 
 
     if let Err(error) = result {
         panic!("failed to set product images: {error}");
+    }
+}
+
+async fn insert_watchlist_notification(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: ProductId,
+    notification_id: NotificationId,
+    created: OffsetDateTime,
+    seen: bool,
+) {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO notifications (
+            notification_id, user_id, kind, origin_event_id, product_id, payload, seen, created
+        ) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(uuid::Uuid::from(notification_id))
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::from(product_id))
+    .bind(serde_json::json!({}))
+    .bind(seen)
+    .bind(created)
+    .execute(pool)
+    .await;
+
+    if let Err(error) = result {
+        panic!("failed to seed watchlist notification: {error}");
+    }
+}
+
+async fn insert_search_filter_notification(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: ProductId,
+    filter_id: UserSearchFilterId,
+    notification_id: NotificationId,
+    created: OffsetDateTime,
+    seen: bool,
+) {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO notifications (
+            notification_id, user_id, kind, origin_event_id, product_id,
+            user_search_filter_id, payload, seen, created
+        ) VALUES ($1, $2, 'SEARCH_FILTER_MATCH', $3, $4, $5, $6, $7, $8)
+        "#,
+    )
+    .bind(uuid::Uuid::from(notification_id))
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::from(product_id))
+    .bind(uuid_from_filter_id(filter_id))
+    .bind(serde_json::json!({}))
+    .bind(seen)
+    .bind(created)
+    .execute(pool)
+    .await;
+
+    if let Err(error) = result {
+        panic!("failed to seed search-filter notification: {error}");
     }
 }
 

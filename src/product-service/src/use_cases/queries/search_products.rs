@@ -31,7 +31,7 @@ use fxrate_service::ports::{
 };
 
 use indexmap::IndexSet;
-use notification_service::ports::product_notification_ids_reader::ProductNotificationIdsReader;
+
 use product_core::product_image::ProductImage;
 use product_core::product_search::ProductSearch;
 use product_core::sort_product_field::SortProductField;
@@ -133,11 +133,7 @@ pub enum SearchProductsError {
         #[source]
         source: BoxError,
     },
-    #[error("product notification read failed")]
-    ProductNotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("product user state is missing")]
     ProductUserStateMissing,
     #[error("hidden product summary could not be constructed")]
@@ -156,44 +152,34 @@ pub trait SearchProductsUseCase: Send + Sync {
     ) -> Result<SearchProductsResult, SearchProductsError>;
 }
 
-pub struct SearchProductsHandler<UoW, R, F, E, U, N> {
+pub struct SearchProductsHandler<UoW, R, F, E, U> {
     unit_of_work: UoW,
     reader: R,
     fx_rates: F,
     embeddings: E,
     user_states: U,
-    notifications: N,
 }
 
-impl<UoW, R, F, E, U, N> SearchProductsHandler<UoW, R, F, E, U, N> {
-    pub fn new(
-        unit_of_work: UoW,
-        reader: R,
-        fx_rates: F,
-        embeddings: E,
-        user_states: U,
-        notifications: N,
-    ) -> Self {
+impl<UoW, R, F, E, U> SearchProductsHandler<UoW, R, F, E, U> {
+    pub fn new(unit_of_work: UoW, reader: R, fx_rates: F, embeddings: E, user_states: U) -> Self {
         Self {
             unit_of_work,
             reader,
             fx_rates,
             embeddings,
             user_states,
-            notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<UoW, R, F, E, U, N> SearchProductsUseCase for SearchProductsHandler<UoW, R, F, E, U, N>
+impl<UoW, R, F, E, U> SearchProductsUseCase for SearchProductsHandler<UoW, R, F, E, U>
 where
     UoW: UnitOfWork,
     R: ProductSearchReader,
     F: FxRateSnapshotRepositoryFactory<UoW::Tx>,
     E: EmbeddingGenerator,
     U: ProductUserStateReader,
-    N: ProductNotificationIdsReader,
 {
     #[tracing::instrument(
         name = "search_products",
@@ -270,13 +256,7 @@ where
             total: result.total,
         };
         if let Some(user_id) = personalization_user_id(&context.principal) {
-            hydrate_product_summaries(
-                &mut result.items,
-                user_id,
-                &self.user_states,
-                &self.notifications,
-            )
-            .await?;
+            hydrate_product_summaries(&mut result.items, user_id, &self.user_states).await?;
         }
         Ok(result)
     }
@@ -399,9 +379,7 @@ impl From<ProductSummaryPersonalizationError> for SearchProductsError {
             ProductSummaryPersonalizationError::UserStateReadModelInvalid { source } => {
                 Self::ProductUserStateReadModelInvalid { source }
             }
-            ProductSummaryPersonalizationError::NotificationReadFailed { source } => {
-                Self::ProductNotificationReadFailed { source }
-            }
+
             ProductSummaryPersonalizationError::UserStateMissing { .. } => {
                 Self::ProductUserStateMissing
             }
@@ -431,10 +409,6 @@ mod tests {
     };
     use fxrate_service::ports::FxRateSnapshotRepositoryFactory;
 
-    use common::notification_id::NotificationId;
-    use notification_service::ports::product_notification_ids_reader::{
-        ProductNotificationIdsReadError, ProductNotificationIdsReader,
-    };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
@@ -456,11 +430,7 @@ mod tests {
         used_hybrid_search: bool,
         user_states_result:
             Option<Result<HashMap<ProductId, ProductUserState>, ProductUserStateReadError>>,
-        notifications_result: Option<
-            Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>,
-        >,
         user_state_lookups: Vec<ProductUserStateLookup>,
-        notification_requests: Vec<(UserId, Vec<ProductId>)>,
     }
 
     type SharedState = Arc<Mutex<FakeState>>;
@@ -490,11 +460,6 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeUserStatesReader {
-        state: SharedState,
-    }
-
-    #[derive(Clone)]
-    struct FakeNotificationsReader {
         state: SharedState,
     }
 
@@ -683,25 +648,6 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
-    impl ProductNotificationIdsReader for FakeNotificationsReader {
-        async fn unseen_ids_for_products(
-            &self,
-            user_id: UserId,
-            product_ids: &[ProductId],
-        ) -> Result<HashMap<ProductId, Vec<NotificationId>>, ProductNotificationIdsReadError>
-        {
-            let mut state = lock_state(&self.state);
-            state
-                .notification_requests
-                .push((user_id, product_ids.to_vec()));
-            match state.notifications_result.take() {
-                Some(result) => result,
-                None => Ok(HashMap::new()),
-            }
-        }
-    }
-
     fn handler(
         state: &SharedState,
     ) -> SearchProductsHandler<
@@ -710,7 +656,6 @@ mod tests {
         FakeFxRateSnapshotRepositoryFactory,
         FakeEmbeddingGenerator,
         FakeUserStatesReader,
-        FakeNotificationsReader,
     > {
         SearchProductsHandler::new(
             FakeUnitOfWork {
@@ -724,9 +669,6 @@ mod tests {
                 state: Arc::clone(state),
             },
             FakeUserStatesReader {
-                state: Arc::clone(state),
-            },
-            FakeNotificationsReader {
                 state: Arc::clone(state),
             },
         )
@@ -1029,23 +971,18 @@ mod tests {
         let user_id = UserId::new();
         let expected = search_result()?;
         let product_id = expected.items[0].product_id;
-        let notification_id = NotificationId::new();
+        let notification_id = common::notification_id::NotificationId::new();
         let mut user_state = ProductUserState::default();
         user_state.watchlist.watching = true;
         user_state.watchlist.notifications = true;
+        user_state.notification.unseen_notification_ids = vec![notification_id];
         lock_state(&state).search_result = Some(Ok(expected));
         lock_state(&state).user_states_result = Some(Ok(HashMap::from([(product_id, user_state)])));
-        lock_state(&state).notifications_result =
-            Some(Ok(HashMap::from([(product_id, vec![notification_id])])));
 
         let result = handler(&state)
             .execute(&user_context(user_id), request())
             .await?;
 
-        assert_eq!(
-            Some(&(user_id, vec![product_id])),
-            lock_state(&state).notification_requests.first()
-        );
         let state = lock_state(&state);
         assert_eq!(1, state.user_state_lookups.len());
         assert_eq!(user_id, state.user_state_lookups[0].user_id);
@@ -1083,35 +1020,6 @@ mod tests {
         assert!(matches!(
             result,
             Err(SearchProductsError::ProductUserStateQueryFailed { .. })
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_fail_when_authenticated_notification_read_fails() {
-        let state = state();
-        let user_id = UserId::new();
-        let expected = match search_result() {
-            Ok(result) => result,
-            Err(error) => panic!("failed to build product search result: {error}"),
-        };
-        let product_id = expected.items[0].product_id;
-        lock_state(&state).search_result = Some(Ok(expected));
-        lock_state(&state).user_states_result = Some(Ok(HashMap::from([(
-            product_id,
-            ProductUserState::default(),
-        )])));
-        lock_state(&state).notifications_result =
-            Some(Err(ProductNotificationIdsReadError::ReadFailed {
-                source: box_error(std::io::Error::other("postgres unavailable")),
-            }));
-
-        let result = handler(&state)
-            .execute(&user_context(user_id), request())
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(SearchProductsError::ProductNotificationReadFailed { .. })
         ));
     }
 
