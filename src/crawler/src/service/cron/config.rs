@@ -53,7 +53,7 @@ impl Default for CrawlerCronConfig {
             spider_concurrency: 3,
             spider_site_concurrency_limit: 8,
             scraper_concurrency: 10,
-            spider_classify_threshold: 1000,
+            spider_classify_threshold: 200,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
             scraper_domain_delay: Duration::from_secs(1),
             scraper_auto_throttle_target_concurrency: 2.0,

@@ -6,7 +6,8 @@ use crate::scraper::normalization::product_normalization_service::{
 };
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::extraction::schema_candidates::{
-    collect_applicable_candidates, rank_candidates, score_raw_product,
+    PreparedSchemaCandidate, collect_applicable_candidates, rank_prepared_candidates,
+    score_prepared_product,
 };
 use crate::scraper::scraper_service::image_validation::filter_valid_image_urls;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
@@ -78,7 +79,7 @@ impl ScraperServiceImpl {
     ) -> Result<ExistingSchemaSelection, ScraperError> {
         // `scraper::Html` is `!Send`: parse and apply every cached schema in a
         // synchronous block so the parsed document is dropped before awaits.
-        let mut candidates = {
+        let candidates = {
             let parsed = scraper::Html::parse_document(html);
             let candidate_set = collect_applicable_candidates(schemas, &parsed);
 
@@ -99,46 +100,46 @@ impl ScraperServiceImpl {
             candidate_set.candidates
         };
 
+        let applied_schema_count = candidates.len();
+        let mut prepared_candidates = Vec::new();
         // Image validation is candidate-local and does not call the LLM. Do
         // it before scoring so thumbnails and malformed URLs cannot inflate
-        // richness, while keeping expensive normalization ranked-only.
-        for candidate in &mut candidates {
-            candidate.raw.images = match filter_valid_image_urls(
-                std::mem::take(&mut candidate.raw.images),
-                url,
-                &*self.image_validator,
-            )
-            .await
-            {
-                Ok(images) => images,
-                Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
-                Err(err) => return Err(ScraperError::NormalizationError(err)),
-            };
-            if let Err(err) = prepare_product(
+        // richness.
+        for mut candidate in candidates {
+            candidate.raw.images =
+                match filter_valid_image_urls(candidate.raw.images, url, &*self.image_validator)
+                    .await
+                {
+                    Ok(images) => images,
+                    Err(NormalizationError::NoValidImages { .. }) => Vec::new(),
+                    Err(err) => return Err(ScraperError::NormalizationError(err)),
+                };
+            match prepare_product(
                 candidate.raw.clone(),
                 url.clone(),
                 candidate.schema.default_currency.map(Into::into),
             ) {
-                debug!(
-                    candidate_schema_index = candidate.schema_index,
-                    candidate_rejection_reason = err.failure_reason(),
-                    "Cached candidate rejected during deterministic preparation"
-                );
-                candidate.raw.title.clear();
-                candidate.raw.description.clear();
-                candidate.raw.price = None;
-                candidate.raw.price_estimate_min = None;
-                candidate.raw.price_estimate_max = None;
-                candidate.raw.state.clear();
-                candidate.raw.images.clear();
-                candidate.score = score_raw_product(&candidate.raw);
-                continue;
+                Ok(prepared) => {
+                    let score = score_prepared_product(&candidate.raw, &prepared);
+                    prepared_candidates.push(PreparedSchemaCandidate {
+                        schema_index: candidate.schema_index,
+                        schema: candidate.schema,
+                        raw: candidate.raw,
+                        prepared,
+                        score,
+                    });
+                }
+                Err(err) => {
+                    debug!(
+                        candidate_schema_index = candidate.schema_index,
+                        candidate_rejection_reason = err.failure_reason(),
+                        "Cached candidate rejected during deterministic preparation"
+                    );
+                }
             }
-            candidate.score = score_raw_product(&candidate.raw);
         }
-        candidates.retain(|candidate| !candidate.raw.title.is_empty());
-        rank_candidates(&mut candidates);
-        for candidate in &candidates {
+        rank_prepared_candidates(&mut prepared_candidates);
+        for candidate in &prepared_candidates {
             debug!(
                 candidate_schema_index = candidate.schema_index,
                 candidate_schema_score = candidate.score.as_usize(),
@@ -146,18 +147,20 @@ impl ScraperServiceImpl {
             );
         }
 
-        if candidates.is_empty() {
+        if prepared_candidates.is_empty() {
+            let reason = if applied_schema_count == 0 {
+                FreshSchemaGenerationReason::NoCachedSchemaApplied
+            } else {
+                FreshSchemaGenerationReason::NoCachedSchemaNormalized
+            };
             debug!(
-                fresh_schema_generation_reason =
-                    FreshSchemaGenerationReason::NoCachedSchemaApplied.as_str(),
-                "No cached schema applied; fresh schema generation required"
+                fresh_schema_generation_reason = reason.as_str(),
+                "No usable cached schema candidate; fresh schema generation required"
             );
-            return Ok(ExistingSchemaSelection::GenerateNewSchema {
-                reason: FreshSchemaGenerationReason::NoCachedSchemaApplied,
-            });
+            return Ok(ExistingSchemaSelection::GenerateNewSchema { reason });
         }
 
-        for candidate in candidates.drain(..) {
+        for candidate in prepared_candidates {
             let raw = candidate.raw;
             match self
                 .normalize_applied_schema(shop_id, url, candidate.schema, raw)

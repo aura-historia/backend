@@ -1,6 +1,7 @@
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct,
 };
+use crate::scraper::normalization::product_normalization_service::PreparedProduct;
 use scraper::Html;
 
 // ---------------------------------------------------------------------------
@@ -92,6 +93,33 @@ pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionComplete
     )
 }
 
+/// Score a candidate after deterministic preparation. Raw values are used
+/// only for extracted-ID provenance and raw-attribute policy.
+pub(crate) fn score_prepared_product(
+    raw: &RawExtractedProduct,
+    prepared: &PreparedProduct,
+) -> ExtractionCompletenessScore {
+    let extracted_id = usize::from(!raw.shops_product_id.trim().is_empty());
+    let state = usize::from(!prepared.raw_state.trim().is_empty());
+    let description = usize::from(prepared.description.is_some());
+    let optional = usize::from(prepared.price.is_some())
+        + usize::from(prepared.price_estimate_min.is_some())
+        + usize::from(prepared.price_estimate_max.is_some())
+        + usize::from(prepared.seller_name.is_some())
+        + usize::from(prepared.auction_start.is_some())
+        + usize::from(prepared.auction_end.is_some());
+    let images = usize::from(!prepared.images.is_empty());
+    let raw_attributes = raw
+        .raw_attributes
+        .values()
+        .filter(|values| any_populated(values))
+        .count();
+
+    ExtractionCompletenessScore(
+        extracted_id + 1 + description + optional + state + images + raw_attributes,
+    )
+}
+
 // ---------------------------------------------------------------------------
 // AppliedSchemaCandidate
 // ---------------------------------------------------------------------------
@@ -102,6 +130,16 @@ pub(crate) struct AppliedSchemaCandidate<'a> {
     pub schema_index: usize,
     pub schema: &'a ProductCssSelectorSchema,
     pub raw: RawExtractedProduct,
+    #[allow(dead_code)]
+    pub score: ExtractionCompletenessScore,
+}
+
+pub(crate) struct PreparedSchemaCandidate<'a> {
+    pub schema_index: usize,
+    pub schema: &'a ProductCssSelectorSchema,
+    pub raw: RawExtractedProduct,
+    #[allow(dead_code)]
+    pub prepared: PreparedProduct,
     pub score: ExtractionCompletenessScore,
 }
 
@@ -162,9 +200,10 @@ pub fn rank_applicable_schema_indices(
     html: &str,
 ) -> Vec<usize> {
     let parsed = Html::parse_document(html);
-    let mut candidates = collect_applicable_candidates(schemas, &parsed).candidates;
+    let candidates = collect_applicable_candidates(schemas, &parsed).candidates;
     let base_url = url::Url::parse("https://example.com/").expect("static ranking base URL");
-    candidates.retain_mut(|candidate| {
+    let mut prepared_candidates = Vec::new();
+    for mut candidate in candidates {
         // Keep this fixture seam on the same deterministic lifecycle as
         // production. Network image probing is unavailable here, so only
         // obvious thumbnail/invalid URL candidates are discarded locally.
@@ -173,20 +212,26 @@ pub fn rank_applicable_schema_indices(
             !trimmed.to_ascii_lowercase().contains("thumb")
                 && (url::Url::parse(trimmed).is_ok() || base_url.join(trimmed).is_ok())
         });
-        if crate::scraper::normalization::product_normalization_service::prepare_product(
-            candidate.raw.clone(),
-            base_url.clone(),
-            candidate.schema.default_currency.map(Into::into),
-        )
-        .is_err()
-        {
-            return false;
-        }
-        candidate.score = score_raw_product(&candidate.raw);
-        true
-    });
-    rank_candidates(&mut candidates);
-    candidates
+        let Ok(prepared) =
+            crate::scraper::normalization::product_normalization_service::prepare_product(
+                candidate.raw.clone(),
+                base_url.clone(),
+                candidate.schema.default_currency.map(Into::into),
+            )
+        else {
+            continue;
+        };
+        let score = score_prepared_product(&candidate.raw, &prepared);
+        prepared_candidates.push(PreparedSchemaCandidate {
+            schema_index: candidate.schema_index,
+            schema: candidate.schema,
+            raw: candidate.raw,
+            prepared,
+            score,
+        });
+    }
+    rank_prepared_candidates(&mut prepared_candidates);
+    prepared_candidates
         .into_iter()
         .map(|candidate| candidate.schema_index)
         .collect()
@@ -202,7 +247,17 @@ pub fn rank_applicable_schema_indices(
 /// 2. original schema index as deterministic tie-breaker.
 ///
 /// Stored order therefore affects only ties.
+#[allow(dead_code)]
 pub(crate) fn rank_candidates(candidates: &mut [AppliedSchemaCandidate<'_>]) {
+    candidates.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then(left.schema_index.cmp(&right.schema_index))
+    });
+}
+
+pub(crate) fn rank_prepared_candidates(candidates: &mut [PreparedSchemaCandidate<'_>]) {
     candidates.sort_by(|left, right| {
         right
             .score
@@ -322,6 +377,33 @@ mod tests {
 
         assert_eq!(baseline, 0);
         assert_eq!(populated_baseline, 1);
+    }
+
+    #[test]
+    fn should_score_prepared_values_and_ignore_synthesized_id() {
+        let mut raw = raw_product();
+        raw.title = "Chair".to_string();
+        raw.state = "Available".to_string();
+        raw.price = Some("Price on Request".to_string());
+        let url = url::Url::parse("https://example.com/products/1").unwrap();
+        let prepared =
+            crate::scraper::normalization::product_normalization_service::prepare_product(
+                raw.clone(),
+                url.clone(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(score_prepared_product(&raw, &prepared).as_usize(), 2);
+
+        raw.shops_product_id = "SKU-1".to_string();
+        let prepared =
+            crate::scraper::normalization::product_normalization_service::prepare_product(
+                raw.clone(),
+                url,
+                None,
+            )
+            .unwrap();
+        assert_eq!(score_prepared_product(&raw, &prepared).as_usize(), 3);
     }
 
     #[test]
