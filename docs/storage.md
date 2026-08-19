@@ -2,12 +2,12 @@
 
 ## Notifications
 
-PostgreSQL is the sole production owner of notifications and email-delivery intent. DynamoDB stores no notification rows, and notification storage has no TTL.
+PostgreSQL is the sole production owner of notifications and external-delivery intent. DynamoDB stores no notification rows, and notification storage has no TTL.
 
 - `notifications` stores one immutable typed content snapshot per semantic reason. `origin_event_id` is provenance only and is absent for partner-application notifications.
 - Watchlist idempotency is `(user_id, origin_event_id, kind)`. Search-filter idempotency is `(user_id, user_search_filter_id, product_id, origin_event_id)`. Partner-application idempotency is `(user_id, partner_shop_application_id)`.
 - A single Product event may create a watchlist notification and one distinct notification for every matching search filter.
-- `notification_deliveries` owns durable email delivery state. A requested email delivery row is inserted in the same PostgreSQL transaction as its notification. It contains no copied notification payload or email address.
+- `notification_deliveries` owns durable external-delivery state. Each row has one channel and logical `target_key`, unique per `(notification_id, channel, target_key)`; it contains no copied notification payload or target value. The service plans requested delivery and inserts rows in the same PostgreSQL transaction as newly inserted notifications. EMAIL/PRIMARY is the sole current plan.
 - The email worker consumes committed `notification_deliveries` INSERT rows through one Sequin subscription. Delivery claims use a lease token and expiry; finalization verifies that lease. S3/SES I/O happens after the claim transaction commits. A send/finalize crash can duplicate the external email, so delivery is at-least-once, not exactly-once. The bounded in-memory worker queue remains non-durable by design; its post-ack loss window is tracked by #1558.
 - Read models and REST mutations use `notification_id`; they never expose `origin_event_id`.
 - Corrupt persisted payload/version/source-shape state is an operation error. It is never silently treated as a missing notification.

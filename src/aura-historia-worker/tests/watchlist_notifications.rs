@@ -9,7 +9,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::user_id::UserId;
-use notification_postgres::SqlxNotificationCreatorFactory;
+use notification_postgres::{
+    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
+};
+use notification_service::{
+    initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
+    notification_creation::NotificationCreationCoordinatorFactory,
+};
 use product_postgres::SqlxProductWatchlistNotificationSourceReaderFactory;
 use product_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
@@ -281,7 +287,11 @@ impl WatchlistWorker {
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductWatchlistNotificationSourceReaderFactory::new(),
                 SqlxWatchlistNotificationRecipientReaderFactory,
-                SqlxNotificationCreatorFactory::new(),
+                NotificationCreationCoordinatorFactory::new(
+                    SqlxNotificationRepositoryFactory::new(),
+                    InitialExternalDeliveryPlanReaderFactory,
+                    SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+                ),
             ));
         let (runtime, mut receivers) =
             WorkerRuntime::with_watchlist_notification_queue(QueueConfig::new(16))?;

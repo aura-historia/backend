@@ -15,7 +15,8 @@ use notification_core::notification::{
     PartnerApplicationNotificationSnapshot,
 };
 use notification_service::ports::notification_creator::{
-    NewNotification, NotificationCreationError, NotificationCreator, NotificationCreatorFactory,
+    ExternalDeliveryRequest, NewNotification, NotificationCreationError, NotificationCreator,
+    NotificationCreatorFactory,
 };
 pub use shop_partner_core::partner_shop_application::PartnerShopApplicationDecision;
 use shop_partner_core::partner_shop_application::{
@@ -263,9 +264,7 @@ fn decision_notification(
                 decision,
             },
         ),
-        email_delivery_id: Some(
-            notification_core::notification_delivery_id::NotificationDeliveryId::new(),
-        ),
+        external_delivery: ExternalDeliveryRequest::Requested,
     })
 }
 

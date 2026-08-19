@@ -15,8 +15,8 @@ use common::{
 };
 use notification_core::notification::{NotificationContent, ProductNotificationSnapshot};
 use notification_service::ports::notification_creator::{
-    NewNotification, NotificationCreationError, NotificationCreationOutcome, NotificationCreator,
-    NotificationCreatorFactory,
+    ExternalDeliveryRequest, NewNotification, NotificationCreationError,
+    NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
 use product_service::ports::{
     ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
@@ -293,9 +293,11 @@ async fn create_notification(
                 user_search_filter_name: match_source.search_filter_name,
             },
         ),
-        email_delivery_id: match_source
-            .external_delivery_requested
-            .then(notification_core::notification_delivery_id::NotificationDeliveryId::new),
+        external_delivery: if match_source.external_delivery_requested {
+            ExternalDeliveryRequest::Requested
+        } else {
+            ExternalDeliveryRequest::None
+        },
     };
     let mut outcomes = notifications.create_many(&[notification]).await.map_err(
         |source: NotificationCreationError| {

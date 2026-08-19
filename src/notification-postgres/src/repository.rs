@@ -1,9 +1,11 @@
 use crate::mapping::{NotificationWriteValues, PAYLOAD_VERSION, mapping_error};
 use common::{error::boxed::box_error, postgres::SqlxTransaction};
 
-use notification_service::ports::notification_creator::{
-    NewNotification, NotificationCreationError, NotificationCreationOutcome, NotificationCreator,
-    NotificationCreatorFactory,
+use notification_service::ports::{
+    notification_creator::{
+        NewNotification, NotificationCreationError, NotificationCreationOutcome,
+    },
+    notification_repository::{NotificationRepository, NotificationRepositoryFactory},
 };
 use sqlx::{PgConnection, Postgres, QueryBuilder};
 use std::collections::HashSet;
@@ -11,32 +13,32 @@ use std::collections::HashSet;
 const INSERT_CHUNK_SIZE: usize = 500;
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SqlxNotificationCreatorFactory;
+pub struct SqlxNotificationRepositoryFactory;
 
-struct SqlxNotificationCreator<'tx> {
+struct SqlxNotificationRepository<'tx> {
     connection: &'tx mut PgConnection,
 }
 
-impl SqlxNotificationCreatorFactory {
+impl SqlxNotificationRepositoryFactory {
     pub fn new() -> Self {
         Self
     }
 }
 
-impl NotificationCreatorFactory<SqlxTransaction> for SqlxNotificationCreatorFactory {
+impl NotificationRepositoryFactory<SqlxTransaction> for SqlxNotificationRepositoryFactory {
     fn in_transaction<'tx>(
         &'tx self,
         tx: &'tx mut SqlxTransaction,
-    ) -> impl NotificationCreator + 'tx {
-        SqlxNotificationCreator {
+    ) -> impl NotificationRepository + 'tx {
+        SqlxNotificationRepository {
             connection: tx.connection(),
         }
     }
 }
 
 #[async_trait::async_trait]
-impl NotificationCreator for SqlxNotificationCreator<'_> {
-    async fn create_many(
+impl NotificationRepository for SqlxNotificationRepository<'_> {
+    async fn insert_many(
         &mut self,
         notifications: &[NewNotification],
     ) -> Result<Vec<NotificationCreationOutcome>, NotificationCreationError> {
@@ -54,7 +56,6 @@ impl NotificationCreator for SqlxNotificationCreator<'_> {
         for values in values.chunks(INSERT_CHUNK_SIZE) {
             inserted.extend(insert_notifications(self.connection, values).await?);
         }
-        insert_email_deliveries(self.connection, notifications, &inserted).await?;
         Ok(notifications
             .iter()
             .map(|item| {
@@ -122,38 +123,4 @@ async fn insert_notifications(
         inserted.extend(ids);
     }
     Ok(inserted)
-}
-
-async fn insert_email_deliveries(
-    connection: &mut PgConnection,
-    notifications: &[NewNotification],
-    inserted: &HashSet<uuid::Uuid>,
-) -> Result<(), NotificationCreationError> {
-    let deliveries = notifications
-        .iter()
-        .filter_map(|item| {
-            let notification_id = uuid::Uuid::from(item.notification.notification_id());
-            item.email_delivery_id
-                .filter(|_| inserted.contains(&notification_id))
-                .map(|delivery_id| (uuid::Uuid::from(delivery_id), notification_id))
-        })
-        .collect::<Vec<_>>();
-    for deliveries in deliveries.chunks(INSERT_CHUNK_SIZE) {
-        let mut query = QueryBuilder::<Postgres>::new(
-            "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel) ",
-        );
-        query.push_values(deliveries, |mut row, (delivery_id, notification_id)| {
-            row.push_bind(*delivery_id)
-                .push_bind(*notification_id)
-                .push_bind("EMAIL");
-        });
-        query
-            .build()
-            .execute(&mut *connection)
-            .await
-            .map_err(|source| NotificationCreationError::CreateFailed {
-                source: box_error(source),
-            })?;
-    }
-    Ok(())
 }

@@ -18,7 +18,13 @@ use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
-use notification_postgres::SqlxNotificationCreatorFactory;
+use notification_postgres::{
+    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
+};
+use notification_service::{
+    initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
+    notification_creation::NotificationCreationCoordinatorFactory,
+};
 use opensearch::GetParts;
 use product_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
@@ -872,7 +878,11 @@ impl FullFlowWorker {
                 SqlxProductSearchFilterMatchSourceReaderFactory::new(),
                 SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
                 SqlxUserTierEntitlementsFactory::new(),
-                SqlxNotificationCreatorFactory::new(),
+                NotificationCreationCoordinatorFactory::new(
+                    SqlxNotificationRepositoryFactory::new(),
+                    InitialExternalDeliveryPlanReaderFactory,
+                    SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+                ),
             ));
         let (runtime, mut receivers) = WorkerRuntime::with_all_queues(QueueConfig::new(16))?;
         let percolator_receiver = receivers

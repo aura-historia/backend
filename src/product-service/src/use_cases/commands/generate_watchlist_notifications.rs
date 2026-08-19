@@ -13,8 +13,8 @@ use notification_core::notification::{
     NotificationContent, NotificationWatchlistChange, ProductNotificationSnapshot,
 };
 use notification_service::ports::notification_creator::{
-    NewNotification, NotificationCreationError, NotificationCreationOutcome, NotificationCreator,
-    NotificationCreatorFactory,
+    ExternalDeliveryRequest, NewNotification, NotificationCreationError,
+    NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
 use std::collections::HashMap;
 
@@ -137,9 +137,11 @@ where
                     recipient.user_id,
                     notification_content(command.event_id, source.clone()),
                 ),
-                email_delivery_id: recipient
-                    .external_delivery_requested
-                    .then(notification_core::notification_delivery_id::NotificationDeliveryId::new),
+                external_delivery: if recipient.external_delivery_requested {
+                    ExternalDeliveryRequest::Requested
+                } else {
+                    ExternalDeliveryRequest::None
+                },
             })
             .collect::<Vec<_>>();
         let outcomes = self

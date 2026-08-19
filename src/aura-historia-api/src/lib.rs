@@ -38,8 +38,9 @@ use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{GoogleGeocoder, GoogleGeocoderConfig};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_postgres::{
-    SqlxNotificationCreatorFactory, SqlxNotificationDeleter, SqlxNotificationListReader,
-    SqlxNotificationSeenWriter, SqlxProductNotificationIdsReader,
+    SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
+    SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
+    SqlxProductNotificationIdsReader,
 };
 use notification_service::use_cases::commands::delete_notification::DeleteNotificationHandler;
 use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsHandler;
@@ -47,6 +48,10 @@ use notification_service::use_cases::commands::update_all_notifications_seen::Up
 use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenHandler;
 use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenHandler;
 use notification_service::use_cases::queries::list_notifications::ListNotificationsHandler;
+use notification_service::{
+    initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
+    notification_creation::NotificationCreationCoordinatorFactory,
+};
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -737,7 +742,11 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxShopRepositoryFactory::new(),
         SqlxUserPartnerShopMembershipRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
-        SqlxNotificationCreatorFactory::new(),
+        NotificationCreationCoordinatorFactory::new(
+            SqlxNotificationRepositoryFactory::new(),
+            InitialExternalDeliveryPlanReaderFactory,
+            SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+        ),
     );
     let product_user_states = SqlxProductUserStateReader::new(pool.clone());
     let get_similar_products = GetSimilarProductsHandler::new(

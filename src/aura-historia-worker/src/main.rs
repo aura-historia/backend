@@ -23,9 +23,16 @@ use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
 use notification_aws::SesNotificationDeliverySender;
-use notification_postgres::{SqlxNotificationCreatorFactory, SqlxNotificationDeliveryRepository};
+use notification_postgres::{
+    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationDeliveryRepository,
+    SqlxNotificationRepositoryFactory,
+};
 use notification_service::use_cases::commands::deliver_notification::{
     DeliverNotificationHandler, DeliverNotificationUseCase,
+};
+use notification_service::{
+    initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
+    notification_creation::NotificationCreationCoordinatorFactory,
 };
 use opensearch::{
     OpenSearch,
@@ -174,7 +181,11 @@ async fn run_search_filter_match_notifications(
             SqlxProductSearchFilterMatchSourceReaderFactory::new(),
             SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
-            SqlxNotificationCreatorFactory::new(),
+            NotificationCreationCoordinatorFactory::new(
+                SqlxNotificationRepositoryFactory::new(),
+                InitialExternalDeliveryPlanReaderFactory,
+                SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+            ),
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_search_filter_match_notification_queue(
@@ -283,7 +294,11 @@ async fn run_watchlist_notifications(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductWatchlistNotificationSourceReaderFactory::new(),
             SqlxWatchlistNotificationRecipientReaderFactory,
-            SqlxNotificationCreatorFactory::new(),
+            NotificationCreationCoordinatorFactory::new(
+                SqlxNotificationRepositoryFactory::new(),
+                InitialExternalDeliveryPlanReaderFactory,
+                SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+            ),
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_watchlist_notification_queue(receiver, handler));

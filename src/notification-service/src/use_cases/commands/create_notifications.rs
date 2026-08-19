@@ -1,23 +1,20 @@
 use crate::ports::notification_creator::{
-    NewNotification, NotificationCreationError, NotificationCreationOutcome, NotificationCreator,
-    NotificationCreatorFactory,
+    ExternalDeliveryRequest, NewNotification, NotificationCreationError,
+    NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
 use common::{
     notification_id::NotificationId,
     transaction::{Transaction, TransactionError, UnitOfWork},
     user_id::UserId,
 };
-use notification_core::{
-    notification::{Notification, NotificationContent},
-    notification_delivery_id::NotificationDeliveryId,
-};
+use notification_core::notification::{Notification, NotificationContent};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateNotificationIntent {
     pub notification_id: NotificationId,
     pub user_id: UserId,
     pub content: NotificationContent,
-    pub email_delivery_id: Option<NotificationDeliveryId>,
+    pub external_delivery: ExternalDeliveryRequest,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,7 +76,7 @@ where
                     intent.user_id,
                     intent.content,
                 ),
-                email_delivery_id: intent.email_delivery_id,
+                external_delivery: intent.external_delivery,
             })
             .collect::<Vec<_>>();
         let mut tx = self.unit_of_work.begin().await?;

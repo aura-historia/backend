@@ -447,6 +447,7 @@ CREATE TABLE notification_deliveries (
         ON DELETE CASCADE,
 
     channel text NOT NULL,
+    target_key text NOT NULL,
     status text NOT NULL DEFAULT 'PENDING',
 
     attempt_count integer NOT NULL DEFAULT 0,
@@ -461,11 +462,15 @@ CREATE TABLE notification_deliveries (
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
 
-    CONSTRAINT notification_deliveries_notification_channel_unique
-        UNIQUE (notification_id, channel),
+    CONSTRAINT notification_deliveries_notification_channel_target_unique
+        UNIQUE (notification_id, channel, target_key),
 
     CONSTRAINT notification_deliveries_channel_check CHECK (
         channel IN ('EMAIL')
+    ),
+
+    CONSTRAINT notification_deliveries_target_key_nonempty_check CHECK (
+        length(trim(target_key)) > 0
     ),
 
     CONSTRAINT notification_deliveries_status_check CHECK (

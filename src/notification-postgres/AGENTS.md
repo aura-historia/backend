@@ -6,9 +6,9 @@
 
 ## Core Design
 
-- PostgreSQL owns notification and email-delivery state.
+- PostgreSQL owns notification and external-delivery state.
 - Private rows and versioned JSON payload mapping reconstruct typed Notification content.
-- Creation shares caller transaction and inserts requested email deliveries atomically.
+- Low-level notification and delivery-intent repositories share the caller transaction. Channel selection belongs to the notification-service planner, never this adapter.
 - Invalid persisted rows fail; never skip them.
 
 ## Verification

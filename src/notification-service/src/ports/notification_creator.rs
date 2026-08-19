@@ -1,12 +1,16 @@
 use common::{error::boxed::BoxError, notification_id::NotificationId};
-use notification_core::{
-    notification::Notification, notification_delivery_id::NotificationDeliveryId,
-};
+use notification_core::notification::Notification;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalDeliveryRequest {
+    None,
+    Requested,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewNotification {
     pub notification: Notification,
-    pub email_delivery_id: Option<NotificationDeliveryId>,
+    pub external_delivery: ExternalDeliveryRequest,
 }
 
 #[derive(Debug, Clone, PartialEq)]
