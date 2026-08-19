@@ -3,7 +3,10 @@ use common::{
     currency::domain::Currency, error::boxed::box_error, language::domain::Language,
     notification_id::NotificationId,
 };
-use notification_core::notification_delivery_id::NotificationDeliveryId;
+use notification_core::{
+    notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
+    notification_delivery_id::NotificationDeliveryId,
+};
 use notification_service::ports::notification_delivery_repository::{
     ClaimNotificationDeliveryOutcome, ClaimedNotificationDelivery, NotificationDeliveryError,
     NotificationDeliveryRepository, NotificationDeliverySource,
@@ -16,6 +19,7 @@ use uuid::Uuid;
 pub struct SqlxNotificationDeliveryRepository {
     pool: PgPool,
 }
+
 impl SqlxNotificationDeliveryRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -33,14 +37,14 @@ struct DeliveryClaimRow {
 
 #[derive(Debug, sqlx::FromRow)]
 struct DeliveryStatusRow {
-    notification_id: Uuid,
     status: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
 struct DeliverySourceRow {
-    recipient_email: String,
-    recipient_first_name: Option<String>,
+    notification_delivery_id: Uuid,
+    channel: String,
+    target_key: String,
     language: Option<String>,
     currency: Option<String>,
     notification_id: Uuid,
@@ -62,82 +66,61 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
     async fn claim_and_load_source(
         &self,
         notification_delivery_id: NotificationDeliveryId,
-        notification_id: NotificationId,
         now: OffsetDateTime,
         lease_expires_at: OffsetDateTime,
         lease_token: Uuid,
     ) -> Result<ClaimNotificationDeliveryOutcome, NotificationDeliveryError> {
-        let mut transaction = self.pool.begin().await.map_err(|source| {
-            NotificationDeliveryError::OperationFailed {
-                source: box_error(source),
-            }
-        })?;
+        let mut transaction = self.pool.begin().await.map_err(operation_error)?;
         let row = sqlx::query_as::<_, DeliveryClaimRow>(
-            "UPDATE notification_deliveries SET status = 'PROCESSING', lease_token = $3, lease_expires_at = $4, attempt_count = attempt_count + 1, updated = now() WHERE notification_delivery_id = $1 AND notification_id = $2 AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_expires_at <= $5)) RETURNING notification_delivery_id, notification_id, lease_token, lease_expires_at, attempt_count",
+            "UPDATE notification_deliveries SET status = 'PROCESSING', lease_token = $2, lease_expires_at = $3, attempt_count = attempt_count + 1, updated = now() WHERE notification_delivery_id = $1 AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_expires_at <= $4)) RETURNING notification_delivery_id, notification_id, lease_token, lease_expires_at, attempt_count",
         )
         .bind(Uuid::from(notification_delivery_id))
-        .bind(Uuid::from(notification_id))
         .bind(lease_token)
         .bind(lease_expires_at)
         .bind(now)
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(|source| NotificationDeliveryError::OperationFailed { source: box_error(source) })?;
+        .map_err(operation_error)?;
 
         let Some(row) = row else {
             let status = sqlx::query_as::<_, DeliveryStatusRow>(
-                "SELECT notification_id, status FROM notification_deliveries WHERE notification_delivery_id = $1",
+                "SELECT status FROM notification_deliveries WHERE notification_delivery_id = $1",
             )
             .bind(Uuid::from(notification_delivery_id))
             .fetch_optional(&mut *transaction)
             .await
-            .map_err(|source| NotificationDeliveryError::OperationFailed {
-                source: box_error(source),
-            })?;
-            transaction.commit().await.map_err(|source| {
-                NotificationDeliveryError::OperationFailed {
-                    source: box_error(source),
-                }
-            })?;
+            .map_err(operation_error)?;
+            transaction.commit().await.map_err(operation_error)?;
             return match status {
                 None => Ok(ClaimNotificationDeliveryOutcome::Missing),
-                Some(row) if row.notification_id != Uuid::from(notification_id) => {
-                    Ok(ClaimNotificationDeliveryOutcome::NotificationMismatch)
-                }
-                Some(DeliveryStatusRow { status, .. }) if status == "DELIVERED" => {
+                Some(DeliveryStatusRow { status }) if status == "DELIVERED" => {
                     Ok(ClaimNotificationDeliveryOutcome::Delivered)
                 }
-                Some(DeliveryStatusRow { status, .. }) if status == "FAILED" => {
+                Some(DeliveryStatusRow { status }) if status == "FAILED" => {
                     Ok(ClaimNotificationDeliveryOutcome::PermanentlyFailed)
                 }
-                Some(DeliveryStatusRow { status, .. })
+                Some(DeliveryStatusRow { status })
                     if matches!(status.as_str(), "PENDING" | "PROCESSING") =>
                 {
                     Ok(ClaimNotificationDeliveryOutcome::AlreadyClaimed)
                 }
-                Some(_) => Err(NotificationDeliveryError::InvalidPersistedState {
-                    source: box_error(std::io::Error::other(
-                        "unknown notification delivery status",
-                    )),
-                }),
+                Some(_) => Err(invalid_delivery_source(
+                    "unknown notification delivery status",
+                )),
             };
         };
+
         let claimed = claimed_from_row(row)?;
         let source = sqlx::query_as::<_, DeliverySourceRow>(
-            "SELECT u.email AS recipient_email, u.first_name AS recipient_first_name, u.language, u.currency, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id JOIN users u ON u.user_id = n.user_id WHERE d.notification_delivery_id = $1",
+            "SELECT d.notification_delivery_id, d.channel, d.target_key, (SELECT language FROM users WHERE user_id = n.user_id) AS language, (SELECT currency FROM users WHERE user_id = n.user_id) AS currency, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id WHERE d.notification_delivery_id = $1",
         )
         .bind(Uuid::from(notification_delivery_id))
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(|source| NotificationDeliveryError::OperationFailed { source: box_error(source) })?;
-        let source = source
-            .map(|row| source_from_row(notification_delivery_id, row))
-            .transpose()?;
-        transaction.commit().await.map_err(|source| {
-            NotificationDeliveryError::OperationFailed {
-                source: box_error(source),
-            }
-        })?;
+        .map_err(operation_error)?;
+        let source = source.map(source_from_row).transpose()?;
+        transaction.commit().await.map_err(operation_error)?;
+
         Ok(ClaimNotificationDeliveryOutcome::Claimed {
             delivery: claimed,
             source: Box::new(source),
@@ -153,6 +136,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
     ) -> Result<bool, NotificationDeliveryError> {
         complete(&self.pool, "UPDATE notification_deliveries SET status = 'DELIVERED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = $3, delivered_at = $4, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $5", notification_delivery_id, lease_token, provider_message_id, Some(delivered_at), delivered_at).await
     }
+
     async fn mark_retryable_failure(
         &self,
         notification_delivery_id: NotificationDeliveryId,
@@ -162,6 +146,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
     ) -> Result<bool, NotificationDeliveryError> {
         complete(&self.pool, "UPDATE notification_deliveries SET status = 'PENDING', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
     }
+
     async fn mark_permanent_failure(
         &self,
         notification_delivery_id: NotificationDeliveryId,
@@ -170,6 +155,12 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         completed_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
         complete(&self.pool, "UPDATE notification_deliveries SET status = 'FAILED', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
+    }
+}
+
+fn operation_error(source: sqlx::Error) -> NotificationDeliveryError {
+    NotificationDeliveryError::OperationFailed {
+        source: box_error(source),
     }
 }
 
@@ -191,7 +182,6 @@ fn claimed_from_row(
 }
 
 fn source_from_row(
-    notification_delivery_id: NotificationDeliveryId,
     row: DeliverySourceRow,
 ) -> Result<NotificationDeliverySource, NotificationDeliveryError> {
     let notification = notification_core::notification::Notification::try_from(NotificationRow {
@@ -211,13 +201,18 @@ fn source_from_row(
     .map_err(|error| NotificationDeliveryError::InvalidPersistedState {
         source: mapping_error(error),
     })?;
+
     Ok(NotificationDeliverySource {
-        notification_delivery_id,
+        notification_delivery_id: NotificationDeliveryId::from(row.notification_delivery_id),
         notification_id: notification.notification_id(),
         user_id: notification.user_id(),
+        channel: parse_channel(&row.channel)?,
+        target_key: NotificationDeliveryTargetKey::try_from(row.target_key).map_err(|source| {
+            NotificationDeliveryError::InvalidPersistedState {
+                source: box_error(source),
+            }
+        })?,
         content: notification.content().clone(),
-        recipient_email: row.recipient_email,
-        recipient_first_name: row.recipient_first_name,
         language: row
             .language
             .as_deref()
@@ -231,6 +226,16 @@ fn source_from_row(
             .transpose()?
             .unwrap_or(Currency::Eur),
     })
+}
+
+fn parse_channel(value: &str) -> Result<NotificationDeliveryChannel, NotificationDeliveryError> {
+    match value {
+        "EMAIL" => Ok(NotificationDeliveryChannel::Email),
+        "PUSH" => Ok(NotificationDeliveryChannel::Push),
+        _ => Err(invalid_delivery_source(
+            "unknown notification delivery channel",
+        )),
+    }
 }
 
 fn parse_language(value: &str) -> Result<Language, NotificationDeliveryError> {
@@ -293,7 +298,7 @@ async fn complete(
     completed_at: OffsetDateTime,
 ) -> Result<bool, NotificationDeliveryError> {
     let mut query = sqlx::query(sql)
-        .bind(uuid::Uuid::from(id))
+        .bind(Uuid::from(id))
         .bind(lease_token)
         .bind(value);
     if let Some(delivered_at) = delivered_at {
@@ -303,8 +308,6 @@ async fn complete(
         .bind(completed_at)
         .execute(pool)
         .await
-        .map_err(|source| NotificationDeliveryError::OperationFailed {
-            source: box_error(source),
-        })?;
+        .map_err(operation_error)?;
     Ok(result.rows_affected() == 1)
 }

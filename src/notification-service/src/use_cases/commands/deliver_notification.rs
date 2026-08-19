@@ -1,20 +1,25 @@
-use crate::ports::notification_delivery_repository::{
-    ClaimNotificationDeliveryOutcome, NotificationDeliveryError, NotificationDeliveryRepository,
+use crate::ports::{
+    notification_channel_sender::{
+        NotificationChannelSendError, NotificationDeliveryDispatchError,
+        NotificationDeliveryDispatcher,
+    },
+    notification_delivery_repository::{
+        ClaimNotificationDeliveryOutcome, NotificationDeliveryError, NotificationDeliveryRepository,
+    },
 };
-use crate::ports::notification_delivery_sender::{
-    NotificationDeliverySendError, NotificationDeliverySender,
+use notification_core::{
+    notification_delivery::NotificationDeliveryChannel,
+    notification_delivery_id::NotificationDeliveryId,
 };
-use common::notification_id::NotificationId;
-use notification_core::notification_delivery_id::NotificationDeliveryId;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 const DELIVERY_LEASE_DURATION: Duration = Duration::minutes(5);
+const UNREGISTERED_CHANNEL_ERROR_CODE: &str = "NOTIFICATION_CHANNEL_UNREGISTERED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeliverNotificationCommand {
     pub notification_delivery_id: NotificationDeliveryId,
-    pub notification_id: NotificationId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,9 +37,12 @@ pub enum DeliverNotificationError {
     #[error("notification delivery repository operation failed")]
     Repository(#[from] NotificationDeliveryError),
     #[error("notification delivery send failed temporarily")]
-    RetryableSend(#[source] NotificationDeliverySendError),
-    #[error("notification delivery does not belong to the supplied notification")]
-    NotificationMismatch,
+    RetryableSend(#[source] NotificationChannelSendError),
+    #[error("notification channel sender is not registered for {channel:?}")]
+    UnregisteredChannel {
+        channel: NotificationDeliveryChannel,
+    },
+
     #[error("notification delivery lease was lost before finalization")]
     LeaseLost,
 }
@@ -47,22 +55,24 @@ pub trait DeliverNotificationUseCase: Send + Sync {
     ) -> Result<DeliverNotificationResult, DeliverNotificationError>;
 }
 
-pub struct DeliverNotificationHandler<R, S> {
+pub struct DeliverNotificationHandler<R> {
     deliveries: R,
-    sender: S,
+    dispatcher: NotificationDeliveryDispatcher,
 }
 
-impl<R, S> DeliverNotificationHandler<R, S> {
-    pub fn new(deliveries: R, sender: S) -> Self {
-        Self { deliveries, sender }
+impl<R> DeliverNotificationHandler<R> {
+    pub fn new(deliveries: R, dispatcher: NotificationDeliveryDispatcher) -> Self {
+        Self {
+            deliveries,
+            dispatcher,
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl<R, S> DeliverNotificationUseCase for DeliverNotificationHandler<R, S>
+impl<R> DeliverNotificationUseCase for DeliverNotificationHandler<R>
 where
     R: NotificationDeliveryRepository,
-    S: NotificationDeliverySender,
 {
     #[tracing::instrument(
         name = "deliver_notification",
@@ -79,7 +89,6 @@ where
             .deliveries
             .claim_and_load_source(
                 command.notification_delivery_id,
-                command.notification_id,
                 now,
                 now + DELIVERY_LEASE_DURATION,
                 lease_token,
@@ -97,9 +106,6 @@ where
             }
             ClaimNotificationDeliveryOutcome::AlreadyClaimed => {
                 return Ok(DeliverNotificationResult::AlreadyClaimed);
-            }
-            ClaimNotificationDeliveryOutcome::NotificationMismatch => {
-                return Err(DeliverNotificationError::NotificationMismatch);
             }
             ClaimNotificationDeliveryOutcome::Claimed { delivery, source } => (delivery, source),
         };
@@ -121,7 +127,7 @@ where
             };
         };
 
-        match self.sender.send(&source).await {
+        match self.dispatcher.dispatch(&source).await {
             Ok(sent) => {
                 let completed = self
                     .deliveries
@@ -140,7 +146,25 @@ where
                     Err(DeliverNotificationError::LeaseLost)
                 }
             }
-            Err(error @ NotificationDeliverySendError::Retryable { .. }) => {
+            Err(NotificationDeliveryDispatchError::UnregisteredChannel { channel }) => {
+                let completed = self
+                    .deliveries
+                    .mark_permanent_failure(
+                        claimed.notification_delivery_id,
+                        claimed.lease_token,
+                        UNREGISTERED_CHANNEL_ERROR_CODE,
+                        OffsetDateTime::now_utc(),
+                    )
+                    .await?;
+                if completed {
+                    Err(DeliverNotificationError::UnregisteredChannel { channel })
+                } else {
+                    Err(DeliverNotificationError::LeaseLost)
+                }
+            }
+            Err(NotificationDeliveryDispatchError::Send(
+                error @ NotificationChannelSendError::Retryable { .. },
+            )) => {
                 let completed = self
                     .deliveries
                     .mark_retryable_failure(
@@ -156,7 +180,9 @@ where
                     Err(DeliverNotificationError::LeaseLost)
                 }
             }
-            Err(error @ NotificationDeliverySendError::Permanent { .. }) => {
+            Err(NotificationDeliveryDispatchError::Send(
+                error @ NotificationChannelSendError::Permanent { .. },
+            )) => {
                 let completed = self
                     .deliveries
                     .mark_permanent_failure(
@@ -180,60 +206,376 @@ where
 mod tests {
     use super::*;
     use crate::ports::{
-        notification_delivery_repository::MockNotificationDeliveryRepository,
-        notification_delivery_sender::MockNotificationDeliverySender,
+        notification_channel_sender::{
+            NotificationChannelSender, NotificationDeliveryDispatchError,
+            NotificationDeliveryDispatcher, NotificationDeliveryDispatcherRegistrationError,
+            SentNotificationDelivery,
+        },
+        notification_delivery_repository::{
+            ClaimedNotificationDelivery, NotificationDeliverySource,
+        },
     };
+    use common::{
+        currency::domain::Currency, error::boxed::box_error, language::domain::Language,
+        notification_id::NotificationId, partner_shop_application_id::PartnerShopApplicationId,
+        shop_name::ShopName, user_id::UserId,
+    };
+    use notification_core::{
+        notification::{
+            NotificationContent, PartnerApplicationDecision, PartnerApplicationNotificationSnapshot,
+        },
+        notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
+    };
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct DeliveryState {
+        claimed_delivery_ids: Mutex<Vec<NotificationDeliveryId>>,
+        delivered_message_ids: Mutex<Vec<String>>,
+        permanent_failure_codes: Mutex<Vec<String>>,
+    }
+
+    struct FakeDeliveryRepository {
+        claimed: ClaimedNotificationDelivery,
+        source: NotificationDeliverySource,
+        state: Arc<DeliveryState>,
+    }
+
+    impl FakeDeliveryRepository {
+        fn new(
+            notification_delivery_id: NotificationDeliveryId,
+            source: NotificationDeliverySource,
+            state: Arc<DeliveryState>,
+        ) -> Self {
+            Self {
+                claimed: ClaimedNotificationDelivery {
+                    notification_delivery_id,
+                    notification_id: source.notification_id,
+                    lease_token: Uuid::now_v7(),
+                    lease_expires_at: OffsetDateTime::now_utc() + DELIVERY_LEASE_DURATION,
+                    attempt_count: 2,
+                },
+                source,
+                state,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl NotificationDeliveryRepository for FakeDeliveryRepository {
+        async fn claim_and_load_source(
+            &self,
+            notification_delivery_id: NotificationDeliveryId,
+            _: OffsetDateTime,
+            _: OffsetDateTime,
+            _: Uuid,
+        ) -> Result<ClaimNotificationDeliveryOutcome, NotificationDeliveryError> {
+            self.state
+                .claimed_delivery_ids
+                .lock()
+                .map_err(|_| repository_error())?
+                .push(notification_delivery_id);
+            Ok(ClaimNotificationDeliveryOutcome::Claimed {
+                delivery: self.claimed.clone(),
+                source: Box::new(Some(self.source.clone())),
+            })
+        }
+
+        async fn mark_delivered(
+            &self,
+            _: NotificationDeliveryId,
+            _: Uuid,
+            provider_message_id: &str,
+            _: OffsetDateTime,
+        ) -> Result<bool, NotificationDeliveryError> {
+            self.state
+                .delivered_message_ids
+                .lock()
+                .map_err(|_| repository_error())?
+                .push(provider_message_id.to_owned());
+            Ok(true)
+        }
+
+        async fn mark_retryable_failure(
+            &self,
+            _: NotificationDeliveryId,
+            _: Uuid,
+            _: &str,
+            _: OffsetDateTime,
+        ) -> Result<bool, NotificationDeliveryError> {
+            Ok(true)
+        }
+
+        async fn mark_permanent_failure(
+            &self,
+            _: NotificationDeliveryId,
+            _: Uuid,
+            error_code: &str,
+            _: OffsetDateTime,
+        ) -> Result<bool, NotificationDeliveryError> {
+            self.state
+                .permanent_failure_codes
+                .lock()
+                .map_err(|_| repository_error())?
+                .push(error_code.to_owned());
+            Ok(true)
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingEmailSender {
+        sent_sources: Mutex<Vec<NotificationDeliverySource>>,
+    }
+
+    #[async_trait::async_trait]
+    impl NotificationChannelSender for RecordingEmailSender {
+        fn channel(&self) -> NotificationDeliveryChannel {
+            NotificationDeliveryChannel::Email
+        }
+
+        async fn send(
+            &self,
+            source: &NotificationDeliverySource,
+        ) -> Result<SentNotificationDelivery, NotificationChannelSendError> {
+            self.sent_sources
+                .lock()
+                .map_err(|_| NotificationChannelSendError::Permanent {
+                    code: "TEST_SENDER_LOCK_FAILED",
+                    source: box_error(std::io::Error::other("test sender lock poisoned")),
+                })?
+                .push(source.clone());
+            Ok(SentNotificationDelivery {
+                provider_message_id: "provider-message-1".to_owned(),
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingPushSender {
+        sent_sources: Mutex<Vec<NotificationDeliverySource>>,
+    }
+
+    #[async_trait::async_trait]
+    impl NotificationChannelSender for RecordingPushSender {
+        fn channel(&self) -> NotificationDeliveryChannel {
+            NotificationDeliveryChannel::Push
+        }
+
+        async fn send(
+            &self,
+            source: &NotificationDeliverySource,
+        ) -> Result<SentNotificationDelivery, NotificationChannelSendError> {
+            self.sent_sources
+                .lock()
+                .map_err(|_| NotificationChannelSendError::Permanent {
+                    code: "TEST_SENDER_LOCK_FAILED",
+                    source: box_error(std::io::Error::other("test sender lock poisoned")),
+                })?
+                .push(source.clone());
+            Ok(SentNotificationDelivery {
+                provider_message_id: "push-message-1".to_owned(),
+            })
+        }
+    }
+
+    fn source(notification_delivery_id: NotificationDeliveryId) -> NotificationDeliverySource {
+        source_for_channel(notification_delivery_id, NotificationDeliveryChannel::Email)
+    }
+
+    fn source_for_channel(
+        notification_delivery_id: NotificationDeliveryId,
+        channel: NotificationDeliveryChannel,
+    ) -> NotificationDeliverySource {
+        NotificationDeliverySource {
+            notification_delivery_id,
+            notification_id: NotificationId::new(),
+            user_id: UserId::new(),
+            channel,
+            target_key: NotificationDeliveryTargetKey::primary(),
+            content: NotificationContent::PartnerApplication {
+                partner_shop_application_id: PartnerShopApplicationId::new(),
+                snapshot: PartnerApplicationNotificationSnapshot {
+                    shop_name: ShopName::from("Test Shop"),
+                    image: None,
+                },
+                decision: PartnerApplicationDecision::Approved,
+            },
+            language: Language::En,
+            currency: Currency::Eur,
+        }
+    }
+
+    fn repository_error() -> NotificationDeliveryError {
+        NotificationDeliveryError::OperationFailed {
+            source: box_error(std::io::Error::other("test repository lock poisoned")),
+        }
+    }
 
     #[tokio::test]
-    async fn should_reject_mismatched_delivery_before_sending() {
+    async fn should_claim_send_and_finalize_through_registered_channel()
+    -> Result<(), Box<dyn std::error::Error>> {
         let notification_delivery_id = NotificationDeliveryId::new();
-        let notification_id = NotificationId::new();
-        let mut deliveries = MockNotificationDeliveryRepository::new();
-        deliveries
-            .expect_claim_and_load_source()
-            .times(1)
-            .returning(|_, _, _, _, _| {
-                Box::pin(async { Ok(ClaimNotificationDeliveryOutcome::NotificationMismatch) })
-            });
-        let sender = MockNotificationDeliverySender::new();
-        let handler = DeliverNotificationHandler::new(deliveries, sender);
+        let source = source(notification_delivery_id);
+        let state = Arc::new(DeliveryState::default());
+        let sender = Arc::new(RecordingEmailSender::default());
+        let dispatcher = NotificationDeliveryDispatcher::new(vec![
+            sender.clone() as Arc<dyn NotificationChannelSender>
+        ])?;
+        let handler = DeliverNotificationHandler::new(
+            FakeDeliveryRepository::new(notification_delivery_id, source.clone(), state.clone()),
+            dispatcher,
+        );
 
         let result = handler
             .execute(DeliverNotificationCommand {
                 notification_delivery_id,
-                notification_id,
+            })
+            .await?;
+
+        assert_eq!(
+            DeliverNotificationResult::Delivered { attempt_count: 2 },
+            result
+        );
+        assert_eq!(
+            vec![notification_delivery_id],
+            state
+                .claimed_delivery_ids
+                .lock()
+                .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+                .clone()
+        );
+        assert_eq!(
+            vec![source],
+            sender
+                .sent_sources
+                .lock()
+                .map_err(|_| std::io::Error::other("test sender lock poisoned"))?
+                .clone()
+        );
+        assert_eq!(
+            vec!["provider-message-1".to_owned()],
+            state
+                .delivered_message_ids
+                .lock()
+                .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+                .clone()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_claim_send_and_finalize_with_test_push_sender()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notification_delivery_id = NotificationDeliveryId::new();
+        let source =
+            source_for_channel(notification_delivery_id, NotificationDeliveryChannel::Push);
+        let state = Arc::new(DeliveryState::default());
+        let sender = Arc::new(RecordingPushSender::default());
+        let handler = DeliverNotificationHandler::new(
+            FakeDeliveryRepository::new(notification_delivery_id, source.clone(), state.clone()),
+            NotificationDeliveryDispatcher::new(vec![
+                sender.clone() as Arc<dyn NotificationChannelSender>
+            ])?,
+        );
+
+        assert_eq!(
+            DeliverNotificationResult::Delivered { attempt_count: 2 },
+            handler
+                .execute(DeliverNotificationCommand {
+                    notification_delivery_id
+                })
+                .await?
+        );
+        assert_eq!(
+            vec![source],
+            sender
+                .sent_sources
+                .lock()
+                .map_err(|_| std::io::Error::other("test sender lock poisoned"))?
+                .clone()
+        );
+        assert_eq!(
+            vec!["push-message-1".to_owned()],
+            state
+                .delivered_message_ids
+                .lock()
+                .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+                .clone()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_reject_unregistered_planner_channel_during_startup_validation() {
+        let dispatcher =
+            NotificationDeliveryDispatcher::new(vec![
+                Arc::new(RecordingEmailSender::default()) as Arc<dyn NotificationChannelSender>
+            ]);
+
+        assert!(dispatcher.is_ok());
+        if let Ok(dispatcher) = dispatcher {
+            assert!(matches!(
+                dispatcher.validate_channels([NotificationDeliveryChannel::Push]),
+                Err(NotificationDeliveryDispatchError::UnregisteredChannel {
+                    channel: NotificationDeliveryChannel::Push,
+                })
+            ));
+        }
+    }
+
+    #[test]
+    fn should_reject_duplicate_channel_registration() {
+        let sender = Arc::new(RecordingEmailSender::default());
+
+        let result = NotificationDeliveryDispatcher::new(vec![
+            sender.clone() as Arc<dyn NotificationChannelSender>,
+            sender as Arc<dyn NotificationChannelSender>,
+        ]);
+
+        assert!(matches!(
+            result,
+            Err(
+                NotificationDeliveryDispatcherRegistrationError::DuplicateChannelRegistration {
+                    channel: NotificationDeliveryChannel::Email,
+                }
+            )
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_finalize_and_report_unregistered_channel()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notification_delivery_id = NotificationDeliveryId::new();
+        let state = Arc::new(DeliveryState::default());
+        let handler = DeliverNotificationHandler::new(
+            FakeDeliveryRepository::new(
+                notification_delivery_id,
+                source(notification_delivery_id),
+                state.clone(),
+            ),
+            NotificationDeliveryDispatcher::new(Vec::new())?,
+        );
+
+        let result = handler
+            .execute(DeliverNotificationCommand {
+                notification_delivery_id,
             })
             .await;
 
         assert!(matches!(
             result,
-            Err(DeliverNotificationError::NotificationMismatch)
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_skip_delivery_when_another_worker_holds_the_lease()
-    -> Result<(), DeliverNotificationError> {
-        let notification_delivery_id = NotificationDeliveryId::new();
-        let notification_id = NotificationId::new();
-        let mut deliveries = MockNotificationDeliveryRepository::new();
-        deliveries
-            .expect_claim_and_load_source()
-            .times(1)
-            .returning(|_, _, _, _, _| {
-                Box::pin(async { Ok(ClaimNotificationDeliveryOutcome::AlreadyClaimed) })
-            });
-        let sender = MockNotificationDeliverySender::new();
-        let handler = DeliverNotificationHandler::new(deliveries, sender);
-
-        let result = handler
-            .execute(DeliverNotificationCommand {
-                notification_delivery_id,
-                notification_id,
+            Err(DeliverNotificationError::UnregisteredChannel {
+                channel: NotificationDeliveryChannel::Email,
             })
-            .await?;
-
-        assert_eq!(DeliverNotificationResult::AlreadyClaimed, result);
+        ));
+        assert_eq!(
+            vec![UNREGISTERED_CHANNEL_ERROR_CODE.to_owned()],
+            state
+                .permanent_failure_codes
+                .lock()
+                .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+                .clone()
+        );
         Ok(())
     }
 }

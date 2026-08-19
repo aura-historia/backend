@@ -22,17 +22,23 @@ use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
-use notification_aws::SesNotificationDeliverySender;
+use notification_core::notification_delivery::NotificationDeliveryChannel;
+use notification_email_aws::{EmailDeliveryConfig, SesNotificationChannelSender};
 use notification_postgres::{
-    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationDeliveryRepository,
-    SqlxNotificationRepositoryFactory,
-};
-use notification_service::use_cases::commands::deliver_notification::{
-    DeliverNotificationHandler, DeliverNotificationUseCase,
+    SqlxEmailDeliveryTargetReader, SqlxNotificationDeliveryIntentRepositoryFactory,
+    SqlxNotificationDeliveryRepository, SqlxNotificationRepositoryFactory,
 };
 use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
+};
+use notification_service::{
+    ports::notification_channel_sender::{
+        NotificationChannelSender, NotificationDeliveryDispatcher,
+    },
+    use_cases::commands::deliver_notification::{
+        DeliverNotificationHandler, DeliverNotificationUseCase,
+    },
 };
 use opensearch::{
     OpenSearch,
@@ -257,6 +263,9 @@ async fn run_notification_delivery(
     composition: WorkerRuntimeComposition,
     delivery: &aura_historia_worker::WorkerNotificationDeliveryConfig,
 ) -> Result<(), MainError> {
+    let email = delivery.email().ok_or(MainError::MissingScopeConfig {
+        scope: WorkerScope::NotificationDelivery,
+    })?;
     let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
         .timeout_config(
             TimeoutConfig::builder()
@@ -267,17 +276,26 @@ async fn run_notification_delivery(
         )
         .load()
         .await;
-    let handler: Arc<dyn DeliverNotificationUseCase> = Arc::new(DeliverNotificationHandler::new(
-        SqlxNotificationDeliveryRepository::new(pool),
-        SesNotificationDeliverySender::new(
+    let dispatcher =
+        NotificationDeliveryDispatcher::new(vec![Arc::new(SesNotificationChannelSender::new(
             S3Client::new(&aws_config),
             SesClient::new(&aws_config),
-            delivery.template_bucket(),
-            delivery.from_email_address(),
-            delivery.reply_to_email_address(),
-            delivery.stage(),
-            delivery.commit_sha(),
-        ),
+            EmailDeliveryConfig::new(
+                email.template_bucket(),
+                email.from_email_address(),
+                email.reply_to_email_address(),
+                email.stage(),
+                email.commit_sha(),
+            ),
+            Arc::new(SqlxEmailDeliveryTargetReader::new(pool.clone())),
+        )) as Arc<dyn NotificationChannelSender>])
+        .map_err(MainError::NotificationDispatcher)?;
+    dispatcher
+        .validate_channels([NotificationDeliveryChannel::Email])
+        .map_err(MainError::NotificationDispatch)?;
+    let handler: Arc<dyn DeliverNotificationUseCase> = Arc::new(DeliverNotificationHandler::new(
+        SqlxNotificationDeliveryRepository::new(pool),
+        dispatcher,
     ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_notification_delivery_queue(receiver, handler));
@@ -383,6 +401,14 @@ enum MainError {
     VertexAiHttpClient(reqwest::Error),
     #[error("validated Vertex AI LLM configuration is missing its model")]
     MissingVertexAiModel,
+    #[error(transparent)]
+    NotificationDispatcher(
+        #[from] notification_service::ports::notification_channel_sender::NotificationDeliveryDispatcherRegistrationError,
+    ),
+    #[error(transparent)]
+    NotificationDispatch(
+        #[from] notification_service::ports::notification_channel_sender::NotificationDeliveryDispatchError,
+    ),
     #[error(transparent)]
     Run(#[from] WorkerRunError),
 }

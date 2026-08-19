@@ -377,8 +377,8 @@ dependencies = [
  "google-cloud-auth",
  "indexmap 2.14.0",
  "large-language-model",
- "notification-aws",
  "notification-core",
+ "notification-email-aws",
  "notification-postgres",
  "notification-service",
  "opensearch",
@@ -4785,7 +4785,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "notification-aws"
+name = "notification-core"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "fake",
+ "product-core",
+ "serde",
+ "serde-email",
+ "thiserror 2.0.20",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "notification-email-aws"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -4801,20 +4815,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "notification-core"
-version = "0.1.0"
-dependencies = [
- "common",
- "fake",
- "product-core",
- "serde",
- "serde-email",
- "thiserror 2.0.20",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "notification-postgres"
 version = "0.1.0"
 dependencies = [
@@ -4824,6 +4824,7 @@ dependencies = [
  "notification-service",
  "product-core",
  "serde",
+ "serde-email",
  "serde_json",
  "sqlx",
  "test-api",
@@ -4845,6 +4846,7 @@ dependencies = [
  "notification-core",
  "notification-service",
  "rstest",
+ "serde-email",
  "thiserror 2.0.20",
  "time",
  "tokio",

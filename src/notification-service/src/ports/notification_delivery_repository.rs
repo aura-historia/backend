@@ -2,8 +2,11 @@ use common::{
     currency::domain::Currency, error::boxed::BoxError, language::domain::Language,
     notification_id::NotificationId, user_id::UserId,
 };
-use notification_core::notification::NotificationContent;
-use notification_core::notification_delivery_id::NotificationDeliveryId;
+use notification_core::{
+    notification::NotificationContent,
+    notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
+    notification_delivery_id::NotificationDeliveryId,
+};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -29,9 +32,9 @@ pub struct NotificationDeliverySource {
     pub notification_delivery_id: NotificationDeliveryId,
     pub notification_id: NotificationId,
     pub user_id: UserId,
+    pub channel: NotificationDeliveryChannel,
+    pub target_key: NotificationDeliveryTargetKey,
     pub content: NotificationContent,
-    pub recipient_email: String,
-    pub recipient_first_name: Option<String>,
     pub language: Language,
     pub currency: Currency,
 }
@@ -46,7 +49,6 @@ pub enum ClaimNotificationDeliveryOutcome {
     Delivered,
     PermanentlyFailed,
     AlreadyClaimed,
-    NotificationMismatch,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -69,7 +71,6 @@ pub trait NotificationDeliveryRepository: Send + Sync {
     async fn claim_and_load_source(
         &self,
         notification_delivery_id: NotificationDeliveryId,
-        notification_id: NotificationId,
         now: OffsetDateTime,
         lease_expires_at: OffsetDateTime,
         lease_token: Uuid,

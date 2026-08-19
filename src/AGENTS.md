@@ -105,7 +105,7 @@
 - `src/newsletter-api/AGENTS.md` — `newsletter-api` crate.
 - `src/notification/AGENTS.md` — legacy notification crate retained only for the untouched periodic matcher follow-up.
 - `src/notification-core/AGENTS.md` — canonical Notification domain crate.
-- `src/notification-aws/AGENTS.md` — canonical Notification AWS email adapter crate.
+- `src/notification-email-aws/AGENTS.md` — canonical Notification email AWS adapter crate.
 - `src/notification-service/AGENTS.md` — canonical Notification service/use-case crate.
 - `src/notification-postgres/AGENTS.md` — canonical Notification PostgreSQL adapter crate.
 

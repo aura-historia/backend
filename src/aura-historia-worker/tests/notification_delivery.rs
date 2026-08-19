@@ -7,10 +7,15 @@ use aws_sdk_s3::{
     types::{BucketLocationConstraint, CreateBucketConfiguration},
 };
 use aws_sdk_sesv2::Client as SesClient;
-use notification_aws::SesNotificationDeliverySender;
-use notification_postgres::SqlxNotificationDeliveryRepository;
-use notification_service::use_cases::commands::deliver_notification::{
-    DeliverNotificationHandler, DeliverNotificationUseCase,
+use notification_email_aws::{EmailDeliveryConfig, SesNotificationChannelSender};
+use notification_postgres::{SqlxEmailDeliveryTargetReader, SqlxNotificationDeliveryRepository};
+use notification_service::{
+    ports::notification_channel_sender::{
+        NotificationChannelSender, NotificationDeliveryDispatcher,
+    },
+    use_cases::commands::deliver_notification::{
+        DeliverNotificationHandler, DeliverNotificationUseCase,
+    },
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -262,15 +267,21 @@ impl NotificationDeliveryWorker {
         let handler: Arc<dyn DeliverNotificationUseCase> =
             Arc::new(DeliverNotificationHandler::new(
                 SqlxNotificationDeliveryRepository::new(pool.clone()),
-                SesNotificationDeliverySender::new(
-                    s3,
-                    SesClient::new(aws_config),
-                    targets.bucket,
-                    "no-reply@notify.aura-historia.test",
-                    "contact@aura-historia.test",
-                    targets.stage,
-                    targets.commit_sha,
-                ),
+                NotificationDeliveryDispatcher::new(vec![Arc::new(
+                    SesNotificationChannelSender::new(
+                        s3,
+                        SesClient::new(aws_config),
+                        EmailDeliveryConfig::new(
+                            targets.bucket,
+                            "no-reply@notify.aura-historia.test",
+                            "contact@aura-historia.test",
+                            targets.stage,
+                            targets.commit_sha,
+                        ),
+                        Arc::new(SqlxEmailDeliveryTargetReader::new(pool.clone())),
+                    ),
+                )
+                    as Arc<dyn NotificationChannelSender>])?,
             ));
         let (runtime, mut receivers) =
             WorkerRuntime::with_notification_delivery_queue(QueueConfig::new(16))?;
@@ -425,7 +436,7 @@ async fn insert_delivery_in_transaction(
     match state {
         DeliveryState::Pending => {
             sqlx::query(
-                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel) VALUES ($1, $2, 'EMAIL')",
+                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key) VALUES ($1, $2, 'EMAIL', 'PRIMARY')",
             )
             .bind(delivery_id)
             .bind(notification_id)
@@ -434,7 +445,7 @@ async fn insert_delivery_in_transaction(
         }
         DeliveryState::ActiveLease => {
             sqlx::query(
-                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, status, attempt_count, lease_token, lease_expires_at) VALUES ($1, $2, 'EMAIL', 'PROCESSING', 4, $3, now() + interval '1 hour')",
+                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key, status, attempt_count, lease_token, lease_expires_at) VALUES ($1, $2, 'EMAIL', 'PRIMARY', 'PROCESSING', 4, $3, now() + interval '1 hour')",
             )
             .bind(delivery_id)
             .bind(notification_id)

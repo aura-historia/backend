@@ -157,7 +157,7 @@ Examples:
 | Product OpenSearch projector | `product-lambda-materialize-opensearch` | Product event job | OpenSearch product document create/update/delete. |
 | Product delete cleanup | `product-lambda-delete-product` | Lifecycle deleted job | OpenSearch delete, Postgres watchlist/match cleanup. |
 | Watchlist notification generator | retired notification Lambda path | Price/state product event job | PostgreSQL watchlist notification inserts, one per semantic reason. |
-| Notification delivery sender | PostgreSQL delivery flow | `notification_deliveries` insert job | Claims PostgreSQL delivery lease, sends S3-rendered email through SES, and finalizes durable delivery state. |
+| Notification delivery dispatcher | PostgreSQL delivery flow | `notification_deliveries` insert job | Claims PostgreSQL delivery lease, dispatches by persisted channel, and finalizes durable delivery state. EMAIL resolves its current target, renders S3 templates, and sends through SES. |
 | Search-filter percolator | `search-filter-lambda-percolate-product` | Domain/enrichment product event job | Postgres matches only. |
 | Search-filter match notification generator | Search-filter match notification path | Search-filter match inserted job | One PostgreSQL SearchFilter notification per matching filter. |
 | Product embed | legacy `product-pipeline-embed-text` | `DOMAIN_CREATED` job | Postgres enrichment event + product update. Embedding stored in Postgres only. |
@@ -211,7 +211,7 @@ Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=watchlist-notification`; its 
 
 ## Canonical notification delivery
 
-The `notification-delivery` scope accepts only `notification_deliveries` inserts. Its Sequin job carries `notification_delivery_id` and `notification_id`, with idempotency `notification-delivery:{delivery_id}` and ordering `notification:{notification_id}`. The service atomically claims the durable lease and loads joined notification, recipient, first-name, language, and currency source from PostgreSQL; it commits before S3 or SES I/O, then conditionally finalizes the same lease. Missing, delivered, permanently failed, and actively leased rows are explicit acknowledged no-ops. Retryable send failures return the row to `PENDING` and fail the job for bounded retry; permanent failures become `FAILED`. A send/finalize crash can produce a duplicate external email, so email delivery is at-least-once.
+The `notification-delivery` scope accepts only `notification_deliveries` inserts. Its Sequin job carries only `notification_delivery_id`, with idempotency and ordering `notification-delivery:{delivery_id}`. The generic service atomically claims the durable lease and loads notification, user, channel, target key, language, and currency source from PostgreSQL; it commits before channel I/O, then conditionally finalizes the same lease. The dispatcher selects the registered sender by persisted channel. EMAIL resolves the current `PRIMARY` target after claim, then performs S3 or SES I/O. Missing, delivered, permanently failed, and actively leased rows are explicit acknowledged no-ops. Retryable send failures return the row to `PENDING` and fail the job for bounded retry; permanent failures become `FAILED`. A send/finalize crash can produce a duplicate external send, so delivery is at-least-once.
 
 Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=notification-delivery`; it requires `POSTGRES_*`, `S3_BUCKET_NAME_TEMPLATES`, `NOTIFICATION_EMAIL_FROM`, `NOTIFICATION_EMAIL_REPLY_TO`, `STAGE`, `COMMIT_SHA`, and AWS credentials with template-read plus SES-send permissions. Configure one Sequin subscription for `notification_deliveries` `INSERT` only. There is no SQS in this delivery route.
 
@@ -258,7 +258,7 @@ Minimum unique keys:
 | Search-filter match | `(user_search_filter_id, product_id)` plus `origin_event_id` FK to `product_events.event_id` |
 | Search-filter notification | `(user_id, user_search_filter_id, product_id, origin_event_id)` PostgreSQL unique index |
 | Watchlist notification | `(user_id, origin_event_id, kind)` PostgreSQL unique index |
-| Notification delivery job | `notification-delivery:{delivery_id}`; order `notification:{notification_id}` |
+| Notification delivery job | `notification-delivery:{delivery_id}`; order `notification-delivery:{delivery_id}` |
 
 Sequin ID/LSN can be logged for debugging, but do not make it the normal idempotency key when a domain key exists.
 

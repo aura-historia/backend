@@ -39,6 +39,8 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
     "src/watchlist-postgres",
     "src/watchlist-service",
     "src/notification-core",
+    "src/notification-email-aws",
+    "src/notification-postgres",
     "src/notification-service",
     "src/oauth-core",
     "src/oauth-dynamodb",

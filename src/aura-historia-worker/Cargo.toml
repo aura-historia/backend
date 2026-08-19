@@ -17,7 +17,7 @@ large-language-model = { workspace = true }
 google-cloud-auth = { workspace = true }
 indexmap = { workspace = true }
 notification-core = { workspace = true }
-notification-aws = { workspace = true }
+notification-email-aws = { workspace = true }
 notification-postgres = { workspace = true }
 notification-service = { workspace = true }
 opensearch = { workspace = true }

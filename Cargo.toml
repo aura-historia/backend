@@ -146,7 +146,7 @@ members = [
     "src/user-zoho",
     "src/notification",
     "src/notification-core",
-    "src/notification-aws",
+    "src/notification-email-aws",
     "src/notification-service",
     "src/notification-postgres",
     "src/newsletter-api",
@@ -222,7 +222,7 @@ stripe-api = { path = "src/stripe-api" }
 newsletter-api = { path = "src/newsletter-api" }
 notification = { path = "src/notification" }
 notification-core = { path = "src/notification-core" }
-notification-aws = { path = "src/notification-aws" }
+notification-email-aws = { path = "src/notification-email-aws" }
 notification-service = { path = "src/notification-service" }
 notification-postgres = { path = "src/notification-postgres" }
 oauth = { path = "src/oauth" }

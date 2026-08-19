@@ -1,12 +1,14 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NotificationDeliveryChannel {
     Email,
+    Push,
 }
 
 impl NotificationDeliveryChannel {
     pub const fn persisted(self) -> &'static str {
         match self {
             Self::Email => "EMAIL",
+            Self::Push => "PUSH",
         }
     }
 }
@@ -46,6 +48,7 @@ mod tests {
     #[test]
     fn should_persist_channels_as_screaming_snake_case() {
         assert_eq!("EMAIL", NotificationDeliveryChannel::Email.persisted());
+        assert_eq!("PUSH", NotificationDeliveryChannel::Push.persisted());
     }
 
     #[test]

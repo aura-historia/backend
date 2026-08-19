@@ -184,7 +184,7 @@ impl WorkerVertexAiConfig {
     }
 }
 
-pub struct WorkerNotificationDeliveryConfig {
+pub struct WorkerEmailDeliveryConfig {
     template_bucket: String,
     from_email_address: String,
     reply_to_email_address: String,
@@ -192,7 +192,7 @@ pub struct WorkerNotificationDeliveryConfig {
     commit_sha: String,
 }
 
-impl WorkerNotificationDeliveryConfig {
+impl WorkerEmailDeliveryConfig {
     pub fn template_bucket(&self) -> &str {
         &self.template_bucket
     }
@@ -207,6 +207,16 @@ impl WorkerNotificationDeliveryConfig {
     }
     pub fn commit_sha(&self) -> &str {
         &self.commit_sha
+    }
+}
+
+pub struct WorkerNotificationDeliveryConfig {
+    email: Option<WorkerEmailDeliveryConfig>,
+}
+
+impl WorkerNotificationDeliveryConfig {
+    pub fn email(&self) -> Option<&WorkerEmailDeliveryConfig> {
+        self.email.as_ref()
     }
 }
 
@@ -269,16 +279,18 @@ impl WorkerStartupConfig {
                 None,
                 None,
                 Some(WorkerNotificationDeliveryConfig {
-                    template_bucket: required_env(&mut get, S3_BUCKET_NAME_TEMPLATES_ENV)?,
-                    from_email_address: required_env(&mut get, NOTIFICATION_EMAIL_FROM_ENV)?,
-                    reply_to_email_address: required_env(
-                        &mut get,
-                        NOTIFICATION_EMAIL_REPLY_TO_ENV,
-                    )?,
-                    stage: stage.ok_or(WorkerStartupConfigError::MissingEnv {
-                        name: WORKER_STAGE_ENV,
-                    })?,
-                    commit_sha: required_env(&mut get, COMMIT_SHA_ENV)?,
+                    email: Some(WorkerEmailDeliveryConfig {
+                        template_bucket: required_env(&mut get, S3_BUCKET_NAME_TEMPLATES_ENV)?,
+                        from_email_address: required_env(&mut get, NOTIFICATION_EMAIL_FROM_ENV)?,
+                        reply_to_email_address: required_env(
+                            &mut get,
+                            NOTIFICATION_EMAIL_REPLY_TO_ENV,
+                        )?,
+                        stage: stage.ok_or(WorkerStartupConfigError::MissingEnv {
+                            name: WORKER_STAGE_ENV,
+                        })?,
+                        commit_sha: required_env(&mut get, COMMIT_SHA_ENV)?,
+                    }),
                 }),
             ),
             WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
