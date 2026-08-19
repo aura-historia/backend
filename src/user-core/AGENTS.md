@@ -14,6 +14,7 @@
 - Access-token aggregate has no storage metadata; repositories/read models own timestamps.
 - `newsletter_subscription::NewsletterSubscription` owns newsletter recipient values and optional linked user identity.
 - User sort defaults to `Name`; no score sort in canonical user.
+- Uses `domain-primitives` only for neutral change outcomes.
 - No dependency on `user-service`, legacy `user`, or adapters.
 
 ## Ownership

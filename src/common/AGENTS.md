@@ -14,6 +14,8 @@
 - Library crate. Keep domain, persistence, and service seams explicit.
 - `operation_context` owns service principals and `CredentialCapability`. Cognito user sessions are `Principal::User` with open-world capability. Aura access tokens are `Principal::DelegatedUser` with explicit closed-world capabilities.
 - `Principal` exposes lean `require*` guards and chainable principal requirements. Use `Principal` in services instead of direct `Actor` matching.
+- `change_outcome`, `event`, and `event_id` alias `domain-primitives`; legacy EventId API extraction remains local. Version and newtype macro modules remain legacy copies while canonical owners use `domain-primitives`. Remove each legacy path after consumers migrate.
+- `logging` delegates subscriber setup to `platform-observability` and retains legacy log vocabulary. Remove the setup shims after legacy runtimes migrate.
 - `transaction` re-exports `application`; `postgres` re-exports SQLx primitives from `platform-postgres` and retains legacy `POSTGRES_*` parsing. Remove both shims after legacy consumers migrate.
 - `price` FX helpers use scaled unsigned `Rate` values; do not calculate exchange rates with floating point.
 

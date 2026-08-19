@@ -71,7 +71,7 @@
 
 ## Runtime Guidance
 
-- Init executable logging with `common::logging::init_logging()`.
+- Canonical composition roots init logging with `platform-observability`; legacy executables may use `common::logging` shim.
 - Keep logs compact & structured for CloudWatch-Analysis. Error log mean real fire. Expected failure be `warn` or lower.
 - Do not hide business rules in handler glue. Parse, auth, and map in edge crate; real rule live deeper.
 - Keep env var names, queue names, and event shapes stable and documented in nearest crate doc.
@@ -92,7 +92,8 @@
 - `src/cloudwatch-log-retention-lambda/AGENTS.md` — `cloudwatch-log-retention-lambda` crate.
 - `src/cognito/AGENTS.md` — `cognito` crate.
 - `src/cognito-post-confirmation/AGENTS.md` — `cognito-post-confirmation` crate.
-- `src/common/AGENTS.md` — `common` crate.
+- `src/common/AGENTS.md` — legacy compatibility crate.
+- `src/domain-primitives/AGENTS.md` — domain-neutral primitives and newtype macros.
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
 - `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.
 - `src/large-language-model/AGENTS.md` — reusable typed Vertex AI Gemini invocation adapter crate.
@@ -122,6 +123,7 @@
 - `src/product-core/AGENTS.md` — canonical Product domain crate.
 - `src/product-service/AGENTS.md` — canonical Product service crate.
 - `src/product-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
+- `src/platform-observability/AGENTS.md` — typed tracing subscriber setup.
 - `src/platform-postgres/AGENTS.md` — shared SQLx transaction and pool mechanics.
 - `src/product-opensearch/AGENTS.md` — canonical Product OpenSearch adapter crate.
 - `src/product-api/AGENTS.md` — `product-api` crate.

@@ -7,6 +7,7 @@ edition = "2024"
 application = { workspace = true }
 aura-historia-api = { workspace = true }
 aura-historia-worker = { workspace = true }
+platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 aws-tests = { workspace = true }
 acceptance-tests = { workspace = true }
@@ -97,6 +98,7 @@ members = [
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
     "src/common",
+    "src/domain-primitives",
     "src/embedding",
     "src/image-fetcher",
     "src/geo",
@@ -113,6 +115,7 @@ members = [
     "src/product-core",
     "src/product-service",
     "src/product-postgres",
+    "src/platform-observability",
     "src/platform-postgres",
     "src/fxrate-core",
     "src/fxrate-service",
@@ -194,6 +197,7 @@ aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
 common = { path = "src/common" }
+domain-primitives = { path = "src/domain-primitives" }
 embedding = { path = "src/embedding" }
 image-fetcher = { path = "src/image-fetcher" }
 geo = { path = "src/geo" }
@@ -203,6 +207,7 @@ fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 acceptance-tests = { path = "src/acceptance-tests" }
 application = { path = "src/application" }
+platform-observability = { path = "src/platform-observability" }
 platform-postgres = { path = "src/platform-postgres" }
 search-filter = { path = "src/search-filter" }
 search-filter-core = { path = "src/search-filter-core" }

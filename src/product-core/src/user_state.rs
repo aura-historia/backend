@@ -1,7 +1,7 @@
 use common::enhanced_match_reason::EnhancedMatchReason;
-use common::event_id::EventId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
+use domain_primitives::event_id::EventId;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductUserState {

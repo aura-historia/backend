@@ -11,6 +11,7 @@
 - Root modules: `description`, `heuristics`, `product`, `product_event`, `product_image`, `product_search`, `prohibited_content`, `sanitize`, `sort_product_field`, `title`, `user_state`.
 - `product::Product` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
 - Product translations, embeddings, read joins, and FX snapshots stay outside this aggregate. `ProductPricing` stores source prices only; `ProductSaleValuation` records a sold-at timestamp plus immutable FX snapshot ID.
+- Uses `domain-primitives` only for neutral event/outcome values.
 - No dependency on `product-service`, legacy `product`, or adapters.
 
 ## Ownership

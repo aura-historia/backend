@@ -11,6 +11,7 @@
 - Root modules: `address`, `affiliate_configuration`, `continent`, `lifecycle`, `partner_status`, `shop`, `shop_search`, `shop_type`, `sort_shop_field`, `woocommerce_webhook_secret`.
 - `shop::Shop` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
 - Shop lifecycle defaults to `Drafted`; partner applications may create draft shops. A discarded draft is terminal and cannot be published.
+- Uses `domain-primitives` only for neutral change outcomes.
 - No dependency on `shop-service`, legacy `shop`, or adapters.
 
 ## Ownership

@@ -9,6 +9,7 @@ aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 application = { workspace = true }
 common = { workspace = true }
+platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }

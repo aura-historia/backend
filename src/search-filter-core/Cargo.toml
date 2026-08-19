@@ -5,10 +5,11 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
+domain-primitives = { workspace = true }
 product-core = { workspace = true }
 fake = { workspace = true, optional = true }
 serde_fields = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "product-core/test-data"]
+test-data = ["fake", "common/test-data", "domain-primitives/test-data", "product-core/test-data"]

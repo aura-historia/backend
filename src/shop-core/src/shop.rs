@@ -6,10 +6,10 @@ use crate::{
     shop_type::ShopType,
     woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
-use common::change_outcome::ChangeOutcome;
 use common::currency::domain::Currency;
 use common::language::domain::Language;
 use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use domain_primitives::change_outcome::ChangeOutcome;
 use serde_email::Email;
 use std::collections::HashSet;
 use url::Url;

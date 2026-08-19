@@ -1,0 +1,16 @@
+[package]
+name = "domain-primitives"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v7"] }
+
+fake = { workspace = true, optional = true }
+
+[features]
+default = []
+test-data = ["dep:fake"]

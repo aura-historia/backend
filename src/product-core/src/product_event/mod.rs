@@ -3,12 +3,11 @@ use crate::product_event::{
     lifecycle::ProductLifecycleEventPayload, policy::ProductPolicyEventPayload,
 };
 use common::{
-    event::Event,
-    event_id::EventId,
     has_key::HasKey,
     logging::{LogEventType, LogWriteSource},
     product_id::ProductId,
 };
+use domain_primitives::{event::Event, event_id::EventId};
 
 pub mod domain;
 pub mod enrichment;

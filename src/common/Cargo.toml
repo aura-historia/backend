@@ -16,12 +16,14 @@ async-trait = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["json"] }
+
 itertools = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 slug = { workspace = true }
 application = { workspace = true }
+domain-primitives = { workspace = true }
+platform-observability = { workspace = true }
 
 # Optional dependencies via feature-flags
 aws-config = { workspace = true, optional = true }
@@ -43,6 +45,7 @@ platform-postgres = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
@@ -60,4 +63,4 @@ api = [
     "httpdate",
     "lambda_runtime"
 ]
-test-data = ["fake"]
+test-data = ["fake", "domain-primitives/test-data"]

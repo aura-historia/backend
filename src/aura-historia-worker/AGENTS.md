@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- `main.rs` bootstraps logging, config, health/CDC server, and graceful shutdown.
+- `main.rs` reads `LOG_LEVEL`, bootstraps typed `platform-observability` logging, config, health/CDC server, and graceful shutdown.
 - `lib.rs` owns runtime config including typed `POSTGRES_*` parsing, `/health`, `/ready`, `/cdc/sequin`, server loop, default all-queue runtime, and bounded queue primitives. Runtime wiring uses `platform-postgres` SQLx mechanics.
 - `cdc.rs` normalizes Sequin webhook JSON to domain jobs and fans out after route validation.
 - `product_opensearch.rs` consumes `ProductOpenSearch` jobs, rereads the committed current Product source by stable event/Product IDs, loads an immutable sale snapshot only when a main source price needs sale-time conversion, then writes or deletes the canonical rebuildable Product document with OpenSearch external version protection from `products.projection_version`.

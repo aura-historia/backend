@@ -253,6 +253,7 @@ dependencies = [
  "oauth-service",
  "opensearch",
  "openssl",
+ "platform-observability",
  "platform-postgres",
  "product-core",
  "product-opensearch",
@@ -330,6 +331,7 @@ dependencies = [
  "partner-shop-application",
  "partner-shop-application-api",
  "partner-shop-application-lambda",
+ "platform-observability",
  "platform-postgres",
  "product",
  "product-api",
@@ -396,6 +398,7 @@ dependencies = [
  "notification-dynamodb",
  "notification-service",
  "opensearch",
+ "platform-observability",
  "platform-postgres",
  "product-core",
  "product-opensearch",
@@ -1817,12 +1820,14 @@ dependencies = [
  "aws-sdk-dynamodb",
  "aws-sdk-sqs",
  "aws_lambda_events",
+ "domain-primitives",
  "fake",
  "http 1.5.0",
  "httpdate",
  "itertools 0.15.0",
  "lambda_runtime",
  "opensearch",
+ "platform-observability",
  "platform-postgres",
  "rstest",
  "serde",
@@ -2553,6 +2558,17 @@ dependencies = [
  "base64 0.22.1",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "domain-primitives"
+version = "0.1.0"
+dependencies = [
+ "fake",
+ "serde",
+ "thiserror 2.0.20",
+ "time",
+ "uuid",
 ]
 
 [[package]]
@@ -5831,6 +5847,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "platform-observability"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "platform-postgres"
 version = "0.1.0"
 dependencies = [
@@ -6071,6 +6095,7 @@ name = "product-core"
 version = "0.1.0"
 dependencies = [
  "common",
+ "domain-primitives",
  "fake",
  "geo",
  "html-escape",
@@ -7275,6 +7300,7 @@ name = "search-filter-core"
 version = "0.1.0"
 dependencies = [
  "common",
+ "domain-primitives",
  "fake",
  "product-core",
  "serde_fields",
@@ -7962,6 +7988,7 @@ name = "shop-core"
 version = "0.1.0"
 dependencies = [
  "common",
+ "domain-primitives",
  "fake",
  "geo",
  "isocountry",
@@ -9695,6 +9722,7 @@ name = "user-core"
 version = "0.1.0"
 dependencies = [
  "common",
+ "domain-primitives",
  "fake",
  "geo",
  "http 1.5.0",

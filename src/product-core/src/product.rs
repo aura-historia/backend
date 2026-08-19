@@ -1,9 +1,6 @@
 use crate::description::Description;
 use crate::product_image::ProductImage;
 use crate::title::Title;
-use common::change_outcome::ChangeOutcome;
-use common::event::Event;
-use common::event_id::EventId;
 use common::fx_rate_id::FxRateId;
 use common::language::domain::Language;
 use common::localized::Localized;
@@ -14,6 +11,7 @@ use common::product_slug_id::ProductSlugId;
 use common::product_state::domain::ProductState;
 use common::shop_id::ShopId;
 use common::shops_product_id::ShopsProductId;
+use domain_primitives::{change_outcome::ChangeOutcome, event::Event, event_id::EventId};
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use time::OffsetDateTime;
