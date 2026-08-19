@@ -10,13 +10,13 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 |---|---|---|
 | Postgres | Database | Business source of truth and transactional product/event writes. |
 | `product_events` | Postgres table | Product domain/enrichment/policy/lifecycle event log. |
+| `notification_deliveries` | Postgres table | Durable email-delivery intent and lease state. |
 | Sequin | CDC | Delivers committed Postgres changes to worker ingestion. |
 | `aura-historia-worker` router | Rust process | Maps CDC rows to domain jobs and fans them out to queues. |
 | In-memory sub-worker queues | Worker buffers | Bounded execution buffers. Not durable. |
 | OpenSearch | Search projection | Rebuildable product/shop/search-filter projection. |
-| DynamoDB notifications | AWS DynamoDB | Notification TTL and insert-to-send behavior. |
+| DynamoDB notifications | AWS DynamoDB | Legacy notification TTL storage. |
 | DynamoDB access tokens | AWS DynamoDB | Existing access-token storage and lookup. |
-| `notification-send` | AWS Lambda | Sends external notifications through SES. |
 | FxRate Lambda | AWS Lambda | Captures immutable canonical EUR-base FX snapshots in Postgres. |
 | Shopify Lambda | AWS Lambda | Handles Shopify events, writes Postgres directly. |
 | Stripe Lambda | AWS Lambda | Handles Stripe subscription events, writes Postgres directly. |
@@ -38,8 +38,6 @@ flowchart TD
     SQ["shop queues"]
     UFQ["user/search-filter queues"]
     OS[(OpenSearch)]
-    DDBN[(DynamoDB notifications)]
-    SEND["notification-send Lambda"]
     SES["SES"]
     FX["FxRate Lambda"]
 
@@ -58,13 +56,13 @@ flowchart TD
 
     PQ -->|"product projections"| OS
     PQ -->|"match/watchlist/enrichment"| PG
-    PQ -->|"notification records"| DDBN
+    ROUTER -->|"notification_deliveries INSERT"| NQ[notification delivery queue]
+    NQ -->|"claim, send, finalize"| PG
+    NQ --> SES
     SQ -->|"shop projections"| OS
     UFQ -->|"search-filter docs"| OS
     UFQ -->|"tier/search-filter updates"| PG
 
-    DDBN -->|"stream/event rule"| SEND
-    SEND --> SES
 
     FX -->|"immutable FX snapshot transaction"| PG
 ```
@@ -134,6 +132,7 @@ Crash rule:
 | `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. Idempotency: `(shop_id, version, op)`. |
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
 | `search_filter_matches` | INSERT | Search-filter match notification worker. It rereads the exact persisted match and Product source, then conditionally inserts one DynamoDB SearchFilter notification. Idempotency: `(user_id, user_search_filter_id, product_id, origin_event_id)` at the job and `(user_id, origin_event_id)` at DynamoDB. |
+| `notification_deliveries` | INSERT | Notification-delivery worker. It claims the durable delivery lease, loads the canonical notification source, sends through SES, then finalizes the same lease. Idempotency: `notification_delivery_id`; external delivery remains at-least-once across a send/finalize crash. |
 | `users` | MODIFY | User tier enforcement for tier changes; no user OpenSearch projection. Idempotency: `(user_id, version)`. |
 | `product_watchlist` | INSERT/MODIFY/DELETE | No default downstream route; product events drive notifications. |
 | `partner_shop_applications` | INSERT/MODIFY | No generic worker route unless notification behavior requires it. |
@@ -160,6 +159,7 @@ Examples:
 | Product OpenSearch projector | `product-lambda-materialize-opensearch` | Product event job | OpenSearch product document create/update/delete. |
 | Product delete cleanup | `product-lambda-delete-product` | Lifecycle deleted job | OpenSearch delete, Postgres watchlist/match cleanup. |
 | Watchlist notification generator | `product-lambda-update-notify-user` | Price/state product event job | DynamoDB notification inserts. |
+| Notification delivery sender | PostgreSQL notification delivery flow | `notification_deliveries` insert job | Claims PostgreSQL delivery lease, sends email through SES, and finalizes the durable delivery state. |
 | Search-filter percolator | `search-filter-lambda-percolate-product` | Domain/enrichment product event job | Postgres matches only. |
 | Search-filter match notification generator | Search-filter match notification path | Search-filter match inserted job | DynamoDB SearchFilter notification insert. |
 | Product embed | legacy `product-pipeline-embed-text` | `DOMAIN_CREATED` job | Postgres enrichment event + product update. Embedding stored in Postgres only. |
@@ -169,7 +169,7 @@ Examples:
 | User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
 | Periodic matcher | ECS periodic matcher | Scheduled job | OpenSearch product search, Postgres matches, DynamoDB notifications. |
 
-The canonical Product OpenSearch projector, search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, Product embedding worker, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
+The canonical Product OpenSearch projector, search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, notification delivery sender, Product embedding worker, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
 
 ## Canonical Product OpenSearch projection
 
@@ -211,6 +211,12 @@ The DynamoDB target conditionally creates the `(user_id, origin_event_id)` recor
 
 Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=watchlist-notification`; its Sequin subscription must contain only `product_events` inserts. The default `search-filter-projection` scope remains separately subscribed to `search_filters`.
 
+## Canonical notification delivery
+
+The `notification-delivery` scope accepts only `notification_deliveries` inserts. Its Sequin job carries only `notification_delivery_id`; the service atomically claims the durable lease, rereads the joined notification and recipient source from PostgreSQL, sends through SES, then conditionally finalizes the same lease. A duplicate CDC job that cannot claim the delivery is an acknowledged no-op. Retryable send failures return the row to `PENDING` and fail the job for bounded retry; permanent failures become `FAILED`. A send/finalize crash can produce a duplicate external email, so email delivery is at-least-once.
+
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=notification-delivery`; it requires `POSTGRES_*` and AWS credentials with SES send permission. Its Sequin subscription must contain only `notification_deliveries` inserts.
+
 ## Canonical search-filter OpenSearch projection
 
 `search_filters` in Postgres is authoritative. `user_search_filters` is the single rebuildable canonical OpenSearch projection.
@@ -229,7 +235,6 @@ These AWS event flows stay:
 
 | Source | Route | Target |
 |---|---|---|
-| DynamoDB notification insert | Stream/EventBridge/SQS | `notification-send` Lambda |
 | Compute-stack creation or EventBridge schedule | bootstrap or cron | `fxrate-lambda`; captures one idempotent canonical FX snapshot in Postgres per source event ID |
 | Shopify partner EventBridge/SQS | Shopify product events | `shopify-lambda`; this is external intake buffering before sync Postgres product/event writes, not the removed product command queue. |
 | Stripe partner EventBridge | subscription events | `stripe-lambda`; Lambda invokes canonical User service handlers with direct Postgres adapters for atomic user tier/customer updates. |

@@ -27,6 +27,7 @@ const WORKER_WEBHOOK_TABLES: &[&str] = &[
     "public.search_filters",
     "public.search_filter_matches",
 ];
+const NOTIFICATION_DELIVERY_TABLE: &str = "public.notification_deliveries";
 
 static WORKER_WEBHOOK_SEQUIN: OnceCell<RunningSequin> = OnceCell::const_new();
 static WORKER_WEBHOOK_PORT: OnceLock<u16> = OnceLock::new();
@@ -150,7 +151,12 @@ fn worker_webhook_port() -> u16 {
 }
 
 fn sequin_config_yaml(webhook_url: &str, suffix: &str) -> String {
-    let publication_tables = WORKER_WEBHOOK_TABLES.join(", ");
+    let publication_tables = WORKER_WEBHOOK_TABLES
+        .iter()
+        .copied()
+        .chain(std::iter::once(NOTIFICATION_DELIVERY_TABLE))
+        .collect::<Vec<_>>()
+        .join(", ");
     let include_tables = WORKER_WEBHOOK_TABLES
         .iter()
         .map(|table| format!("\"{table}\""))
@@ -166,6 +172,15 @@ fn sequin_config_yaml(webhook_url: &str, suffix: &str) -> String {
         .replace("__WEBHOOK_URL__", webhook_url)
         .replace("__INCLUDE_TABLES__", &include_tables);
     config.push_str(&sink_yaml);
+
+    let notification_delivery_sink_yaml =
+        include_str!("sequin/notification-delivery-webhook-sink.yaml")
+            .replace("__SUFFIX__", suffix)
+            .replace("__WEBHOOK_URL__", webhook_url);
+    config.push_str(&format!(
+        "  {}",
+        notification_delivery_sink_yaml.replace('\n', "\n  ")
+    ));
 
     config
 }

@@ -19,7 +19,6 @@ dependencies = [
  "futures-util",
  "http 1.5.0",
  "notification",
- "notification-api",
  "oauth",
  "opensearch",
  "openssl",
@@ -305,10 +304,8 @@ dependencies = [
  "large-language-model",
  "newsletter-api",
  "notification",
- "notification-api",
  "notification-core",
  "notification-postgres",
- "notification-send",
  "notification-service",
  "oauth",
  "oauth-api",
@@ -370,10 +367,14 @@ name = "aura-historia-worker"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
  "common",
  "embedding",
  "fxrate-postgres",
  "google-cloud-auth",
+ "handlebars",
  "indexmap 2.14.0",
  "large-language-model",
  "notification-core",
@@ -4783,32 +4784,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "notification-api"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws_lambda_events",
- "common",
- "fake",
- "http 1.5.0",
- "lambda_runtime",
- "notification",
- "rstest",
- "serde",
- "serde-email",
- "serde_json",
- "serial_test",
- "test-api",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
-]
-
-[[package]]
 name = "notification-core"
 version = "0.1.0"
 dependencies = [
@@ -4843,32 +4818,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "notification-send"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "notification",
- "rstest",
- "serde",
- "serde-email",
- "serde_dynamo",
- "serde_json",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
- "uuid",
-]
-
-[[package]]
 name = "notification-service"
 version = "0.1.0"
 dependencies = [
@@ -4882,6 +4831,7 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "tokio",
+ "tracing",
  "uuid",
 ]
 

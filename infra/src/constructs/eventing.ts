@@ -137,19 +137,6 @@ function createDynamoDbRules(
   eventBus: events.EventBus,
   queues: QueueCatalog,
 ): void {
-  addDynamoDbRule(scope, eventBus, "DynamoDbNotificationSendEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          external: { BOOL: [true] },
-          sk: { S: [{ prefix: "user#notification#origin_event_id#" }] },
-        },
-      },
-    },
-    targets: ["notificationSend"],
-    queues,
-  });
 
   addDynamoDbRule(scope, eventBus, "DynamoDbProductEventRecordPercolateSearchFilterEventRule", table, {
     detail: {
@@ -376,7 +363,6 @@ function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog)
   addSqsEventSource(functions.shopOpenSearchIndex, queues.shopOpenSearchIndex.queue, 1, false);
   addSqsEventSource(functions.userOpenSearchIndex, queues.userOpenSearchIndex.queue, 1, false);
   addSqsEventSource(functions.userTierUpdate, queues.userTierUpdate.queue, 1, false);
-  addSqsEventSource(functions.notificationSend, queues.notificationSend.queue, 25, true, 1);
   addSqsEventSource(functions.productMaterializeOpenSearch, queues.productMaterializeOpenSearch.queue, 2500, true, 1);
   addSqsEventSource(functions.productDeleteProduct, queues.productDeleteProduct.queue, 100, true, 1);
   addSqsEventSource(functions.productPipelineEmbedText, queues.productPipelineEmbedText.queue, 10, true, 1);
@@ -430,15 +416,7 @@ const DYNAMODB_STREAM_FILTER_PATTERNS = [
       },
     },
   }),
-  JSON.stringify({
-    eventName: ["INSERT"],
-    dynamodb: {
-      NewImage: {
-        pk: { S: [{ prefix: "user#" }] },
-        sk: { S: [{ prefix: "user#notification#origin_event_id#" }] },
-      },
-    },
-  }),
+
   JSON.stringify({
     eventName: ["INSERT", "MODIFY", "REMOVE"],
     dynamodb: {

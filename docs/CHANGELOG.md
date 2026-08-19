@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- **Breaking:** Canonical Product user-state responses now replace `notification.seen` and `notification.originEventId` with required `notification.unseenNotificationIds`: unseen notification UUIDs ordered newest first, or `[]` when none exist. Legacy notification API routes are unchanged.
+- **Breaking:** Canonical Product user-state responses now replace `notification.seen` and `notification.originEventId` with required `notification.unseenNotificationIds`: unseen notification UUIDs ordered newest first, or `[]` when none exist.
 
 ## 2026-08-11 - Wire Canonical Google Geocoding
 
@@ -22,11 +22,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Removed
 
+- **Breaking:** The legacy notification REST shape is replaced in `aura-historia-api`. Item paths now use canonical `{notificationId}` rather than `{eventId}`; list responses omit legacy origin-event, actor, external-delivery, and total fields. The former root `PATCH /api/v1/me/notifications` all-notifications behavior is removed.
+
 - Public Product search no longer accepts `sort=price`. `GET /api/v1/products` rejects it with `400 BAD_SORT_VALUE`; use `score`, `updated`, or `created`.
 - Product detail responses no longer emit `ETag` or `Last-Modified`. Anonymous detail display values can change when their current persisted FX snapshot changes, so they use cache freshness directives without entity validators.
 
 ### Changed
 
+- Canonical notification routes now use PostgreSQL-backed notification use cases: `GET`, selected-ID `PATCH`, and `DELETE /api/v1/me/notifications`; `PATCH /api/v1/me/notifications/all`; and item `PATCH`/`DELETE /api/v1/me/notifications/{notificationId}`. All mutations return `204`; list responses are `no-store` and paginate with an opaque JSON `[created RFC3339 timestamp, notification UUID]` `searchAfter` cursor.
 - Product search and similar-product summaries now expose breaking `displayPrice` and `priceValuation` fields instead of ambiguous `price`. They accept or inherit the requested display currency (similar defaults to `EUR`); active summaries use one persisted pinned snapshot and sold summaries use immutable sale values. Sold Products without a main source price retain `SALE` valuation metadata but have no display price, no `salePrices`, and never match price ranges.
 - Product detail, watchlist, and saved-search match reads now accept optional `currency` (default `EUR`). Their breaking `pricing` response is `{ source, display, valuation }`: source retains seller amounts, display is converted with HalfUp rounding from a persisted FX snapshot, and valuation states `CURRENT` or `SALE` with `fxRateId`, `capturedAt`, and sale `soldAt` when applicable. Removed flat detail `price`, `priceEstimateMin`, `priceEstimateMax`, and `currency` fields. Missing, invalid, or mismatched FX data fails the whole read; no provider fallback occurs.
 - Product `pricing` and immutable Product event pricing snapshots no longer expose `fxRateId`; they contain source `price`, `priceEstimateMin`, and `priceEstimateMax` only. Product sale valuation is now a separate immutable fact captured from the latest persisted FX snapshot when a Product is created or transitions to `SOLD`. A generic Product update cannot reopen a sold Product; `SOLD` to `REMOVED` preserves the sale valuation. Missing or invalid persisted FX data rejects the sale write.

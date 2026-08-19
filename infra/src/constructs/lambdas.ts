@@ -59,20 +59,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       ZOHO_REFRESH_TOKEN: secretOrTest(context.config, "zoho-refresh-token", "test-zoho-refresh-token"),
     }),
   },
-  notificationApi: {
-    id: "NotificationApiLambda",
-    binaryName: "notification-api",
-    memorySize: 256,
-    timeoutSeconds: 10,
-    environment: stageEnvironment,
-  },
-  notificationSend: {
-    id: "NotificationSendLambda",
-    binaryName: "notification-send",
-    memorySize: 512,
-    timeoutSeconds: 60,
-    environment: mailTemplateEnvironment,
-  },
+
   oauthApi: {
     id: "OAuthApiLambda",
     binaryName: "oauth-api",
@@ -554,7 +541,6 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
   props.queues.productPartnerIngest.queue.grantSendMessages(functions.webhookApi);
 
   const mailTemplateReaders = [
-    functions.notificationSend,
     functions.partnerShopApplicationWorkflow,
     functions.productUpdateNotifyUser,
     functions.searchFilterPercolateProduct,

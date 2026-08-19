@@ -2,6 +2,7 @@ pub mod auth;
 pub mod billing;
 pub mod error;
 pub mod newsletter;
+pub mod notifications;
 pub mod oauth;
 pub mod partner_applications;
 pub mod partner_products;
@@ -19,9 +20,9 @@ use crate::auth::{
     CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
 };
 use crate::state::{
-    AppState, BillingState, NewsletterState, OAuthState, PartnerApplicationsState,
-    PartnerProductsState, ProductsState, ReadinessCheck, SearchFiltersState, ShopsState,
-    UsersState, WatchlistState, WebhooksState,
+    AppState, BillingState, NewsletterState, NotificationsState, OAuthState,
+    PartnerApplicationsState, PartnerProductsState, ProductsState, ReadinessCheck,
+    SearchFiltersState, ShopsState, UsersState, WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use axum::Router;
@@ -36,7 +37,16 @@ use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGe
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{GoogleGeocoder, GoogleGeocoderConfig};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
-use notification_postgres::{SqlxNotificationCreatorFactory, SqlxProductNotificationIdsReader};
+use notification_postgres::{
+    SqlxNotificationCreatorFactory, SqlxNotificationDeleter, SqlxNotificationListReader,
+    SqlxNotificationSeenWriter, SqlxProductNotificationIdsReader,
+};
+use notification_service::use_cases::commands::delete_notification::DeleteNotificationHandler;
+use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsHandler;
+use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenHandler;
+use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenHandler;
+use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenHandler;
+use notification_service::use_cases::queries::list_notifications::ListNotificationsHandler;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -482,6 +492,10 @@ pub fn app(state: AppState) -> Router {
         routes = routes.merge(search_filters::router(search_filters));
     }
 
+    if let Some(notifications) = state.notifications {
+        routes = routes.merge(notifications::router(notifications));
+    }
+
     if let Some(billing) = state.billing {
         routes = routes.merge(
             Router::new()
@@ -791,6 +805,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxFxRateSnapshotRepositoryFactory,
         SqlxProductNotificationIdsReader::new(pool.clone()),
     );
+
     let access_token_store = DynamoDbAccessTokenStore::new(dynamodb_client, table_name_ref);
     let oauth_store = OAuthDynamoDbStore::new(dynamodb_client, table_name_ref);
     let oauth_access_tokens = StoreOAuthAccessTokenGateway::new(access_token_store.clone());
@@ -806,6 +821,27 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         AuraAccessTokenAuthenticator::new(access_token_use_case),
     )
     .map_err(ApiStateError::CognitoJwt)?;
+    let notifications_state = NotificationsState::new(
+        Arc::new(ListNotificationsHandler::new(
+            SqlxNotificationListReader::new(pool.clone()),
+        )),
+        Arc::new(UpdateNotificationSeenHandler::new(
+            SqlxNotificationSeenWriter::new(pool.clone()),
+        )),
+        Arc::new(UpdateNotificationsSeenHandler::new(
+            SqlxNotificationSeenWriter::new(pool.clone()),
+        )),
+        Arc::new(UpdateAllNotificationsSeenHandler::new(
+            SqlxNotificationSeenWriter::new(pool.clone()),
+        )),
+        Arc::new(DeleteNotificationHandler::new(
+            SqlxNotificationDeleter::new(pool.clone()),
+        )),
+        Arc::new(DeleteNotificationsHandler::new(
+            SqlxNotificationDeleter::new(pool.clone()),
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
     let billing_state = BillingState::new(
         Arc::new(CreateBillingCheckoutSessionHandler::new(
             GetOwnUserHandler::new(unit_of_work.clone(), SqlxUserAccountReaderFactory::new()),
@@ -978,6 +1014,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     ))
     .with_oauth(oauth_state)
     .with_search_filters(search_filters_state)
+    .with_notifications(notifications_state)
     .with_billing(billing_state)
     .with_newsletter(NewsletterState::new(
         Arc::new(upsert_newsletter_subscription),

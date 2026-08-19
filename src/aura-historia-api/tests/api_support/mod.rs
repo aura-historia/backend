@@ -5,9 +5,9 @@ use aura_historia_api::auth::{
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, BillingState, NewsletterState, OAuthState, PartnerApplicationsState,
-    PartnerProductsState, ProductsState, SearchFiltersState, ShopsState, UsersState,
-    WatchlistState, WebhooksState,
+    AppState, BillingState, NewsletterState, NotificationsState, OAuthState,
+    PartnerApplicationsState, PartnerProductsState, ProductsState, SearchFiltersState, ShopsState,
+    UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -32,7 +32,16 @@ use embedding::{
 };
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{Geocoder, GeocodingError};
-use notification_postgres::{SqlxNotificationCreatorFactory, SqlxProductNotificationIdsReader};
+use notification_postgres::{
+    SqlxNotificationCreatorFactory, SqlxNotificationDeleter, SqlxNotificationListReader,
+    SqlxNotificationSeenWriter, SqlxProductNotificationIdsReader,
+};
+use notification_service::use_cases::commands::delete_notification::DeleteNotificationHandler;
+use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsHandler;
+use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenHandler;
+use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenHandler;
+use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenHandler;
+use notification_service::use_cases::queries::list_notifications::ListNotificationsHandler;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -719,6 +728,28 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
+    let notifications_state = NotificationsState::new(
+        Arc::new(ListNotificationsHandler::new(
+            SqlxNotificationListReader::new(pool.clone()),
+        )),
+        Arc::new(UpdateNotificationSeenHandler::new(
+            SqlxNotificationSeenWriter::new(pool.clone()),
+        )),
+        Arc::new(UpdateNotificationsSeenHandler::new(
+            SqlxNotificationSeenWriter::new(pool.clone()),
+        )),
+        Arc::new(UpdateAllNotificationsSeenHandler::new(
+            SqlxNotificationSeenWriter::new(pool.clone()),
+        )),
+        Arc::new(DeleteNotificationHandler::new(
+            SqlxNotificationDeleter::new(pool.clone()),
+        )),
+        Arc::new(DeleteNotificationsHandler::new(
+            SqlxNotificationDeleter::new(pool.clone()),
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
+
     let watchlist_state = WatchlistState::new(
         Arc::new(ListWatchlistHandler::new(
             unit_of_work.clone(),
@@ -875,6 +906,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         .with_webhooks(webhooks_state)
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)
+        .with_notifications(notifications_state)
         .with_billing(billing_state)
 }
 

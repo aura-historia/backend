@@ -26,8 +26,6 @@ pub async fn reset() {
         .await
         .expect("shouldn't fail clearing os-index 'user_search_filter'");
     clear_qs(vec![
-        cfn_output.notification_send_queue_url,
-        cfn_output.notification_send_dead_letter_queue_url,
         cfn_output.product_materialize_opensearch_queue_url,
         cfn_output.product_materialize_opensearch_dead_letter_queue_url,
         cfn_output.product_delete_product_queue_url,

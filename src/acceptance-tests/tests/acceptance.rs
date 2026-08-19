@@ -24,19 +24,12 @@ use common::{
 };
 use fake::{Fake, Faker};
 use notification::{
-    data::{
-        get_notification_data::GetNotificationData, patch_notification_data::PatchNotificationData,
-    },
-    dynamodb::{
-        notification_record::NotificationRecord,
-        repository::{NotificationDynamoDbRepository, NotificationDynamoDbRepositoryImpl},
-    },
+    dynamodb::repository::{NotificationDynamoDbRepository, NotificationDynamoDbRepositoryImpl},
     service::{
         noop_adapters::{NoopS3Adapter, NoopSesAdapter},
         notification_service::NotificationServiceImpl,
     },
 };
-use notification_api::notification_get::EventIdCursoredData;
 use oauth::dynamodb::repository::OAuthDynamoDbRepositoryImpl;
 use oauth::{
     core::client::{OAuthClient, OAuthClientName},
@@ -3760,152 +3753,6 @@ async fn should_respond_200_for_partner_get_shops() {
     let body: Vec<GetShopData> = response.json().await.unwrap();
     assert_eq!(1, body.len());
     assert_eq!(shop_record.shop_id, body[0].shop_id);
-}
-
-// ---------------------------------------------------------------------------
-// API: Notification
-// Verifies Cognito-protected notification endpoints: get, patch-one,
-// patch-all, delete-one, delete-all, seeding data directly via DynamoDB.
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [Cloudformation()])]
-async fn should_get_patch_delete_notifications() {
-    let user = create_random_test_user().await;
-    let repository = NotificationDynamoDbRepositoryImpl::new(
-        get_dynamodb_client().await,
-        &get_cfn_output().dynamodb_table_1_name,
-    );
-
-    // Seed notifications directly via DynamoDB
-    let mut record1 = Faker.fake::<NotificationRecord>();
-    record1.pk = notification::dynamodb::notification_record::mk_pk(&user.sub.into());
-    record1.user_id = user.sub.into();
-    record1.seen = false;
-    repository
-        .put_notification_record(record1.clone())
-        .await
-        .unwrap();
-
-    let mut record2 = Faker.fake::<NotificationRecord>();
-    record2.pk = notification::dynamodb::notification_record::mk_pk(&user.sub.into());
-    record2.user_id = user.sub.into();
-    record2.seen = false;
-    repository
-        .put_notification_record(record2.clone())
-        .await
-        .unwrap();
-
-    // GET all
-    let get_url = format!(
-        "{}/api/v1/me/notifications",
-        get_cfn_output().api_gateway_endpoint_url,
-    );
-    let get_response = reqwest::Client::new()
-        .get(&get_url)
-        .bearer_auth(&user.access_token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, get_response.status());
-    let gotten = get_response
-        .json::<EventIdCursoredData<GetNotificationData>>()
-        .await
-        .unwrap();
-    assert_eq!(2, gotten.items.len());
-    assert_eq!(Some(2), gotten.total);
-    assert!(gotten.items.iter().all(|n| !n.seen));
-
-    // PATCH one (mark as seen)
-    let patch_one_url = format!(
-        "{}/api/v1/me/notifications/{}",
-        get_cfn_output().api_gateway_endpoint_url,
-        record1.origin_event_id,
-    );
-    let patch_one_response = reqwest::Client::new()
-        .patch(patch_one_url)
-        .bearer_auth(&user.access_token)
-        .json(&PatchNotificationData { seen: Some(true) })
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, patch_one_response.status());
-    let patched_one = patch_one_response
-        .json::<GetNotificationData>()
-        .await
-        .unwrap();
-    assert_eq!(record1.origin_event_id, patched_one.origin_event_id);
-    assert!(patched_one.seen);
-
-    // PATCH all (mark all as seen)
-    let patch_all_url = format!(
-        "{}/api/v1/me/notifications",
-        get_cfn_output().api_gateway_endpoint_url,
-    );
-    let patch_all_response = reqwest::Client::new()
-        .patch(&patch_all_url)
-        .bearer_auth(&user.access_token)
-        .json(&PatchNotificationData { seen: Some(true) })
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, patch_all_response.status());
-    let patched_all = patch_all_response
-        .json::<EventIdCursoredData<GetNotificationData>>()
-        .await
-        .unwrap();
-    assert!(patched_all.items.iter().all(|n| n.seen));
-
-    // DELETE one
-    let delete_one_url = format!(
-        "{}/api/v1/me/notifications/{}",
-        get_cfn_output().api_gateway_endpoint_url,
-        record1.origin_event_id,
-    );
-    let delete_one_response = reqwest::Client::new()
-        .delete(delete_one_url)
-        .bearer_auth(&user.access_token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(204, delete_one_response.status());
-
-    // GET after delete-one: 1 remains
-    let get_response = reqwest::Client::new()
-        .get(&get_url)
-        .bearer_auth(&user.access_token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, get_response.status());
-    let after_delete_one = get_response
-        .json::<EventIdCursoredData<GetNotificationData>>()
-        .await
-        .unwrap();
-    assert_eq!(1, after_delete_one.items.len());
-
-    // DELETE all
-    let delete_all_response = reqwest::Client::new()
-        .delete(&get_url)
-        .bearer_auth(&user.access_token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(204, delete_all_response.status());
-
-    // GET after delete-all: none remain
-    let get_response = reqwest::Client::new()
-        .get(&get_url)
-        .bearer_auth(&user.access_token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(200, get_response.status());
-    let after_delete_all = get_response
-        .json::<EventIdCursoredData<GetNotificationData>>()
-        .await
-        .unwrap();
-    assert!(after_delete_all.items.is_empty());
-    assert_eq!(0, after_delete_all.total.unwrap_or(0));
 }
 
 fn valid_new_partner_application_payload(name: &str) -> PostPartnerShopApplicationPayloadData {

@@ -7,10 +7,9 @@ use common::{
     partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, shop_name::ShopName,
     user_id::UserId,
 };
-use notification_service::ports::notification_creator::NotificationCreationOutcome;
-use notification_service::use_cases::commands::create_notifications::{
-    CreateNotificationsCommand, CreateNotificationsError, CreateNotificationsResult,
-    CreateNotificationsUseCase,
+use notification_service::ports::notification_creator::{
+    NewNotification, NotificationCreationError, NotificationCreationOutcome, NotificationCreator,
+    NotificationCreatorFactory,
 };
 
 use shop_core::partner_status::ShopPartnerStatus;
@@ -45,6 +44,8 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 #[derive(Clone, Copy, Default)]
 struct FakeNotificationService;
 
+struct FakeNotificationCreator;
+
 #[derive(Clone, Copy, Default)]
 struct FailingMembershipFactory;
 
@@ -74,19 +75,25 @@ impl UserPartnerShopMembershipRepository for FailingMembershipRepository {
     }
 }
 
+impl NotificationCreatorFactory<common::postgres::SqlxTransaction> for FakeNotificationService {
+    fn in_transaction<'tx>(
+        &'tx self,
+        _: &'tx mut common::postgres::SqlxTransaction,
+    ) -> impl NotificationCreator + 'tx {
+        FakeNotificationCreator
+    }
+}
+
 #[async_trait]
-impl CreateNotificationsUseCase for FakeNotificationService {
-    async fn execute(
-        &self,
-        command: CreateNotificationsCommand,
-    ) -> Result<CreateNotificationsResult, CreateNotificationsError> {
-        Ok(CreateNotificationsResult {
-            outcomes: command
-                .intents
-                .into_iter()
-                .map(|_| NotificationCreationOutcome::Duplicate)
-                .collect(),
-        })
+impl NotificationCreator for FakeNotificationCreator {
+    async fn create_many(
+        &mut self,
+        notifications: &[NewNotification],
+    ) -> Result<Vec<NotificationCreationOutcome>, NotificationCreationError> {
+        Ok(notifications
+            .iter()
+            .map(|_| NotificationCreationOutcome::Duplicate)
+            .collect())
     }
 }
 

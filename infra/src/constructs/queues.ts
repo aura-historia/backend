@@ -4,13 +4,7 @@ import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 
 export const QUEUE_DEFINITIONS = {
-  notificationSend: {
-    id: "NotificationSend",
-    queueName: "notification-send-queue",
-    deadLetterQueueName: "notification-send-dlq",
-    visibilityTimeoutSeconds: 180,
-    maxReceiveCount: 5,
-  },
+
   productMaterializeOpenSearch: {
     id: "ProductMaterializeOpenSearch",
     queueName: "product-lambda-materialize-opensearch-queue",

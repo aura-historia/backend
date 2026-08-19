@@ -27,11 +27,6 @@ const CLOUDFRONT_USE_ORIGIN_CACHE_CONTROL_QUERY_STRINGS_POLICY_ID = "4cc15a8a-d7
 const ROUTES: readonly RouteDefinition[] = [
   route("PUT", "/api/v1/newsletter-subscriptions", "newsletterApi"),
 
-  route("DELETE", "/api/v1/me/notifications", "notificationApi", true),
-  route("DELETE", "/api/v1/me/notifications/{eventId}", "notificationApi", true),
-  route("GET", "/api/v1/me/notifications", "notificationApi", true),
-  route("PATCH", "/api/v1/me/notifications", "notificationApi", true),
-  route("PATCH", "/api/v1/me/notifications/{eventId}", "notificationApi", true),
 
   route("GET", "/api/v1/oauth/authorize", "oauthApi", true),
   route("POST", "/api/v1/oauth/clients", "oauthApi", true),

@@ -45,6 +45,7 @@ pub enum NotificationDeliveryError {
 }
 
 #[async_trait::async_trait]
+#[cfg_attr(feature = "mock", mockall::automock)]
 pub trait NotificationDeliveryRepository: Send + Sync {
     async fn claim(
         &self,

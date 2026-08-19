@@ -149,7 +149,6 @@ function dynamoAlarm(
 
 const apiLambdaKeys = new Set<LambdaKey>([
   "newsletterApi",
-  "notificationApi",
   "oauthApi",
   "partnerShopApplicationApi",
   "productApi",
@@ -163,7 +162,6 @@ const apiLambdaKeys = new Set<LambdaKey>([
 ]);
 
 const queueWorkerKeys = new Set<LambdaKey>([
-  "notificationSend",
   "productMaterializeOpenSearch",
   "productPartnerIngest",
   "productPipelineEmbedText",

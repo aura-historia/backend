@@ -1,3 +1,5 @@
+use aura_historia_worker::notification_delivery::consume_notification_delivery_queue;
+use aura_historia_worker::notification_delivery_ses::SesNotificationDeliverySender;
 use aura_historia_worker::product_embedding::consume_product_embedding_queue;
 use aura_historia_worker::product_opensearch::consume_product_opensearch_queue;
 use aura_historia_worker::product_translation::{
@@ -12,12 +14,18 @@ use aura_historia_worker::{
     WorkerStartupConfig, WorkerStartupConfigError, WorkerVertexAiConfig,
     run_until_shutdown_with_runtime,
 };
+use aws_config::BehaviorVersion;
+use aws_sdk_s3::Client as S3Client;
+use aws_sdk_sesv2::Client as SesClient;
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
-use notification_postgres::SqlxNotificationCreatorFactory;
+use notification_postgres::{SqlxNotificationCreatorFactory, SqlxNotificationDeliveryRepository};
+use notification_service::use_cases::commands::deliver_notification::{
+    DeliverNotificationHandler, DeliverNotificationUseCase,
+};
 use opensearch::{
     OpenSearch,
     auth::Credentials,
@@ -105,6 +113,9 @@ async fn main() -> Result<(), MainError> {
                 .vertex_ai()
                 .ok_or(MainError::MissingScopeConfig { scope })?;
             run_product_embedding(worker_config, pool, composition, vertex_ai).await
+        }
+        WorkerScope::NotificationDelivery => {
+            run_notification_delivery(worker_config, pool, composition).await
         }
     }
 }
@@ -225,6 +236,29 @@ async fn run_product_translation(
     finish_runtime(config, runtime, task).await
 }
 
+async fn run_notification_delivery(
+    config: aura_historia_worker::WorkerConfig,
+    pool: sqlx::PgPool,
+    composition: WorkerRuntimeComposition,
+) -> Result<(), MainError> {
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+        .load()
+        .await;
+    let handler: Arc<dyn DeliverNotificationUseCase> = Arc::new(DeliverNotificationHandler::new(
+        SqlxNotificationDeliveryRepository::new(pool),
+        SesNotificationDeliverySender::new(
+            S3Client::new(&aws_config),
+            SesClient::new(&aws_config),
+            required_env("S3_BUCKET_NAME_TEMPLATES")?,
+            required_env("STAGE_NAME")?,
+            required_env("COMMIT_SHA")?,
+        ),
+    ));
+    let (runtime, receiver) = composition.into_parts();
+    let task = tokio::spawn(consume_notification_delivery_queue(receiver, handler));
+    finish_runtime(config, runtime, task).await
+}
+
 async fn run_watchlist_notifications(
     config: aura_historia_worker::WorkerConfig,
     pool: sqlx::PgPool,
@@ -252,6 +286,10 @@ async fn finish_runtime(
     let _ = task.await;
     result?;
     Ok(())
+}
+
+fn required_env(name: &'static str) -> Result<String, MainError> {
+    std::env::var(name).map_err(|_| MainError::MissingEnv { name })
 }
 
 fn vertex_ai_large_language_model(
@@ -311,6 +349,8 @@ enum MainError {
     QueueConfig(#[from] aura_historia_worker::QueueConfigError),
     #[error("missing validated configuration for {scope:?} worker scope")]
     MissingScopeConfig { scope: WorkerScope },
+    #[error("missing required environment variable {name}")]
+    MissingEnv { name: &'static str },
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
     #[error("failed to initialize Vertex AI credentials: {detail}")]

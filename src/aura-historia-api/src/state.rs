@@ -4,6 +4,12 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionUseCase, CreateBillingManagementSessionUseCase,
     CreateBillingPortalSessionUseCase,
 };
+use notification_service::use_cases::commands::delete_notification::DeleteNotificationUseCase;
+use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsUseCase;
+use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenUseCase;
+use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenUseCase;
+use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenUseCase;
+use notification_service::use_cases::queries::list_notifications::ListNotificationsUseCase;
 use oauth_service::use_cases::{
     AuthorizeUseCase, CreateOAuthClientUseCase, DeleteOAuthClientUseCase, GetOAuthClientUseCase,
     IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
@@ -76,6 +82,7 @@ pub struct AppState {
     pub(crate) search_filters: Option<SearchFiltersState>,
     pub(crate) billing: Option<BillingState>,
     pub(crate) newsletter: Option<NewsletterState>,
+    pub(crate) notifications: Option<NotificationsState>,
     pub(crate) webhooks: Option<WebhooksState>,
 }
 
@@ -98,6 +105,7 @@ impl AppState {
             search_filters: None,
             billing: None,
             newsletter: None,
+            notifications: None,
             webhooks: None,
         }
     }
@@ -115,6 +123,7 @@ impl AppState {
             search_filters: None,
             billing: None,
             newsletter: None,
+            notifications: None,
             webhooks: None,
         }
     }
@@ -157,6 +166,45 @@ impl AppState {
     pub fn with_webhooks(mut self, webhooks: WebhooksState) -> Self {
         self.webhooks = Some(webhooks);
         self
+    }
+
+    pub fn with_notifications(mut self, notifications: NotificationsState) -> Self {
+        self.notifications = Some(notifications);
+        self
+    }
+}
+
+#[derive(Clone)]
+pub struct NotificationsState {
+    pub(crate) list_notifications: Arc<dyn ListNotificationsUseCase>,
+    pub(crate) update_notification_seen: Arc<dyn UpdateNotificationSeenUseCase>,
+    pub(crate) update_notifications_seen: Arc<dyn UpdateNotificationsSeenUseCase>,
+    pub(crate) update_all_notifications_seen: Arc<dyn UpdateAllNotificationsSeenUseCase>,
+    pub(crate) delete_notification: Arc<dyn DeleteNotificationUseCase>,
+    pub(crate) delete_notifications: Arc<dyn DeleteNotificationsUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl NotificationsState {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        list_notifications: Arc<dyn ListNotificationsUseCase>,
+        update_notification_seen: Arc<dyn UpdateNotificationSeenUseCase>,
+        update_notifications_seen: Arc<dyn UpdateNotificationsSeenUseCase>,
+        update_all_notifications_seen: Arc<dyn UpdateAllNotificationsSeenUseCase>,
+        delete_notification: Arc<dyn DeleteNotificationUseCase>,
+        delete_notifications: Arc<dyn DeleteNotificationsUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            list_notifications,
+            update_notification_seen,
+            update_notifications_seen,
+            update_all_notifications_seen,
+            delete_notification,
+            delete_notifications,
+            authenticator,
+        }
     }
 }
 

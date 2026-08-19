@@ -6,6 +6,12 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionError, CreateBillingManagementSessionError,
     CreateBillingPortalSessionError,
 };
+use notification_service::use_cases::commands::delete_notification::DeleteNotificationError;
+use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsError;
+use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenError;
+use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenError;
+use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenError;
+use notification_service::use_cases::queries::list_notifications::ListNotificationsError;
 use oauth_service::error::OAuthServiceError;
 use product_service::use_cases::{
     CreateProductError, DeleteProductError, GetProductError, GetProductEventsError,
@@ -127,6 +133,9 @@ pub(crate) const NEWSLETTER_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("NEWSLETTER_INTERNAL_ERROR");
 pub(crate) const NEWSLETTER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("NEWSLETTER_TEMPORARILY_UNAVAILABLE");
+pub(crate) const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
+pub(crate) const NOTIFICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("NOTIFICATION_TEMPORARILY_UNAVAILABLE");
 pub(crate) const USER_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("USER_INTERNAL_ERROR");
 pub(crate) const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
 pub(crate) const USER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
@@ -315,6 +324,128 @@ impl From<AuthError> for ApiError {
             | AuthError::JwksFetch(_) => ApiError::unauthorized(INVALID_CREDENTIALS)
                 .with_header_field("Authorization")
                 .with_detail("Bearer token is invalid."),
+        }
+    }
+}
+
+impl From<ListNotificationsError> for ApiError {
+    fn from(error: ListNotificationsError) -> Self {
+        match error {
+            ListNotificationsError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            ListNotificationsError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListNotificationsError::ReadFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<UpdateNotificationSeenError> for ApiError {
+    fn from(error: UpdateNotificationSeenError) -> Self {
+        match error {
+            UpdateNotificationSeenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateNotificationSeenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateNotificationSeenError::NotFound => ApiError::not_found(NOTIFICATION_NOT_FOUND)
+                .with_detail("Notification was not found."),
+            UpdateNotificationSeenError::UpdateFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<UpdateNotificationsSeenError> for ApiError {
+    fn from(error: UpdateNotificationsSeenError) -> Self {
+        match error {
+            UpdateNotificationsSeenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateNotificationsSeenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateNotificationsSeenError::EmptyNotificationIds => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("notificationIds must contain at least one notification UUID.")
+            }
+            UpdateNotificationsSeenError::UpdateFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<UpdateAllNotificationsSeenError> for ApiError {
+    fn from(error: UpdateAllNotificationsSeenError) -> Self {
+        match error {
+            UpdateAllNotificationsSeenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateAllNotificationsSeenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateAllNotificationsSeenError::UpdateFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<DeleteNotificationError> for ApiError {
+    fn from(error: DeleteNotificationError) -> Self {
+        match error {
+            DeleteNotificationError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            DeleteNotificationError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            DeleteNotificationError::NotFound => ApiError::not_found(NOTIFICATION_NOT_FOUND)
+                .with_detail("Notification was not found."),
+            DeleteNotificationError::DeleteFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<DeleteNotificationsError> for ApiError {
+    fn from(error: DeleteNotificationsError) -> Self {
+        match error {
+            DeleteNotificationsError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            DeleteNotificationsError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            DeleteNotificationsError::DeleteFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
         }
     }
 }

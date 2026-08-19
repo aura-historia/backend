@@ -444,12 +444,6 @@ function dataOutputs(
     value: resources.search.endpointUrl,
   });
 
-  new cdk.CfnOutput(stack, "NotificationSendQueueUrl", {
-    value: resources.queues.catalog.notificationSend.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "NotificationSendDeadLetterQueueUrl", {
-    value: resources.queues.catalog.notificationSend.deadLetterQueue.queueUrl,
-  });
   new cdk.CfnOutput(stack, "ProductMaterializeOpensearchQueueUrl", {
     value: resources.queues.catalog.productMaterializeOpenSearch.queue.queueUrl,
   });

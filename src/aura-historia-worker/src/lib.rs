@@ -1,4 +1,6 @@
 pub mod cdc;
+pub mod notification_delivery;
+pub mod notification_delivery_ses;
 pub mod product_embedding;
 pub mod product_opensearch;
 pub mod product_translation;
@@ -49,6 +51,7 @@ pub enum WorkerScope {
     ProductTranslation,
     ProductEmbedding,
     ProductOpenSearch,
+    NotificationDelivery,
 }
 
 impl WorkerScope {
@@ -77,6 +80,7 @@ impl WorkerScope {
             "product-translation" => Ok(Self::ProductTranslation),
             "product-embedding" => Ok(Self::ProductEmbedding),
             "product-opensearch" => Ok(Self::ProductOpenSearch),
+            "notification-delivery" => Ok(Self::NotificationDelivery),
             _ => Err(WorkerStartupConfigError::InvalidScope { value }),
         }
     }
@@ -90,6 +94,7 @@ impl WorkerScope {
             Self::ProductTranslation => WorkerQueue::ProductTranslate,
             Self::ProductEmbedding => WorkerQueue::ProductEmbed,
             Self::ProductOpenSearch => WorkerQueue::ProductOpenSearch,
+            Self::NotificationDelivery => WorkerQueue::NotificationDelivery,
         }
     }
 }
@@ -225,9 +230,9 @@ impl WorkerStartupConfig {
                     model: None,
                 }),
             ),
-            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
-                (None, None)
-            }
+            WorkerScope::SearchFilterMatchNotification
+            | WorkerScope::WatchlistNotification
+            | WorkerScope::NotificationDelivery => (None, None),
         };
 
         Ok(Self {
@@ -488,6 +493,20 @@ impl WorkerRuntime {
         ))
     }
 
+    pub fn with_notification_delivery_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::NotificationDelivery, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::NotificationDelivery, receiver);
+        Ok((
+            Self::new(CdcFanout::notification_delivery(registry)),
+            receivers,
+        ))
+    }
+
     pub fn with_search_filter_projection_queue(
         config: QueueConfig,
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
@@ -536,6 +555,9 @@ impl WorkerRuntimeComposition {
             }
             WorkerScope::ProductEmbedding => WorkerRuntime::with_product_embedding_queue(config)?,
             WorkerScope::ProductOpenSearch => WorkerRuntime::with_product_opensearch_queue(config)?,
+            WorkerScope::NotificationDelivery => {
+                WorkerRuntime::with_notification_delivery_queue(config)?
+            }
         };
         let consumer_queue = scope.consumer_queue();
         let receiver =
@@ -785,7 +807,9 @@ mod tests {
                 values.insert(OPENSEARCH_USERNAME_ENV, "worker".to_owned());
                 values.insert(OPENSEARCH_PASSWORD_ENV, "not-a-real-secret".to_owned());
             }
-            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {}
+            WorkerScope::SearchFilterMatchNotification
+            | WorkerScope::WatchlistNotification
+            | WorkerScope::NotificationDelivery => {}
             WorkerScope::ProductTranslation => {}
             WorkerScope::ProductEmbedding => {}
         }
@@ -911,6 +935,11 @@ mod tests {
         "product-embedding",
         WorkerQueue::ProductEmbed
     )]
+    #[case(
+        WorkerScope::NotificationDelivery,
+        "notification-delivery",
+        WorkerQueue::NotificationDelivery
+    )]
     fn should_validate_only_dependencies_for_selected_scope(
         #[case] scope: WorkerScope,
         #[case] scope_name: &str,
@@ -991,6 +1020,11 @@ mod tests {
         WorkerScope::ProductEmbedding,
         WorkerQueue::ProductEmbed,
         r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
+    )]
+    #[case(
+        WorkerScope::NotificationDelivery,
+        WorkerQueue::NotificationDelivery,
+        r#"{"changes":[{"table":"notification_deliveries","operation":"insert","record":{"notification_delivery_id":"60000000-0000-0000-0000-000000000001"}}]}"#
     )]
     #[tokio::test]
     async fn should_build_one_intended_cdc_route_and_consumer_for_scope(

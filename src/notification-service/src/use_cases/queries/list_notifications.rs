@@ -2,7 +2,10 @@ use crate::ports::notification_list_reader::{
     NotificationListCursor, NotificationListReadError, NotificationListReader,
 };
 use common::{
-    currency::domain::Currency, language::domain::Language, notification_id::NotificationId,
+    currency::domain::Currency,
+    language::domain::Language,
+    notification_id::NotificationId,
+    operation_context::{OperationAuthorizationError, OperationContext, Principal},
     user_id::UserId,
 };
 use notification_core::notification::LocalizedNotificationContent;
@@ -10,7 +13,6 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListNotificationsRequest {
-    pub user_id: UserId,
     pub languages: Vec<Language>,
     pub currency: Currency,
     pub cursor: Option<NotificationListCursor>,
@@ -34,6 +36,10 @@ pub struct ListNotificationsResult {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListNotificationsError {
+    #[error("authenticated actor required")]
+    AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("notification list read failed")]
     ReadFailed(#[from] NotificationListReadError),
 }
@@ -42,6 +48,7 @@ pub enum ListNotificationsError {
 pub trait ListNotificationsUseCase: Send + Sync {
     async fn execute(
         &self,
+        context: &OperationContext,
         request: ListNotificationsRequest,
     ) -> Result<ListNotificationsResult, ListNotificationsError>;
 }
@@ -63,11 +70,13 @@ where
 {
     async fn execute(
         &self,
+        context: &OperationContext,
         request: ListNotificationsRequest,
     ) -> Result<ListNotificationsResult, ListNotificationsError> {
+        let user_id = notification_owner(context)?;
         let page = self
             .reader
-            .list_for_user(request.user_id, request.cursor, request.limit)
+            .list_for_user(user_id, request.cursor, request.limit)
             .await?;
         let items = page
             .items
@@ -86,5 +95,31 @@ where
             items,
             next_cursor: page.next_cursor,
         })
+    }
+}
+
+fn notification_owner(context: &OperationContext) -> Result<UserId, ListNotificationsError> {
+    context
+        .require()
+        .any_user()
+        .authorize::<ListNotificationsError>()?;
+
+    match &context.principal {
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Ok(*user_id),
+        Principal::Anonymous | Principal::Service(_) | Principal::System => {
+            Err(ListNotificationsError::Forbidden)
+        }
+    }
+}
+
+impl From<OperationAuthorizationError> for ListNotificationsError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }

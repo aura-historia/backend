@@ -39,7 +39,6 @@ common = { workspace = true, features = ["test-data"] }
 serial_test = { workspace = true }
 http = { workspace = true }
 product-watchlist-api = { workspace = true }
-notification-api = { workspace = true }
 oauth = { workspace = true }
 search-filter-api = { workspace = true, features = ["test-data"] }
 url = { workspace = true }
