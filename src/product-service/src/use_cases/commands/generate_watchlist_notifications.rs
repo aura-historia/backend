@@ -12,8 +12,9 @@ use common::{
 use notification_core::notification::{
     NotificationContent, NotificationWatchlistChange, ProductNotificationSnapshot,
 };
-use notification_service::use_cases::commands::create_notifications::{
-    CreateNotificationIntent, CreateNotificationsCommand, CreateNotificationsUseCase,
+use notification_service::ports::notification_creator::{
+    NewNotification, NotificationCreationError, NotificationCreationOutcome, NotificationCreator,
+    NotificationCreatorFactory,
 };
 use std::collections::HashMap;
 
@@ -94,7 +95,7 @@ where
     U: UnitOfWork,
     S: ProductWatchlistNotificationSourceReaderFactory<U::Tx>,
     R: WatchlistNotificationRecipientReaderFactory<U::Tx>,
-    N: CreateNotificationsUseCase,
+    N: NotificationCreatorFactory<U::Tx>,
 {
     #[tracing::instrument(name = "generate_watchlist_notifications", skip_all, fields(event_id = %command.event_id, product_id = %command.product_id))]
     async fn execute(
@@ -127,42 +128,38 @@ where
                     source: box_error(source),
                 },
             )?;
+        let recipient_count = recipients.len();
+        let notifications = recipients
+            .into_iter()
+            .map(|recipient| NewNotification {
+                notification: notification_core::notification::Notification::new(
+                    common::notification_id::NotificationId::new(),
+                    recipient.user_id,
+                    notification_content(command.event_id, source.clone()),
+                ),
+                external_delivery_requested: recipient.external_delivery_requested,
+            })
+            .collect::<Vec<_>>();
+        let outcomes = self
+            .notifications
+            .in_transaction(&mut tx)
+            .create_many(&notifications)
+            .await
+            .map_err(|source: NotificationCreationError| {
+                GenerateWatchlistNotificationsError::NotificationCreateFailed {
+                    source: box_error(source),
+                }
+            })?;
+        let inserted_count = outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome, NotificationCreationOutcome::Inserted { .. }))
+            .count();
+        let already_exists_count = outcomes.len() - inserted_count;
         tx.commit().await.map_err(|source| {
             GenerateWatchlistNotificationsError::CommitTransactionFailed {
                 source: box_error(source),
             }
         })?;
-
-        let recipient_count = recipients.len();
-        if recipients.is_empty() {
-            return Ok(GenerateWatchlistNotificationsResult {
-                recipient_count,
-                inserted_count: 0,
-                already_exists_count: 0,
-            });
-        }
-        let content = notification_content(command.event_id, source);
-        let outcomes = self
-            .notifications
-            .execute(CreateNotificationsCommand {
-                intents: recipients
-                    .into_iter()
-                    .map(|recipient| CreateNotificationIntent {
-                        user_id: recipient.user_id,
-                        content: content.clone(),
-                        deliver_email: recipient.external,
-                    })
-                    .collect(),
-            })
-            .await
-            .map_err(
-                |source| GenerateWatchlistNotificationsError::NotificationCreateFailed {
-                    source: box_error(source),
-                },
-            )?
-            .outcomes;
-        let inserted_count = outcomes.iter().filter(|outcome| matches!(outcome, notification_service::ports::notification_creator::NotificationCreationOutcome::Inserted { .. })).count();
-        let already_exists_count = outcomes.len() - inserted_count;
 
         Ok(GenerateWatchlistNotificationsResult {
             recipient_count,

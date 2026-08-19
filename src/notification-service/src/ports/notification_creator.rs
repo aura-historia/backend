@@ -4,7 +4,7 @@ use notification_core::notification::Notification;
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewNotification {
     pub notification: Notification,
-    pub deliver_email: bool,
+    pub external_delivery_requested: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

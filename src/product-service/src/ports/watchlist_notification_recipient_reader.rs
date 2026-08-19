@@ -3,7 +3,7 @@ use common::{error::boxed::BoxError, product_id::ProductId, user_id::UserId};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchlistNotificationRecipient {
     pub user_id: UserId,
-    pub external: bool,
+    pub external_delivery_requested: bool,
 }
 
 #[derive(Debug, thiserror::Error)]

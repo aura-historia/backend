@@ -13,7 +13,7 @@ use notification_core::notification::{Notification, NotificationContent};
 pub struct CreateNotificationIntent {
     pub user_id: UserId,
     pub content: NotificationContent,
-    pub deliver_email: bool,
+    pub external_delivery_requested: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,7 +75,7 @@ where
                     intent.user_id,
                     intent.content,
                 ),
-                deliver_email: intent.deliver_email,
+                external_delivery_requested: intent.external_delivery_requested,
             })
             .collect::<Vec<_>>();
         let mut tx = self.unit_of_work.begin().await?;

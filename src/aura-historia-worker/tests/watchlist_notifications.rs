@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 
 use common::user_id::UserId;
 use notification_postgres::SqlxNotificationCreatorFactory;
-use notification_service::use_cases::commands::create_notifications::CreateNotificationsHandler;
 use product_postgres::SqlxProductWatchlistNotificationSourceReaderFactory;
 use product_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
@@ -282,10 +281,7 @@ impl WatchlistWorker {
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductWatchlistNotificationSourceReaderFactory::new(),
                 SqlxWatchlistNotificationRecipientReaderFactory,
-                CreateNotificationsHandler::new(
-                    SqlxUnitOfWork::new(pool.clone()),
-                    SqlxNotificationCreatorFactory::new(),
-                ),
+                SqlxNotificationCreatorFactory::new(),
             ));
         let (runtime, mut receivers) =
             WorkerRuntime::with_watchlist_notification_queue(QueueConfig::new(16))?;
@@ -500,14 +496,14 @@ fn assert_price_change(
         Some(old_amount),
         notification
             .payload
-            .pointer("/change/old_price/EUR")
+            .pointer("/change/old_price/Eur")
             .and_then(serde_json::Value::as_u64)
     );
     assert_eq!(
         Some(new_amount),
         notification
             .payload
-            .pointer("/change/new_price/EUR")
+            .pointer("/change/new_price/Eur")
             .and_then(serde_json::Value::as_u64)
     );
     Ok(())

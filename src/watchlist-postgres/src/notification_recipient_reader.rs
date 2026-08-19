@@ -50,10 +50,12 @@ impl WatchlistNotificationRecipientReader for SqlxWatchlistNotificationRecipient
 
         Ok(rows
             .into_iter()
-            .map(|(user_id, external)| WatchlistNotificationRecipient {
-                user_id: user_id.into(),
-                external,
-            })
+            .map(
+                |(user_id, external_delivery_requested)| WatchlistNotificationRecipient {
+                    user_id: user_id.into(),
+                    external_delivery_requested,
+                },
+            )
             .collect())
     }
 }

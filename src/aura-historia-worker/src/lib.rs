@@ -24,7 +24,6 @@ use crate::cdc::{
 pub const WORKER_HEALTH_BIND_ADDR_ENV: &str = "AURA_HISTORIA_WORKER_HEALTH_BIND_ADDR";
 pub const WORKER_SCOPE_ENV: &str = "AURA_HISTORIA_WORKER_SCOPE";
 pub const WORKER_STAGE_ENV: &str = "STAGE";
-pub const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
 pub const OPENSEARCH_ENDPOINT_URL_ENV: &str = "OPENSEARCH_ENDPOINT_URL";
 pub const OPENSEARCH_USERNAME_ENV: &str = "OPENSEARCH_USERNAME";
 pub const OPENSEARCH_PASSWORD_ENV: &str = "OPENSEARCH_PASSWORD";
@@ -157,17 +156,6 @@ impl WorkerOpenSearchConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkerDynamoDbConfig {
-    table_name: String,
-}
-
-impl WorkerDynamoDbConfig {
-    pub fn table_name(&self) -> &str {
-        &self.table_name
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerVertexAiConfig {
     project_id: String,
     location: String,
@@ -193,7 +181,6 @@ pub struct WorkerStartupConfig {
     scope: WorkerScope,
     postgres: PostgresPoolConfig,
     opensearch: Option<WorkerOpenSearchConfig>,
-    dynamodb: Option<WorkerDynamoDbConfig>,
     vertex_ai: Option<WorkerVertexAiConfig>,
 }
 
@@ -210,15 +197,12 @@ impl WorkerStartupConfig {
         let scope = WorkerScope::from_getter(&mut get)?;
         let worker = WorkerConfig::from_getter(&mut get)?;
         let postgres = PostgresPoolConfig::from_getter(&mut get)?;
-        let (opensearch, dynamodb, vertex_ai) = match scope {
-            WorkerScope::SearchFilterProjection | WorkerScope::ProductOpenSearch => (
-                Some(opensearch_config(&mut get, stage.as_deref())?),
-                None,
-                None,
-            ),
+        let (opensearch, vertex_ai) = match scope {
+            WorkerScope::SearchFilterProjection | WorkerScope::ProductOpenSearch => {
+                (Some(opensearch_config(&mut get, stage.as_deref())?), None)
+            }
             WorkerScope::SearchFilterPercolator => (
                 Some(opensearch_config(&mut get, stage.as_deref())?),
-                None,
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
@@ -226,7 +210,6 @@ impl WorkerStartupConfig {
                 }),
             ),
             WorkerScope::ProductTranslation => (
-                None,
                 None,
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
@@ -236,20 +219,15 @@ impl WorkerStartupConfig {
             ),
             WorkerScope::ProductEmbedding => (
                 None,
-                None,
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
                     model: None,
                 }),
             ),
-            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => (
-                None,
-                Some(WorkerDynamoDbConfig {
-                    table_name: required_env(&mut get, DYNAMODB_TABLE_NAME_ENV)?,
-                }),
-                None,
-            ),
+            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
+                (None, None)
+            }
         };
 
         Ok(Self {
@@ -257,7 +235,6 @@ impl WorkerStartupConfig {
             scope,
             postgres,
             opensearch,
-            dynamodb,
             vertex_ai,
         })
     }
@@ -276,10 +253,6 @@ impl WorkerStartupConfig {
 
     pub fn opensearch(&self) -> Option<&WorkerOpenSearchConfig> {
         self.opensearch.as_ref()
-    }
-
-    pub fn dynamodb(&self) -> Option<&WorkerDynamoDbConfig> {
-        self.dynamodb.as_ref()
     }
 
     pub fn vertex_ai(&self) -> Option<&WorkerVertexAiConfig> {
@@ -812,9 +785,7 @@ mod tests {
                 values.insert(OPENSEARCH_USERNAME_ENV, "worker".to_owned());
                 values.insert(OPENSEARCH_PASSWORD_ENV, "not-a-real-secret".to_owned());
             }
-            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
-                values.insert(DYNAMODB_TABLE_NAME_ENV, "notifications".to_owned());
-            }
+            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {}
             WorkerScope::ProductTranslation => {}
             WorkerScope::ProductEmbedding => {}
         }
@@ -958,13 +929,6 @@ mod tests {
                 WorkerScope::SearchFilterProjection | WorkerScope::SearchFilterPercolator
             ),
             config.opensearch().is_some()
-        );
-        assert_eq!(
-            matches!(
-                scope,
-                WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification
-            ),
-            config.dynamodb().is_some()
         );
         assert_eq!(
             matches!(

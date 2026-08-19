@@ -102,9 +102,6 @@ async fn execute_job(
         GenerateSearchFilterMatchNotificationResult::SuppressedForStaleMatch => {
             "suppressed_for_stale_match"
         }
-        GenerateSearchFilterMatchNotificationResult::SuppressedForNonSelectedFilter => {
-            "suppressed_for_non_selected_filter"
-        }
         GenerateSearchFilterMatchNotificationResult::SuppressedForMissingProduct => {
             "suppressed_for_missing_product"
         }

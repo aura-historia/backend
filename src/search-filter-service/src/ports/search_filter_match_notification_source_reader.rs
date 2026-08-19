@@ -15,9 +15,7 @@ pub struct SearchFilterMatchNotificationSource {
     pub origin_event_id: EventId,
     /// Database-assigned match time used for stable monthly notification ranking.
     pub matched_at: OffsetDateTime,
-    pub external: bool,
-    /// True when this is the lowest filter ID for the user and origin event.
-    pub is_selected_filter: bool,
+    pub external_delivery_requested: bool,
 }
 
 #[derive(Debug, thiserror::Error)]

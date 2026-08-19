@@ -11,7 +11,7 @@
 - Root modules: `ports`, `use_cases`, `use_case_bundle`.
 - Handlers use `UnitOfWork` and transaction-scoped repository/reader factories.
 - New shop application creates a draft shop first, then the application row. Approval atomically publishes and partners the linked shop, grants applicant membership, and completes the application. Rejection and withdrawal atomically discard a new-shop draft; existing shops remain unchanged.
-- Notification effects run after commit with idempotent application-origin keys; they do not join the PostgreSQL transaction.
+- Terminal decision notifications and requested external delivery intents use the partner-application ID semantic key and are inserted in the same PostgreSQL transaction as the decision, shop changes, and membership changes.
 - Own application use cases require owner or service/system context.
 - Admin application use cases allow service/system, or persisted admin users checked through `UserAdminReader::find_admin_actor`.
 - Repository writes return persisted partner-shop application state.

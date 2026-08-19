@@ -18,7 +18,6 @@ use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
 use notification_postgres::SqlxNotificationCreatorFactory;
-use notification_service::use_cases::commands::create_notifications::CreateNotificationsHandler;
 use opensearch::{
     OpenSearch,
     auth::Credentials,
@@ -160,10 +159,7 @@ async fn run_search_filter_match_notifications(
             SqlxProductSearchFilterMatchSourceReaderFactory::new(),
             SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
-            CreateNotificationsHandler::new(
-                SqlxUnitOfWork::new(pool.clone()),
-                SqlxNotificationCreatorFactory::new(),
-            ),
+            SqlxNotificationCreatorFactory::new(),
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_search_filter_match_notification_queue(
@@ -239,10 +235,7 @@ async fn run_watchlist_notifications(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductWatchlistNotificationSourceReaderFactory::new(),
             SqlxWatchlistNotificationRecipientReaderFactory,
-            CreateNotificationsHandler::new(
-                SqlxUnitOfWork::new(pool.clone()),
-                SqlxNotificationCreatorFactory::new(),
-            ),
+            SqlxNotificationCreatorFactory::new(),
         ));
     let (runtime, receiver) = composition.into_parts();
     let task = tokio::spawn(consume_watchlist_notification_queue(receiver, handler));

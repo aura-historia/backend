@@ -33,7 +33,6 @@ use embedding::{
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{Geocoder, GeocodingError};
 use notification_postgres::{SqlxNotificationCreatorFactory, SqlxProductNotificationIdsReader};
-use notification_service::use_cases::commands::create_notifications::CreateNotificationsHandler;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -787,10 +786,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             shop_postgres::SqlxShopRepositoryFactory::new(),
             SqlxUserPartnerShopMembershipRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
-            CreateNotificationsHandler::new(
-                unit_of_work.clone(),
-                SqlxNotificationCreatorFactory::new(),
-            ),
+            SqlxNotificationCreatorFactory::new(),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

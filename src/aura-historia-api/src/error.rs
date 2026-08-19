@@ -1614,7 +1614,7 @@ impl From<AdminDecidePartnerShopApplicationError> for ApiError {
                 ApiError::conflict(CONFLICT)
                     .with_detail("Partner shop application cannot be decided in its current state.")
             }
-            AdminDecidePartnerShopApplicationError::NotificationFailed { .. }
+            AdminDecidePartnerShopApplicationError::NotificationCreateFailed { .. }
             | AdminDecidePartnerShopApplicationError::TemporarilyUnavailable { .. }
             | AdminDecidePartnerShopApplicationError::BeginTransactionFailed
             | AdminDecidePartnerShopApplicationError::CommitTransactionFailed => {

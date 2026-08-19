@@ -37,7 +37,6 @@ use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{GoogleGeocoder, GoogleGeocoderConfig};
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use notification_postgres::{SqlxNotificationCreatorFactory, SqlxProductNotificationIdsReader};
-use notification_service::use_cases::commands::create_notifications::CreateNotificationsHandler;
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -724,10 +723,7 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
         SqlxShopRepositoryFactory::new(),
         SqlxUserPartnerShopMembershipRepositoryFactory::new(),
         SqlxUserAdminReaderFactory::new(),
-        CreateNotificationsHandler::new(
-            unit_of_work.clone(),
-            SqlxNotificationCreatorFactory::new(),
-        ),
+        SqlxNotificationCreatorFactory::new(),
     );
     let product_user_states = SqlxProductUserStateReader::new(pool.clone());
     let get_similar_products = GetSimilarProductsHandler::new(

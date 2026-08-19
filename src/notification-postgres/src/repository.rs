@@ -133,7 +133,7 @@ async fn insert_email_deliveries(
         .iter()
         .filter_map(|item| {
             let notification_id = uuid::Uuid::from(item.notification.notification_id());
-            (item.deliver_email && inserted.contains(&notification_id)).then(|| {
+            (item.external_delivery_requested && inserted.contains(&notification_id)).then(|| {
                 (
                     uuid::Uuid::from(NotificationDeliveryId::new()),
                     notification_id,

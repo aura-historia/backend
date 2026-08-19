@@ -19,7 +19,6 @@ use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
 use notification_postgres::SqlxNotificationCreatorFactory;
-use notification_service::use_cases::commands::create_notifications::CreateNotificationsHandler;
 use opensearch::GetParts;
 use product_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
@@ -873,10 +872,7 @@ impl FullFlowWorker {
                 SqlxProductSearchFilterMatchSourceReaderFactory::new(),
                 SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
                 SqlxUserTierEntitlementsFactory::new(),
-                CreateNotificationsHandler::new(
-                    SqlxUnitOfWork::new(pool.clone()),
-                    SqlxNotificationCreatorFactory::new(),
-                ),
+                SqlxNotificationCreatorFactory::new(),
             ));
         let (runtime, mut receivers) = WorkerRuntime::with_all_queues(QueueConfig::new(16))?;
         let percolator_receiver = receivers
