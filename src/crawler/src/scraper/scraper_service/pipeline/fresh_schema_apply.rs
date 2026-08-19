@@ -14,6 +14,9 @@ use tracing::warn;
 use url::Url;
 
 impl ScraperServiceImpl {
+    /// Product schemas use the normal review gate. Removed and not-product
+    /// classifications are destructive URL mutations, so only HIGH-confidence
+    /// structured responses may reach their mutation paths.
     /// Generates a fresh schema for the current page and applies it, **without
     /// persisting**.
     ///
@@ -59,7 +62,13 @@ impl ScraperServiceImpl {
             .await?;
         let (generated_schema, evaluation) = match generated {
             GeneratedSingleSchema::Product { schema, evaluation } => (*schema, evaluation),
-            GeneratedSingleSchema::Removed { schema, .. } => {
+            GeneratedSingleSchema::Removed { schema, evaluation } => {
+                if evaluation.confidence != crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationConfidence::High {
+                    return Err(ScraperError::SchemaClassificationRejected {
+                        url: url.clone(),
+                        details: "removed classification requires HIGH confidence".to_string(),
+                    });
+                }
                 if !schema.matches(html) {
                     return Err(
                         crate::scraper::scraper_service::pipeline::fresh_schema_apply::page_classification_did_not_match(
@@ -75,7 +84,13 @@ impl ScraperServiceImpl {
                     details: "fresh schema generation classified page as removed".to_string(),
                 });
             }
-            GeneratedSingleSchema::NotProduct { reason, .. } => {
+            GeneratedSingleSchema::NotProduct { reason, evaluation } => {
+                if evaluation.confidence != crate::scraper::css_selector::product_schema_service::SchemaLlmEvaluationConfidence::High {
+                    return Err(ScraperError::SchemaClassificationRejected {
+                        url: url.clone(),
+                        details: "not-product classification requires HIGH confidence".to_string(),
+                    });
+                }
                 self.mark_url_other_best_effort(shop_id, url).await;
                 return Err(ScraperError::NotProductPage {
                     url: url.clone(),

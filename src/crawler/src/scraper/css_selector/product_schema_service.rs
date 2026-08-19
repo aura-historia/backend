@@ -1255,6 +1255,56 @@ mod tests {
     }
 
     #[test]
+    fn should_reject_non_high_confidence_single_page_classifications() {
+        for confidence in ["MEDIUM", "LOW"] {
+            let removed = removed_single_response_json().replace("HIGH", confidence);
+            let not_product = not_product_single_response_json().replace("HIGH", confidence);
+            assert!(parse_single_schema_response(&removed).is_err());
+            assert!(parse_single_schema_response(&not_product).is_err());
+        }
+    }
+
+    #[test]
+    fn should_require_explicit_non_empty_not_product_reason() {
+        for reason in [None, Some(""), Some("   ")] {
+            let payload = serde_json::to_string(&serde_json::json!({
+                "page_kind": "not_product",
+                "schemas": [],
+                "reason": reason,
+                "confidence": "HIGH",
+                "summary": "missing evidence"
+            }))
+            .unwrap();
+            assert!(parse_single_schema_response(&payload).is_err());
+        }
+    }
+
+    #[test]
+    fn should_reject_contradictory_single_page_classification_fields() {
+        let product_with_reason = serde_json::to_string(&serde_json::json!({
+            "page_kind": "product",
+            "schemas": [sample_css_schema()],
+            "reason": "category page",
+            "confidence": "HIGH",
+            "summary": "contradictory"
+        }))
+        .unwrap();
+        let product_with_removed = serde_json::to_string(&serde_json::json!({
+            "page_kind": "product",
+            "schemas": [sample_css_schema()],
+            "removed_schema": { "selector": "#main", "text": "gone" },
+            "confidence": "HIGH",
+            "summary": "contradictory"
+        }))
+        .unwrap();
+        let removed_with_reason = removed_single_response_json()
+            .replace("\"risks\":[]", "\"reason\":\"extra\",\"risks\":[]");
+        assert!(parse_single_schema_response(&product_with_reason).is_err());
+        assert!(parse_single_schema_response(&product_with_removed).is_err());
+        assert!(parse_single_schema_response(&removed_with_reason).is_err());
+    }
+
+    #[test]
     fn should_reject_single_classification_for_create_validator() {
         let payload = not_product_single_response_json();
 

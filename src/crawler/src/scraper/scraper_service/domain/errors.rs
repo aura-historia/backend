@@ -20,6 +20,9 @@ pub enum ScraperError {
     #[error("URL is not a product page while scraping '{url}': {details}")]
     NotProductPage { url: Url, details: String },
 
+    #[error("Rejected low-confidence page classification for '{url}': {details}")]
+    SchemaClassificationRejected { url: Url, details: String },
+
     #[error("URL has no host: {url}")]
     NoHost { url: Url },
 

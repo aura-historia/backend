@@ -149,9 +149,10 @@ impl ProductSchemaGenerationResponse {
         let evaluation = self.evaluation();
         match self.page_kind.unwrap_or(SinglePageKind::Product) {
             SinglePageKind::Product => {
-                if self.schemas.len() != 1 {
+                if self.schemas.len() != 1 || self.removed_schema.is_some() || self.reason.is_some()
+                {
                     return Err(invalid_data(format!(
-                        "Expected exactly one product schema for single-schema generation, got {}",
+                        "Product single-schema response must contain exactly one schema and no classification fields, got {} schemas",
                         self.schemas.len()
                     )));
                 }
@@ -163,9 +164,12 @@ impl ProductSchemaGenerationResponse {
                 })
             }
             SinglePageKind::Removed => {
-                if !self.schemas.is_empty() {
+                if self.confidence != SchemaLlmEvaluationConfidence::High
+                    || !self.schemas.is_empty()
+                    || self.reason.is_some()
+                {
                     return Err(invalid_data(
-                        "Removed single-schema generation must not include product schemas",
+                        "Removed single-schema response requires HIGH confidence, no product schemas, and no reason",
                     ));
                 }
                 let schema = self.removed_schema.ok_or_else(|| {
@@ -175,17 +179,22 @@ impl ProductSchemaGenerationResponse {
                 Ok(GeneratedSingleSchema::Removed { schema, evaluation })
             }
             SinglePageKind::NotProduct => {
-                if !self.schemas.is_empty() {
+                if self.confidence != SchemaLlmEvaluationConfidence::High
+                    || !self.schemas.is_empty()
+                    || self.removed_schema.is_some()
+                    || self
+                        .reason
+                        .as_deref()
+                        .is_none_or(|reason| reason.trim().is_empty())
+                {
                     return Err(invalid_data(
-                        "Not-product single-schema generation must not include product schemas",
+                        "Not-product single-schema response requires HIGH confidence, an explicit reason, and no schemas",
                     ));
                 }
-                Ok(GeneratedSingleSchema::NotProduct {
-                    reason: self
-                        .reason
-                        .unwrap_or_else(|| "not product page".to_string()),
-                    evaluation,
-                })
+                let reason = self
+                    .reason
+                    .ok_or_else(|| invalid_data("Not-product response missing reason"))?;
+                Ok(GeneratedSingleSchema::NotProduct { reason, evaluation })
             }
         }
     }

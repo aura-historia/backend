@@ -317,6 +317,7 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::HttpError { .. } => "HttpError",
         ScraperError::ProductRemoved { .. } => "ProductRemoved",
         ScraperError::NotProductPage { .. } => "NotProductPage",
+        ScraperError::SchemaClassificationRejected { .. } => "SchemaClassificationRejected",
         ScraperError::NoHost { .. } => "NoHost",
         ScraperError::SchemaServiceError(_) => "SchemaServiceError",
         ScraperError::RemovedPageSchemaDatabaseError(_) => "RemovedPageSchemaDatabaseError",
