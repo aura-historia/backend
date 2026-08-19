@@ -55,7 +55,7 @@ flowchart TD
 
     PQ -->|"product projections"| OS
     PQ -->|"match/watchlist/enrichment"| PG
-    ROUTER -->|"notification_deliveries INSERT"| NQ[notification delivery queue]
+    ROUTER -->|"notification_deliveries INSERT"| NQ[bounded in-memory delivery queue]
     NQ -->|"claim, send, finalize"| PG
     NQ --> SES
     SQ -->|"shop projections"| OS
@@ -118,8 +118,7 @@ Crash rule:
 
 - Crash before Sequin ack: Sequin redelivers.
 - Crash after Sequin ack: queued in-memory jobs may be lost if the process dies before sub-workers finish.
-- Crash after Sequin ack may lose queued in-memory jobs.
-- MVP accepts this risk.
+- MVP accepts this risk; durable queue follow-up is #1558.
 - No scheduled inconsistency checker or repair job is part of v1.
 
 ## CDC routing
@@ -166,7 +165,7 @@ Examples:
 | Shop OpenSearch projector | `shop-lambda-opensearch-index` | Shop changed job | OpenSearch shop document write. |
 | Search-filter OpenSearch sync | `search-filter-lambda-opensearch-sync` | Search-filter changed job | OpenSearch percolator document write/delete from complete Postgres state, with external source-version protection. Search-filter embedding stays in Postgres. |
 | User tier enforcement | `user-lambda-tier-update` | User tier changed job | Postgres watchlist/search-filter state updates. |
-| Periodic matcher | ECS periodic matcher | Scheduled job | OpenSearch product search, Postgres matches, DynamoDB notifications. |
+| Periodic matcher | ECS periodic matcher | Scheduled job | Separate follow-up; it has no canonical notification role in this migration. |
 
 The canonical Product OpenSearch projector, search-filter OpenSearch sync, search-filter percolator, search-filter match notification generator, watchlist notification generator, notification delivery sender, Product embedding worker, and Product translation worker are implemented in `aura-historia-worker`; the other listed target sub-workers remain migration targets until they have their own consumers.
 
@@ -274,7 +273,7 @@ MVP has no worker-owned Postgres tables.
 - No dead-letter table.
 - No scheduled inconsistency checker or repair job.
 
-Sub-workers may retry transient failures while the process is alive. Exhausted retries move to an in-memory DLQ helper for logging/metrics while the process remains alive. If the process dies after Sequin ack, queued or DLQ jobs can be lost. This risk is accepted for MVP.
+Sub-workers may retry transient failures while the process is alive. Exhausted retries move to an in-memory DLQ helper for logging/metrics while the process remains alive. If the process dies after Sequin ack, queued or DLQ jobs can be lost. This accepted MVP risk is tracked by #1558.
 
 ## Operations notes
 

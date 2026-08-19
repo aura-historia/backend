@@ -17,7 +17,7 @@
   - dynamodb: DynamoDB payloads
   - opensearch: OpenSearch payloads
   - service: service glue, orchestration, and cross-crate integration
-- DynamoDB is current source-of-truth for not-yet-migrated records. Postgres is target business truth per `docs/storage.md`. OpenSearch is re-computable read-optimized view for search and discovery.
+- DynamoDB owns only its remaining bounded contexts. PostgreSQL owns migrated business truth, including notifications and delivery state, per `docs/storage.md`. OpenSearch is re-computable read-optimized view for search and discovery.
 - Cognito is only Identity-Provider. User-Details and User-Profile are stored in DynamoDB.
 
 ## Ownership
@@ -103,7 +103,7 @@
 - `src/fxrate-lambda/AGENTS.md` — scheduled FX capture Lambda.
 - `src/geo/AGENTS.md` — `geo` crate.
 - `src/newsletter-api/AGENTS.md` — `newsletter-api` crate.
-- `src/notification/AGENTS.md` — legacy notification crate.
+- `src/notification/AGENTS.md` — legacy notification crate retained only for the untouched periodic matcher follow-up.
 - `src/notification-core/AGENTS.md` — canonical Notification domain crate.
 - `src/notification-aws/AGENTS.md` — canonical Notification AWS email adapter crate.
 - `src/notification-service/AGENTS.md` — canonical Notification service/use-case crate.

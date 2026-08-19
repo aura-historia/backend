@@ -1708,7 +1708,7 @@ PostgreSQL owns business truth for:
 * product watchlists;
 * search filters;
 * search-filter matches;
-* notifications and notification delivery state.
+* notifications and notification delivery state; notification storage has no DynamoDB rows or TTL.
 
 DynamoDB remains the operational owner for:
 
@@ -1801,7 +1801,7 @@ after acknowledgment:
 
 The system MUST NOT claim exactly-once or durable at-least-once processing.
 
-This is an explicit MVP trade-off and MUST remain documented until durable worker delivery is introduced.
+This is an explicit MVP trade-off, tracked by #1558, and MUST remain documented until durable worker delivery is introduced.
 
 ### 12.5 Idempotency and ordering
 

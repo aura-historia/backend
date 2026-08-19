@@ -18,7 +18,7 @@
 - `product_embedding.rs` consumes `DOMAIN_CREATED` Product event jobs, rereads committed current Product state, invokes the neutral Vertex embedding capability before a short transaction, and atomically persists the vector plus `ENRICHMENT_EMBEDDED`. Stale and duplicate jobs are explicit no-ops.
 - `product_translation.rs` consumes `ENRICHMENT_EMBEDDED` Product event jobs, rereads the committed current Product source, invokes the configured neutral Vertex LLM title translator, and atomically persists canonical Postgres translations plus one translated-titles enrichment event. Stale and duplicate jobs are explicit no-ops.
 - `retry.rs` owns in-process retry, idempotency memory, and in-memory DLQ helpers.
-- No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs.
+- No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs; the post-ack loss window is tracked by #1558.
 
 ## Ownership
 
