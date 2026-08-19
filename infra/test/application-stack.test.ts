@@ -160,8 +160,8 @@ describe("Application stacks", () => {
     expect(resourceCount(templates, "AWS::ApiGatewayV2::Api")).toBe(1);
     expect(resourceCount(templates, "AWS::ApiGatewayV2::Route")).toBe(67);
     expect(resourceCount(templates, "AWS::ApiGatewayV2::Integration")).toBe(11);
-    expect(resourceCount(templates, "AWS::SQS::Queue")).toBe(24);
-    expect(resourceCount(templates, "AWS::Lambda::EventSourceMapping")).toBe(12);
+    expect(resourceCount(templates, "AWS::SQS::Queue")).toBe(22);
+    expect(resourceCount(templates, "AWS::Lambda::EventSourceMapping")).toBe(11);
     expect(resourceCount(templates, "AWS::StepFunctions::StateMachine")).toBe(1);
     expect(resourceCount(templates, "AWS::Pipes::Pipe")).toBe(1);
 
@@ -299,7 +299,7 @@ describe("Application stacks", () => {
 
     expect(resourceCount(templates, "AWS::OpenSearchService::Domain")).toBe(0);
     expect(resourceCount(templates, "AWS::SNS::Topic")).toBe(1);
-    expect(resourcePropertiesCount(templates, "AWS::CloudWatch::Alarm", {})).toBe(46);
+    expect(resourcePropertiesCount(templates, "AWS::CloudWatch::Alarm", {})).toBe(45);
     templates.api.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
       DefaultRouteSettings: Match.objectLike({
         DetailedMetricsEnabled: true,
@@ -584,7 +584,7 @@ describe("Application stacks", () => {
 
     expect(resourcePropertiesCount(templates, "AWS::SQS::Queue", {
       RedrivePolicy: Match.anyValue(),
-    })).toBe(12);
+    })).toBe(11);
     templates.data.hasResourceProperties("AWS::SQS::Queue", {
       RedrivePolicy: Match.objectLike({
         maxReceiveCount: 5,

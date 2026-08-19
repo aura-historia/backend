@@ -1,0 +1,18 @@
+[package]
+name = "notification-aws"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+aws-sdk-sesv2 = { workspace = true }
+common = { workspace = true }
+handlebars = { workspace = true }
+notification-core = { workspace = true }
+notification-service = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+url = { workspace = true }

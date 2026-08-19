@@ -166,7 +166,7 @@ pub enum DomainJobPayload {
     SearchFilterChanged(SearchFilterChangedJob),
     SearchFilterMatchCreated(SearchFilterMatchCreatedJob),
     UserTierChanged(UserTierChangedJob),
-    NotificationDelivery(NotificationDeliveryJob),
+    NotificationDeliveryCreated(NotificationDeliveryCreatedJob),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,8 +213,9 @@ pub struct UserTierChangedJob {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NotificationDeliveryJob {
+pub struct NotificationDeliveryCreatedJob {
     pub notification_delivery_id: String,
+    pub notification_id: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -834,13 +835,20 @@ fn search_filter_match_created_job(change: &CdcChange) -> Result<Vec<DomainJob>,
 fn notification_delivery_created_job(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
     let row = required_row(change)?;
     let notification_delivery_id = required_string(row, "notification_delivery_id")?;
+    let notification_id = required_string(row, "notification_id")?;
+    if string_field(row, "channel").as_deref() != Some("EMAIL")
+        || string_field(row, "status").as_deref() != Some("PENDING")
+    {
+        return Err(CdcRouteError::InvalidNotificationDeliveryShape);
+    }
 
     Ok(vec![domain_job(
         WorkerQueue::NotificationDelivery,
         IdempotencyKey::new(format!("notification-delivery:{notification_delivery_id}")),
-        OrderingKey::new(format!("notification-delivery:{notification_delivery_id}")),
-        DomainJobPayload::NotificationDelivery(NotificationDeliveryJob {
+        OrderingKey::new(format!("notification:{notification_id}")),
+        DomainJobPayload::NotificationDeliveryCreated(NotificationDeliveryCreatedJob {
             notification_delivery_id,
+            notification_id,
         }),
     )])
 }
@@ -941,6 +949,8 @@ pub enum CdcRouteError {
     MissingRow,
     #[error("CDC row missing required column {0}")]
     MissingColumn(&'static str),
+    #[error("CDC notification delivery row has an invalid initial email shape")]
+    InvalidNotificationDeliveryShape,
 }
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
@@ -1162,7 +1172,10 @@ mod tests {
             operation: CdcOperation::Insert,
             primary_key: BTreeMap::new(),
             record: Some(serde_json::json!({
-                "notification_delivery_id": "60000000-0000-0000-0000-000000000001"
+                "notification_delivery_id": "60000000-0000-0000-0000-000000000001",
+                "notification_id": "50000000-0000-0000-0000-000000000001",
+                "channel": "EMAIL",
+                "status": "PENDING"
             })),
             old_record: None,
             changed_columns: Vec::new(),
@@ -1192,7 +1205,10 @@ mod tests {
             operation: CdcOperation::Insert,
             primary_key: BTreeMap::new(),
             record: Some(serde_json::json!({
-                "notification_delivery_id": "60000000-0000-0000-0000-000000000001"
+                "notification_delivery_id": "60000000-0000-0000-0000-000000000001",
+                "notification_id": "50000000-0000-0000-0000-000000000001",
+                "channel": "EMAIL",
+                "status": "PENDING"
             })),
             old_record: None,
             changed_columns: Vec::new(),

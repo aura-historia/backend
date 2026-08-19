@@ -1,9 +1,10 @@
 use crate::ports::notification_delivery_repository::{
-    NotificationDeliveryError, NotificationDeliveryRepository,
+    ClaimNotificationDeliveryOutcome, NotificationDeliveryError, NotificationDeliveryRepository,
 };
 use crate::ports::notification_delivery_sender::{
     NotificationDeliverySendError, NotificationDeliverySender,
 };
+use common::notification_id::NotificationId;
 use notification_core::notification_delivery_id::NotificationDeliveryId;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -13,11 +14,14 @@ const DELIVERY_LEASE_DURATION: Duration = Duration::minutes(5);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeliverNotificationCommand {
     pub notification_delivery_id: NotificationDeliveryId,
+    pub notification_id: NotificationId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliverNotificationResult {
     Delivered { attempt_count: u32 },
+    DeliveryMissing,
+    AlreadyDelivered,
     AlreadyClaimed,
     SourceMissing,
     PermanentlyFailed,
@@ -29,6 +33,8 @@ pub enum DeliverNotificationError {
     Repository(#[from] NotificationDeliveryError),
     #[error("notification delivery send failed temporarily")]
     RetryableSend(#[source] NotificationDeliverySendError),
+    #[error("notification delivery does not belong to the supplied notification")]
+    NotificationMismatch,
     #[error("notification delivery lease was lost before finalization")]
     LeaseLost,
 }
@@ -69,24 +75,36 @@ where
     ) -> Result<DeliverNotificationResult, DeliverNotificationError> {
         let now = OffsetDateTime::now_utc();
         let lease_token = Uuid::now_v7();
-        let Some(claimed) = self
+        let (claimed, source) = match self
             .deliveries
-            .claim(
+            .claim_and_load_source(
                 command.notification_delivery_id,
                 now,
                 now + DELIVERY_LEASE_DURATION,
                 lease_token,
             )
             .await?
-        else {
-            return Ok(DeliverNotificationResult::AlreadyClaimed);
+        {
+            ClaimNotificationDeliveryOutcome::Missing => {
+                return Ok(DeliverNotificationResult::DeliveryMissing);
+            }
+            ClaimNotificationDeliveryOutcome::Delivered => {
+                return Ok(DeliverNotificationResult::AlreadyDelivered);
+            }
+            ClaimNotificationDeliveryOutcome::PermanentlyFailed => {
+                return Ok(DeliverNotificationResult::PermanentlyFailed);
+            }
+            ClaimNotificationDeliveryOutcome::AlreadyClaimed => {
+                return Ok(DeliverNotificationResult::AlreadyClaimed);
+            }
+            ClaimNotificationDeliveryOutcome::Claimed { delivery, source } => (delivery, source),
         };
 
-        let Some(source) = self
-            .deliveries
-            .load_source(claimed.notification_delivery_id)
-            .await?
-        else {
+        if claimed.notification_id != command.notification_id {
+            return Err(DeliverNotificationError::NotificationMismatch);
+        }
+
+        let Some(source) = *source else {
             let completed = self
                 .deliveries
                 .mark_permanent_failure(
@@ -167,17 +185,21 @@ mod tests {
     async fn should_skip_delivery_when_another_worker_holds_the_lease()
     -> Result<(), DeliverNotificationError> {
         let notification_delivery_id = NotificationDeliveryId::new();
+        let notification_id = NotificationId::new();
         let mut deliveries = MockNotificationDeliveryRepository::new();
         deliveries
-            .expect_claim()
+            .expect_claim_and_load_source()
             .times(1)
-            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(ClaimNotificationDeliveryOutcome::AlreadyClaimed) })
+            });
         let sender = MockNotificationDeliverySender::new();
         let handler = DeliverNotificationHandler::new(deliveries, sender);
 
         let result = handler
             .execute(DeliverNotificationCommand {
                 notification_delivery_id,
+                notification_id,
             })
             .await?;
 

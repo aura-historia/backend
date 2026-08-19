@@ -370,13 +370,14 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "aws-sdk-sesv2",
+ "aws-smithy-types",
  "common",
  "embedding",
  "fxrate-postgres",
  "google-cloud-auth",
- "handlebars",
  "indexmap 2.14.0",
  "large-language-model",
+ "notification-aws",
  "notification-core",
  "notification-postgres",
  "notification-service",
@@ -4784,6 +4785,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "notification-aws"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-sdk-s3",
+ "aws-sdk-sesv2",
+ "common",
+ "handlebars",
+ "notification-core",
+ "notification-service",
+ "rstest",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "notification-core"
 version = "0.1.0"
 dependencies = [
@@ -5918,7 +5935,6 @@ dependencies = [
  "product-lambda-delete-product",
  "product-lambda-ingest-partner-products",
  "product-lambda-materialize-opensearch",
- "product-lambda-update-notify-user",
 ]
 
 [[package]]
@@ -5999,37 +6015,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
-]
-
-[[package]]
-name = "product-lambda-update-notify-user"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "aws-config",
- "aws-sdk-dynamodb",
- "aws-sdk-s3",
- "aws-sdk-sesv2",
- "aws_lambda_events",
- "common",
- "fake",
- "lambda_runtime",
- "mockall",
- "notification",
- "product",
- "product-watchlist",
- "rstest",
- "serde",
- "serde-email",
- "serde_dynamo",
- "serde_json",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "user",
  "uuid",
 ]
 

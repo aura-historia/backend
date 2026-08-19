@@ -210,13 +210,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       STAGE: context.config.stage,
     }),
   },
-  productUpdateNotifyUser: {
-    id: "ProductUpdateNotifyUserLambda",
-    binaryName: "product-lambda-update-notify-user",
-    memorySize: 512,
-    timeoutSeconds: 60,
-    environment: mailTemplateEnvironment,
-  },
+
   productWatchlistApi: {
     id: "ProductWatchlistApiLambda",
     binaryName: "product-watchlist-api",
@@ -509,14 +503,6 @@ function stageEnvironment(context: LambdaEnvironmentContext): Record<string, str
   };
 }
 
-function mailTemplateEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  return {
-    ...baseEnvironment(context),
-    COMMIT_SHA: context.commitSha,
-    S3_BUCKET_NAME_TEMPLATES: context.mailTemplateBucket.bucketName,
-    STAGE_NAME: context.config.stage,
-  };
-}
 
 function openSearchWorkerEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return withLocalStackPort(
@@ -542,7 +528,6 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
 
   const mailTemplateReaders = [
     functions.partnerShopApplicationWorkflow,
-    functions.productUpdateNotifyUser,
     functions.searchFilterPercolateProduct,
   ];
   for (const fn of mailTemplateReaders) {

@@ -1,5 +1,4 @@
 use aura_historia_worker::notification_delivery::consume_notification_delivery_queue;
-use aura_historia_worker::notification_delivery_ses::SesNotificationDeliverySender;
 use aura_historia_worker::product_embedding::consume_product_embedding_queue;
 use aura_historia_worker::product_opensearch::consume_product_opensearch_queue;
 use aura_historia_worker::product_translation::{
@@ -17,11 +16,13 @@ use aura_historia_worker::{
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sesv2::Client as SesClient;
+use aws_smithy_types::timeout::TimeoutConfig;
 use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
 use large_language_model::{VertexAiConfig, VertexAiGemini};
+use notification_aws::SesNotificationDeliverySender;
 use notification_postgres::{SqlxNotificationCreatorFactory, SqlxNotificationDeliveryRepository};
 use notification_service::use_cases::commands::deliver_notification::{
     DeliverNotificationHandler, DeliverNotificationUseCase,
@@ -115,7 +116,10 @@ async fn main() -> Result<(), MainError> {
             run_product_embedding(worker_config, pool, composition, vertex_ai).await
         }
         WorkerScope::NotificationDelivery => {
-            run_notification_delivery(worker_config, pool, composition).await
+            let delivery = startup
+                .notification_delivery()
+                .ok_or(MainError::MissingScopeConfig { scope })?;
+            run_notification_delivery(worker_config, pool, composition, delivery).await
         }
     }
 }
@@ -240,8 +244,16 @@ async fn run_notification_delivery(
     config: aura_historia_worker::WorkerConfig,
     pool: sqlx::PgPool,
     composition: WorkerRuntimeComposition,
+    delivery: &aura_historia_worker::WorkerNotificationDeliveryConfig,
 ) -> Result<(), MainError> {
     let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+        .timeout_config(
+            TimeoutConfig::builder()
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .operation_attempt_timeout(std::time::Duration::from_secs(20))
+                .operation_timeout(std::time::Duration::from_secs(30))
+                .build(),
+        )
         .load()
         .await;
     let handler: Arc<dyn DeliverNotificationUseCase> = Arc::new(DeliverNotificationHandler::new(
@@ -249,9 +261,11 @@ async fn run_notification_delivery(
         SesNotificationDeliverySender::new(
             S3Client::new(&aws_config),
             SesClient::new(&aws_config),
-            required_env("S3_BUCKET_NAME_TEMPLATES")?,
-            required_env("STAGE_NAME")?,
-            required_env("COMMIT_SHA")?,
+            delivery.template_bucket(),
+            delivery.from_email_address(),
+            delivery.reply_to_email_address(),
+            delivery.stage(),
+            delivery.commit_sha(),
         ),
     ));
     let (runtime, receiver) = composition.into_parts();
@@ -286,10 +300,6 @@ async fn finish_runtime(
     let _ = task.await;
     result?;
     Ok(())
-}
-
-fn required_env(name: &'static str) -> Result<String, MainError> {
-    std::env::var(name).map_err(|_| MainError::MissingEnv { name })
 }
 
 fn vertex_ai_large_language_model(
@@ -349,8 +359,7 @@ enum MainError {
     QueueConfig(#[from] aura_historia_worker::QueueConfigError),
     #[error("missing validated configuration for {scope:?} worker scope")]
     MissingScopeConfig { scope: WorkerScope },
-    #[error("missing required environment variable {name}")]
-    MissingEnv { name: &'static str },
+
     #[error("failed to configure OpenSearch: {detail}")]
     OpenSearch { detail: String },
     #[error("failed to initialize Vertex AI credentials: {detail}")]

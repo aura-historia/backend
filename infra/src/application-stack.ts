@@ -474,12 +474,7 @@ function dataOutputs(
   new cdk.CfnOutput(stack, "ProductPipelineTranslateDeadLetterQueueUrl", {
     value: resources.queues.catalog.productPipelineTranslate.deadLetterQueue.queueUrl,
   });
-  new cdk.CfnOutput(stack, "ProductUpdateNotifyUserQueueUrl", {
-    value: resources.queues.catalog.productUpdateNotifyUser.queue.queueUrl,
-  });
-  new cdk.CfnOutput(stack, "ProductUpdateNotifyUserDeadLetterQueueUrl", {
-    value: resources.queues.catalog.productUpdateNotifyUser.deadLetterQueue.queueUrl,
-  });
+
   new cdk.CfnOutput(stack, "SearchFilterOpenSearchSyncQueueUrl", {
     value: resources.queues.catalog.searchFilterOpenSearchSync.queue.queueUrl,
   });

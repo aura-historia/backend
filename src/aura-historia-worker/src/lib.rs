@@ -1,6 +1,5 @@
 pub mod cdc;
 pub mod notification_delivery;
-pub mod notification_delivery_ses;
 pub mod product_embedding;
 pub mod product_opensearch;
 pub mod product_translation;
@@ -32,6 +31,10 @@ pub const OPENSEARCH_PASSWORD_ENV: &str = "OPENSEARCH_PASSWORD";
 pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 pub const VERTEX_AI_MODEL_ENV: &str = "VERTEX_AI_MODEL";
+pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
+pub const NOTIFICATION_EMAIL_FROM_ENV: &str = "NOTIFICATION_EMAIL_FROM";
+pub const NOTIFICATION_EMAIL_REPLY_TO_ENV: &str = "NOTIFICATION_EMAIL_REPLY_TO";
+pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 
 const DEFAULT_WORKER_HEALTH_BIND_ADDR: &str = "0.0.0.0:8081";
 const DEFAULT_LOCAL_WORKER_SCOPE: &str = "search-filter-projection";
@@ -181,12 +184,39 @@ impl WorkerVertexAiConfig {
     }
 }
 
+pub struct WorkerNotificationDeliveryConfig {
+    template_bucket: String,
+    from_email_address: String,
+    reply_to_email_address: String,
+    stage: String,
+    commit_sha: String,
+}
+
+impl WorkerNotificationDeliveryConfig {
+    pub fn template_bucket(&self) -> &str {
+        &self.template_bucket
+    }
+    pub fn from_email_address(&self) -> &str {
+        &self.from_email_address
+    }
+    pub fn reply_to_email_address(&self) -> &str {
+        &self.reply_to_email_address
+    }
+    pub fn stage(&self) -> &str {
+        &self.stage
+    }
+    pub fn commit_sha(&self) -> &str {
+        &self.commit_sha
+    }
+}
+
 pub struct WorkerStartupConfig {
     worker: WorkerConfig,
     scope: WorkerScope,
     postgres: PostgresPoolConfig,
     opensearch: Option<WorkerOpenSearchConfig>,
     vertex_ai: Option<WorkerVertexAiConfig>,
+    notification_delivery: Option<WorkerNotificationDeliveryConfig>,
 }
 
 impl WorkerStartupConfig {
@@ -202,10 +232,12 @@ impl WorkerStartupConfig {
         let scope = WorkerScope::from_getter(&mut get)?;
         let worker = WorkerConfig::from_getter(&mut get)?;
         let postgres = PostgresPoolConfig::from_getter(&mut get)?;
-        let (opensearch, vertex_ai) = match scope {
-            WorkerScope::SearchFilterProjection | WorkerScope::ProductOpenSearch => {
-                (Some(opensearch_config(&mut get, stage.as_deref())?), None)
-            }
+        let (opensearch, vertex_ai, notification_delivery) = match scope {
+            WorkerScope::SearchFilterProjection | WorkerScope::ProductOpenSearch => (
+                Some(opensearch_config(&mut get, stage.as_deref())?),
+                None,
+                None,
+            ),
             WorkerScope::SearchFilterPercolator => (
                 Some(opensearch_config(&mut get, stage.as_deref())?),
                 Some(WorkerVertexAiConfig {
@@ -213,6 +245,7 @@ impl WorkerStartupConfig {
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
                     model: Some(required_env(&mut get, VERTEX_AI_MODEL_ENV)?),
                 }),
+                None,
             ),
             WorkerScope::ProductTranslation => (
                 None,
@@ -221,6 +254,7 @@ impl WorkerStartupConfig {
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
                     model: Some(required_env(&mut get, VERTEX_AI_MODEL_ENV)?),
                 }),
+                None,
             ),
             WorkerScope::ProductEmbedding => (
                 None,
@@ -229,10 +263,27 @@ impl WorkerStartupConfig {
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
                     model: None,
                 }),
+                None,
             ),
-            WorkerScope::SearchFilterMatchNotification
-            | WorkerScope::WatchlistNotification
-            | WorkerScope::NotificationDelivery => (None, None),
+            WorkerScope::NotificationDelivery => (
+                None,
+                None,
+                Some(WorkerNotificationDeliveryConfig {
+                    template_bucket: required_env(&mut get, S3_BUCKET_NAME_TEMPLATES_ENV)?,
+                    from_email_address: required_env(&mut get, NOTIFICATION_EMAIL_FROM_ENV)?,
+                    reply_to_email_address: required_env(
+                        &mut get,
+                        NOTIFICATION_EMAIL_REPLY_TO_ENV,
+                    )?,
+                    stage: stage.ok_or(WorkerStartupConfigError::MissingEnv {
+                        name: WORKER_STAGE_ENV,
+                    })?,
+                    commit_sha: required_env(&mut get, COMMIT_SHA_ENV)?,
+                }),
+            ),
+            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
+                (None, None, None)
+            }
         };
 
         Ok(Self {
@@ -241,6 +292,7 @@ impl WorkerStartupConfig {
             postgres,
             opensearch,
             vertex_ai,
+            notification_delivery,
         })
     }
 
@@ -262,6 +314,10 @@ impl WorkerStartupConfig {
 
     pub fn vertex_ai(&self) -> Option<&WorkerVertexAiConfig> {
         self.vertex_ai.as_ref()
+    }
+
+    pub fn notification_delivery(&self) -> Option<&WorkerNotificationDeliveryConfig> {
+        self.notification_delivery.as_ref()
     }
 }
 
@@ -807,9 +863,19 @@ mod tests {
                 values.insert(OPENSEARCH_USERNAME_ENV, "worker".to_owned());
                 values.insert(OPENSEARCH_PASSWORD_ENV, "not-a-real-secret".to_owned());
             }
-            WorkerScope::SearchFilterMatchNotification
-            | WorkerScope::WatchlistNotification
-            | WorkerScope::NotificationDelivery => {}
+            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {}
+            WorkerScope::NotificationDelivery => {
+                values.insert(S3_BUCKET_NAME_TEMPLATES_ENV, "templates".to_owned());
+                values.insert(
+                    NOTIFICATION_EMAIL_FROM_ENV,
+                    "no-reply@example.test".to_owned(),
+                );
+                values.insert(
+                    NOTIFICATION_EMAIL_REPLY_TO_ENV,
+                    "contact@example.test".to_owned(),
+                );
+                values.insert(COMMIT_SHA_ENV, "test-commit".to_owned());
+            }
             WorkerScope::ProductTranslation => {}
             WorkerScope::ProductEmbedding => {}
         }
@@ -1024,7 +1090,7 @@ mod tests {
     #[case(
         WorkerScope::NotificationDelivery,
         WorkerQueue::NotificationDelivery,
-        r#"{"changes":[{"table":"notification_deliveries","operation":"insert","record":{"notification_delivery_id":"60000000-0000-0000-0000-000000000001"}}]}"#
+        r#"{"changes":[{"table":"notification_deliveries","operation":"insert","record":{"notification_delivery_id":"60000000-0000-0000-0000-000000000001","notification_id":"50000000-0000-0000-0000-000000000001","channel":"EMAIL","status":"PENDING"}}]}"#
     )]
     #[tokio::test]
     async fn should_build_one_intended_cdc_route_and_consumer_for_scope(

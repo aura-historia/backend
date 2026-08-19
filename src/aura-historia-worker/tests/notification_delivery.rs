@@ -1,6 +1,5 @@
 use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::notification_delivery::consume_notification_delivery_queue;
-use aura_historia_worker::notification_delivery_ses::SesNotificationDeliverySender;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use aws_sdk_s3::{
     Client as S3Client,
@@ -8,6 +7,7 @@ use aws_sdk_s3::{
     types::{BucketLocationConstraint, CreateBucketConfiguration},
 };
 use aws_sdk_sesv2::Client as SesClient;
+use notification_aws::SesNotificationDeliverySender;
 use notification_postgres::SqlxNotificationDeliveryRepository;
 use notification_service::use_cases::commands::deliver_notification::{
     DeliverNotificationHandler, DeliverNotificationUseCase,
@@ -127,12 +127,22 @@ async fn reject_rolled_back_or_unsupported_changes() -> Result<(), Box<dyn std::
         );
         assert_no_email_to(&rolled_back.recipient_email).await?;
 
-        let wrong_table =
-            post_cdc_change(rolled_back.delivery_id, "notifications", "insert").await?;
+        let wrong_table = post_cdc_change(
+            rolled_back.delivery_id,
+            rolled_back.notification_id,
+            "notifications",
+            "insert",
+        )
+        .await?;
         assert_eq!(reqwest::StatusCode::SERVICE_UNAVAILABLE, wrong_table);
 
-        let wrong_operation =
-            post_cdc_change(rolled_back.delivery_id, "notification_deliveries", "update").await?;
+        let wrong_operation = post_cdc_change(
+            rolled_back.delivery_id,
+            rolled_back.notification_id,
+            "notification_deliveries",
+            "update",
+        )
+        .await?;
         assert_eq!(reqwest::StatusCode::SERVICE_UNAVAILABLE, wrong_operation);
         assert_no_email_to(&rolled_back.recipient_email).await
     }
@@ -152,8 +162,13 @@ async fn deduplicate_redelivered_notification_delivery() -> Result<(), Box<dyn s
             .ok_or_else(|| std::io::Error::other("delivered row has no provider message id"))?;
         let _ = wait_for_email_to(&delivery.recipient_email).await?;
 
-        let response =
-            post_cdc_change(delivery.delivery_id, "notification_deliveries", "insert").await?;
+        let response = post_cdc_change(
+            delivery.delivery_id,
+            delivery.notification_id,
+            "notification_deliveries",
+            "insert",
+        )
+        .await?;
         assert_eq!(reqwest::StatusCode::ACCEPTED, response);
 
         tokio::time::sleep(NO_SIDE_EFFECT_OBSERVATION).await;
@@ -192,7 +207,7 @@ async fn redeliver_after_expired_lease() -> Result<(), Box<dyn std::error::Error
         .execute(&worker.pool)
         .await?;
 
-        let response = post_cdc_change(delivery.delivery_id, "notification_deliveries", "insert").await?;
+        let response = post_cdc_change(delivery.delivery_id, delivery.notification_id, "notification_deliveries", "insert").await?;
         assert_eq!(reqwest::StatusCode::ACCEPTED, response);
 
         let persisted = wait_for_delivery(&worker.pool, delivery.delivery_id, "DELIVERED").await?;
@@ -251,6 +266,8 @@ impl NotificationDeliveryWorker {
                     s3,
                     SesClient::new(aws_config),
                     targets.bucket,
+                    "no-reply@notify.aura-historia.test",
+                    "contact@aura-historia.test",
                     targets.stage,
                     targets.commit_sha,
                 ),
@@ -362,6 +379,7 @@ enum DeliveryState {
 
 struct NotificationDeliveryFixture {
     delivery_id: uuid::Uuid,
+    notification_id: uuid::Uuid,
     recipient_email: String,
 }
 
@@ -428,6 +446,7 @@ async fn insert_delivery_in_transaction(
 
     Ok(NotificationDeliveryFixture {
         delivery_id,
+        notification_id,
         recipient_email,
     })
 }
@@ -498,6 +517,7 @@ async fn delivery_row(
 
 async fn post_cdc_change(
     delivery_id: uuid::Uuid,
+    notification_id: uuid::Uuid,
     table_name: &str,
     action: &str,
 ) -> Result<reqwest::StatusCode, reqwest::Error> {
@@ -507,7 +527,7 @@ async fn post_cdc_change(
             get_sequin_worker_webhook_bind_addr()
         ))
         .json(&json!({
-            "record": {"notification_delivery_id": delivery_id},
+            "record": {"notification_delivery_id": delivery_id, "notification_id": notification_id, "channel": "EMAIL", "status": "PENDING"},
             "action": action,
             "metadata": {"table_schema": "public", "table_name": table_name}
         }))

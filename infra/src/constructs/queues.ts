@@ -40,13 +40,7 @@ export const QUEUE_DEFINITIONS = {
     visibilityTimeoutSeconds: 300,
     maxReceiveCount: 3,
   },
-  productUpdateNotifyUser: {
-    id: "ProductUpdateNotifyUser",
-    queueName: "product-lambda-update-notify-user-queue",
-    deadLetterQueueName: "product-lambda-update-notify-user-dlq",
-    visibilityTimeoutSeconds: 360,
-    maxReceiveCount: 5,
-  },
+
   searchFilterOpenSearchSync: {
     id: "SearchFilterOpenSearchSync",
     queueName: "search-filter-opensearch-sync-queue",

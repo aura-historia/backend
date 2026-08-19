@@ -1,4 +1,7 @@
-use common::{error::boxed::BoxError, notification_id::NotificationId, user_id::UserId};
+use common::{
+    currency::domain::Currency, error::boxed::BoxError, language::domain::Language,
+    notification_id::NotificationId, user_id::UserId,
+};
 use notification_core::notification::NotificationContent;
 use notification_core::notification_delivery_id::NotificationDeliveryId;
 use time::OffsetDateTime;
@@ -28,6 +31,21 @@ pub struct NotificationDeliverySource {
     pub user_id: UserId,
     pub content: NotificationContent,
     pub recipient_email: String,
+    pub recipient_first_name: Option<String>,
+    pub language: Language,
+    pub currency: Currency,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClaimNotificationDeliveryOutcome {
+    Claimed {
+        delivery: ClaimedNotificationDelivery,
+        source: Box<Option<NotificationDeliverySource>>,
+    },
+    Missing,
+    Delivered,
+    PermanentlyFailed,
+    AlreadyClaimed,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -47,18 +65,13 @@ pub enum NotificationDeliveryError {
 #[async_trait::async_trait]
 #[cfg_attr(feature = "mock", mockall::automock)]
 pub trait NotificationDeliveryRepository: Send + Sync {
-    async fn claim(
+    async fn claim_and_load_source(
         &self,
         notification_delivery_id: NotificationDeliveryId,
         now: OffsetDateTime,
         lease_expires_at: OffsetDateTime,
         lease_token: Uuid,
-    ) -> Result<Option<ClaimedNotificationDelivery>, NotificationDeliveryError>;
-
-    async fn load_source(
-        &self,
-        notification_delivery_id: NotificationDeliveryId,
-    ) -> Result<Option<NotificationDeliverySource>, NotificationDeliveryError>;
+    ) -> Result<ClaimNotificationDeliveryOutcome, NotificationDeliveryError>;
 
     async fn mark_delivered(
         &self,

@@ -151,18 +151,6 @@ function createDynamoDbRules(
     queues,
   });
 
-  addDynamoDbRule(scope, eventBus, "DynamoDbProductEventRecordUpdatedNotifyUserEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: [{ prefix: "DOMAIN_PRICE_" }, { prefix: "DOMAIN_STATE_" }] },
-        },
-      },
-    },
-    targets: ["productUpdateNotifyUser"],
-    queues,
-  });
 
   addDynamoDbRule(scope, eventBus, "DynamoDbProductMaterializeOpenSearchEventRule", table, {
     detail: {
@@ -367,7 +355,7 @@ function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog)
   addSqsEventSource(functions.productDeleteProduct, queues.productDeleteProduct.queue, 100, true, 1);
   addSqsEventSource(functions.productPipelineEmbedText, queues.productPipelineEmbedText.queue, 10, true, 1);
   addSqsEventSource(functions.productPipelineTranslate, queues.productPipelineTranslate.queue, 10, true, 1);
-  addSqsEventSource(functions.productUpdateNotifyUser, queues.productUpdateNotifyUser.queue, 10, true, 1);
+
   addSqsEventSource(functions.searchFilterPercolateProduct, queues.searchFilterPercolateProduct.queue, 10, true, 1);
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 }

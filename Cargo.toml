@@ -146,6 +146,7 @@ members = [
     "src/user-zoho",
     "src/notification",
     "src/notification-core",
+    "src/notification-aws",
     "src/notification-service",
     "src/notification-postgres",
     "src/newsletter-api",
@@ -180,6 +181,7 @@ aws-sdk-opensearch = "1.131.0"
 aws-sdk-sqs = "1.101.0"
 aws-sdk-sesv2 = "1.122.0"
 aws-sdk-s3 = "1.135.0"
+aws-smithy-types = "1.6.1"
 aws-sdk-sfn = "1.107.0"
 aws-sdk-cloudwatch = "1.111.0"
 aws-sdk-cloudwatchlogs = "1.135.0"
@@ -220,6 +222,7 @@ stripe-api = { path = "src/stripe-api" }
 newsletter-api = { path = "src/newsletter-api" }
 notification = { path = "src/notification" }
 notification-core = { path = "src/notification-core" }
+notification-aws = { path = "src/notification-aws" }
 notification-service = { path = "src/notification-service" }
 notification-postgres = { path = "src/notification-postgres" }
 oauth = { path = "src/oauth" }
@@ -250,7 +253,7 @@ watchlist-postgres = { path = "src/watchlist-postgres" }
 product-watchlist-api = { path = "src/product-watchlist-api" }
 product-lambda = { path = "src/product-lambda" }
 product-lambda-materialize-opensearch = { path = "src/product-lambda/src/product-lambda-materialize-opensearch" }
-product-lambda-update-notify-user = { path = "src/product-lambda/src/product-lambda-update-notify-user" }
+
 product-lambda-ingest-partner-products = { path = "src/product-lambda/src/product-lambda-ingest-partner-products" }
 product-lambda-delete-product = { path = "src/product-lambda/src/product-lambda-delete-product" }
 isocountry = "0.3.2"

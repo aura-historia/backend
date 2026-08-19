@@ -3,7 +3,10 @@ use crate::{
     cdc::{DomainJob, DomainJobPayload},
     retry::{InMemoryDeadLetterQueue, RetryConfig, run_with_retry},
 };
-use common::error::boxed::{BoxError, box_error};
+use common::{
+    error::boxed::{BoxError, box_error},
+    notification_id::NotificationId,
+};
 use notification_core::notification_delivery_id::NotificationDeliveryId;
 use notification_service::use_cases::commands::deliver_notification::{
     DeliverNotificationCommand, DeliverNotificationResult, DeliverNotificationUseCase,
@@ -69,6 +72,8 @@ async fn execute_job(
     let outcome = use_case.execute(command).await.map_err(box_error)?;
     let outcome = match outcome {
         DeliverNotificationResult::Delivered { .. } => "delivered",
+        DeliverNotificationResult::DeliveryMissing => "delivery_missing",
+        DeliverNotificationResult::AlreadyDelivered => "already_delivered",
         DeliverNotificationResult::AlreadyClaimed => "already_claimed",
         DeliverNotificationResult::SourceMissing => "source_missing",
         DeliverNotificationResult::PermanentlyFailed => "permanently_failed",
@@ -81,7 +86,7 @@ async fn execute_job(
 }
 
 fn notification_delivery_id(job: &DomainJob) -> Option<&str> {
-    let DomainJobPayload::NotificationDelivery(delivery) = &job.payload else {
+    let DomainJobPayload::NotificationDeliveryCreated(delivery) = &job.payload else {
         return None;
     };
     Some(delivery.notification_delivery_id.as_str())
@@ -90,7 +95,7 @@ fn notification_delivery_id(job: &DomainJob) -> Option<&str> {
 fn command_from_job(
     job: DomainJob,
 ) -> Result<DeliverNotificationCommand, NotificationDeliveryWorkerError> {
-    let DomainJobPayload::NotificationDelivery(delivery) = job.payload else {
+    let DomainJobPayload::NotificationDeliveryCreated(delivery) = job.payload else {
         return Err(NotificationDeliveryWorkerError::UnexpectedJobPayload);
     };
     let notification_delivery_id =
@@ -99,9 +104,15 @@ fn command_from_job(
                 source: box_error(source),
             }
         })?;
+    let notification_id = NotificationId::try_from(delivery.notification_id).map_err(|source| {
+        NotificationDeliveryWorkerError::InvalidNotificationId {
+            source: box_error(source),
+        }
+    })?;
 
     Ok(DeliverNotificationCommand {
         notification_delivery_id,
+        notification_id,
     })
 }
 
@@ -114,6 +125,11 @@ enum NotificationDeliveryWorkerError {
         #[source]
         source: BoxError,
     },
+    #[error("notification delivery job has an invalid notification id")]
+    InvalidNotificationId {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[cfg(test)]
@@ -121,7 +137,7 @@ mod tests {
     use super::*;
     use crate::{
         QueueConfig,
-        cdc::{IdempotencyKey, NotificationDeliveryJob, OrderingKey, WorkerQueue},
+        cdc::{IdempotencyKey, NotificationDeliveryCreatedJob, OrderingKey, WorkerQueue},
         in_memory_queue,
     };
     use std::sync::Mutex;
@@ -150,18 +166,20 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, receiver) = in_memory_queue(QueueConfig::new(1))?;
         let notification_delivery_id = NotificationDeliveryId::new();
+        let notification_id = NotificationId::new();
         sender
             .enqueue(DomainJob {
                 target_queue: WorkerQueue::NotificationDelivery,
                 idempotency_key: IdempotencyKey::new(format!(
                     "notification-delivery:{notification_delivery_id}"
                 )),
-                ordering_key: OrderingKey::new(format!(
-                    "notification-delivery:{notification_delivery_id}"
-                )),
-                payload: DomainJobPayload::NotificationDelivery(NotificationDeliveryJob {
-                    notification_delivery_id: notification_delivery_id.to_string(),
-                }),
+                ordering_key: OrderingKey::new(format!("notification:{notification_id}")),
+                payload: DomainJobPayload::NotificationDeliveryCreated(
+                    NotificationDeliveryCreatedJob {
+                        notification_delivery_id: notification_delivery_id.to_string(),
+                        notification_id: notification_id.to_string(),
+                    },
+                ),
             })
             .await?;
         drop(sender);
@@ -172,6 +190,7 @@ mod tests {
         assert_eq!(
             vec![DeliverNotificationCommand {
                 notification_delivery_id,
+                notification_id,
             }],
             handler
                 .commands

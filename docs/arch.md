@@ -1707,11 +1707,11 @@ PostgreSQL owns business truth for:
 * product translations;
 * product watchlists;
 * search filters;
-* search-filter matches.
+* search-filter matches;
+* notifications and notification delivery state.
 
 DynamoDB remains the operational owner for:
 
-* notifications with TTL and insert-to-send behavior;
 * access tokens;
 * OAuth clients;
 * OAuth authorization codes;

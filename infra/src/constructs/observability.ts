@@ -166,7 +166,7 @@ const queueWorkerKeys = new Set<LambdaKey>([
   "productPartnerIngest",
   "productPipelineEmbedText",
   "productPipelineTranslate",
-  "productUpdateNotifyUser",
+
   "searchFilterOpenSearchSync",
   "searchFilterPercolateProduct",
   "shopOpenSearchIndex",

@@ -15,7 +15,6 @@ See `docs/hetzner_postgres_sequin_migration.md` for the ADR.
 | `aura-historia-worker` router | Rust process | Maps CDC rows to domain jobs and fans them out to queues. |
 | In-memory sub-worker queues | Worker buffers | Bounded execution buffers. Not durable. |
 | OpenSearch | Search projection | Rebuildable product/shop/search-filter projection. |
-| DynamoDB notifications | AWS DynamoDB | Legacy notification TTL storage. |
 | DynamoDB access tokens | AWS DynamoDB | Existing access-token storage and lookup. |
 | FxRate Lambda | AWS Lambda | Captures immutable canonical EUR-base FX snapshots in Postgres. |
 | Shopify Lambda | AWS Lambda | Handles Shopify events, writes Postgres directly. |
@@ -131,8 +130,8 @@ Crash rule:
 | `products` | INSERT/MODIFY/DELETE | No default downstream route. Product events are the projection trigger to avoid double-firing. Use products CDC only for future explicit non-event projections. |
 | `shops` | INSERT/MODIFY/DELETE | Shop OpenSearch projector. Domains are inline in `shops.shop_domains`. Idempotency: `(shop_id, version, op)`. |
 | `search_filters` | INSERT/MODIFY/DELETE | Search-filter OpenSearch sync for every persisted change; handlers reread the complete authoritative record. Idempotency: `(user_search_filter_id, version, op)`. |
-| `search_filter_matches` | INSERT | Search-filter match notification worker. It rereads the exact persisted match and Product source, then conditionally inserts one DynamoDB SearchFilter notification. Idempotency: `(user_id, user_search_filter_id, product_id, origin_event_id)` at the job and `(user_id, origin_event_id)` at DynamoDB. |
-| `notification_deliveries` | INSERT | Notification-delivery worker. It claims the durable delivery lease, loads the canonical notification source, sends through SES, then finalizes the same lease. Idempotency: `notification_delivery_id`; external delivery remains at-least-once across a send/finalize crash. |
+| `search_filter_matches` | INSERT | Search-filter match notification worker. It rereads the exact persisted match and Product source, then inserts one PostgreSQL SearchFilter notification for that matching filter. Idempotency: `(user_id, user_search_filter_id, product_id, origin_event_id)`. |
+| `notification_deliveries` | INSERT | Notification-delivery worker. It validates initial `EMAIL`/`PENDING` shape, claims the durable delivery lease with joined source in PostgreSQL, sends through S3 templates and SES, then finalizes that lease. Idempotency: `notification-delivery:{delivery_id}`; ordering: `notification:{notification_id}`; external delivery remains at-least-once across a send/finalize crash. |
 | `users` | MODIFY | User tier enforcement for tier changes; no user OpenSearch projection. Idempotency: `(user_id, version)`. |
 | `product_watchlist` | INSERT/MODIFY/DELETE | No default downstream route; product events drive notifications. |
 | `partner_shop_applications` | INSERT/MODIFY | No generic worker route unless notification behavior requires it. |
@@ -158,10 +157,10 @@ Examples:
 |---|---|---|---|
 | Product OpenSearch projector | `product-lambda-materialize-opensearch` | Product event job | OpenSearch product document create/update/delete. |
 | Product delete cleanup | `product-lambda-delete-product` | Lifecycle deleted job | OpenSearch delete, Postgres watchlist/match cleanup. |
-| Watchlist notification generator | `product-lambda-update-notify-user` | Price/state product event job | DynamoDB notification inserts. |
-| Notification delivery sender | PostgreSQL notification delivery flow | `notification_deliveries` insert job | Claims PostgreSQL delivery lease, sends email through SES, and finalizes the durable delivery state. |
+| Watchlist notification generator | retired notification Lambda path | Price/state product event job | PostgreSQL watchlist notification inserts, one per semantic reason. |
+| Notification delivery sender | PostgreSQL delivery flow | `notification_deliveries` insert job | Claims PostgreSQL delivery lease, sends S3-rendered email through SES, and finalizes durable delivery state. |
 | Search-filter percolator | `search-filter-lambda-percolate-product` | Domain/enrichment product event job | Postgres matches only. |
-| Search-filter match notification generator | Search-filter match notification path | Search-filter match inserted job | DynamoDB SearchFilter notification insert. |
+| Search-filter match notification generator | Search-filter match notification path | Search-filter match inserted job | One PostgreSQL SearchFilter notification per matching filter. |
 | Product embed | legacy `product-pipeline-embed-text` | `DOMAIN_CREATED` job | Postgres enrichment event + product update. Embedding stored in Postgres only. |
 | Product translate | legacy `product-pipeline-translate` | Enrichment embedded job | Postgres `product_translations` upsert plus one translated-titles enrichment event and Product revision update. |
 | Shop OpenSearch projector | `shop-lambda-opensearch-index` | Shop changed job | OpenSearch shop document write. |
@@ -197,7 +196,7 @@ Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-percolator`; it
 
 ## Search-filter match notification generator
 
-The match-notification scope accepts only `search_filter_matches` inserts. Its job and source read use `(user_id, user_search_filter_id, product_id, origin_event_id)`, so a stale or superseded CDC row cannot notify a different match. It accepts only the deterministic lowest filter ID for each `(user_id, origin_event_id)`, then reads the committed Product source and invokes `GenerateSearchFilterMatchNotificationUseCase`. Missing or mismatched match sources are benign stale inputs. The use case locks the user tier and calculates the event's stable monthly notification rank; this gates notification selection only, never match persistence. DynamoDB conditionally creates `(user_id, origin_event_id)`, so exact match CDC redelivery or concurrent matched filters cannot overwrite or duplicate the notification. The Product source is read after the Postgres match read; DynamoDB remains outside Postgres transactions.
+The match-notification scope accepts only `search_filter_matches` inserts. Its job and source read use `(user_id, user_search_filter_id, product_id, origin_event_id)`, so a stale or superseded CDC row cannot notify a different match. It reads the committed Product source and invokes `GenerateSearchFilterMatchNotificationUseCase` for every persisted matching filter. Missing or mismatched match sources are benign stale inputs. The use case locks the user tier and calculates the event's stable monthly notification rank; this gates delivery eligibility only, never match persistence. PostgreSQL inserts the notification and optional email-delivery row atomically. Exact CDC redelivery and concurrent filters are protected by the SearchFilter semantic identity, so each matching filter remains distinct.
 
 Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=search-filter-match-notification`; its Sequin subscription must contain only `search_filter_matches` inserts. Match updates and deletes have no notification route.
 
@@ -205,17 +204,17 @@ Enhanced search filters use the canonical Vertex AI Gemini implementation of the
 
 ## Canonical watchlist notification generator
 
-The watchlist worker scope accepts only `product_events` inserts and enqueues canonical price/state events. Its product-service use case rereads the immutable event plus current Product source and all active recipients in one short Postgres transaction, commits, then conditionally inserts DynamoDB notification records. Recipients with watchlist email notifications disabled still receive the in-app record with `external = false`.
+The watchlist worker scope accepts only `product_events` inserts and enqueues canonical price/state events. Its product-service use case rereads the immutable event plus current Product source and all active recipients, then inserts PostgreSQL notifications. Watchlist semantic identity is `(user_id, origin_event_id, kind)`, so a price change and state change remain distinct. Recipients with email disabled receive the in-app notification without a `notification_deliveries` row.
 
-The DynamoDB target conditionally creates the `(user_id, origin_event_id)` record. Duplicate webhook delivery and retry after partial success therefore preserve the original notification rather than overwriting it or emitting another DynamoDB stream insert. No currency conversion is invented: price-change payloads carry only each stored source price; conversion remains deferred to #1466.
+Duplicate webhook delivery is safe through the PostgreSQL semantic unique index. No currency conversion is invented: price-change payloads carry only each stored source price; rendering localizes from current user preferences.
 
 Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=watchlist-notification`; its Sequin subscription must contain only `product_events` inserts. The default `search-filter-projection` scope remains separately subscribed to `search_filters`.
 
 ## Canonical notification delivery
 
-The `notification-delivery` scope accepts only `notification_deliveries` inserts. Its Sequin job carries only `notification_delivery_id`; the service atomically claims the durable lease, rereads the joined notification and recipient source from PostgreSQL, sends through SES, then conditionally finalizes the same lease. A duplicate CDC job that cannot claim the delivery is an acknowledged no-op. Retryable send failures return the row to `PENDING` and fail the job for bounded retry; permanent failures become `FAILED`. A send/finalize crash can produce a duplicate external email, so email delivery is at-least-once.
+The `notification-delivery` scope accepts only `notification_deliveries` inserts. Its Sequin job carries `notification_delivery_id` and `notification_id`, with idempotency `notification-delivery:{delivery_id}` and ordering `notification:{notification_id}`. The service atomically claims the durable lease and loads joined notification, recipient, first-name, language, and currency source from PostgreSQL; it commits before S3 or SES I/O, then conditionally finalizes the same lease. Missing, delivered, permanently failed, and actively leased rows are explicit acknowledged no-ops. Retryable send failures return the row to `PENDING` and fail the job for bounded retry; permanent failures become `FAILED`. A send/finalize crash can produce a duplicate external email, so email delivery is at-least-once.
 
-Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=notification-delivery`; it requires `POSTGRES_*` and AWS credentials with SES send permission. Its Sequin subscription must contain only `notification_deliveries` inserts.
+Worker deployment uses `AURA_HISTORIA_WORKER_SCOPE=notification-delivery`; it requires `POSTGRES_*`, `S3_BUCKET_NAME_TEMPLATES`, `NOTIFICATION_EMAIL_FROM`, `NOTIFICATION_EMAIL_REPLY_TO`, `STAGE`, `COMMIT_SHA`, and AWS credentials with template-read plus SES-send permissions. Configure one Sequin subscription for `notification_deliveries` `INSERT` only. There is no SQS in this delivery route.
 
 ## Canonical search-filter OpenSearch projection
 
@@ -258,7 +257,9 @@ Minimum unique keys:
 | User tier worker job | `(user_id, version)` |
 | Search-filter match job | `(user_id, user_search_filter_id, product_id, origin_event_id)` |
 | Search-filter match | `(user_search_filter_id, product_id)` plus `origin_event_id` FK to `product_events.event_id` |
-| Search-filter notification | `(user_id, origin_event_id)` conditional DynamoDB insert |
+| Search-filter notification | `(user_id, user_search_filter_id, product_id, origin_event_id)` PostgreSQL unique index |
+| Watchlist notification | `(user_id, origin_event_id, kind)` PostgreSQL unique index |
+| Notification delivery job | `notification-delivery:{delivery_id}`; order `notification:{notification_id}` |
 
 Sequin ID/LSN can be logged for debugging, but do not make it the normal idempotency key when a domain key exists.
 
