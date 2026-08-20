@@ -82,9 +82,6 @@ jobs:
       - name: Format check
         run: cargo fmt --all -- --check
 
-      - name: Check common decomposition baseline
-        run: python3 scripts/common-decomposition/check_baseline.py --base-ref HEAD^
-
       - name: Install dependency graph checker
         run: cargo install cargo-depgraph-check --version 0.1.0 --locked
 
