@@ -4,7 +4,8 @@ use crate::ports::{
         NotificationDeliveryDispatcher,
     },
     notification_delivery_repository::{
-        ClaimNotificationDeliveryOutcome, NotificationDeliveryError, NotificationDeliveryRepository,
+        ClaimNotificationDeliveryOutcome, ClaimedNotificationDelivery, NotificationDeliveryError,
+        NotificationDeliveryRepository,
     },
 };
 use notification_core::{
@@ -16,6 +17,8 @@ use uuid::Uuid;
 
 const DELIVERY_LEASE_DURATION: Duration = Duration::minutes(5);
 const UNREGISTERED_CHANNEL_ERROR_CODE: &str = "NOTIFICATION_CHANNEL_UNREGISTERED";
+const FINALIZATION_INITIAL_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+const FINALIZATION_MAX_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeliverNotificationCommand {
@@ -30,6 +33,21 @@ pub enum DeliverNotificationResult {
     AlreadyClaimed,
     SourceMissing,
     PermanentlyFailed,
+}
+
+enum DeliveryCompletion {
+    Delivered {
+        provider_message_id: String,
+        completed_at: OffsetDateTime,
+    },
+    RetryableFailure {
+        error_code: &'static str,
+        completed_at: OffsetDateTime,
+    },
+    PermanentFailure {
+        error_code: &'static str,
+        completed_at: OffsetDateTime,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -65,6 +83,84 @@ impl<R> DeliverNotificationHandler<R> {
         Self {
             deliveries,
             dispatcher,
+        }
+    }
+}
+
+impl<R> DeliverNotificationHandler<R>
+where
+    R: NotificationDeliveryRepository,
+{
+    async fn finalize(
+        &self,
+        claimed: &ClaimedNotificationDelivery,
+        completion: &DeliveryCompletion,
+    ) -> Result<(), DeliverNotificationError> {
+        let mut retry_delay = FINALIZATION_INITIAL_RETRY_DELAY;
+        let mut retry_attempt = 1_u32;
+
+        loop {
+            let result = match completion {
+                DeliveryCompletion::Delivered {
+                    provider_message_id,
+                    completed_at,
+                } => {
+                    self.deliveries
+                        .mark_delivered(
+                            claimed.notification_delivery_id,
+                            claimed.lease_token,
+                            provider_message_id,
+                            *completed_at,
+                        )
+                        .await
+                }
+                DeliveryCompletion::RetryableFailure {
+                    error_code,
+                    completed_at,
+                } => {
+                    self.deliveries
+                        .mark_retryable_failure(
+                            claimed.notification_delivery_id,
+                            claimed.lease_token,
+                            error_code,
+                            *completed_at,
+                        )
+                        .await
+                }
+                DeliveryCompletion::PermanentFailure {
+                    error_code,
+                    completed_at,
+                } => {
+                    self.deliveries
+                        .mark_permanent_failure(
+                            claimed.notification_delivery_id,
+                            claimed.lease_token,
+                            error_code,
+                            *completed_at,
+                        )
+                        .await
+                }
+            };
+
+            match result {
+                Ok(true) => return Ok(()),
+                Ok(false) => return Err(DeliverNotificationError::LeaseLost),
+                Err(NotificationDeliveryError::OperationFailed { .. }) => {
+                    tracing::warn!(
+                        notification_delivery_id = %claimed.notification_delivery_id,
+                        retry_attempt,
+                        "notification delivery finalization failed; retrying"
+                    );
+                    if !retry_delay.is_zero() {
+                        tokio::time::sleep(retry_delay).await;
+                    }
+                    retry_delay = retry_delay
+                        .saturating_mul(2)
+                        .min(FINALIZATION_MAX_RETRY_DELAY);
+                    retry_attempt = retry_attempt.saturating_add(1);
+                }
+                Err(error) => return Err(DeliverNotificationError::Repository(error)),
+            }
         }
     }
 }
@@ -111,92 +207,52 @@ where
         };
 
         let Some(source) = *source else {
-            let completed = self
-                .deliveries
-                .mark_permanent_failure(
-                    claimed.notification_delivery_id,
-                    claimed.lease_token,
-                    "NOTIFICATION_SOURCE_MISSING",
-                    OffsetDateTime::now_utc(),
-                )
-                .await?;
-            return if completed {
-                Ok(DeliverNotificationResult::SourceMissing)
-            } else {
-                Err(DeliverNotificationError::LeaseLost)
+            let completion = DeliveryCompletion::PermanentFailure {
+                error_code: "NOTIFICATION_SOURCE_MISSING",
+                completed_at: OffsetDateTime::now_utc(),
             };
+            self.finalize(&claimed, &completion).await?;
+            return Ok(DeliverNotificationResult::SourceMissing);
         };
 
         match self.dispatcher.dispatch(&source).await {
             Ok(sent) => {
-                let completed = self
-                    .deliveries
-                    .mark_delivered(
-                        claimed.notification_delivery_id,
-                        claimed.lease_token,
-                        &sent.provider_message_id,
-                        OffsetDateTime::now_utc(),
-                    )
-                    .await?;
-                if completed {
-                    Ok(DeliverNotificationResult::Delivered {
-                        attempt_count: claimed.attempt_count,
-                    })
-                } else {
-                    Err(DeliverNotificationError::LeaseLost)
-                }
+                let completion = DeliveryCompletion::Delivered {
+                    provider_message_id: sent.provider_message_id,
+                    completed_at: OffsetDateTime::now_utc(),
+                };
+                self.finalize(&claimed, &completion).await?;
+                Ok(DeliverNotificationResult::Delivered {
+                    attempt_count: claimed.attempt_count,
+                })
             }
             Err(NotificationDeliveryDispatchError::UnregisteredChannel { channel }) => {
-                let completed = self
-                    .deliveries
-                    .mark_permanent_failure(
-                        claimed.notification_delivery_id,
-                        claimed.lease_token,
-                        UNREGISTERED_CHANNEL_ERROR_CODE,
-                        OffsetDateTime::now_utc(),
-                    )
-                    .await?;
-                if completed {
-                    Err(DeliverNotificationError::UnregisteredChannel { channel })
-                } else {
-                    Err(DeliverNotificationError::LeaseLost)
-                }
+                let completion = DeliveryCompletion::PermanentFailure {
+                    error_code: UNREGISTERED_CHANNEL_ERROR_CODE,
+                    completed_at: OffsetDateTime::now_utc(),
+                };
+                self.finalize(&claimed, &completion).await?;
+                Err(DeliverNotificationError::UnregisteredChannel { channel })
             }
             Err(NotificationDeliveryDispatchError::Send(
                 error @ NotificationChannelSendError::Retryable { .. },
             )) => {
-                let completed = self
-                    .deliveries
-                    .mark_retryable_failure(
-                        claimed.notification_delivery_id,
-                        claimed.lease_token,
-                        error.code(),
-                        OffsetDateTime::now_utc(),
-                    )
-                    .await?;
-                if completed {
-                    Err(DeliverNotificationError::RetryableSend(error))
-                } else {
-                    Err(DeliverNotificationError::LeaseLost)
-                }
+                let completion = DeliveryCompletion::RetryableFailure {
+                    error_code: error.code(),
+                    completed_at: OffsetDateTime::now_utc(),
+                };
+                self.finalize(&claimed, &completion).await?;
+                Err(DeliverNotificationError::RetryableSend(error))
             }
             Err(NotificationDeliveryDispatchError::Send(
                 error @ NotificationChannelSendError::Permanent { .. },
             )) => {
-                let completed = self
-                    .deliveries
-                    .mark_permanent_failure(
-                        claimed.notification_delivery_id,
-                        claimed.lease_token,
-                        error.code(),
-                        OffsetDateTime::now_utc(),
-                    )
-                    .await?;
-                if completed {
-                    Ok(DeliverNotificationResult::PermanentlyFailed)
-                } else {
-                    Err(DeliverNotificationError::LeaseLost)
-                }
+                let completion = DeliveryCompletion::PermanentFailure {
+                    error_code: error.code(),
+                    completed_at: OffsetDateTime::now_utc(),
+                };
+                self.finalize(&claimed, &completion).await?;
+                Ok(DeliverNotificationResult::PermanentlyFailed)
             }
         }
     }
@@ -227,11 +283,43 @@ mod tests {
     };
     use std::sync::{Arc, Mutex};
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum FinalizationCall {
+        Delivered {
+            lease_token: Uuid,
+            provider_message_id: String,
+            completed_at: OffsetDateTime,
+        },
+        RetryableFailure {
+            lease_token: Uuid,
+            error_code: String,
+            completed_at: OffsetDateTime,
+        },
+        PermanentFailure {
+            lease_token: Uuid,
+            error_code: String,
+            completed_at: OffsetDateTime,
+        },
+    }
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    enum PersistedState {
+        #[default]
+        Processing,
+        Delivered,
+        Pending,
+        Failed,
+    }
+
     #[derive(Default)]
     struct DeliveryState {
         claimed_delivery_ids: Mutex<Vec<NotificationDeliveryId>>,
+        claimed_lease_tokens: Mutex<Vec<Uuid>>,
         delivered_message_ids: Mutex<Vec<String>>,
         permanent_failure_codes: Mutex<Vec<String>>,
+        finalization_calls: Mutex<Vec<FinalizationCall>>,
+        finalization_failures_remaining: Mutex<usize>,
+        persisted_state: Mutex<PersistedState>,
     }
 
     struct FakeDeliveryRepository {
@@ -260,6 +348,18 @@ mod tests {
         }
     }
 
+    fn fail_next_finalization(state: &DeliveryState) -> Result<(), NotificationDeliveryError> {
+        let mut remaining = state
+            .finalization_failures_remaining
+            .lock()
+            .map_err(|_| repository_error())?;
+        if *remaining == 0 {
+            return Ok(());
+        }
+        *remaining -= 1;
+        Err(repository_error())
+    }
+
     #[async_trait::async_trait]
     impl NotificationDeliveryRepository for FakeDeliveryRepository {
         async fn claim_and_load_source(
@@ -267,15 +367,27 @@ mod tests {
             notification_delivery_id: NotificationDeliveryId,
             _: OffsetDateTime,
             _: OffsetDateTime,
-            _: Uuid,
+            lease_token: Uuid,
         ) -> Result<ClaimNotificationDeliveryOutcome, NotificationDeliveryError> {
             self.state
                 .claimed_delivery_ids
                 .lock()
                 .map_err(|_| repository_error())?
                 .push(notification_delivery_id);
+            self.state
+                .claimed_lease_tokens
+                .lock()
+                .map_err(|_| repository_error())?
+                .push(lease_token);
+            *self
+                .state
+                .persisted_state
+                .lock()
+                .map_err(|_| repository_error())? = PersistedState::Processing;
+            let mut claimed = self.claimed.clone();
+            claimed.lease_token = lease_token;
             Ok(ClaimNotificationDeliveryOutcome::Claimed {
-                delivery: self.claimed.clone(),
+                delivery: claimed,
                 source: Box::new(Some(self.source.clone())),
             })
         }
@@ -283,47 +395,118 @@ mod tests {
         async fn mark_delivered(
             &self,
             _: NotificationDeliveryId,
-            _: Uuid,
+            lease_token: Uuid,
             provider_message_id: &str,
-            _: OffsetDateTime,
+            completed_at: OffsetDateTime,
         ) -> Result<bool, NotificationDeliveryError> {
+            self.state
+                .finalization_calls
+                .lock()
+                .map_err(|_| repository_error())?
+                .push(FinalizationCall::Delivered {
+                    lease_token,
+                    provider_message_id: provider_message_id.to_owned(),
+                    completed_at,
+                });
+            fail_next_finalization(&self.state)?;
             self.state
                 .delivered_message_ids
                 .lock()
                 .map_err(|_| repository_error())?
                 .push(provider_message_id.to_owned());
+            *self
+                .state
+                .persisted_state
+                .lock()
+                .map_err(|_| repository_error())? = PersistedState::Delivered;
             Ok(true)
         }
 
         async fn mark_retryable_failure(
             &self,
             _: NotificationDeliveryId,
-            _: Uuid,
-            _: &str,
-            _: OffsetDateTime,
+            lease_token: Uuid,
+            error_code: &str,
+            completed_at: OffsetDateTime,
         ) -> Result<bool, NotificationDeliveryError> {
+            self.state
+                .finalization_calls
+                .lock()
+                .map_err(|_| repository_error())?
+                .push(FinalizationCall::RetryableFailure {
+                    lease_token,
+                    error_code: error_code.to_owned(),
+                    completed_at,
+                });
+            fail_next_finalization(&self.state)?;
+            *self
+                .state
+                .persisted_state
+                .lock()
+                .map_err(|_| repository_error())? = PersistedState::Pending;
             Ok(true)
         }
 
         async fn mark_permanent_failure(
             &self,
             _: NotificationDeliveryId,
-            _: Uuid,
+            lease_token: Uuid,
             error_code: &str,
-            _: OffsetDateTime,
+            completed_at: OffsetDateTime,
         ) -> Result<bool, NotificationDeliveryError> {
+            self.state
+                .finalization_calls
+                .lock()
+                .map_err(|_| repository_error())?
+                .push(FinalizationCall::PermanentFailure {
+                    lease_token,
+                    error_code: error_code.to_owned(),
+                    completed_at,
+                });
+            fail_next_finalization(&self.state)?;
             self.state
                 .permanent_failure_codes
                 .lock()
                 .map_err(|_| repository_error())?
                 .push(error_code.to_owned());
+            *self
+                .state
+                .persisted_state
+                .lock()
+                .map_err(|_| repository_error())? = PersistedState::Failed;
             Ok(true)
         }
     }
 
-    #[derive(Default)]
+    #[derive(Clone, Copy, Default)]
+    enum SendOutcome {
+        #[default]
+        Delivered,
+        Retryable(&'static str),
+        Permanent(&'static str),
+    }
+
     struct RecordingEmailSender {
         sent_sources: Mutex<Vec<NotificationDeliverySource>>,
+        outcome: SendOutcome,
+    }
+
+    impl Default for RecordingEmailSender {
+        fn default() -> Self {
+            Self {
+                sent_sources: Mutex::new(Vec::new()),
+                outcome: SendOutcome::default(),
+            }
+        }
+    }
+
+    impl RecordingEmailSender {
+        fn with_outcome(outcome: SendOutcome) -> Self {
+            Self {
+                outcome,
+                ..Self::default()
+            }
+        }
     }
 
     #[async_trait::async_trait]
@@ -343,9 +526,19 @@ mod tests {
                     source: box_error(std::io::Error::other("test sender lock poisoned")),
                 })?
                 .push(source.clone());
-            Ok(SentNotificationDelivery {
-                provider_message_id: "provider-message-1".to_owned(),
-            })
+            match self.outcome {
+                SendOutcome::Delivered => Ok(SentNotificationDelivery {
+                    provider_message_id: "provider-message-1".to_owned(),
+                }),
+                SendOutcome::Retryable(code) => Err(NotificationChannelSendError::Retryable {
+                    code,
+                    source: box_error(std::io::Error::other("test retryable provider failure")),
+                }),
+                SendOutcome::Permanent(code) => Err(NotificationChannelSendError::Permanent {
+                    code,
+                    source: box_error(std::io::Error::other("test permanent provider failure")),
+                }),
+            }
         }
     }
 
@@ -375,12 +568,35 @@ mod tests {
         }
     }
 
+    fn claimed_lease_token(
+        state: &DeliveryState,
+        notification_delivery_id: NotificationDeliveryId,
+    ) -> Result<Uuid, Box<dyn std::error::Error>> {
+        let claimed_delivery_ids = state
+            .claimed_delivery_ids
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+            .clone();
+        assert_eq!(vec![notification_delivery_id], claimed_delivery_ids);
+        state
+            .claimed_lease_tokens
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+            .first()
+            .copied()
+            .ok_or_else(|| std::io::Error::other("missing claimed lease token").into())
+    }
+
     #[tokio::test]
     async fn should_claim_send_and_finalize_through_registered_channel()
     -> Result<(), Box<dyn std::error::Error>> {
         let notification_delivery_id = NotificationDeliveryId::new();
         let source = source(notification_delivery_id);
         let state = Arc::new(DeliveryState::default());
+        *state
+            .finalization_failures_remaining
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))? = 1;
         let sender = Arc::new(RecordingEmailSender::default());
         let dispatcher = NotificationDeliveryDispatcher::new(vec![
             sender.clone() as Arc<dyn NotificationChannelSender>
@@ -424,6 +640,183 @@ mod tests {
                 .map_err(|_| std::io::Error::other("test state lock poisoned"))?
                 .clone()
         );
+        let finalization_calls = state
+            .finalization_calls
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+            .clone();
+        assert_eq!(2, finalization_calls.len());
+        assert!(matches!(
+            finalization_calls.as_slice(),
+            [
+                FinalizationCall::Delivered {
+                    lease_token: first_lease_token,
+                    provider_message_id: first_provider_message_id,
+                    completed_at: first_completed_at,
+                },
+                FinalizationCall::Delivered {
+                    lease_token: second_lease_token,
+                    provider_message_id: second_provider_message_id,
+                    completed_at: second_completed_at,
+                }
+            ] if first_lease_token == second_lease_token
+                && first_provider_message_id == second_provider_message_id
+                && first_completed_at == second_completed_at
+                && first_provider_message_id == "provider-message-1"
+        ));
+        assert_eq!(
+            PersistedState::Delivered,
+            *state
+                .persisted_state
+                .lock()
+                .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_retry_retryable_failure_finalization_without_sending_again()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notification_delivery_id = NotificationDeliveryId::new();
+        let state = Arc::new(DeliveryState::default());
+        *state
+            .finalization_failures_remaining
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))? = 1;
+        let sender = Arc::new(RecordingEmailSender::with_outcome(SendOutcome::Retryable(
+            "TEST_PROVIDER_RETRYABLE",
+        )));
+        let dispatcher = NotificationDeliveryDispatcher::new(vec![
+            sender.clone() as Arc<dyn NotificationChannelSender>
+        ])?;
+        let handler = DeliverNotificationHandler::new(
+            FakeDeliveryRepository::new(
+                notification_delivery_id,
+                source(notification_delivery_id),
+                state.clone(),
+            ),
+            dispatcher,
+        );
+
+        let result = handler
+            .execute(DeliverNotificationCommand {
+                notification_delivery_id,
+            })
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeliverNotificationError::RetryableSend(error))
+                if error.code() == "TEST_PROVIDER_RETRYABLE"
+        ));
+        let sent_source_count = sender
+            .sent_sources
+            .lock()
+            .map_err(|_| std::io::Error::other("test sender lock poisoned"))?
+            .len();
+        assert_eq!(1, sent_source_count);
+        let finalization_calls = state
+            .finalization_calls
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+            .clone();
+        let claimed_lease_token = claimed_lease_token(&state, notification_delivery_id)?;
+        assert_eq!(2, finalization_calls.len());
+        assert!(matches!(
+            finalization_calls.as_slice(),
+            [
+                FinalizationCall::RetryableFailure {
+                    lease_token: first_lease_token,
+                    error_code: first_error_code,
+                    completed_at: first_completed_at,
+                },
+                FinalizationCall::RetryableFailure {
+                    lease_token: second_lease_token,
+                    error_code: second_error_code,
+                    completed_at: second_completed_at,
+                }
+            ] if first_lease_token == second_lease_token
+                && *first_lease_token == claimed_lease_token
+                && first_error_code == second_error_code
+                && first_completed_at == second_completed_at
+                && first_error_code == "TEST_PROVIDER_RETRYABLE"
+        ));
+        let persisted_state = *state
+            .persisted_state
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))?;
+        assert_eq!(PersistedState::Pending, persisted_state);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_retry_permanent_failure_finalization_without_sending_again()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let notification_delivery_id = NotificationDeliveryId::new();
+        let state = Arc::new(DeliveryState::default());
+        *state
+            .finalization_failures_remaining
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))? = 1;
+        let sender = Arc::new(RecordingEmailSender::with_outcome(SendOutcome::Permanent(
+            "TEST_PROVIDER_PERMANENT",
+        )));
+        let dispatcher = NotificationDeliveryDispatcher::new(vec![
+            sender.clone() as Arc<dyn NotificationChannelSender>
+        ])?;
+        let handler = DeliverNotificationHandler::new(
+            FakeDeliveryRepository::new(
+                notification_delivery_id,
+                source(notification_delivery_id),
+                state.clone(),
+            ),
+            dispatcher,
+        );
+
+        let result = handler
+            .execute(DeliverNotificationCommand {
+                notification_delivery_id,
+            })
+            .await?;
+
+        assert_eq!(DeliverNotificationResult::PermanentlyFailed, result);
+        let sent_source_count = sender
+            .sent_sources
+            .lock()
+            .map_err(|_| std::io::Error::other("test sender lock poisoned"))?
+            .len();
+        assert_eq!(1, sent_source_count);
+        let finalization_calls = state
+            .finalization_calls
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))?
+            .clone();
+        let claimed_lease_token = claimed_lease_token(&state, notification_delivery_id)?;
+        assert_eq!(2, finalization_calls.len());
+        assert!(matches!(
+            finalization_calls.as_slice(),
+            [
+                FinalizationCall::PermanentFailure {
+                    lease_token: first_lease_token,
+                    error_code: first_error_code,
+                    completed_at: first_completed_at,
+                },
+                FinalizationCall::PermanentFailure {
+                    lease_token: second_lease_token,
+                    error_code: second_error_code,
+                    completed_at: second_completed_at,
+                }
+            ] if first_lease_token == second_lease_token
+                && *first_lease_token == claimed_lease_token
+                && first_error_code == second_error_code
+                && first_completed_at == second_completed_at
+                && first_error_code == "TEST_PROVIDER_PERMANENT"
+        ));
+        let persisted_state = *state
+            .persisted_state
+            .lock()
+            .map_err(|_| std::io::Error::other("test state lock poisoned"))?;
+        assert_eq!(PersistedState::Failed, persisted_state);
         Ok(())
     }
 

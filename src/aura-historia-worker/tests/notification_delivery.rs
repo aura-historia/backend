@@ -8,19 +8,27 @@ use aws_sdk_s3::{
 };
 use aws_sdk_sesv2::Client as SesClient;
 
+use common::error::boxed::box_error;
 use notification_email_aws::{EmailDeliveryConfig, SesNotificationChannelSender};
 use notification_postgres::SqlxEmailDeliveryTargetReader;
 use notification_postgres::SqlxNotificationDeliveryRepository;
 use notification_service::{
-    ports::notification_channel_sender::{
-        NotificationChannelSender, NotificationDeliveryDispatcher,
+    ports::{
+        notification_channel_sender::{NotificationChannelSender, NotificationDeliveryDispatcher},
+        notification_delivery_repository::{
+            ClaimNotificationDeliveryOutcome, NotificationDeliveryError,
+            NotificationDeliveryRepository,
+        },
     },
     use_cases::commands::deliver_notification::{
         DeliverNotificationHandler, DeliverNotificationUseCase,
     },
 };
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::Duration;
 use test_api::{
     IntegrationTestService, Postgres, S3, Sequin, Ses, aura_integration_test, get_postgres_client,
@@ -42,6 +50,16 @@ async fn should_deliver_committed_notification_delivery_and_persist_result() {
     assert!(
         result.is_ok(),
         "notification delivery insert acceptance test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses(), WORKER_SEQUIN])]
+async fn should_retry_successful_delivery_finalization_without_sending_again() {
+    let result = retry_successful_delivery_finalization().await;
+
+    assert!(
+        result.is_ok(),
+        "notification delivery finalization retry acceptance test failed: {result:?}"
     );
 }
 
@@ -120,6 +138,48 @@ async fn deliver_committed_notification_delivery() -> Result<(), Box<dyn std::er
                 .html_part
                 .as_deref()
                 .is_some_and(|body| body.contains("Delivery test shop"))
+        );
+        Ok(())
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
+async fn retry_successful_delivery_finalization() -> Result<(), Box<dyn std::error::Error>> {
+    let pool = get_postgres_client().await;
+    let fault = Arc::new(FinalizationFaultState::default());
+    fault.failures_remaining.store(1, Ordering::SeqCst);
+    let worker = NotificationDeliveryWorker::start_with_repository(
+        Template::Valid,
+        pool.clone(),
+        FailOnceFinalizationRepository {
+            inner: SqlxNotificationDeliveryRepository::new(pool.clone()),
+            state: fault.clone(),
+        },
+    )
+    .await?;
+    let result = async {
+        let delivery = insert_delivery(&worker.pool, DeliveryState::Pending).await?;
+        let persisted = wait_for_delivery(&worker.pool, delivery.delivery_id, "DELIVERED").await?;
+
+        assert_eq!(1, persisted.attempt_count);
+        assert!(persisted.provider_message_id.is_some());
+        assert!(persisted.lease_token.is_none());
+        assert!(persisted.lease_expires_at.is_none());
+        let _ = wait_for_email_to(&delivery.recipient_email).await?;
+        assert_email_count_for(&delivery.recipient_email, 1).await?;
+
+        let calls = fault
+            .calls
+            .lock()
+            .map_err(|_| std::io::Error::other("finalization fault state lock poisoned"))?
+            .clone();
+        assert_eq!(2, calls.len());
+        assert_eq!(calls[0], calls[1]);
+        assert_eq!(
+            Some(calls[0].provider_message_id.clone()),
+            persisted.provider_message_id
         );
         Ok(())
     }
@@ -280,6 +340,121 @@ async fn persist_permanent_template_failure() -> Result<(), Box<dyn std::error::
     worker.finish(result).await
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DeliveredFinalizationCall {
+    lease_token: uuid::Uuid,
+    provider_message_id: String,
+    completed_at: time::OffsetDateTime,
+}
+
+#[derive(Default)]
+struct FinalizationFaultState {
+    failures_remaining: AtomicUsize,
+    calls: Mutex<Vec<DeliveredFinalizationCall>>,
+}
+
+struct FailOnceFinalizationRepository {
+    inner: SqlxNotificationDeliveryRepository,
+    state: Arc<FinalizationFaultState>,
+}
+
+impl FailOnceFinalizationRepository {
+    fn operation_error() -> NotificationDeliveryError {
+        NotificationDeliveryError::OperationFailed {
+            source: box_error(std::io::Error::other(
+                "injected notification delivery finalization failure",
+            )),
+        }
+    }
+
+    fn should_fail_once(&self) -> bool {
+        self.state
+            .failures_remaining
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_ok()
+    }
+}
+
+#[async_trait::async_trait]
+impl NotificationDeliveryRepository for FailOnceFinalizationRepository {
+    async fn claim_and_load_source(
+        &self,
+        notification_delivery_id: notification_core::notification_delivery_id::NotificationDeliveryId,
+        now: time::OffsetDateTime,
+        lease_expires_at: time::OffsetDateTime,
+        lease_token: uuid::Uuid,
+    ) -> Result<ClaimNotificationDeliveryOutcome, NotificationDeliveryError> {
+        self.inner
+            .claim_and_load_source(notification_delivery_id, now, lease_expires_at, lease_token)
+            .await
+    }
+
+    async fn mark_delivered(
+        &self,
+        notification_delivery_id: notification_core::notification_delivery_id::NotificationDeliveryId,
+        lease_token: uuid::Uuid,
+        provider_message_id: &str,
+        delivered_at: time::OffsetDateTime,
+    ) -> Result<bool, NotificationDeliveryError> {
+        self.state
+            .calls
+            .lock()
+            .map_err(|_| Self::operation_error())?
+            .push(DeliveredFinalizationCall {
+                lease_token,
+                provider_message_id: provider_message_id.to_owned(),
+                completed_at: delivered_at,
+            });
+        if self.should_fail_once() {
+            return Err(Self::operation_error());
+        }
+        self.inner
+            .mark_delivered(
+                notification_delivery_id,
+                lease_token,
+                provider_message_id,
+                delivered_at,
+            )
+            .await
+    }
+
+    async fn mark_retryable_failure(
+        &self,
+        notification_delivery_id: notification_core::notification_delivery_id::NotificationDeliveryId,
+        lease_token: uuid::Uuid,
+        error_code: &str,
+        completed_at: time::OffsetDateTime,
+    ) -> Result<bool, NotificationDeliveryError> {
+        self.inner
+            .mark_retryable_failure(
+                notification_delivery_id,
+                lease_token,
+                error_code,
+                completed_at,
+            )
+            .await
+    }
+
+    async fn mark_permanent_failure(
+        &self,
+        notification_delivery_id: notification_core::notification_delivery_id::NotificationDeliveryId,
+        lease_token: uuid::Uuid,
+        error_code: &str,
+        completed_at: time::OffsetDateTime,
+    ) -> Result<bool, NotificationDeliveryError> {
+        self.inner
+            .mark_permanent_failure(
+                notification_delivery_id,
+                lease_token,
+                error_code,
+                completed_at,
+            )
+            .await
+    }
+}
+
 struct NotificationDeliveryWorker {
     pool: sqlx::PgPool,
     consumer: JoinHandle<()>,
@@ -289,8 +464,24 @@ struct NotificationDeliveryWorker {
 
 impl NotificationDeliveryWorker {
     async fn start(template: Template) -> Result<Self, Box<dyn std::error::Error>> {
-        let targets = DeliveryTargets::create(template).await?;
         let pool = get_postgres_client().await;
+        Self::start_with_repository(
+            template,
+            pool.clone(),
+            SqlxNotificationDeliveryRepository::new(pool),
+        )
+        .await
+    }
+
+    async fn start_with_repository<R>(
+        template: Template,
+        pool: sqlx::PgPool,
+        repository: R,
+    ) -> Result<Self, Box<dyn std::error::Error>>
+    where
+        R: NotificationDeliveryRepository + 'static,
+    {
+        let targets = DeliveryTargets::create(template).await?;
         let aws_config = test_api::localstack::get_aws_config().await;
         let s3 = S3Client::from_conf(
             S3ConfigBuilder::from(aws_config)
@@ -299,7 +490,7 @@ impl NotificationDeliveryWorker {
         );
         let handler: Arc<dyn DeliverNotificationUseCase> =
             Arc::new(DeliverNotificationHandler::new(
-                SqlxNotificationDeliveryRepository::new(pool.clone()),
+                repository,
                 NotificationDeliveryDispatcher::new(vec![Arc::new(
                     SesNotificationChannelSender::new(
                         s3,

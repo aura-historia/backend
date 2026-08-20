@@ -10,6 +10,7 @@ notification-core = { workspace = true }
 
 thiserror = { workspace = true }
 time = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time"] }
 tracing = { workspace = true }
 uuid = { workspace = true }
 mockall = { workspace = true, optional = true }
