@@ -199,7 +199,7 @@ jobs:
   acceptance-test:
     name: Acceptance-Test
     needs: [determine-affected-crates]
-    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]'
+    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]' && !always() # temporary disabled while migrating to Hetzner/Postgres
     permissions:
       contents: read
     runs-on: self-hosted
