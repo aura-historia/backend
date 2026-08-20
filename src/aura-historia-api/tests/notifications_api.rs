@@ -8,6 +8,7 @@ use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
     get_postgres_client,
 };
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user_core::access_token::RawAccessToken;
 use uuid::Uuid;
 
@@ -145,6 +146,96 @@ async fn should_list_canonical_notifications_without_legacy_fields_and_follow_cu
     assert_ne!(
         serde_json::json!(first_page_id),
         body["items"][0]["notificationId"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_paginate_notifications_without_advertising_terminal_pages() {
+    let empty_user_id = seed_user("USER").await;
+    let empty_token = notification_token(empty_user_id).await;
+    let empty = list_notification_page(&empty_token, 2, None).await;
+    assert!(empty["items"].as_array().is_some_and(Vec::is_empty));
+    assert!(empty.get("searchAfter").is_none());
+
+    let partial_user_id = seed_user("USER").await;
+    let partial_token = notification_token(partial_user_id).await;
+    let partial_created = OffsetDateTime::from_unix_timestamp(1_777_777_700)
+        .unwrap_or_else(|error| panic!("invalid partial timestamp: {error}"));
+    seed_notification_at(partial_user_id, Uuid::from_u128(100), partial_created).await;
+    let partial = list_notification_page(&partial_token, 2, None).await;
+    assert_eq!(1, partial["items"].as_array().map_or(0, Vec::len));
+    assert!(partial.get("searchAfter").is_none());
+
+    let user_id = seed_user("USER").await;
+    let token = notification_token(user_id).await;
+    let created = OffsetDateTime::from_unix_timestamp(1_777_777_777)
+        .unwrap_or_else(|error| panic!("invalid pagination timestamp: {error}"));
+    let oldest = Uuid::from_u128(1);
+    let middle = Uuid::from_u128(2);
+    let newest = Uuid::from_u128(3);
+    seed_notification_at(user_id, oldest, created).await;
+    seed_notification_at(user_id, middle, created).await;
+    seed_notification_at(user_id, newest, created).await;
+
+    let first = list_notification_page(&token, 2, None).await;
+    let first_items = match first["items"].as_array() {
+        Some(items) => items,
+        None => panic!("first page has no items"),
+    };
+    assert_eq!(2, first_items.len());
+    assert_eq!(
+        Some(newest.to_string()),
+        first_items[0]["notificationId"].as_str().map(String::from)
+    );
+    assert_eq!(
+        Some(middle.to_string()),
+        first_items[1]["notificationId"].as_str().map(String::from)
+    );
+    let first_cursor = match first.get("searchAfter") {
+        Some(cursor) => cursor.to_string(),
+        None => panic!("full first page is missing continuation cursor"),
+    };
+    let first_timestamp = match first["items"][0]["created"].as_str() {
+        Some(timestamp) => timestamp,
+        None => panic!("first notification is missing created timestamp"),
+    };
+    assert!(OffsetDateTime::parse(first_timestamp, &Rfc3339).is_ok());
+
+    let terminal = list_notification_page(&token, 2, Some(first_cursor.as_str())).await;
+    let terminal_items = match terminal["items"].as_array() {
+        Some(items) => items,
+        None => panic!("terminal page has no items"),
+    };
+    assert_eq!(1, terminal_items.len());
+    assert_eq!(
+        Some(oldest.to_string()),
+        terminal_items[0]["notificationId"]
+            .as_str()
+            .map(String::from)
+    );
+    assert!(terminal.get("searchAfter").is_none());
+
+    let exact_user_id = seed_user("USER").await;
+    let exact_token = notification_token(exact_user_id).await;
+    seed_notification_at(exact_user_id, Uuid::from_u128(10), created).await;
+    seed_notification_at(exact_user_id, Uuid::from_u128(11), created).await;
+    let exact = list_notification_page(&exact_token, 2, None).await;
+    assert_eq!(2, exact["items"].as_array().map_or(0, Vec::len));
+    assert!(exact.get("searchAfter").is_none());
+
+    let malformed = reqwest::Client::new()
+        .get(notifications_path())
+        .bearer_auth(String::from(token))
+        .query(&[("searchAfter", "not-a-json-cursor")])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list malformed cursor: {error}"));
+    let (status, body) = json_response(malformed).await;
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::BAD_REQUEST,
+        "BAD_QUERY_PARAMETER_VALUE",
     );
 }
 
@@ -487,6 +578,52 @@ async fn seed_notification(user_id: UserId, seen: bool) -> Uuid {
         panic!("failed to seed notification: {error}");
     }
     notification_id
+}
+
+async fn seed_notification_at(user_id: UserId, notification_id: Uuid, created: OffsetDateTime) {
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query(
+        r#"
+        INSERT INTO notifications (
+            notification_id, user_id, kind, partner_shop_application_id, payload, seen, created, updated
+        ) VALUES ($1, $2, 'PARTNER_APPLICATION_APPROVED', $3, $4, false, $5, $5)
+        "#,
+    )
+    .bind(notification_id)
+    .bind(uuid::Uuid::from(user_id))
+    .bind(Uuid::new_v4())
+    .bind(serde_json::json!({
+        "type": "PARTNER_APPLICATION",
+        "snapshot": { "shop_name": "Acceptance Shop", "image": null },
+    }))
+    .bind(created)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed dated notification: {error}");
+    }
+}
+
+async fn list_notification_page(
+    token: &RawAccessToken,
+    size: u32,
+    search_after: Option<&str>,
+) -> Value {
+    let client = reqwest::Client::new();
+    let mut request = client
+        .get(notifications_path())
+        .bearer_auth(String::from(token.clone()))
+        .query(&[("size", size.to_string())]);
+    if let Some(search_after) = search_after {
+        request = request.query(&[("searchAfter", search_after)]);
+    }
+    let response = request
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list notification page: {error}"));
+    let (status, body) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::OK, status);
+    body
 }
 
 async fn seed_notification_payloads(user_id: UserId) {

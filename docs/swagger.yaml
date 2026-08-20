@@ -13589,7 +13589,7 @@ components:
           minItems: 2
           maxItems: 2
           items: { type: string }
-          description: Opaque `[created RFC3339 timestamp, notification UUID]` cursor for the next page.
+          description: Opaque `[created RFC3339 timestamp, notification UUID]` cursor for the next page; omitted when no further page exists.
 
     PostProductData:
       type: object

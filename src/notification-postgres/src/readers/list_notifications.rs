@@ -26,15 +26,20 @@ impl NotificationListReader for SqlxNotificationListReader {
         cursor: Option<NotificationListCursor>,
         limit: u32,
     ) -> Result<NotificationListPage, NotificationListReadError> {
+        let limit = limit.clamp(1, 100);
+        let page_size =
+            usize::try_from(limit).map_err(|source| NotificationListReadError::ReadFailed {
+                source: box_error(source),
+            })?;
         let rows = sqlx::query_as::<_, NotificationRow>(
             "SELECT notification_id, user_id, kind, origin_event_id, product_id, user_search_filter_id, partner_shop_application_id, payload_version, payload, seen, created, updated FROM notifications WHERE user_id = $1 AND ($2::timestamptz IS NULL OR (created, notification_id) < ($2, $3)) ORDER BY created DESC, notification_id DESC LIMIT $4",
         ).bind(uuid::Uuid::from(user_id))
             .bind(cursor.map(|cursor| cursor.created))
             .bind(cursor.map(|cursor| uuid::Uuid::from(cursor.notification_id)))
-            .bind(i64::from(limit.clamp(1, 100)))
+            .bind(i64::from(limit) + 1)
             .fetch_all(&self.pool).await
             .map_err(|source| NotificationListReadError::ReadFailed { source: box_error(source) })?;
-        let items = rows
+        let mut items = rows
             .into_iter()
             .map(|row| {
                 let notification_id = NotificationId::from(row.notification_id);
@@ -56,10 +61,18 @@ impl NotificationListReader for SqlxNotificationListReader {
                 })
             })
             .collect::<Result<Vec<_>, NotificationListReadError>>()?;
-        let next_cursor = items.last().map(|item| NotificationListCursor {
-            created: item.created,
-            notification_id: item.notification_id,
-        });
+        let has_more = items.len() > page_size;
+        if has_more {
+            let _ = items.pop();
+        }
+        let next_cursor = if has_more {
+            items.last().map(|item| NotificationListCursor {
+                created: item.created,
+                notification_id: item.notification_id,
+            })
+        } else {
+            None
+        };
         Ok(NotificationListPage { items, next_cursor })
     }
 }
