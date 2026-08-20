@@ -3,10 +3,8 @@ use application::operation_context::Principal;
 use axum::Json;
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::event_id::EventId;
-use common::personalized::api::PersonalizedData;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use domain_primitives::event_id::EventId;
+
 use fxrate_core::FxRateId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use product_core::product::ProductPricing;
@@ -25,7 +23,17 @@ use product_service::user_state::{
     NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
     WatchlistUserState,
 };
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PersonalizedData<ItemData, UserStateData> {
+    pub(crate) item: ItemData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) user_state: Option<UserStateData>,
+}
 use shop_core::shop_id::ShopId;
 use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;

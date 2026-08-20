@@ -71,4 +71,4 @@ api = [
     "httpdate",
     "lambda_runtime"
 ]
-test-data = ["fake", "credential-core/test-data", "domain-primitives/test-data", "fxrate-core/test-data", "geo/test-data", "product-core/test-data", "search-filter-core/test-data", "shop-core/test-data", "shop-partner-core/test-data", "user-core/test-data"]
+test-data = ["fake", "application/test-data", "credential-core/test-data", "domain-primitives/test-data", "fxrate-core/test-data", "geo/test-data", "product-core/test-data", "search-filter-core/test-data", "shop-core/test-data", "shop-partner-core/test-data", "user-core/test-data"]

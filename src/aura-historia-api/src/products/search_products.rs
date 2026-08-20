@@ -6,14 +6,14 @@ use crate::products::product_data::{
 use crate::state::ProductsState;
 use crate::values::{CurrencyData, GeoDistanceQueryData, LanguageData};
 use application::operation_context::Principal;
+use application::pagination::Cursor;
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::pagination::cursor::Cursor;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
-use common::sort::{Sort, SortOrder};
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
+use domain_primitives::sort::{Sort, SortOrder};
 use fxrate_core::FxRateId;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
@@ -76,13 +76,25 @@ struct ProductSearchData {
     state: HashSet<ProductStateData>,
     #[serde(default)]
     lifecycle: HashSet<ProductLifecycleData>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     created: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     updated: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     auction_start: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     auction_end: Option<RangeQuery<OffsetDateTime>>,
 }
 
@@ -412,11 +424,11 @@ mod tests {
     use super::*;
     use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
     use application::operation_context::OperationContext;
+    use application::pagination::Cursor;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::pagination::cursor::Cursor;
-    use common::sort::SortOrder;
+    use domain_primitives::sort::SortOrder;
     use localization::Language;
     use money::Currency;
     use product_service::use_cases::{

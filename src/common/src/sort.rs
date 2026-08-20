@@ -1,55 +1,5 @@
-#[cfg_attr(feature = "api", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "api", serde(rename_all = "lowercase"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortOrder {
-    Asc,
-    Desc,
-}
-
-impl SortOrder {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SortOrder::Asc => "asc",
-            SortOrder::Desc => "desc",
-        }
-    }
-}
-
-impl From<SortOrder> for &'static str {
-    fn from(value: SortOrder) -> Self {
-        value.as_str()
-    }
-}
-
-impl<'a> TryFrom<&'a str> for SortOrder {
-    type Error = String;
-
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        match value {
-            "asc" => Ok(SortOrder::Asc),
-            "desc" => Ok(SortOrder::Desc),
-            invalid => Err(format!("Expected any of: 'asc', 'desc'. Got: '{invalid}'")),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Sort<T> {
-    pub sort: T,
-    pub order: SortOrder,
-}
-
-impl<T> Sort<T> {
-    pub fn map<U, F>(self, f: F) -> Sort<U>
-    where
-        F: FnOnce(T) -> U,
-    {
-        Sort {
-            sort: f(self.sort),
-            order: self.order,
-        }
-    }
-}
+// Legacy shim. Owner: domain-primitives. Remove after legacy common consumers migrate.
+pub use domain_primitives::sort::{Sort, SortOrder};
 
 #[cfg(feature = "api")]
 pub mod api {

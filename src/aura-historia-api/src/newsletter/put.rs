@@ -138,12 +138,12 @@ mod tests {
                 }
                 Some(UseCaseResult::TemporarilyUnavailable) => Err(
                     UpsertNewsletterSubscriptionError::NewsletterSubscriptionUnavailable {
-                        source: common::error::boxed::static_error("unavailable"),
+                        source: application::error::static_error("unavailable"),
                     },
                 ),
                 Some(UseCaseResult::Internal) => Err(
                     UpsertNewsletterSubscriptionError::NewsletterSubscriptionInternal {
-                        source: common::error::boxed::static_error("internal"),
+                        source: application::error::static_error("internal"),
                     },
                 ),
             }

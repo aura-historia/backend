@@ -2,7 +2,7 @@ use aura_historia_worker::{
     QueueConfig, WorkerRunError, WorkerRuntime, cdc::WorkerQueue,
     product_embedding::consume_product_embedding_queue, serve_with_runtime,
 };
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use embedding::{
     EMBEDDING_DIMENSIONS, EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText,
     EmbeddingVector,

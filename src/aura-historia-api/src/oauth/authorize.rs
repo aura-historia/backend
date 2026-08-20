@@ -7,7 +7,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{CodeChallengeMethod, OAuthCodeChallenge};
 use oauth_service::use_cases::{
     AuthorizeRequest, OAuthResponseType, OAuthState as OAuthRequestState,

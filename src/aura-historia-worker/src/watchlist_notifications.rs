@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    product_id::ProductId,
-};
+use application::error::{BoxError, box_error};
+use domain_primitives::event_id::EventId;
+use product_core::product_id::ProductId;
 use product_service::use_cases::{
     GenerateWatchlistNotificationsCommand, GenerateWatchlistNotificationsUseCase,
 };

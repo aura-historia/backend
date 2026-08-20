@@ -100,9 +100,9 @@
   "direct_dependencies": {
     "normal": {
       "acceptance-tests": ["opensearch"],
-      "aura-historia-api": ["api"],
+
       "aura-historia-parent": [],
-      "aura-historia-worker": [],
+
       "aws-tests-common": ["opensearch"],
       "billing-service": [],
       "billing-stripe": [],

@@ -1,6 +1,6 @@
 use crate::products::product_data::ProductImageData;
 use crate::values::{LocalizedTextData, PriceData};
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};

@@ -1,10 +1,24 @@
-use common::resource_state::data::{PatchResourceStateData, ResourceStateData};
-use common::user_id::UserId;
 use product_core::product_id::ProductId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 use watchlist_core::{ResourceState, WatchlistProduct};
 use watchlist_service::ports::WatchlistProductView;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum ResourceStateData {
+    Active,
+    InactiveByUser,
+    InactiveByRestrictedPlan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum PatchResourceStateData {
+    Active,
+    InactiveByUser,
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

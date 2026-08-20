@@ -89,8 +89,8 @@ fn credential_capability(scope: Scope) -> CredentialCapability {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::error::{BoxError, box_error};
     use application::operation_context::{OperationContext, Principal};
-    use common::error::boxed::{BoxError, box_error};
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::access_token::HashedRawAccessToken;
     use user_core::user_id::UserId;

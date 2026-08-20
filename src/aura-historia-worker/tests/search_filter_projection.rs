@@ -1,10 +1,7 @@
 use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
-use common::event_id::EventId;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use domain_primitives::event_id::EventId;
 use localization::{Language, Localized};
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
@@ -21,6 +18,8 @@ use product_service::ports::{
     ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
 };
 use search_filter_core::ResourceState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{SqlxSearchFilterIndexReader, SqlxSearchFilterRepositoryFactory};
@@ -42,6 +41,7 @@ use test_api::{
 };
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();

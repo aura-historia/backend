@@ -29,7 +29,7 @@ struct CreateOAuthClientData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) struct OAuthClientMetadataData {
-    client_id: common::oauth_client_id::OAuthClientId,
+    client_id: credential_core::oauth_client_id::OAuthClientId,
     #[serde(skip_serializing_if = "Option::is_none")]
     client_secret: Option<String>,
     client_name: String,

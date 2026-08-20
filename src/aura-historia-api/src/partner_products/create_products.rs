@@ -79,8 +79,7 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};
-    use common::event_id::EventId;
-    use common::user_id::UserId;
+    use domain_primitives::event_id::EventId;
     use product_core::product_id::{ProductId, ProductKey};
     use product_core::product_slug_id::ProductSlugId;
     use product_service::use_cases::{
@@ -93,6 +92,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use tower::ServiceExt;
+    use user_core::user_id::UserId;
 
     mockall::mock! {
         CreateUseCase {}

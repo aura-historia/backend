@@ -1,8 +1,5 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Personalized<Item, UserState> {
-    pub item: Item,
-    pub user_state: Option<UserState>,
-}
+// Legacy shim. Owner: application. Remove after legacy common consumers migrate.
+pub use application::personalized::Personalized;
 
 #[cfg(feature = "api")]
 pub mod api {

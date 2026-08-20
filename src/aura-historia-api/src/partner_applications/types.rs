@@ -1,7 +1,5 @@
 use crate::shops::types::ShopTypeData;
 use crate::values::{CurrencyData, LanguageData};
-use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::user_id::UserId;
 use geo::data::address_data::StructuredAddressData;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -12,10 +10,12 @@ use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_partner_core::partner_shop_application::{
     PartnerShopApplication, PartnerShopApplicationPayload,
 };
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_partner_core::partner_shop_application_state::PartnerShopApplicationState;
 use shop_partner_service::ports::PartnerShopApplicationView;
 use std::collections::HashSet;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -3,19 +3,17 @@ use crate::{
     cdc::{DomainJob, DomainJobPayload},
     retry::{InMemoryDeadLetterQueue, RetryConfig, run_with_retry},
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    product_id::ProductId,
-    user_id::UserId,
-    user_search_filter_id::UserSearchFilterId,
-};
+use application::error::{BoxError, box_error};
+use domain_primitives::event_id::EventId;
+use product_core::product_id::ProductId;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::use_cases::{
     GenerateSearchFilterMatchNotificationCommand, GenerateSearchFilterMatchNotificationResult,
     GenerateSearchFilterMatchNotificationUseCase,
 };
 use std::sync::Arc;
 use tracing::{Span, error, info};
+use user_core::user_id::UserId;
 
 pub async fn consume_search_filter_match_notification_queue(
     mut receiver: InMemoryQueueReceiver<DomainJob>,

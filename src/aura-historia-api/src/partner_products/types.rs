@@ -1,6 +1,6 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
 use crate::values::{LocalizedTextData, PriceData};
-use common::patch_field::PatchField;
+use application::patch_field::PatchField;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
 use product_core::description::Description;

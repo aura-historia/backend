@@ -3,11 +3,11 @@ use super::util::{no_store, parse_json, parse_user_id, patch};
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::state::UsersState;
+use application::pagination::Cursor;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::pagination::cursor::Cursor;
 use std::collections::HashMap;
 use user_core::user_search::UserSearch;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleCommand;
@@ -99,7 +99,7 @@ pub async fn patch_admin_user(
 async fn admin_patch_user(
     state: UsersState,
     ctx: application::operation_context::OperationContext,
-    user_id: common::user_id::UserId,
+    user_id: user_core::user_id::UserId,
     data: PatchAdminUserData,
 ) -> Response {
     let profile_changed = data.email.is_some()

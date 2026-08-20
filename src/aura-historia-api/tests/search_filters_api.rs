@@ -457,7 +457,7 @@ async fn should_reject_invalid_search_filter_identifier() {
     );
 }
 
-async fn search_filters_token(user_id: common::user_id::UserId) -> RawAccessToken {
+async fn search_filters_token(user_id: user_core::user_id::UserId) -> RawAccessToken {
     seed_access_token_for(
         user_id,
         std::collections::HashSet::from([Scope::SearchFiltersWrite]),
@@ -480,7 +480,7 @@ async fn create_search_filter(client: &reqwest::Client, token: &RawAccessToken) 
 }
 
 async fn seed_search_filter_match(
-    user_id: common::user_id::UserId,
+    user_id: user_core::user_id::UserId,
     filter_id: &str,
 ) -> (ProductId, String, String) {
     let product_id = seed_product().await;

@@ -9,7 +9,7 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_service::use_cases::UpdateOAuthClientCommand;
 use serde::Deserialize;
 use std::collections::HashSet;

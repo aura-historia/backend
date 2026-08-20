@@ -2,16 +2,16 @@ use super::util::{no_store, parse_json, patch};
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
 use crate::state::UsersState;
+use application::patch_field::PatchField;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::patch_field::PatchField;
-use common::user_id::UserId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::{AccessTokenId, AccessTokenName, AccessTokenOrigin, Scope};
+use user_core::user_id::UserId;
 use user_service::use_cases::commands::create_access_token::{
     CreateAccessTokenCommand, CreateAccessTokenResult,
 };

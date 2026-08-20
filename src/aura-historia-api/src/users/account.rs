@@ -7,7 +7,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::user_id::UserId;
+use user_core::user_id::UserId;
 use user_service::use_cases::commands::delete_user::DeleteUserCommand;
 use user_service::use_cases::commands::update_user_profile::UpdateUserProfileCommand;
 use user_service::use_cases::queries::get_own_user::GetOwnUserRequest;

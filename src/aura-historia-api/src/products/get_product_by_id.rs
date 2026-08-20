@@ -76,15 +76,11 @@ mod tests {
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
     use application::operation_context::OperationContext;
+    use application::personalized::Personalized;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::enhanced_match_reason::EnhancedMatchReason;
-    use common::event_id::EventId;
-    use common::personalized::Personalized;
-    use common::user_id::UserId;
-    use common::user_search_filter_id::UserSearchFilterId;
-    use common::user_search_filter_name::UserSearchFilterName;
+    use domain_primitives::event_id::EventId;
     use fxrate_core::FxRateId;
     use localization::{Language, Localized};
     use money::Currency;
@@ -106,6 +102,9 @@ mod tests {
         NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
         WatchlistUserState,
     };
+    use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
+    use search_filter_core::user_search_filter_id::UserSearchFilterId;
+    use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use serde_json::{Value, json};
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
@@ -114,6 +113,7 @@ mod tests {
     use time::OffsetDateTime;
     use tower::ServiceExt;
     use url::Url;
+    use user_core::user_id::UserId;
 
     type GetProductCalls = Arc<Mutex<Vec<(OperationContext, GetProductRequest)>>>;
 

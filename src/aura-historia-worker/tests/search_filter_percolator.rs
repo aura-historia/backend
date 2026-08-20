@@ -3,11 +3,8 @@ use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
 use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
-use common::event_id::EventId;
-use common::query::range_query::RangeQuery;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use domain_primitives::event_id::EventId;
+use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use large_language_model::{
@@ -30,6 +27,8 @@ use product_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_core::ResourceState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
@@ -56,6 +55,7 @@ use test_api::{
 };
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+use user_core::user_id::UserId;
 use user_postgres::SqlxUserTierEntitlementsFactory;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -77,7 +77,7 @@ impl LargeLanguageModel for NonMatchingLargeLanguageModel {
     {
         serde_json::from_str(r#"{"matches":false}"#).map_err(|source| {
             LargeLanguageModelError::InvalidResponse {
-                source: common::error::boxed::box_error(source),
+                source: application::error::box_error(source),
             }
         })
     }

@@ -6,7 +6,7 @@ use aura_historia_worker::{
     },
     serve_with_runtime,
 };
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
@@ -42,7 +42,7 @@ impl LargeLanguageModel for FixedTranslationLlm {
             r#"{"titles":{"en":"Antique oak chair","fr":"Chaise ancienne en chêne","es":"Silla antigua de roble","it":"Sedia antica in rovere"}}"#,
         )
         .map_err(|source| LargeLanguageModelError::InvalidResponse {
-            source: common::error::boxed::box_error(source),
+            source: application::error::box_error(source),
         })
     }
 }

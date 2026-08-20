@@ -55,7 +55,6 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::user_id::UserId;
     use localization::Language;
     use money::Currency;
     use serde_json::{Value, json};
@@ -70,6 +69,7 @@ mod tests {
     use time::macros::datetime;
     use tower::ServiceExt;
     use url::Url;
+    use user_core::user_id::UserId;
 
     type GetShopCalls = Arc<Mutex<Vec<(OperationContext, GetShopRequest)>>>;
 

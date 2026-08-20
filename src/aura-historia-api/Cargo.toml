@@ -12,7 +12,8 @@ aws-sdk-dynamodb = { workspace = true }
 application = { workspace = true }
 billing-service = { workspace = true }
 billing-stripe = { workspace = true }
-common = { workspace = true, features = ["api"] }
+credential-core = { workspace = true }
+domain-primitives = { workspace = true }
 embedding = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-postgres = { workspace = true }

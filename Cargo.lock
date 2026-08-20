@@ -122,7 +122,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "credential-core",
+ "domain-primitives",
+ "fake",
  "thiserror 2.0.20",
+ "time",
  "tokio",
  "user-core",
 ]
@@ -236,7 +239,8 @@ dependencies = [
  "base64 0.23.1",
  "billing-service",
  "billing-stripe",
- "common",
+ "credential-core",
+ "domain-primitives",
  "embedding",
  "fxrate-core",
  "fxrate-postgres",
@@ -394,7 +398,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
- "common",
+ "domain-primitives",
  "embedding",
  "fxrate-core",
  "fxrate-postgres",
@@ -430,6 +434,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "user-core",
  "user-postgres",
  "uuid",
  "watchlist-postgres",
@@ -4347,6 +4352,7 @@ dependencies = [
 name = "large-language-model"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "common",
  "futures",

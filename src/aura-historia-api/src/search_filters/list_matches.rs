@@ -11,8 +11,9 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 
-use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
-use common::sort::SortOrder;
+use crate::pagination_data::JsonCursoredData;
+use application::pagination::{Cursor, CursoredResult};
+use domain_primitives::sort::SortOrder;
 use product_core::product_id::ProductId;
 use search_filter_service::ports::SearchFilterMatchCursor;
 use search_filter_service::use_cases::ListSearchFilterMatchesRequest;

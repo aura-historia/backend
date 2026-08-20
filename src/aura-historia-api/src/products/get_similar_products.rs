@@ -189,12 +189,11 @@ mod tests {
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
     use application::operation_context::OperationContext;
+    use application::personalized::Personalized;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::event_id::EventId;
-    use common::personalized::Personalized;
-    use common::user_id::UserId;
+    use domain_primitives::event_id::EventId;
     use localization::{Language, Localized};
     use money::Currency;
     use money::{MonetaryAmount, Price};
@@ -219,6 +218,7 @@ mod tests {
     use time::OffsetDateTime;
     use tower::ServiceExt;
     use url::Url;
+    use user_core::user_id::UserId;
 
     #[derive(Clone)]
     enum FakeSimilarProductsResult {

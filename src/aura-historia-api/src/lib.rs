@@ -3,6 +3,7 @@ pub mod billing;
 pub mod error;
 pub mod newsletter;
 pub mod oauth;
+pub(crate) mod pagination_data;
 pub mod partner_applications;
 pub mod partner_products;
 pub mod products;
@@ -1165,11 +1166,11 @@ mod tests {
     use crate::state::ReadinessCheck;
     use application::operation_context::CredentialCapability;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use common::user_id::UserId;
     use http::StatusCode;
     use jsonwebtokens::{Algorithm, AlgorithmID};
     use openssl::rsa::Rsa;
     use serde_json::json;
+    use user_core::user_id::UserId;
 
     use std::collections::BTreeSet;
     use time::OffsetDateTime;

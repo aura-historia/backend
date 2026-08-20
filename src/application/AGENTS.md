@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- Own transaction lifecycle contracts used by several service crates.
+- Own transaction lifecycle, boxed-error, pagination, patch, and personalization contracts used by several service crates.
 - No entity rules, SQLx, SDK, HTTP, runtime config, or environment reads.
 
 ## Ownership

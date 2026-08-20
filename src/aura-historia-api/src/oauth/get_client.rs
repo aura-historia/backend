@@ -9,7 +9,7 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 
 pub async fn get_client(
     State(state): State<OAuthState>,

@@ -1,16 +1,17 @@
 use super::util::no_store;
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, WATCHLIST_INTERNAL_ERROR};
+use crate::pagination_data::JsonCursoredData;
 use crate::products::product_data::{
     PersonalizedProductDetailsData, personalized_product_details_data,
 };
 use crate::state::WatchlistState;
 use crate::values::{CurrencyData, LanguageData};
+use application::pagination::{Cursor, CursoredResult};
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
 use product_core::product_id::ProductId;
 use product_service::ports::ProductWatchlistDetailsCursor;
 use serde::Deserialize;
@@ -160,12 +161,11 @@ mod tests {
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
     use application::operation_context::OperationContext;
+    use application::personalized::Personalized;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::event_id::EventId;
-    use common::personalized::Personalized;
-    use common::user_id::UserId;
+    use domain_primitives::event_id::EventId;
     use fxrate_core::FxRateId;
     use localization::Language;
     use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
@@ -182,6 +182,7 @@ mod tests {
     use time::OffsetDateTime;
     use tower::ServiceExt;
     use url::Url;
+    use user_core::user_id::UserId;
     use watchlist_service::use_cases::{
         ListWatchlistError, ListWatchlistResult, ListWatchlistUseCase, UnwatchProductCommand,
         UnwatchProductError, UnwatchProductUseCase, UpdateWatchlistProductCommand,

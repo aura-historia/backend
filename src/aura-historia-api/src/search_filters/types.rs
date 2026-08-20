@@ -1,19 +1,19 @@
 use crate::values::{CurrencyData, GeoDistanceQueryData, LanguageData};
-use common::event_id::EventId;
-use common::patch_field::PatchField;
-use common::query::any_of_query::AnyOfQuery;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
-use common::resource_state::data::{PatchResourceStateData, ResourceStateData};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use application::patch_field::PatchField;
+use domain_primitives::event_id::EventId;
+use domain_primitives::query::any_of_query::AnyOfQuery;
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
+
 use money::MonetaryAmount;
 use product_core::product_id::ProductId;
 use product_core::product_state::ProductState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use shop_core::seller_slug_id::SellerSlugId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
+use user_core::user_id::UserId;
 
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
@@ -26,6 +26,22 @@ use serde::{Deserialize, Serialize};
 use shop_core::shop_type::ShopType;
 use std::collections::HashSet;
 use time::OffsetDateTime;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum ResourceStateData {
+    #[default]
+    Active,
+    InactiveByUser,
+    InactiveByRestrictedPlan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(super) enum PatchResourceStateData {
+    Active,
+    InactiveByUser,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,25 +128,25 @@ pub(super) struct ProductSearchPatchData {
     state_query: Option<HashSet<ProductStateData>>,
     #[serde(
         rename = "created",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     created_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "updated",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     updated_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "auctionStart",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     auction_start_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "auctionEnd",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     auction_end_query: Option<RangeQuery<OffsetDateTime>>,
@@ -299,28 +315,28 @@ pub(super) struct ProductSearchData {
     state_query: HashSet<ProductStateData>,
     #[serde(
         rename = "created",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     created_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "updated",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     updated_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "auctionStart",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     auction_start_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "auctionEnd",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]

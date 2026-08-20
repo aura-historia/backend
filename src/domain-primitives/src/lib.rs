@@ -1,5 +1,6 @@
 pub mod query;
 pub mod slug_id;
+pub mod sort;
 
 pub mod change_outcome {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

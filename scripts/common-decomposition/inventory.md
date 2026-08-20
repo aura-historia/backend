@@ -63,3 +63,12 @@
 | `common::partner_shop_application_id::PartnerShopApplicationId` | partner application ID | Partner Shop, Notification | Existing legacy partner-shop paths | `test-data` | Partner Shop Application domain | `shop-partner-core` | move | `common` re-export | Legacy callers migrate to `shop-partner-core` |
 | `common` notification identifiers | cross-domain notification payload references | Notification core | Existing legacy notification paths | `test-data` | Referenced entity cores | `user-core`, `search-filter-core`, `shop-partner-core`, `domain-primitives` | split | not applicable | Legacy notification path migrates |
 | `common::resource_state::document::ResourceStateDocument` | legacy OpenSearch document form | Search Filter OpenSearch adapter | Existing legacy OpenSearch paths | `opensearch` | Search Filter OpenSearch adapter | `search-filter-opensearch` local mapping | split | none | Legacy document form retires |
+
+## Iteration 9 — runtime transport cutover
+
+| Current path/type | Kind | Canonical consumers | Legacy consumers | Features | Semantic owner | Target | Action | Compatibility shim | Deletion prerequisite |
+|---|---|---|---|---|---|---|---|---|---|
+| `common::{error::boxed, pagination::cursor::{Cursor, CursoredResult}, patch_field::PatchField, personalized::Personalized}` | technology-neutral application contracts | API, worker, canonical services and adapters | Existing legacy crates | `test-data` for pagination fakes | shared application layer | `application` | move | `common` re-exports the core contracts; legacy API shapes remain local | Legacy users migrate from `common` |
+| `common::sort::{Sort, SortOrder}` | domain-neutral query values | API and canonical read/query contracts | Existing legacy crates | `api` for legacy extraction | domain primitives | `domain-primitives` | move | `common::sort` re-exports values; legacy API extractor remains local | Legacy users migrate from `common` |
+| `common::personalized::api::PersonalizedData`, `common::pagination::cursor::api::JsonCursoredData`, `common::resource_state::data::*` | REST DTOs | `aura-historia-api` | Existing legacy API crates | `api` | Axum transport | `aura-historia-api` | split | none | Legacy API consumers retire or migrate |
+| `common` direct dependency in API and worker | legacy compatibility dependency | `aura-historia-api`, `aura-historia-worker` | none | `api` in API only | runtime/transport plus existing owners | API and worker crates | move | none | Removed in this iteration |

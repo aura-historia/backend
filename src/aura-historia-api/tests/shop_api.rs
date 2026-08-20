@@ -5,7 +5,6 @@ use aura_historia_api::auth::{
 };
 use aura_historia_api::state::ShopsState;
 use aura_historia_api::{app, state::AppState};
-use common::user_id::UserId;
 use geo::{Geocoder, GeocodingError};
 use platform_postgres::SqlxUnitOfWork;
 use shop_core::domain::Domain;
@@ -36,6 +35,7 @@ use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
     Scope,
 };
+use user_core::user_id::UserId;
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_service::ports::AccessTokenStore;
 use user_service::use_cases::AuthenticateAccessTokenHandler;

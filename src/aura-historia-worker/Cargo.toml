@@ -8,7 +8,7 @@ async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
 application = { workspace = true }
-common = { workspace = true }
+domain-primitives = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 embedding = { workspace = true }
@@ -25,10 +25,12 @@ product-opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
 reqwest = { workspace = true }
+search-filter-core = { workspace = true }
 search-filter-opensearch = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
 watchlist-postgres = { workspace = true }
+user-core = { workspace = true }
 user-postgres = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

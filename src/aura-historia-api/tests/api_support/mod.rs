@@ -20,8 +20,6 @@ use billing_service::use_cases::{
     BillingPriceIds, CreateBillingCheckoutSessionHandler, CreateBillingManagementSessionHandler,
     CreateBillingPortalSessionHandler,
 };
-use common::stripe_customer_id::StripeCustomerId;
-use common::user_id::UserId;
 use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
 };
@@ -50,6 +48,8 @@ use product_postgres::{
 };
 use shop_core::domain::Domain;
 use shop_core::shop_id::ShopId;
+use user_core::stripe_customer_id::StripeCustomerId;
+use user_core::user_id::UserId;
 
 use product_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,

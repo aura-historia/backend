@@ -1,8 +1,8 @@
 use crate::error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE, INVALID_UUID};
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::user_search_filter_id::UserSearchFilterId;
 use product_core::product_id::ProductId;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use serde::{Deserialize, de::DeserializeOwned};
 use time::OffsetDateTime;
 
