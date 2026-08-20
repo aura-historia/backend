@@ -108,10 +108,20 @@ async fn should_list_canonical_notifications_without_legacy_fields_and_follow_cu
     ] {
         assert!(item.get(legacy_field).is_none(), "found {legacy_field}");
     }
-    for legacy_payload_field in ["type", "shopName", "image", "partnerApplicationPayload"] {
+    assert_eq!(
+        serde_json::json!("Acceptance Shop"),
+        item["payload"]["shopName"]
+    );
+    assert!(item["payload"].get("image").is_some());
+    for internal_field in [
+        "originEventId",
+        "deliveryChannel",
+        "deliveryStatus",
+        "providerMessageId",
+    ] {
         assert!(
-            item["payload"].get(legacy_payload_field).is_none(),
-            "found payload.{legacy_payload_field}"
+            item["payload"].get(internal_field).is_none(),
+            "found payload.{internal_field}"
         );
     }
 
@@ -136,6 +146,124 @@ async fn should_list_canonical_notifications_without_legacy_fields_and_follow_cu
         serde_json::json!(first_page_id),
         body["items"][0]["notificationId"]
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_return_localized_reason_specific_notification_payloads() {
+    let user_id = seed_user("USER").await;
+    let token = notification_token(user_id).await;
+    seed_notification_payloads(user_id).await;
+
+    let response = reqwest::Client::new()
+        .get(notifications_path())
+        .bearer_auth(String::from(token))
+        .query(&[("size", "100"), ("language", "de"), ("currency", "USD")])
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list localized notifications: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    let items = match body["items"].as_array() {
+        Some(items) => items,
+        None => panic!("notification list response is missing items"),
+    };
+    let price_change = notification_with_kind(items, "WATCHLIST_PRICE_CHANGED");
+    assert_eq!(
+        serde_json::json!("Geigentitel"),
+        price_change["payload"]["title"]["text"]
+    );
+    assert_eq!(
+        serde_json::json!("de"),
+        price_change["payload"]["title"]["language"]
+    );
+    assert_eq!(
+        serde_json::json!("USD"),
+        price_change["payload"]["change"]["oldPrice"]["currency"]
+    );
+    assert_eq!(
+        serde_json::json!(1100),
+        price_change["payload"]["change"]["oldPrice"]["amount"]
+    );
+    assert_eq!(
+        serde_json::json!("NONE"),
+        price_change["payload"]["image"]["prohibitedContent"]
+    );
+    assert!(price_change["payload"]["shopId"].as_str().is_some());
+    assert!(price_change["payload"]["shopsProductId"].as_str().is_some());
+    assert!(price_change["payload"]["shopSlugId"].as_str().is_some());
+    assert!(price_change["payload"]["productSlugId"].as_str().is_some());
+    assert!(price_change["payload"]["url"].as_str().is_some());
+    assert!(price_change["payload"]["viewUrl"].as_str().is_some());
+
+    let state_change = notification_with_kind(items, "WATCHLIST_STATE_CHANGED");
+    assert!(state_change["payload"]["title"].is_null());
+    assert!(state_change["payload"]["image"].is_null());
+    assert_eq!(
+        serde_json::json!("LISTED"),
+        state_change["payload"]["change"]["oldState"]
+    );
+    assert_eq!(
+        serde_json::json!("SOLD"),
+        state_change["payload"]["change"]["newState"]
+    );
+
+    let search_filter = notification_with_kind(items, "SEARCH_FILTER_MATCH");
+    assert_eq!(
+        serde_json::json!("Geigentitel"),
+        search_filter["payload"]["title"]["text"]
+    );
+    assert_eq!(
+        serde_json::json!("Saved Violins"),
+        search_filter["payload"]["userSearchFilterName"]
+    );
+    assert!(
+        search_filter["payload"]["userSearchFilterId"]
+            .as_str()
+            .is_some()
+    );
+
+    let approved = notification_with_kind(items, "PARTNER_APPLICATION_APPROVED");
+    assert_eq!(
+        serde_json::json!("APPROVED"),
+        approved["payload"]["decision"]
+    );
+    assert_eq!(
+        serde_json::json!("Approved Shop"),
+        approved["payload"]["shopName"]
+    );
+    assert_eq!(
+        serde_json::json!("https://shop.example/approved.jpg"),
+        approved["payload"]["image"]
+    );
+
+    let rejected = notification_with_kind(items, "PARTNER_APPLICATION_REJECTED");
+    assert_eq!(
+        serde_json::json!("REJECTED"),
+        rejected["payload"]["decision"]
+    );
+    assert_eq!(
+        serde_json::json!("Rejected Shop"),
+        rejected["payload"]["shopName"]
+    );
+    assert!(rejected["payload"]["image"].is_null());
+
+    for item in items {
+        assert!(item.get("originEventId").is_none());
+        assert!(item.get("deliveryChannel").is_none());
+        assert!(item.get("deliveryStatus").is_none());
+        assert!(item.get("providerMessageId").is_none());
+        assert!(
+            item["created"]
+                .as_str()
+                .is_some_and(|value| value.ends_with('Z'))
+        );
+        assert!(
+            item["updated"]
+                .as_str()
+                .is_some_and(|value| value.ends_with('Z'))
+        );
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
@@ -359,6 +487,145 @@ async fn seed_notification(user_id: UserId, seen: bool) -> Uuid {
         panic!("failed to seed notification: {error}");
     }
     notification_id
+}
+
+async fn seed_notification_payloads(user_id: UserId) {
+    let product_id = Uuid::new_v4();
+    let product_snapshot = |title: serde_json::Value, image: serde_json::Value| {
+        serde_json::json!({
+            "shop_id": Uuid::new_v4(),
+            "shops_product_id": "shop-product-123",
+            "shop_slug_id": "test-shop",
+            "product_slug_id": "test-product-a1b2c3",
+            "shop_name": "Snapshot Shop",
+            "title": title,
+            "image": image,
+            "url": "https://shop.example/product",
+            "view_url": "https://shop.example/product?view=1"
+        })
+    };
+    let localized_title = serde_json::json!([
+        { "language": "en", "title": "Violin title" },
+        { "language": "de", "title": "Geigentitel" }
+    ]);
+    let image = serde_json::json!({
+        "url": "https://shop.example/product.jpg",
+        "prohibited_content": "None"
+    });
+
+    seed_notification_with_payload(
+        user_id,
+        "WATCHLIST_PRICE_CHANGED",
+        Some(Uuid::new_v4()),
+        Some(product_id),
+        None,
+        None,
+        serde_json::json!({
+            "type": "WATCHLIST",
+            "snapshot": product_snapshot(localized_title.clone(), image),
+            "change": {
+                "type": "PRICE_CHANGE",
+                "old_price": { "Eur": 1000, "Usd": 1100 },
+                "new_price": { "Eur": 900, "Usd": 990 }
+            }
+        }),
+    )
+    .await;
+    seed_notification_with_payload(
+        user_id,
+        "WATCHLIST_STATE_CHANGED",
+        Some(Uuid::new_v4()),
+        Some(product_id),
+        None,
+        None,
+        serde_json::json!({
+            "type": "WATCHLIST",
+            "snapshot": product_snapshot(serde_json::Value::Null, serde_json::Value::Null),
+            "change": { "type": "STATE_CHANGE", "old_state": "Listed", "new_state": "Sold" }
+        }),
+    )
+    .await;
+    let filter_id = Uuid::new_v4();
+    seed_notification_with_payload(
+        user_id,
+        "SEARCH_FILTER_MATCH",
+        Some(Uuid::new_v4()),
+        Some(product_id),
+        Some(filter_id),
+        None,
+        serde_json::json!({
+            "type": "SEARCH_FILTER",
+            "snapshot": product_snapshot(localized_title, serde_json::Value::Null),
+            "user_search_filter_name": "Saved Violins"
+        }),
+    )
+    .await;
+    seed_notification_with_payload(
+        user_id,
+        "PARTNER_APPLICATION_APPROVED",
+        None,
+        None,
+        None,
+        Some(Uuid::new_v4()),
+        serde_json::json!({
+            "type": "PARTNER_APPLICATION",
+            "snapshot": { "shop_name": "Approved Shop", "image": "https://shop.example/approved.jpg" }
+        }),
+    )
+    .await;
+    seed_notification_with_payload(
+        user_id,
+        "PARTNER_APPLICATION_REJECTED",
+        None,
+        None,
+        None,
+        Some(Uuid::new_v4()),
+        serde_json::json!({
+            "type": "PARTNER_APPLICATION",
+            "snapshot": { "shop_name": "Rejected Shop", "image": null }
+        }),
+    )
+    .await;
+}
+
+async fn seed_notification_with_payload(
+    user_id: UserId,
+    kind: &str,
+    origin_event_id: Option<Uuid>,
+    product_id: Option<Uuid>,
+    user_search_filter_id: Option<Uuid>,
+    partner_shop_application_id: Option<Uuid>,
+    payload: serde_json::Value,
+) {
+    let pool = get_postgres_client().await;
+    if let Err(error) = sqlx::query(
+        r#"
+        INSERT INTO notifications (
+            notification_id, user_id, kind, origin_event_id, product_id,
+            user_search_filter_id, partner_shop_application_id, payload, seen
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(Uuid::from(user_id))
+    .bind(kind)
+    .bind(origin_event_id)
+    .bind(product_id)
+    .bind(user_search_filter_id)
+    .bind(partner_shop_application_id)
+    .bind(payload)
+    .execute(&pool)
+    .await
+    {
+        panic!("failed to seed notification payload: {error}");
+    }
+}
+
+fn notification_with_kind<'a>(items: &'a [Value], kind: &str) -> &'a Value {
+    match items.iter().find(|item| item["kind"] == kind) {
+        Some(item) => item,
+        None => panic!("notification list is missing {kind}"),
+    }
 }
 
 async fn notification_seen(token: &RawAccessToken, notification_id: Uuid) -> bool {

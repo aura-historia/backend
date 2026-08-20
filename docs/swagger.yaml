@@ -13448,6 +13448,7 @@ components:
         updated: { type: string, format: date-time }
 
     NotificationPayloadData:
+      description: Reason-specific immutable snapshot. Its shape is selected by the parent `NotificationData.kind`.
       oneOf:
         - $ref: "#/components/schemas/WatchlistNotificationPayloadData"
         - $ref: "#/components/schemas/SearchFilterNotificationPayloadData"
@@ -13455,24 +13456,108 @@ components:
 
     WatchlistNotificationPayloadData:
       type: object
-      required: [productId]
+      required:
+        [
+          productId,
+          shopId,
+          shopsProductId,
+          shopSlugId,
+          productSlugId,
+          shopName,
+          title,
+          image,
+          url,
+          viewUrl,
+          change,
+        ]
       properties:
         productId: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        shopsProductId: { type: string }
+        shopSlugId: { type: string }
+        productSlugId: { type: string }
+        shopName: { type: string }
+        title:
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
+        image:
+          allOf: [{ $ref: "#/components/schemas/ProductImageData" }]
+          nullable: true
+        url: { type: string, format: uri }
+        viewUrl: { type: string, format: uri }
+        change: { $ref: "#/components/schemas/WatchlistNotificationChangeData" }
+
+    WatchlistNotificationChangeData:
+      oneOf:
+        - $ref: "#/components/schemas/WatchlistNotificationPriceChangeData"
+        - $ref: "#/components/schemas/WatchlistNotificationStateChangeData"
+
+    WatchlistNotificationPriceChangeData:
+      type: object
+      required: [type, oldPrice, newPrice]
+      properties:
+        type: { type: string, enum: [PRICE_CHANGE] }
+        oldPrice:
+          allOf: [{ $ref: "#/components/schemas/PriceData" }]
+          nullable: true
+        newPrice:
+          allOf: [{ $ref: "#/components/schemas/PriceData" }]
+          nullable: true
+
+    WatchlistNotificationStateChangeData:
+      type: object
+      required: [type, oldState, newState]
+      properties:
+        type: { type: string, enum: [STATE_CHANGE] }
+        oldState: { $ref: "#/components/schemas/ProductStateData" }
+        newState: { $ref: "#/components/schemas/ProductStateData" }
 
     SearchFilterNotificationPayloadData:
       type: object
-      required: [productId, userSearchFilterId, userSearchFilterName]
+      required:
+        [
+          productId,
+          userSearchFilterId,
+          userSearchFilterName,
+          shopId,
+          shopsProductId,
+          shopSlugId,
+          productSlugId,
+          shopName,
+          title,
+          image,
+          url,
+          viewUrl,
+        ]
       properties:
         productId: { type: string, format: uuid }
         userSearchFilterId: { type: string, format: uuid }
         userSearchFilterName: { type: string }
+        shopId: { type: string, format: uuid }
+        shopsProductId: { type: string }
+        shopSlugId: { type: string }
+        productSlugId: { type: string }
+        shopName: { type: string }
+        title:
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
+        image:
+          allOf: [{ $ref: "#/components/schemas/ProductImageData" }]
+          nullable: true
+        url: { type: string, format: uri }
+        viewUrl: { type: string, format: uri }
 
     PartnerApplicationNotificationPayloadData:
       type: object
-      required: [partnerShopApplicationId, decision]
+      required: [partnerShopApplicationId, decision, shopName, image]
       properties:
         partnerShopApplicationId: { type: string, format: uuid }
         decision: { type: string, enum: [APPROVED, REJECTED] }
+        shopName: { type: string }
+        image:
+          type: string
+          format: uri
+          nullable: true
 
     UpdateNotificationSeenData:
       type: object
