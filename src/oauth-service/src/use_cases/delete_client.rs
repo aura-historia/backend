@@ -1,8 +1,8 @@
 use crate::error::OAuthServiceError;
 use crate::ports::OAuthClientRepository;
 use crate::use_cases::support::authorize_oauth_admin;
+use application::operation_context::OperationContext;
 use common::oauth_client_id::OAuthClientId;
-use common::operation_context::OperationContext;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteOAuthClientResult {

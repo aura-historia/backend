@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true }
+credential-core = { workspace = true }
 domain-primitives = { workspace = true }
 geo = { workspace = true }
 isocountry = { workspace = true }
@@ -26,5 +26,5 @@ rstest = { workspace = true }
 
 [features]
 default = []
-data = ["common/api", "dep:http"]
-test-data = ["fake", "common/test-data", "domain-primitives/test-data", "geo/test-data", "localization/test-data", "money/test-data"]
+data = ["dep:http"]
+test-data = ["fake", "credential-core/test-data", "domain-primitives/test-data", "geo/test-data", "localization/test-data", "money/test-data"]

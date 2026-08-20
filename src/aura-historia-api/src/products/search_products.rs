@@ -5,11 +5,11 @@ use crate::products::product_data::{
 };
 use crate::state::ProductsState;
 use crate::values::{CurrencyData, GeoDistanceQueryData, LanguageData};
+use application::operation_context::Principal;
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::operation_context::Principal;
 use common::pagination::cursor::Cursor;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -411,10 +411,10 @@ fn query_values(raw_query: Option<&str>, key: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
+    use application::operation_context::OperationContext;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::operation_context::OperationContext;
     use common::pagination::cursor::Cursor;
     use common::sort::SortOrder;
     use localization::Language;

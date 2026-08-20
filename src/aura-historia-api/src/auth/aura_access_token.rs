@@ -1,7 +1,7 @@
 use crate::auth::core::{
     AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
 };
-use common::operation_context::CredentialCapability;
+use application::operation_context::CredentialCapability;
 use std::collections::{BTreeSet, HashSet};
 use user_core::access_token::{RawAccessToken, Scope};
 use user_service::use_cases::{
@@ -89,11 +89,11 @@ fn credential_capability(scope: Scope) -> CredentialCapability {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::operation_context::{OperationContext, Principal};
     use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{OperationContext, Principal};
-    use common::user_id::UserId;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::access_token::HashedRawAccessToken;
+    use user_core::user_id::UserId;
     use user_service::use_cases::AuthenticateAccessTokenResult;
 
     #[derive(Clone)]

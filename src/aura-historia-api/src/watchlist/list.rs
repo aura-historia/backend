@@ -159,11 +159,11 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use application::operation_context::OperationContext;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
     use common::event_id::EventId;
-    use common::operation_context::OperationContext;
     use common::personalized::Personalized;
     use common::user_id::UserId;
     use fxrate_core::FxRateId;

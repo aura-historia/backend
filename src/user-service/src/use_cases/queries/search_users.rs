@@ -5,9 +5,9 @@ use crate::ports::{
 use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
+use application::operation_context::{CredentialCapability, OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
-use common::operation_context::{CredentialCapability, OperationContext, Principal};
 use common::pagination::cursor::Cursor;
 use common::sort::Sort;
 use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};

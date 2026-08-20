@@ -1,8 +1,8 @@
 use crate::ports::{UserAdminReadError, UserAdminReaderFactory};
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
+use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CheckUserAdminRequest;

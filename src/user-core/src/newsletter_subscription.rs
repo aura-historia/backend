@@ -1,5 +1,4 @@
-use crate::{first_name::FirstName, last_name::LastName};
-use common::user_id::UserId;
+use crate::{first_name::FirstName, last_name::LastName, user_id::UserId};
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -61,8 +60,7 @@ impl NewsletterSubscription {
 #[cfg(test)]
 mod tests {
     use super::NewsletterSubscription;
-    use crate::{first_name::FirstName, last_name::LastName};
-    use common::user_id::UserId;
+    use crate::{first_name::FirstName, last_name::LastName, user_id::UserId};
     use localization::Language;
     use money::Currency;
 

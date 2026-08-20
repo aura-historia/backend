@@ -1,9 +1,9 @@
 use crate::ports::{UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory};
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
+use application::transaction::{Transaction, UnitOfWork};
+use common::error::boxed::{BoxError, box_error};
 use common::user_id::UserId;
 use serde_email::Email;
 use user_core::user::{
@@ -241,9 +241,9 @@ mod tests {
         UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
         UserStorageVersion, VersionedUser,
     };
+    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::stripe_customer_id::StripeCustomerId;
     use common::versioned::Versioned;
     use serde_email::Email;

@@ -1,11 +1,11 @@
 use crate::ports::{
     UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
 };
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
+use application::transaction::{Transaction, UnitOfWork};
+use common::error::boxed::BoxError;
 use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

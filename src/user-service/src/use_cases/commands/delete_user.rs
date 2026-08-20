@@ -3,11 +3,11 @@ use crate::ports::{
     UserRepositoryFactory,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
+use application::transaction::{Transaction, UnitOfWork};
+use common::error::boxed::BoxError;
 use common::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -238,9 +238,9 @@ mod tests {
         UserAdminActorView, UserAdminReader, UserAdminReaderFactory, UserDetailsView,
         UserStorageVersion, VersionedUser,
     };
+    use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::{Transaction, TransactionError};
     use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{CorrelationId, RequestId};
     use common::stripe_customer_id::StripeCustomerId;
     use common::versioned::Versioned;
     use serde_email::Email;

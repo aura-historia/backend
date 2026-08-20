@@ -1,5 +1,5 @@
 use crate::ports::{UserAdminReadError, UserAdminReader};
-use common::operation_context::{
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use user_core::role::UserRole;
@@ -63,8 +63,8 @@ mod tests {
     };
 
     use super::*;
+    use application::operation_context::{CorrelationId, RequestId};
     use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{CorrelationId, RequestId};
     use common::stripe_customer_id::StripeCustomerId;
     use common::user_id::UserId;
     use common::versioned::Versioned;

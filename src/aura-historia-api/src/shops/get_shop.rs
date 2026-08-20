@@ -51,10 +51,10 @@ mod tests {
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
     use crate::error::SHOP_NOT_FOUND;
+    use application::operation_context::{CredentialCapability, OperationContext, Principal};
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::operation_context::{CredentialCapability, OperationContext, Principal};
     use common::user_id::UserId;
     use localization::Language;
     use money::Currency;

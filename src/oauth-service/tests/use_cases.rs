@@ -1,7 +1,7 @@
-use common::oauth_client_id::OAuthClientId;
-use common::operation_context::{
+use application::operation_context::{
     CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
 };
+use common::oauth_client_id::OAuthClientId;
 use common::user_id::UserId;
 use oauth_core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,

@@ -75,12 +75,12 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use application::operation_context::OperationContext;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
     use common::enhanced_match_reason::EnhancedMatchReason;
     use common::event_id::EventId;
-    use common::operation_context::OperationContext;
     use common::personalized::Personalized;
     use common::user_id::UserId;
     use common::user_search_filter_id::UserSearchFilterId;
@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(false, body["userState"]["searchFilter"]["matchFeedback"]);
         assert!(matches!(
             lock(&calls)[0].0.principal,
-            common::operation_context::Principal::User(actual) if actual == user_id
+            application::operation_context::Principal::User(actual) if actual == user_id
         ));
         Ok(())
     }

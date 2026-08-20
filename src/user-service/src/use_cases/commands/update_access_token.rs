@@ -1,8 +1,8 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::operation_context::{
     AuthenticationRequired, CredentialCapability, OperationAuthorizationError, OperationContext,
 };
+use common::error::boxed::BoxError;
 use common::patch_field::PatchField;
 use common::user_id::UserId;
 use std::collections::HashSet;
@@ -222,10 +222,10 @@ mod tests {
     use common::user_id::UserId;
 
     use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{
+    use application::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
     };
+    use common::error::boxed::{BoxError, box_error};
     use common::patch_field::PatchField;
     use std::collections::{BTreeSet, HashSet};
     use std::fmt::Debug;

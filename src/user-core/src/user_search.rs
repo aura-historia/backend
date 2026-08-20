@@ -1,5 +1,7 @@
 use crate::{role::UserRole, tier::UserTier};
-use common::query::{any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery};
+use domain_primitives::query::{
+    any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery,
+};
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
 use time::OffsetDateTime;

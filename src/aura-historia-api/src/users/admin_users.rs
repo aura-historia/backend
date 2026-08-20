@@ -98,7 +98,7 @@ pub async fn patch_admin_user(
 
 async fn admin_patch_user(
     state: UsersState,
-    ctx: common::operation_context::OperationContext,
+    ctx: application::operation_context::OperationContext,
     user_id: common::user_id::UserId,
     data: PatchAdminUserData,
 ) -> Response {

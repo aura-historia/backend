@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+application = { workspace = true }
 base64 = { workspace = true }
 common = { workspace = true }
 oauth-core = { workspace = true }

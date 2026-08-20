@@ -68,11 +68,11 @@ fn extract_bearer_token(headers: &HeaderMap) -> Result<Option<String>, AuthError
 mod tests {
     use super::*;
     use crate::auth::core::AuthMethod;
-    use common::operation_context::CredentialCapability;
-    use common::user_id::UserId;
+    use application::operation_context::CredentialCapability;
     use http::HeaderValue;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
+    use user_core::user_id::UserId;
 
     type AuthCall = (String, RequestMetadata);
     type AuthCalls = Arc<Mutex<Vec<AuthCall>>>;

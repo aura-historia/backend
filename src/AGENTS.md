@@ -93,6 +93,7 @@
 - `src/cognito/AGENTS.md` — `cognito` crate.
 - `src/cognito-post-confirmation/AGENTS.md` — `cognito-post-confirmation` crate.
 - `src/common/AGENTS.md` — legacy compatibility crate.
+- `src/credential-core/AGENTS.md` — credential identifiers and scope vocabulary.
 - `src/domain-primitives/AGENTS.md` — domain-neutral primitives and newtype macros.
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
 - `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.

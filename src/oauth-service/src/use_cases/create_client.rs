@@ -1,8 +1,8 @@
 use crate::error::OAuthServiceError;
 use crate::ports::OAuthClientRepository;
 use crate::use_cases::support::{authorize_oauth_admin, validate_redirect_uris};
+use application::operation_context::OperationContext;
 use common::oauth_client_id::OAuthClientId;
-use common::operation_context::OperationContext;
 use oauth_core::client::{OAuthClient, OAuthClientName};
 use std::collections::HashSet;
 use time::OffsetDateTime;

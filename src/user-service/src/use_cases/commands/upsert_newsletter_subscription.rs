@@ -1,8 +1,8 @@
 use crate::ports::{
     NewsletterProfileReader, NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
 };
+use application::operation_context::{OperationContext, Principal};
 use common::error::boxed::BoxError;
-use common::operation_context::{OperationContext, Principal};
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -162,8 +162,8 @@ mod tests {
         NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader,
         NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
     };
+    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use common::user_id::UserId;
     use localization::Language;
     use money::Currency;

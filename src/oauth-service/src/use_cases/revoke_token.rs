@@ -1,8 +1,8 @@
 use crate::error::OAuthServiceError;
 use crate::ports::{OAuthAccessTokenGateway, OAuthAccessTokenGatewayError, OAuthClientRepository};
 use crate::use_cases::support::authenticate_client;
+use application::operation_context::OperationContext;
 use common::oauth_client_id::OAuthClientId;
-use common::operation_context::OperationContext;
 use user_core::access_token::{RawAccessToken, RawOAuthClientSecret};
 
 #[derive(Debug, Clone, PartialEq)]

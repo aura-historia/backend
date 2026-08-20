@@ -10,12 +10,12 @@
 - Domain-only crate.
 - Root modules: `access_token`, `first_name`, `last_name`, `measurement_unit`, `name`, `newsletter_subscription`, `role`, `sort_user_field`, `tier`, `user`, `user_search`.
 - `user::User` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
-- Access-token domain types and canonical scope enum live here; persistence stays behind service ports.
+- Access-token aggregate lives here; credential-core owns the canonical scope vocabulary and OAuth client ID.
 - Access-token aggregate has no storage metadata; repositories/read models own timestamps.
 - `newsletter_subscription::NewsletterSubscription` owns newsletter recipient values and optional linked user identity.
 - User sort defaults to `Name`; no score sort in canonical user.
 - Owns pure `MeasurementUnit`; adapter and API value mapping stays outside this crate.
-- Uses `domain-primitives` for neutral change outcomes plus pure `money` and `localization` values.
+- Uses `credential-core` for credential vocabulary, `domain-primitives` for neutral primitives, plus pure `money` and `localization` values.
 - No dependency on `user-service`, legacy `user`, or adapters.
 
 ## Ownership
@@ -34,7 +34,7 @@
 
 - Think caveman. Talk caveman. Few word.
 - Keep business rules here.
-- No persistence, transport, or runtime glue.
+- No persistence, transport, or runtime glue. Legacy API token extraction stays out of this canonical core.
 
 ## Verification
 

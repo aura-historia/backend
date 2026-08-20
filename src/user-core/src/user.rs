@@ -2,7 +2,7 @@ use crate::{
     first_name::FirstName, last_name::LastName, measurement_unit::MeasurementUnit, name::Name,
     role::UserRole, tier::UserTier,
 };
-use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
+use crate::{stripe_customer_id::StripeCustomerId, user_id::UserId};
 use domain_primitives::change_outcome::ChangeOutcome;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use localization::Language;

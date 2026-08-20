@@ -1,8 +1,8 @@
-use common::operation_context::{
+use application::operation_context::{
     CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
 };
-use common::user_id::UserId;
 use std::collections::BTreeSet;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestMetadata {

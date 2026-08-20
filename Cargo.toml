@@ -98,6 +98,7 @@ members = [
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
     "src/common",
+    "src/credential-core",
     "src/domain-primitives",
     "src/localization",
     "src/money",
@@ -199,6 +200,7 @@ aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
 common = { path = "src/common" }
+credential-core = { path = "src/credential-core" }
 domain-primitives = { path = "src/domain-primitives" }
 localization = { path = "src/localization" }
 money = { path = "src/money" }

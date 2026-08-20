@@ -75,10 +75,10 @@ fn parse_body(body: &str) -> Result<PutNewsletterSubscriptionDto, ApiError> {
 mod tests {
     use super::*;
     use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
+    use application::operation_context::OperationContext;
     use axum::body::Body;
     use axum::http::{Request, header};
     use axum::routing::put;
-    use common::operation_context::OperationContext;
     use std::sync::{Arc, Mutex, MutexGuard};
     use tower::ServiceExt;
     use user_service::use_cases::commands::upsert_newsletter_subscription::{

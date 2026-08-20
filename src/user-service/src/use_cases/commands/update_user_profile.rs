@@ -3,12 +3,12 @@ use crate::ports::{
     UserRepositoryError, UserRepositoryFactory,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
+use application::operation_context::{
+    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
+};
 use application::transaction::{Transaction, UnitOfWork};
 use common::change_outcome::ChangeOutcome;
 use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
-};
 use common::patch_field::PatchField;
 use common::user_id::UserId;
 use geo::core::address::StructuredAddress;

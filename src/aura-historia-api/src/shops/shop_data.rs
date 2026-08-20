@@ -1,9 +1,9 @@
 use crate::shops::types::{ShopPartnerStatusData, ShopTypeData};
 use crate::values::{CurrencyData, LanguageData};
+use application::operation_context::Principal;
 use axum::Json;
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::operation_context::Principal;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::Serialize;
 use serde_email::Email;

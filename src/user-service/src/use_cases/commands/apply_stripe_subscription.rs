@@ -2,9 +2,9 @@ use crate::ports::{
     UserDetailsView, UserRepository, UserRepositoryError, UserRepositoryFactory,
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
+use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
-use common::operation_context::{OperationAuthorizationError, OperationContext};
 use common::stripe_customer_id::StripeCustomerId;
 use common::user_id::UserId;
 use user_core::tier::UserTier;
@@ -255,8 +255,8 @@ impl From<UserRepositoryError> for ApplyStripeSubscriptionError {
 mod tests {
     use super::*;
     use crate::ports::{UserRepository, UserStorageVersion, VersionedUser};
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::versioned::Versioned;
     use serde_email::Email;
     use std::sync::{Arc, Mutex, MutexGuard};

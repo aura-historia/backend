@@ -51,7 +51,7 @@ pub async fn delete_me(State(state): State<UsersState>, headers: HeaderMap) -> R
 }
 pub(crate) async fn patch_user(
     state: UsersState,
-    ctx: common::operation_context::OperationContext,
+    ctx: application::operation_context::OperationContext,
     user_id: UserId,
     body: String,
 ) -> Response {

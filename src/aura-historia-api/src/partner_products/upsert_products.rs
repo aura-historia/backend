@@ -74,11 +74,11 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use application::operation_context::{CredentialCapability, OperationContext};
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};
     use common::event_id::EventId;
-    use common::operation_context::{CredentialCapability, OperationContext};
     use common::user_id::UserId;
     use product_core::product_id::{ProductId, ProductKey};
     use product_core::product_slug_id::ProductSlugId;

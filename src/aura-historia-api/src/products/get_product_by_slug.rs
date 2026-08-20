@@ -87,10 +87,10 @@ pub async fn get_product_by_slug(
 mod tests {
     use super::*;
     use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
+    use application::operation_context::OperationContext;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use common::operation_context::OperationContext;
     use localization::Language;
     use product_service::use_cases::{
         GetProductError, GetProductUseCase, GetSimilarProductsError, GetSimilarProductsRequest,

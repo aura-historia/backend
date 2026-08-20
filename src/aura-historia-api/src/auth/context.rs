@@ -1,10 +1,10 @@
 use crate::auth::{ProtectedAuthExtractor, RequestMetadata, TransportPrincipal};
 use crate::error::{ApiError, FORBIDDEN};
 use crate::transport::{CORRELATION_ID_HEADER, REQUEST_ID_HEADER};
+use application::operation_context::OperationContext;
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
-use common::operation_context::OperationContext;
-use common::user_id::UserId;
+use user_core::user_id::UserId;
 
 pub async fn protected_context(
     authenticator: &dyn crate::auth::TokenAuthenticator,

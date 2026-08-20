@@ -1163,8 +1163,8 @@ mod tests {
         AuthMethod, JsonWebKey, JsonWebKeySet, JwksProvider, RequestMetadata, TransportPrincipal,
     };
     use crate::state::ReadinessCheck;
+    use application::operation_context::CredentialCapability;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use common::operation_context::CredentialCapability;
     use common::user_id::UserId;
     use http::StatusCode;
     use jsonwebtokens::{Algorithm, AlgorithmID};
@@ -1544,7 +1544,7 @@ mod tests {
     impl shop_service::use_cases::queries::get_shop::GetShopUseCase for RejectGetShopUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_service::use_cases::queries::get_shop::GetShopRequest,
         ) -> Result<
             shop_service::use_cases::queries::get_shop::ShopDetailsView,
@@ -1560,7 +1560,7 @@ mod tests {
     impl shop_service::use_cases::queries::search_shops::SearchShopsUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_service::use_cases::queries::search_shops::SearchShopsRequest,
         ) -> Result<
             shop_service::use_cases::queries::search_shops::SearchShopsResult,
@@ -1574,7 +1574,7 @@ mod tests {
     impl shop_service::use_cases::commands::create_shop::CreateShopUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_service::use_cases::commands::create_shop::CreateShopCommand,
         ) -> Result<
             shop_service::use_cases::commands::create_shop::CreateShopResult,
@@ -1588,7 +1588,7 @@ mod tests {
     impl shop_service::use_cases::commands::update_shop::UpdateShopUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_service::use_cases::commands::update_shop::UpdateShopCommand,
         ) -> Result<
             shop_service::use_cases::commands::update_shop::UpdateShopResult,
@@ -1604,7 +1604,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsRequest,
         ) -> Result<
             shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsResult,
@@ -1618,7 +1618,7 @@ mod tests {
     impl user_service::use_cases::queries::get_own_user::GetOwnUserUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::get_own_user::GetOwnUserRequest,
         ) -> Result<
             user_service::ports::UserDetailsView,
@@ -1632,7 +1632,7 @@ mod tests {
     impl user_service::use_cases::queries::admin_get_user::AdminGetUserUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::admin_get_user::AdminGetUserRequest,
         ) -> Result<
             user_service::ports::UserDetailsView,
@@ -1645,7 +1645,7 @@ mod tests {
     impl user_service::use_cases::queries::search_users::SearchUsersUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::search_users::SearchUsersRequest,
         ) -> Result<
             user_service::use_cases::queries::search_users::SearchUsersResult,
@@ -1660,7 +1660,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::update_user_profile::UpdateUserProfileCommand,
         ) -> Result<
             user_service::use_cases::commands::update_user_profile::UpdateUserProfileResult,
@@ -1674,7 +1674,7 @@ mod tests {
     impl user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::change_user_role::ChangeUserRoleCommand,
         ) -> Result<
             user_service::use_cases::commands::change_user_role::ChangeUserRoleResult,
@@ -1688,7 +1688,7 @@ mod tests {
     impl user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::change_user_tier::ChangeUserTierCommand,
         ) -> Result<
             user_service::use_cases::commands::change_user_tier::ChangeUserTierResult,
@@ -1701,7 +1701,7 @@ mod tests {
     impl user_service::use_cases::commands::delete_user::DeleteUserUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::delete_user::DeleteUserCommand,
         ) -> Result<
             user_service::use_cases::commands::delete_user::DeleteUserResult,
@@ -1714,7 +1714,7 @@ mod tests {
     impl user_service::use_cases::queries::check_user_admin::CheckUserAdminUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::check_user_admin::CheckUserAdminRequest,
         ) -> Result<
             user_service::use_cases::queries::check_user_admin::CheckUserAdminResult,
@@ -1729,7 +1729,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::create_access_token::CreateAccessTokenCommand,
         ) -> Result<
             user_service::use_cases::commands::create_access_token::CreateAccessTokenResult,
@@ -1744,7 +1744,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::list_access_tokens::ListAccessTokensRequest,
         ) -> Result<
             user_service::use_cases::queries::list_access_tokens::ListAccessTokensResult,
@@ -1757,7 +1757,7 @@ mod tests {
     impl user_service::use_cases::queries::get_access_token::GetAccessTokenUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::get_access_token::GetAccessTokenRequest,
         ) -> Result<
             user_service::use_cases::queries::get_access_token::AccessTokenView,
@@ -1772,7 +1772,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::update_access_token::UpdateAccessTokenCommand,
         ) -> Result<
             user_service::use_cases::commands::update_access_token::UpdateAccessTokenResult,
@@ -1787,7 +1787,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::delete_access_token::DeleteAccessTokenCommand,
         ) -> Result<
             user_service::use_cases::commands::delete_access_token::DeleteAccessTokenResult,
@@ -1801,7 +1801,7 @@ mod tests {
     impl watchlist_service::use_cases::ListWatchlistUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: watchlist_service::use_cases::ListWatchlistRequest,
         ) -> Result<
             watchlist_service::use_cases::ListWatchlistResult,
@@ -1814,7 +1814,7 @@ mod tests {
     impl watchlist_service::use_cases::WatchProductUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: watchlist_service::use_cases::WatchProductCommand,
         ) -> Result<
             watchlist_service::use_cases::WatchProductResult,
@@ -1827,7 +1827,7 @@ mod tests {
     impl watchlist_service::use_cases::UpdateWatchlistProductUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: watchlist_service::use_cases::UpdateWatchlistProductCommand,
         ) -> Result<
             watchlist_service::use_cases::UpdateWatchlistProductResult,
@@ -1840,7 +1840,7 @@ mod tests {
     impl watchlist_service::use_cases::UnwatchProductUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: watchlist_service::use_cases::UnwatchProductCommand,
         ) -> Result<
             watchlist_service::use_cases::UnwatchProductResult,
@@ -1854,7 +1854,7 @@ mod tests {
     impl shop_partner_service::use_cases::CreatePartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_partner_service::use_cases::CreatePartnerShopApplicationCommand,
         ) -> Result<
             shop_partner_service::use_cases::CreatePartnerShopApplicationResult,
@@ -1867,7 +1867,7 @@ mod tests {
     impl shop_partner_service::use_cases::ListPartnerShopApplicationsUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_partner_service::use_cases::ListPartnerShopApplicationsRequest,
         ) -> Result<
             shop_partner_service::use_cases::ListPartnerShopApplicationsResult,
@@ -1880,7 +1880,7 @@ mod tests {
     impl shop_partner_service::use_cases::GetPartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_partner_service::use_cases::GetPartnerShopApplicationRequest,
         ) -> Result<
             shop_partner_service::use_cases::GetPartnerShopApplicationResult,
@@ -1893,7 +1893,7 @@ mod tests {
     impl shop_partner_service::use_cases::WithdrawPartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_partner_service::use_cases::WithdrawPartnerShopApplicationCommand,
         ) -> Result<(), shop_partner_service::use_cases::WithdrawPartnerShopApplicationError>
         {
@@ -1904,7 +1904,7 @@ mod tests {
     impl shop_partner_service::use_cases::AdminListPartnerShopApplicationsUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_partner_service::use_cases::AdminListPartnerShopApplicationsRequest,
         ) -> Result<
             shop_partner_service::use_cases::AdminListPartnerShopApplicationsResult,
@@ -1917,7 +1917,7 @@ mod tests {
     impl shop_partner_service::use_cases::AdminGetPartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_partner_service::use_cases::AdminGetPartnerShopApplicationRequest,
         ) -> Result<
             shop_partner_service::use_cases::AdminGetPartnerShopApplicationResult,
@@ -1930,7 +1930,7 @@ mod tests {
     impl shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationUseCase for UnusedUseCase {
         async fn mark_in_review(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_partner_service::use_cases::AdminMarkPartnerShopApplicationInReviewCommand,
         ) -> Result<
             shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationResult,
@@ -1943,7 +1943,7 @@ mod tests {
     impl shop_partner_service::use_cases::AdminDecidePartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_partner_service::use_cases::AdminDecidePartnerShopApplicationCommand,
         ) -> Result<
             shop_partner_service::use_cases::AdminDecidePartnerShopApplicationResult,
