@@ -254,7 +254,6 @@ dependencies = [
  "localization",
  "mockall",
  "money",
- "notification-core",
  "notification-dynamodb",
  "notification-service",
  "oauth-core",
@@ -1791,7 +1790,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
- "tracing",
  "uuid",
 ]
 
@@ -6400,7 +6398,6 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "tokio",
- "tracing",
  "url",
  "uuid",
 ]
@@ -7474,7 +7471,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "common",
- "fxrate-core",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
@@ -7560,7 +7556,6 @@ dependencies = [
  "async-trait",
  "common",
  "embedding",
- "futures",
  "fxrate-core",
  "fxrate-service",
  "geo",
@@ -8102,7 +8097,6 @@ dependencies = [
  "slug",
  "strum 0.28.0",
  "thiserror 2.0.20",
- "time",
  "url",
  "uuid",
 ]
@@ -8144,7 +8138,6 @@ dependencies = [
  "serde",
  "shop-core",
  "thiserror 2.0.20",
- "time",
  "user-core",
  "uuid",
 ]
@@ -9944,7 +9937,6 @@ dependencies = [
  "money",
  "platform-postgres",
  "rstest",
- "serde",
  "serde-email",
  "serde_json",
  "serial_test",

@@ -8,7 +8,7 @@ serde = { workspace = true }
 shop-core = { workspace = true }
 user-core = { workspace = true }
 uuid = { workspace = true }
-time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
+
 thiserror = { workspace = true }
 
 # Optional

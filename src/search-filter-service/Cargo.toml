@@ -9,7 +9,7 @@ application = { workspace = true }
 common = { workspace = true }
 embedding = { workspace = true }
 geo = { workspace = true }
-futures = { workspace = true }
+
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
 isocountry = { workspace = true }

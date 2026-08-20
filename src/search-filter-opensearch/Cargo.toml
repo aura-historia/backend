@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true, features = ["opensearch"] }
-fxrate-core = { workspace = true }
+
 geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
 localization = { workspace = true }
