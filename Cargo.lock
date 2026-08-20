@@ -1838,6 +1838,7 @@ dependencies = [
  "opensearch",
  "platform-observability",
  "platform-postgres",
+ "product-core",
  "rstest",
  "serde",
  "serde_dynamo",
@@ -2575,7 +2576,10 @@ name = "domain-primitives"
 version = "0.1.0"
 dependencies = [
  "fake",
+ "rstest",
  "serde",
+ "serde_json",
+ "slug",
  "thiserror 2.0.20",
  "time",
  "uuid",
@@ -5046,6 +5050,7 @@ dependencies = [
  "money",
  "notification-core",
  "notification-service",
+ "product-core",
  "rstest",
  "thiserror 2.0.20",
  "time",
@@ -6142,7 +6147,6 @@ dependencies = [
 name = "product-core"
 version = "0.1.0"
 dependencies = [
- "common",
  "domain-primitives",
  "fake",
  "fxrate-core",
@@ -6159,9 +6163,9 @@ dependencies = [
  "serde_json",
  "shop-core",
  "strum 0.28.0",
+ "strum_macros 0.28.0",
  "thiserror 2.0.20",
  "time",
- "tracing",
  "url",
  "uuid",
 ]
@@ -6381,6 +6385,7 @@ dependencies = [
  "application",
  "async-trait",
  "common",
+ "domain-primitives",
  "embedding",
  "fake",
  "fxrate-core",
@@ -10152,6 +10157,7 @@ version = "0.1.0"
 dependencies = [
  "common",
  "fake",
+ "product-core",
  "time",
 ]
 
@@ -10163,6 +10169,7 @@ dependencies = [
  "async-trait",
  "common",
  "platform-postgres",
+ "product-core",
  "product-service",
  "serial_test",
  "sqlx",

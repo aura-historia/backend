@@ -1,10 +1,10 @@
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_state::domain::ProductState;
-use common::query::any_of_query::AnyOfQuery;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
-use common::string_newtype;
+use crate::product_id::ProductId;
+use crate::product_lifecycle::ProductLifecycle;
+use crate::product_state::ProductState;
+use domain_primitives::query::any_of_query::AnyOfQuery;
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
+use domain_primitives::string_newtype;
 use geo::core::continent::Continent;
 use geo::core::distance::GeoDistanceQuery;
 use isocountry::CountryCode;
@@ -217,7 +217,7 @@ impl ProductSearch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::query::range_query::RangeQuery;
+    use domain_primitives::query::range_query::RangeQuery;
     use std::collections::HashSet;
 
     #[test]

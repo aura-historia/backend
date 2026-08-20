@@ -20,7 +20,6 @@ use billing_service::use_cases::{
     BillingPriceIds, CreateBillingCheckoutSessionHandler, CreateBillingManagementSessionHandler,
     CreateBillingPortalSessionHandler,
 };
-use common::product_id::ProductId;
 use common::stripe_customer_id::StripeCustomerId;
 use common::user_id::UserId;
 use embedding::{
@@ -41,6 +40,7 @@ use oauth_service::use_cases::{
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
 use platform_postgres::SqlxUnitOfWork;
+use product_core::product_id::ProductId;
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsBatchReader,
@@ -401,7 +401,7 @@ pub async fn product_route_slugs(product_id: ProductId) -> (String, String) {
 pub async fn seed_product() -> ProductId {
     let shop = seed_shop().await;
     let product_id = ProductId::new();
-    let product_slug_id = common::product_slug_id::ProductSlugId::from("acceptance-product");
+    let product_slug_id = product_core::product_slug_id::ProductSlugId::from("acceptance-product");
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;

@@ -2,9 +2,9 @@ use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use common::event_id::EventId;
-use common::product_id::ProductId;
 use money::{Currency, MonetaryAmount};
 use platform_postgres::SqlxUnitOfWork;
+use product_core::product_id::ProductId;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

@@ -1,15 +1,16 @@
-use common::{
-    event_id::EventId, product_id::ProductId, product_lifecycle::domain::ProductLifecycle,
-    product_slug_id::ProductSlugId, product_state::domain::ProductState,
-    shops_product_id::ShopsProductId,
-};
+use common::event_id::EventId;
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
 use product_core::{
     description::Description,
     product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
+    product_id::ProductId,
     product_image::ProductImage,
+    product_lifecycle::ProductLifecycle,
+    product_slug_id::ProductSlugId,
+    product_state::ProductState,
+    shops_product_id::ShopsProductId,
     title::Title,
 };
 use shop_core::seller_slug_id::SellerSlugId;

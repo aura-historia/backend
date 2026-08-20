@@ -1,13 +1,13 @@
 use crate::products::product_data::ProductImageData;
 use crate::values::{LocalizedTextData, PriceData};
 use common::event_id::EventId;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_state::domain::ProductState;
 use fxrate_core::FxRateId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
+use product_core::product_id::ProductId;
 use product_core::product_image::ProductImage;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_state::ProductState;
 use product_service::use_cases::{ProductEvent, ProductEventPayload, ProductEventType};
 use serde::Serialize;
 use time::OffsetDateTime;

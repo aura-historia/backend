@@ -147,11 +147,14 @@ mod tests {
         active_filter_quota, monthly_match_quota, validate_search_feature_changes,
         validate_search_features,
     };
-    use common::{product_id::ProductId, product_lifecycle::domain::ProductLifecycle};
     use isocountry::CountryCode;
     use localization::Language;
     use money::Currency;
-    use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+    use product_core::{
+        product_id::ProductId,
+        product_lifecycle::ProductLifecycle,
+        product_search::{EnhancedSearchDescription, ProductSearch},
+    };
     use std::collections::HashSet;
     use user_core::tier::UserTier;
 

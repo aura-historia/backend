@@ -1,11 +1,11 @@
 use common::enhanced_match_reason::EnhancedMatchReason;
-use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use domain_primitives::{change_outcome::ChangeOutcome, event_id::EventId};
 use fxrate_core::FxRateId;
+use product_core::product_id::ProductId;
 pub use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,11 +1,11 @@
 use crate::description::Description;
+use crate::product_id::ProductId;
 use crate::product_image::ProductImage;
+use crate::product_lifecycle::ProductLifecycle;
+use crate::product_slug_id::ProductSlugId;
+use crate::product_state::ProductState;
+use crate::shops_product_id::ShopsProductId;
 use crate::title::Title;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
 use domain_primitives::{change_outcome::ChangeOutcome, event::Event, event_id::EventId};
 use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
@@ -499,10 +499,6 @@ impl Product {
 
     pub fn url(&self) -> &Url {
         &self.url
-    }
-
-    pub fn view_url(&self) -> Url {
-        common::utm::append_utm_params(self.url.clone())
     }
 
     pub fn images(&self) -> &IndexSet<ProductImage> {
@@ -1130,17 +1126,5 @@ mod tests {
         #[case] expected: &'static str,
     ) {
         assert_eq!(expected, payload.event_type());
-    }
-
-    #[test]
-    fn should_append_utm_params_for_product_view_url() {
-        let product = created_product();
-
-        assert!(
-            product
-                .view_url()
-                .as_str()
-                .contains("utm_source=aura_historia")
-        );
     }
 }

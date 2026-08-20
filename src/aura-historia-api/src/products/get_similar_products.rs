@@ -7,8 +7,8 @@ use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use common::product_id::ProductId;
-use common::product_slug_id::ProductSlugId;
+use product_core::product_id::ProductId;
+use product_core::product_slug_id::ProductSlugId;
 use product_service::ports::ProductEmbeddingLookup;
 use product_service::use_cases::{GetSimilarProductsRequest, GetSimilarProductsResult};
 use serde::Deserialize;
@@ -194,16 +194,15 @@ mod tests {
     use common::event_id::EventId;
     use common::operation_context::OperationContext;
     use common::personalized::Personalized;
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shops_product_id::ShopsProductId;
     use common::user_id::UserId;
     use localization::{Language, Localized};
     use money::Currency;
     use money::{MonetaryAmount, Price};
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_slug_id::ProductSlugId;
+    use product_core::product_state::ProductState;
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::title::Title;
-    use product_core::user_state::ProductUserState;
     use product_service::use_cases::{
         GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
@@ -211,6 +210,7 @@ mod tests {
         ProductSummaryPriceValuation, SearchProductsError, SearchProductsRequest,
         SearchProductsResult, SearchProductsUseCase,
     };
+    use product_service::user_state::ProductUserState;
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
     use shop_core::shop_slug_id::ShopSlugId;

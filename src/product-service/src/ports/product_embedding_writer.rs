@@ -1,7 +1,7 @@
-use common::{error::boxed::BoxError, event_id::EventId, product_id::ProductId};
+use common::{error::boxed::BoxError, event_id::EventId};
 use localization::Language;
 use localization::Localized;
-use product_core::title::Title;
+use product_core::{product_id::ProductId, title::Title};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductEmbeddingWrite {

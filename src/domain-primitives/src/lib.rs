@@ -1,3 +1,6 @@
+pub mod query;
+pub mod slug_id;
+
 pub mod change_outcome {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum ChangeOutcome {

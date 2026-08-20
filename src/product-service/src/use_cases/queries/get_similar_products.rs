@@ -279,15 +279,11 @@ mod tests {
     use super::*;
     use crate::ports::{ProductEmbedding, ProductSimilarProductsReadError};
     use crate::use_cases::{ProductSummary, ProductSummaryPriceValuation};
+    use crate::user_state::ProductUserState;
     use application::transaction::TransactionError;
     use common::error::boxed::box_error;
     use common::event_id::EventId;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::product_id::ProductId;
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shops_product_id::ShopsProductId;
     use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
     use localization::Localized;
@@ -296,8 +292,12 @@ mod tests {
     use notification_service::ports::all_notifications_reader::{
         AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
     };
+    use product_core::product_id::ProductId;
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_slug_id::ProductSlugId;
+    use product_core::product_state::ProductState;
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::title::Title;
-    use product_core::user_state::ProductUserState;
     use shop_core::shop_id::ShopId;
     use shop_core::shop_name::ShopName;
     use shop_core::shop_slug_id::ShopSlugId;

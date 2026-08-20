@@ -1,12 +1,11 @@
 mod support;
 
-use common::{
-    event_id::EventId, pagination::cursor::Cursor, product_id::ProductId, user_id::UserId,
-};
+use common::{event_id::EventId, pagination::cursor::Cursor, user_id::UserId};
 use notification_service::ports::{
     list_notifications_reader::ListNotificationsReader,
     notification_repository::NotificationRepository,
 };
+use product_core::product_id::ProductId;
 use test_api::*;
 
 #[aura_integration_test(services = [DynamoDB()])]

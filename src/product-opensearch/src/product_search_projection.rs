@@ -1,7 +1,8 @@
 use crate::percolation_document::{ProductPercolationDocumentError, product_document};
-use common::{error::boxed::box_error, product_id::ProductId};
+use common::error::boxed::box_error;
 use fxrate_core::FxRateSnapshot;
 use opensearch::{DeleteParts, IndexParts, OpenSearch, http::StatusCode, params::VersionType};
+use product_core::product_id::ProductId;
 use product_service::ports::{
     ProductSearchFilterMatchSource, ProductSearchProjection, ProductSearchProjectionWriteError,
     ProductSearchProjectionWriteOutcome,

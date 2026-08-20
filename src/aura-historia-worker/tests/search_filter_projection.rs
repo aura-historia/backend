@@ -2,18 +2,18 @@ use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 use common::event_id::EventId;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
 use common::resource_state::domain::ResourceState;
-use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use localization::{Language, Localized};
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
+use product_core::product_id::ProductId;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
     title::Title,

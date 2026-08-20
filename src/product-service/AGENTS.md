@@ -8,7 +8,7 @@
 ## Core Design
 
 - Depends on `product-core`, `money`/`localization` canonical values, `shop-core`/`shop-service` for Shopify intake eligibility, `notification-service`, shared `common` IDs/contracts, shared `application` transaction contracts, and product-neutral `embedding`. Product text search passes semantic query text to `EmbeddingGenerator::embed_search_query`; embedding failure falls back to BM25.
-- Root modules: `ports`, `use_case_bundle`, `use_cases`.
+- Root modules: `ports`, `use_case_bundle`, `use_cases`, `user_state`. `user_state` owns Product presentation/read values outside the aggregate core.
 - Write handlers use `application::transaction::UnitOfWork` and transaction-scoped repository/event-store factories. Sold Product creation and transitions capture `sold_at`, then rehydrate latest persisted FX snapshot at or before that instant through a transaction-scoped FX repository, then store immutable sale valuation; missing or invalid data rejects the write.
 - Partner Product create, update, upsert, and delete use cases authorize admins or linked partner users inside their Product transaction. Partner-key writes use `(shopId, shopsProductId)` aggregate lookup. Shopify intake resolves published partner shops through `shop-service` then delegates the authoritative product/event transaction to Product upsert. WooCommerce intake is one Product use case: it uses direct transaction-scoped Shop membership/config/signature ports, maps provider payloads, writes canonical Product state/events, then commits once. It does not call Shop or Product use cases.
 - Repository writes return persisted product state; handlers must not read after write for responses.

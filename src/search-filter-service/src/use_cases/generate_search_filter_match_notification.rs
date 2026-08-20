@@ -8,7 +8,6 @@ use crate::tier_policy::monthly_match_quota;
 use common::{
     error::boxed::{BoxError, box_error},
     event_id::EventId,
-    product_id::ProductId,
     transaction::{Transaction, UnitOfWork},
     user_id::UserId,
     user_search_filter_id::UserSearchFilterId,
@@ -17,6 +16,7 @@ use notification_core::notification::{NotificationPayload, NotificationSearchFil
 use notification_service::use_cases::commands::create_notification::{
     CreateNotificationCommand, CreateNotificationResult, CreateNotificationUseCase,
 };
+use product_core::product_id::ProductId;
 use product_service::ports::{
     ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
@@ -356,15 +356,17 @@ fn commit_error(
 mod tests {
     use super::*;
     use common::{
-        product_lifecycle::domain::ProductLifecycle, product_slug_id::ProductSlugId,
-        product_state::domain::ProductState, seller_slug_id::SellerSlugId, shop_id::ShopId,
-        shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
-        transaction::TransactionError, user_search_filter_name::UserSearchFilterName,
+        seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName,
+        shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId, transaction::TransactionError,
+        user_search_filter_name::UserSearchFilterName,
     };
     use indexmap::IndexSet;
     use product_core::{
         product::{ProductAddress, ProductAuction, ProductPricing},
         product_image::ProductImage,
+        product_lifecycle::ProductLifecycle,
+        product_slug_id::ProductSlugId,
+        product_state::ProductState,
     };
     use product_service::ports::ProductSearchFilterMatchShopType;
     use product_service::ports::ProductSearchFilterMatchSourceEventKind;

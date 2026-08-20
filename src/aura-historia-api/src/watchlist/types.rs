@@ -1,6 +1,6 @@
-use common::product_id::ProductId;
 use common::resource_state::data::{PatchResourceStateData, ResourceStateData};
 use common::user_id::UserId;
+use product_core::product_id::ProductId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use watchlist_core::WatchlistProduct;

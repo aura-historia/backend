@@ -6,14 +6,13 @@ use crate::ports::{
 use common::{
     error::boxed::{BoxError, box_error},
     event_id::EventId,
-    product_id::ProductId,
-    product_lifecycle::domain::ProductLifecycle,
     transaction::{Transaction, UnitOfWork},
 };
 use fxrate_core::FxRateSnapshot;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
+use product_core::{product_id::ProductId, product_lifecycle::ProductLifecycle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProjectProductCommand {
@@ -227,11 +226,7 @@ mod tests {
         ProductSearchFilterMatchShopType, ProductSearchFilterMatchSourceEventKind,
         ProductSearchProjectionWriteError,
     };
-    use common::{
-        error::boxed::box_error, product_slug_id::ProductSlugId,
-        product_state::domain::ProductState, shops_product_id::ShopsProductId,
-        transaction::TransactionError,
-    };
+    use common::{error::boxed::box_error, transaction::TransactionError};
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
@@ -241,6 +236,9 @@ mod tests {
     use product_core::{
         description::Description,
         product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
+        product_slug_id::ProductSlugId,
+        product_state::ProductState,
+        shops_product_id::ShopsProductId,
         title::Title,
     };
     use shop_core::seller_slug_id::SellerSlugId;

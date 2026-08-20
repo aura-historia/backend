@@ -6,8 +6,8 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::product_id::ProductId;
-use common::product_slug_id::ProductSlugId;
+use product_core::product_id::ProductId;
+use product_core::product_slug_id::ProductSlugId;
 use product_service::use_cases::{GetProductEventsRequest, ProductEventLookup};
 use shop_core::shop_slug_id::ShopSlugId;
 

@@ -1,9 +1,9 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::{event_id::EventId, product_id::ProductId};
+use common::event_id::EventId;
 use indexmap::IndexMap;
 use localization::Language;
 use platform_postgres::SqlxUnitOfWork;
-use product_core::title::Title;
+use product_core::{product_id::ProductId, title::Title};
 use product_postgres::SqlxProductTranslationWriterFactory;
 use product_service::ports::{
     ProductTranslationWrite, ProductTranslationWriteOutcome, ProductTranslationWriter,

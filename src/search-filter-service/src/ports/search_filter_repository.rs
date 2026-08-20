@@ -1,5 +1,6 @@
+use common::error::boxed::BoxError;
 use common::user_search_filter_id::UserSearchFilterId;
-use common::{error::boxed::BoxError, product_id::ProductId};
+use product_core::product_id::ProductId;
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};
 use time::OffsetDateTime;
 

@@ -1,7 +1,7 @@
 mod api_support;
 
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_product, seed_user};
-use common::product_id::ProductId;
+use product_core::product_id::ProductId;
 use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,
     get_postgres_client,

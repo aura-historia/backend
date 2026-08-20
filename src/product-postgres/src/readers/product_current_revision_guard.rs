@@ -1,5 +1,6 @@
-use common::{error::boxed::box_error, event_id::EventId, product_id::ProductId};
+use common::{error::boxed::box_error, event_id::EventId};
 use platform_postgres::SqlxTransaction;
+use product_core::product_id::ProductId;
 use product_service::ports::{
     ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
     ProductCurrentRevisionGuardFactory,

@@ -9,10 +9,6 @@ use common::event_id::EventId;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::product_id::ProductId;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -25,7 +21,11 @@ use product_core::product::{
     NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     RehydrateProductError,
 };
+use product_core::product_id::ProductId;
 use product_core::product_image::ProductImage;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use shop_core::shop_id::ShopId;
 use url::Url;
@@ -745,7 +745,7 @@ mod tests {
 
         async fn find_by_key(
             &mut self,
-            _key: &common::product_id::ProductKey,
+            _key: &product_core::product_id::ProductKey,
         ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
         {
             Ok(None)

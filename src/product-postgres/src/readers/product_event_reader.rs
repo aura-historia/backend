@@ -1,12 +1,12 @@
 use common::event_id::EventId;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_state::domain::ProductState;
 use fxrate_core::FxRateId;
 use localization::Language;
 use localization::Localized;
 use money::Currency;
 use money::{MonetaryAmount, Price};
+use product_core::product_id::ProductId;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_state::ProductState;
 
 use indexmap::IndexSet;
 use product_core::description::Description;

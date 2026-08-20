@@ -1,4 +1,5 @@
-use common::{error::boxed::BoxError, product_id::ProductId, user_id::UserId};
+use common::{error::boxed::BoxError, user_id::UserId};
+use product_core::product_id::ProductId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchlistNotificationRecipient {

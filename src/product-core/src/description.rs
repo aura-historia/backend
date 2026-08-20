@@ -1,4 +1,4 @@
-use common::string_newtype;
+use domain_primitives::string_newtype;
 
 string_newtype!(Description, max_length(4000), no_fake);
 

@@ -12,8 +12,8 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 
 use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
-use common::product_id::ProductId;
 use common::sort::SortOrder;
+use product_core::product_id::ProductId;
 use search_filter_service::ports::SearchFilterMatchCursor;
 use search_filter_service::use_cases::ListSearchFilterMatchesRequest;
 use serde::Deserialize;

@@ -2,14 +2,13 @@ use crate::{notification_id::NotificationId, notification_type::NotificationType
 use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
-use common::{
-    event_id::EventId, product_id::ProductId, product_slug_id::ProductSlugId,
-    product_state::domain::ProductState, shops_product_id::ShopsProductId, user_id::UserId,
-};
+use common::{event_id::EventId, user_id::UserId};
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
-use product_core::product_image::ProductImage;
-use product_core::title::Title;
+use product_core::{
+    product_id::ProductId, product_image::ProductImage, product_slug_id::ProductSlugId,
+    product_state::ProductState, shops_product_id::ShopsProductId, title::Title,
+};
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;

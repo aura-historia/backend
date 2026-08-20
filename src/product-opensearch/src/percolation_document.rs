@@ -1,3 +1,4 @@
+use crate::product_lifecycle_document::ProductLifecycleDocument;
 use crate::{
     continent_document::ContinentDocument,
     product_document::{
@@ -8,16 +9,16 @@ use crate::{
     product_state_document::ProductStateDocument,
     shop_type_document::ShopTypeDocument,
 };
-use common::{
-    event_id::EventId, product_id::ProductId,
-    product_lifecycle::document::ProductLifecycleDocument, product_slug_id::ProductSlugId,
-    shops_product_id::ShopsProductId,
-};
+use common::event_id::EventId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use indexmap::IndexSet;
 use isocountry::CountryCode;
 use localization::Language;
 use money::Currency;
+use product_core::{
+    product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
+    shops_product_id::ShopsProductId,
+};
 use product_service::ports::{
     ProductPercolationInput, ProductPricesByCurrency, ProductSearchFilterMatchShopType,
     ProductSearchFilterMatchSource,
@@ -324,9 +325,7 @@ fn sale_projection(
     sale_snapshot: Option<&FxRateSnapshot>,
 ) -> Result<SaleProjection, ProductPercolationDocumentError> {
     match (product.sale_valuation, sale_snapshot) {
-        (None, None) if product.state != common::product_state::domain::ProductState::Sold => {
-            Ok((None, None, None))
-        }
+        (None, None) if product.state != ProductState::Sold => Ok((None, None, None)),
         (None, None) => Err(ProductPercolationDocumentError::MissingSaleValuation),
         (None, Some(_)) => Err(ProductPercolationDocumentError::UnexpectedSaleSnapshot),
         (Some(valuation), None) if product.pricing.price.is_none() => {
@@ -429,11 +428,7 @@ fn translated_title(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        event_id::EventId, product_lifecycle::domain::ProductLifecycle,
-        product_slug_id::ProductSlugId, product_state::domain::ProductState,
-        query::range_query::RangeQuery, shops_product_id::ShopsProductId,
-    };
+    use common::{event_id::EventId, query::range_query::RangeQuery};
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
@@ -445,6 +440,10 @@ mod tests {
             ProductAddress, ProductAuction, ProductPriceValuationBasis, ProductPricing,
             ProductSaleValuation,
         },
+        product_lifecycle::ProductLifecycle,
+        product_slug_id::ProductSlugId,
+        product_state::ProductState,
+        shops_product_id::ShopsProductId,
         title::Title,
     };
     use product_service::ports::{

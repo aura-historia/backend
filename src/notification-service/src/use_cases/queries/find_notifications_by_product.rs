@@ -1,11 +1,12 @@
 use crate::ports::product_notifications_reader::{
     ProductNotificationsReadError, ProductNotificationsReader,
 };
-use common::{product_id::ProductId, user_id::UserId};
+use common::user_id::UserId;
 use notification_core::{
     notification::NotificationPayload, notification_id::NotificationId,
     notification_type::NotificationType,
 };
+use product_core::product_id::ProductId;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FindNotificationsByProductRequest {

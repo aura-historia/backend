@@ -7,10 +7,8 @@ use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use common::{
-    error::missing_field::MissingPersistenceField, event_id::EventId, product_id::ProductId,
-    product_slug_id::ProductSlugId, product_state::domain::ProductState, shop_id::ShopId,
-    shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
-    user_id::UserId,
+    error::missing_field::MissingPersistenceField, event_id::EventId, shop_id::ShopId,
+    shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId,
 };
 use field::field;
 use localization::Language;
@@ -23,17 +21,56 @@ use notification_core::{
     notification_id::NotificationId,
 };
 use product::dynamodb::{
-    product_image_record::ProductImageRecord, product_state_record::ProductStateRecord,
-    prohibited_content_record::ProhibitedContentRecord,
+    product_image_record::ProductImageRecord, prohibited_content_record::ProhibitedContentRecord,
 };
 use product_core::{
-    product_image::ProductImage, prohibited_content::ProhibitedContent, title::Title,
+    product_id::ProductId, product_image::ProductImage, product_slug_id::ProductSlugId,
+    product_state::ProductState, prohibited_content::ProhibitedContent,
+    shops_product_id::ShopsProductId, title::Title,
 };
 
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashMap;
 use time::OffsetDateTime;
+
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum LegacyProductStateRecord {
+    Listed,
+    Available,
+    Reserved,
+    Sold,
+    Removed,
+    Unknown,
+}
+
+impl From<ProductState> for LegacyProductStateRecord {
+    fn from(state: ProductState) -> Self {
+        match state {
+            ProductState::Listed => Self::Listed,
+            ProductState::Available => Self::Available,
+            ProductState::Reserved => Self::Reserved,
+            ProductState::Sold => Self::Sold,
+            ProductState::Removed => Self::Removed,
+            ProductState::Unknown => Self::Unknown,
+        }
+    }
+}
+
+impl From<LegacyProductStateRecord> for ProductState {
+    fn from(state: LegacyProductStateRecord) -> Self {
+        match state {
+            LegacyProductStateRecord::Listed => Self::Listed,
+            LegacyProductStateRecord::Available => Self::Available,
+            LegacyProductStateRecord::Reserved => Self::Reserved,
+            LegacyProductStateRecord::Sold => Self::Sold,
+            LegacyProductStateRecord::Removed => Self::Removed,
+            LegacyProductStateRecord::Unknown => Self::Unknown,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, SerdeField)]
 pub(crate) struct NotificationRecord {
@@ -157,9 +194,9 @@ pub(crate) struct NotificationRecord {
     pub old_price_chf: Option<u64>,
     // state-change
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub new_state: Option<ProductStateRecord>,
+    pub new_state: Option<LegacyProductStateRecord>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub old_state: Option<ProductStateRecord>,
+    pub old_state: Option<LegacyProductStateRecord>,
 
     // search-filter
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -461,8 +498,8 @@ impl NotificationRecord {
                         None,
                         None,
                         None,
-                        Some(ProductStateRecord::from(*new_state)),
-                        Some(ProductStateRecord::from(*old_state)),
+                        Some(LegacyProductStateRecord::from(*new_state)),
+                        Some(LegacyProductStateRecord::from(*old_state)),
                     ),
                 };
 
@@ -1051,9 +1088,39 @@ mod faker {
 }
 
 #[cfg(test)]
+mod product_state_record_tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(ProductState::Listed, "\"LISTED\"")]
+    #[case(ProductState::Available, "\"AVAILABLE\"")]
+    #[case(ProductState::Reserved, "\"RESERVED\"")]
+    #[case(ProductState::Sold, "\"SOLD\"")]
+    #[case(ProductState::Removed, "\"REMOVED\"")]
+    #[case(ProductState::Unknown, "\"UNKNOWN\"")]
+    fn should_map_canonical_product_state_to_legacy_persisted_representation(
+        #[case] state: ProductState,
+        #[case] persisted: &str,
+    ) -> Result<(), serde_json::Error> {
+        let record = LegacyProductStateRecord::from(state);
+
+        assert_eq!(serde_json::to_string(&record)?, persisted);
+        assert_eq!(ProductState::from(record), state);
+        assert_eq!(
+            serde_json::from_str::<LegacyProductStateRecord>(persisted)?,
+            record
+        );
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod key_tests {
     use super::*;
-    use common::{event_id::EventId, product_id::ProductId};
+    use common::event_id::EventId;
+    use product_core::product_id::ProductId;
 
     #[test]
     fn should_format_lsi2_sk_correctly() {

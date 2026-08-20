@@ -1,7 +1,7 @@
+use crate::user_state::ProductUserState;
 use common::error::boxed::BoxError;
-use common::product_id::ProductId;
 use common::user_id::UserId;
-use product_core::user_state::ProductUserState;
+use product_core::product_id::ProductId;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

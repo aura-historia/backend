@@ -1,8 +1,5 @@
 use common::error::boxed::box_error;
 use common::event_id::EventId;
-use common::product_id::ProductId;
-use common::product_lifecycle::data::ProductLifecycleData;
-use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::resource_state::domain::ResourceState;
@@ -10,6 +7,9 @@ use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use fxrate_core::FxRateId;
+use product_core::product_id::ProductId;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_state::ProductState;
 use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 
 use geo::{
@@ -419,7 +419,7 @@ struct ProductSearchJson {
     geo_address_distance_query: Option<GeoDistanceQueryJson>,
     price_query: Option<RangeQuery<u64>>,
     state_query: HashSet<ProductStateJson>,
-    lifecycle_query: HashSet<ProductLifecycleData>,
+    lifecycle_query: HashSet<ProductLifecycleJson>,
     created_query: Option<TimeRangeJson>,
     updated_query: Option<TimeRangeJson>,
     auction_start_query: Option<TimeRangeJson>,
@@ -621,6 +621,33 @@ impl From<ProductStateJson> for ProductState {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum ProductLifecycleJson {
+    #[default]
+    Active,
+    Deleted,
+}
+
+impl From<ProductLifecycle> for ProductLifecycleJson {
+    fn from(value: ProductLifecycle) -> Self {
+        match value {
+            ProductLifecycle::Active => Self::Active,
+            ProductLifecycle::Deleted => Self::Deleted,
+        }
+    }
+}
+
+impl From<ProductLifecycleJson> for ProductLifecycle {
+    fn from(value: ProductLifecycleJson) -> Self {
+        match value {
+            ProductLifecycleJson::Active => Self::Active,
+            ProductLifecycleJson::Deleted => Self::Deleted,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TimeRangeJson {
@@ -764,6 +791,23 @@ mod tests {
     use super::*;
     use localization::Language;
     use money::Currency;
+
+    #[test]
+    fn should_encode_legacy_lifecycle_json_in_screaming_snake_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let lifecycle =
+            ProductLifecycleJson::from(product_core::product_lifecycle::ProductLifecycle::Deleted);
+
+        assert_eq!(
+            serde_json::json!("DELETED"),
+            serde_json::to_value(lifecycle)?
+        );
+        assert_eq!(
+            product_core::product_lifecycle::ProductLifecycle::Deleted,
+            serde_json::from_value::<ProductLifecycleJson>(serde_json::json!("DELETED"))?.into()
+        );
+        Ok(())
+    }
 
     #[test]
     fn should_round_trip_geo_distance_query_with_legacy_json_shape()

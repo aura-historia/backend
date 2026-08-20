@@ -1152,7 +1152,7 @@ async fn seed_user(pool: &sqlx::PgPool, tier: &str) -> Result<UserId, sqlx::Erro
 async fn create_product_with_domain_event(
     pool: &sqlx::PgPool,
     title: &str,
-) -> Result<(common::product_id::ProductId, EventId), sqlx::Error> {
+) -> Result<(product_core::product_id::ProductId, EventId), sqlx::Error> {
     create_product_with_event(pool, title, "PRODUCT_CREATED", "DOMAIN").await
 }
 
@@ -1161,8 +1161,8 @@ async fn create_product_with_event(
     title: &str,
     event_type: &str,
     event_group: &str,
-) -> Result<(common::product_id::ProductId, EventId), sqlx::Error> {
-    let product_id = common::product_id::ProductId::new();
+) -> Result<(product_core::product_id::ProductId, EventId), sqlx::Error> {
+    let product_id = product_core::product_id::ProductId::new();
     let product_uuid = uuid::Uuid::from(product_id);
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
@@ -1195,7 +1195,7 @@ async fn create_product_with_event(
 }
 
 struct CrossCurrencyProductEvent {
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
     event_id: EventId,
 }
 
@@ -1222,7 +1222,7 @@ async fn insert_cross_currency_product_with_event(
         state,
         sale_fx_rate_id,
     } = input;
-    let product_id = common::product_id::ProductId::new();
+    let product_id = product_core::product_id::ProductId::new();
     let product_uuid = uuid::Uuid::from(product_id);
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
@@ -1362,7 +1362,7 @@ async fn insert_filter(
 
 async fn insert_product_event(
     pool: &sqlx::PgPool,
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
     event_type: &str,
     event_group: &str,
 ) -> Result<EventId, sqlx::Error> {
@@ -1379,7 +1379,7 @@ async fn insert_product_event(
 
 async fn update_product_and_insert_event(
     pool: &sqlx::PgPool,
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
     title: &str,
 ) -> Result<EventId, sqlx::Error> {
     update_product_and_insert_event_with_group(
@@ -1394,7 +1394,7 @@ async fn update_product_and_insert_event(
 
 async fn update_product_and_insert_event_with_group(
     pool: &sqlx::PgPool,
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
     title: &str,
     event_type: &str,
     event_group: &str,
@@ -1424,7 +1424,7 @@ async fn create_product_with_event_then_rollback(
     pool: &sqlx::PgPool,
     title: &str,
 ) -> Result<EventId, sqlx::Error> {
-    let product_id = common::product_id::ProductId::new();
+    let product_id = product_core::product_id::ProductId::new();
     let product_uuid = uuid::Uuid::from(product_id);
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
@@ -1458,7 +1458,7 @@ async fn insert_historical_search_filter_match(
     pool: &sqlx::PgPool,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query(
@@ -1483,7 +1483,7 @@ async fn product_event_type(pool: &sqlx::PgPool, event_id: EventId) -> Result<St
 
 async fn assert_product_source_price(
     pool: &sqlx::PgPool,
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
     expected_amount: i64,
     expected_currency: &str,
 ) -> Result<(), sqlx::Error> {
@@ -1590,7 +1590,7 @@ async fn assert_match_for_event(
     event_id: EventId,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (matched_user_id, matched_search_filter_id, matched_product_id): (
         uuid::Uuid,
@@ -1728,7 +1728,7 @@ fn assert_search_filter_notification(
     notification: &AllNotificationsReadItem,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(user_id, notification.user_id);
@@ -1815,7 +1815,7 @@ async fn assert_price_filter_document(
 
 async fn redeliver_product_event(
     server: &ScopedWorkerServer,
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
     event_id: EventId,
     event_type: &str,
     event_group: &str,
@@ -1840,7 +1840,7 @@ async fn redeliver_search_filter_match(
     server: &ScopedWorkerServer,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: common::product_id::ProductId,
+    product_id: product_core::product_id::ProductId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     post_sequin_change(

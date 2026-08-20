@@ -8,9 +8,6 @@ use crate::use_cases::{
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::BoxError;
 use common::operation_context::{CredentialCapability, OperationContext, Principal};
-use common::product_id::{ProductId, ProductKey};
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -22,8 +19,11 @@ use product_core::description::Description;
 use product_core::product::{
     NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
 };
+use product_core::product_id::{ProductId, ProductKey};
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop_id::ShopId;

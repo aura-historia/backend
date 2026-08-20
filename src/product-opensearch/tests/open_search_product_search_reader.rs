@@ -1,14 +1,14 @@
 use common::event_id::EventId;
 use common::pagination::cursor::Cursor;
-use common::product_id::ProductId;
-use common::product_slug_id::ProductSlugId;
 use common::query::range_query::RangeQuery;
-use common::shops_product_id::ShopsProductId;
 use fxrate_core::FxRateId;
 use money::Currency;
 use money::MonetaryAmount;
 use opensearch::IndexParts;
+use product_core::product_id::ProductId;
 use product_core::product_search::ProductSearch;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::shops_product_id::ShopsProductId;
 use product_service::ports::{
     CompiledProductSearch, ProductPriceFilterPlan, ProductSearchReadRequest, ProductSearchReader,
 };

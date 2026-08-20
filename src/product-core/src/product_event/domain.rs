@@ -1,7 +1,7 @@
 use crate::description::Description;
 use crate::product_image::ProductImage;
+use crate::product_state::ProductState;
 use crate::title::Title;
-use common::product_state::domain::ProductState;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
 use localization::Language;

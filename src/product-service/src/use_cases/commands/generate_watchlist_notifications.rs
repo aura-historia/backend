@@ -6,13 +6,13 @@ use crate::ports::{
 use common::{
     error::boxed::{BoxError, box_error},
     event_id::EventId,
-    product_id::ProductId,
     transaction::{Transaction, UnitOfWork},
 };
 use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
 use notification_service::use_cases::commands::create_notification::{
     CreateNotificationCommand, CreateNotificationResult, CreateNotificationUseCase,
 };
+use product_core::product_id::ProductId;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

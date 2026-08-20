@@ -1,10 +1,10 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::{event_id::EventId, product_id::ProductId};
+use common::event_id::EventId;
 use localization::Language;
 use localization::Localized;
 use platform_postgres::SqlxUnitOfWork;
 const EMBEDDING_DIMENSIONS: usize = 768;
-use product_core::title::Title;
+use product_core::{product_id::ProductId, title::Title};
 use product_postgres::SqlxProductEmbeddingWriterFactory;
 use product_service::ports::{
     ProductEmbeddingWrite, ProductEmbeddingWriteOutcome, ProductEmbeddingWriter,

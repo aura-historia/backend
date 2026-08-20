@@ -13,7 +13,6 @@ use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::patch_field::PatchField;
-use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -27,6 +26,7 @@ use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_state::ProductState;
 use shop_core::shop_type::ShopType;
 use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use time::OffsetDateTime;

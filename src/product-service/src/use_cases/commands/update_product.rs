@@ -10,8 +10,6 @@ use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use common::patch_field::PatchField;
-use common::product_id::{ProductId, ProductKey};
-use common::product_state::domain::ProductState;
 use common::user_id::UserId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -22,7 +20,9 @@ use product_core::product::{
     ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     ProductStateTransitionError,
 };
+use product_core::product_id::{ProductId, ProductKey};
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -740,10 +740,10 @@ mod tests {
     use money::{MonetaryAmount, Price};
 
     use application::transaction::TransactionError;
-    use common::shops_product_id::ShopsProductId;
     use common::versioned::Versioned;
     use product_core::description::Description;
     use product_core::product::{NewProduct, Product, ProductDomainEvent};
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::title::Title;
     use shop_core::shop_id::ShopId;
     use std::sync::{Arc, Mutex, MutexGuard};

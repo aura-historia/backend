@@ -1,15 +1,15 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
 use crate::values::{LocalizedTextData, PriceData};
 use common::patch_field::PatchField;
-use common::product_id::ProductKey;
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use money::Price;
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+use product_core::product_id::ProductKey;
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use product_service::use_cases::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,

@@ -1,10 +1,10 @@
 use crate::continent_document::ContinentDocument;
 use crate::product_document::{ProductDocument, ProductDocumentSerdeField};
+use crate::product_lifecycle_document::ProductLifecycleDocument;
 use crate::product_state_document::ProductStateDocument;
 use crate::shop_type_document::ShopTypeDocument;
 use common::opensearch::search_response::{SearchHit, SearchResponse};
 use common::pagination::cursor::{Cursor, CursoredResult};
-use common::product_lifecycle::document::ProductLifecycleDocument;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::text_query::TextQuery;
 use common::sort::{Sort, SortOrder};
@@ -846,8 +846,7 @@ mod tests {
         CurrencyDocument, LanguageDocument, SalePricesDocument, SourcePriceDocument, TextDocument,
     };
     use common::{
-        event_id::EventId, product_id::ProductId,
-        product_lifecycle::document::ProductLifecycleDocument, product_slug_id::ProductSlugId,
+        event_id::EventId, product_id::ProductId, product_slug_id::ProductSlugId,
         shops_product_id::ShopsProductId,
     };
     use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};

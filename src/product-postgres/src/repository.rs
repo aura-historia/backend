@@ -2,11 +2,6 @@
 
 use common::error::boxed::box_error;
 use common::event_id::EventId;
-use common::product_id::{ProductId, ProductKey};
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
 use common::versioned::Versioned;
 use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
@@ -20,8 +15,13 @@ use product_core::product::{
     Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     RehydratedProductState,
 };
+use product_core::product_id::{ProductId, ProductKey};
 use product_core::product_image::ProductImage;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use product_service::ports::product_repository::{
     ProductRepository, ProductRepositoryError, ProductRepositoryFactory,

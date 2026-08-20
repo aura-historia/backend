@@ -1,9 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
 use common::event_id::EventId;
-use common::product_id::{ProductId, ProductKey};
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
 use common::versioned::Versioned;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
@@ -16,7 +12,11 @@ use product_core::description::Description;
 use product_core::product::{
     NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, RehydratedProductState,
 };
+use product_core::product_id::{ProductId, ProductKey};
 use product_core::product_image::ProductImage;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
 use product_postgres::{SqlxProductEventStoreFactory, SqlxProductRepositoryFactory};
@@ -556,7 +556,7 @@ fn rehydrate_product_for_update(
     product: &Product,
     slug_id: ProductSlugId,
     shop_id: ShopId,
-    shops_product_id: common::shops_product_id::ShopsProductId,
+    shops_product_id: product_core::shops_product_id::ShopsProductId,
 ) -> Product {
     match Product::rehydrate(RehydratedProductState {
         id: product.id(),
@@ -587,10 +587,10 @@ fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> Product {
         prohibited_content: ProhibitedContent::None,
     });
     match Product::create(NewProduct {
-        id: common::product_id::ProductId::new(),
+        id: product_core::product_id::ProductId::new(),
         shop_id,
         seller_id,
-        shops_product_id: common::shops_product_id::ShopsProductId::from(slug),
+        shops_product_id: product_core::shops_product_id::ShopsProductId::from(slug),
         address: ProductAddress::default(),
         title: Some(Localized::new(Language::En, Title::from(slug))),
         description: Some(Localized::new(

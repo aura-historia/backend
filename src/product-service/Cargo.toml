@@ -7,6 +7,7 @@ edition = "2024"
 async-trait = { workspace = true }
 application = { workspace = true }
 common = { workspace = true }
+domain-primitives = { workspace = true }
 embedding = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }

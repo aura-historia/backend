@@ -1,4 +1,4 @@
-use common::product_lifecycle::domain::ProductLifecycle;
+use crate::product_lifecycle::ProductLifecycle;
 
 #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq)]

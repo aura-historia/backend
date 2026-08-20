@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use common::{
     error::boxed::{BoxError, box_error, static_error},
     event_id::EventId,
-    product_id::ProductId,
-    product_slug_id::ProductSlugId,
-    shops_product_id::ShopsProductId,
     utm::append_utm_params,
 };
 use platform_postgres::SqlxTransaction;
-use product_core::title::Title;
+use product_core::{
+    product_id::ProductId, product_slug_id::ProductSlugId, shops_product_id::ShopsProductId,
+    title::Title,
+};
 use product_service::ports::{
     ProductWatchlistNotificationChange, ProductWatchlistNotificationSource,
     ProductWatchlistNotificationSourceReadError, ProductWatchlistNotificationSourceReader,

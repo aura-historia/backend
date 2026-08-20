@@ -7,6 +7,7 @@ edition = "2024"
 async-trait = { workspace = true }
 common = { workspace = true }
 platform-postgres = { workspace = true }
+product-core = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 product-service = { workspace = true }

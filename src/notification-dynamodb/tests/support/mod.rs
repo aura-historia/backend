@@ -1,10 +1,8 @@
 #![allow(dead_code)]
 
 use common::{
-    event_id::EventId, partner_shop_application_id::PartnerShopApplicationId,
-    product_id::ProductId, product_slug_id::ProductSlugId, product_state::domain::ProductState,
-    shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId, user_id::UserId,
+    event_id::EventId, partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId,
+    shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId,
 };
 use notification_core::notification::{
     Notification, NotificationPartnerApplicationPayload, NotificationPayload,
@@ -18,6 +16,10 @@ use notification_dynamodb::{
     list_notifications_reader::DynamoDbListNotificationsReader,
     product_notifications_reader::DynamoDbProductNotificationsReader,
     repository::NotificationDynamoDbRepository,
+};
+use product_core::{
+    product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
+    shops_product_id::ShopsProductId,
 };
 use test_api::get_dynamodb_client;
 use url::Url;

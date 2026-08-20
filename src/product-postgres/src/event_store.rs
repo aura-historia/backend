@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
 use common::event_id::EventId;
-use common::product_id::ProductId;
 use product_core::product::{
     ProductAddress, ProductAuction, ProductDomainEvent, ProductDomainEventPayload, ProductPricing,
 };
+use product_core::product_id::ProductId;
 use product_core::product_image::ProductImage;
 use product_service::ports::product_event_store::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory,
@@ -234,8 +234,6 @@ mod tests {
     use super::*;
     use money::Currency;
 
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_state::domain::ProductState;
     use indexmap::IndexSet;
     use localization::Language;
     use localization::Localized;
@@ -246,6 +244,8 @@ mod tests {
         ProductImagesChanged, ProductPriceChanged, ProductStateChanged, ProductUrlChanged,
     };
     use product_core::product_image::ProductImage;
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_state::ProductState;
     use product_core::prohibited_content::ProhibitedContent;
     use product_core::title::Title;
     use time::OffsetDateTime;

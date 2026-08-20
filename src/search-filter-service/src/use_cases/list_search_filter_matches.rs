@@ -7,7 +7,6 @@ use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::pagination::cursor::{Cursor, CursoredResult};
-use common::product_id::ProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
@@ -19,7 +18,7 @@ use money::Currency;
 use notification_service::ports::all_notifications_reader::{
     AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
 };
-use product_core::user_state::NotificationUserState;
+use product_core::product_id::ProductId;
 use product_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
     ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
@@ -28,6 +27,7 @@ use product_service::use_cases::{
     PersonalizedProductDetailsView, ProductPricingPresentationError, present_product_details,
     redact_hidden_product,
 };
+use product_service::user_state::NotificationUserState;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 
@@ -453,10 +453,6 @@ mod tests {
     use common::event_id::EventId;
     use common::operation_context::{CorrelationId, Principal, RequestId};
     use common::personalized::Personalized;
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shops_product_id::ShopsProductId;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
@@ -464,9 +460,13 @@ mod tests {
     use product_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
-    use product_core::user_state::ProductUserState;
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_slug_id::ProductSlugId;
+    use product_core::product_state::ProductState;
+    use product_core::shops_product_id::ShopsProductId;
     use product_service::ports::ProductDetailsReadModel;
     use product_service::use_cases::ProductPricingValuation;
+    use product_service::user_state::ProductUserState;
     use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;

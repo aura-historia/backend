@@ -8,7 +8,6 @@ use crate::ports::{
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
-use common::product_id::ProductId;
 use common::resource_state::domain::ResourceState;
 use fxrate_core::FxRateId;
 #[cfg(test)]
@@ -21,6 +20,7 @@ use large_language_model::{
     StructuredGenerationRequest,
 };
 use product_core::product::ProductPriceValuationBasis;
+use product_core::product_id::ProductId;
 use product_service::ports::{
     ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
     ProductCurrentRevisionGuardFactory, ProductPercolationInput, ProductPercolationValuation,
@@ -766,10 +766,9 @@ mod tests {
         SearchFilterIndexQuery, SearchFilterProjectionWriteOutcome, SearchFilterView,
     };
     use common::{
-        product_lifecycle::domain::ProductLifecycle, product_slug_id::ProductSlugId,
-        product_state::domain::ProductState, query::range_query::RangeQuery, shop_id::ShopId,
-        shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
-        transaction::TransactionError, user_id::UserId, user_search_filter_id::UserSearchFilterId,
+        query::range_query::RangeQuery, shop_id::ShopId, shop_name::ShopName,
+        shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId, transaction::TransactionError,
+        user_id::UserId, user_search_filter_id::UserSearchFilterId,
         user_search_filter_name::UserSearchFilterName,
     };
     use fxrate_core::{
@@ -785,6 +784,9 @@ mod tests {
     use product_core::{
         product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
         product_image::ProductImage,
+        product_lifecycle::ProductLifecycle,
+        product_slug_id::ProductSlugId,
+        product_state::ProductState,
     };
     use product_service::ports::{
         ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
@@ -1169,7 +1171,7 @@ mod tests {
             origin_event_time: OffsetDateTime::UNIX_EPOCH,
             current_event_id: event_id,
             projection_version: 1,
-            product_id: common::product_id::ProductId::new(),
+            product_id: product_core::product_id::ProductId::new(),
             product_slug_id: ProductSlugId::from("product"),
             shop_id: ShopId::new(),
             shop_slug_id: ShopSlugId::from("shop"),

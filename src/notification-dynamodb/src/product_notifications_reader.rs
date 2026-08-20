@@ -3,11 +3,12 @@ use crate::{
     reader_common::deserialize_records,
 };
 use aws_sdk_dynamodb::{Client, types::AttributeValue};
-use common::{error::boxed::box_error, product_id::ProductId, user_id::UserId};
+use common::{error::boxed::box_error, user_id::UserId};
 use notification_core::notification::Notification;
 use notification_service::ports::product_notifications_reader::{
     ProductNotificationReadItem, ProductNotificationsReadError, ProductNotificationsReader,
 };
+use product_core::product_id::ProductId;
 
 #[derive(Debug, Clone)]
 pub struct DynamoDbProductNotificationsReader<'a> {

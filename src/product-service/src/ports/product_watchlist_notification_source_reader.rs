@@ -1,11 +1,10 @@
-use common::{
-    error::boxed::BoxError, event_id::EventId, product_id::ProductId,
-    product_slug_id::ProductSlugId, product_state::domain::ProductState,
-    shops_product_id::ShopsProductId,
-};
+use common::{error::boxed::BoxError, event_id::EventId};
 use localization::Language;
 use money::Price;
-use product_core::{product_image::ProductImage, title::Title};
+use product_core::{
+    product_id::ProductId, product_image::ProductImage, product_slug_id::ProductSlugId,
+    product_state::ProductState, shops_product_id::ShopsProductId, title::Title,
+};
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;

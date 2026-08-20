@@ -3,6 +3,7 @@ mod percolation_document;
 mod percolator_query;
 mod product_document;
 mod product_image_document;
+mod product_lifecycle_document;
 mod product_search_projection;
 mod product_search_reader;
 mod product_similar_products_reader;

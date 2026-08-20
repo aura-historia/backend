@@ -6,7 +6,7 @@ use crate::values::{CurrencyData, LanguageData};
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::product_slug_id::ProductSlugId;
+use product_core::product_slug_id::ProductSlugId;
 use product_service::use_cases::{GetProductRequest, ProductLookup};
 use serde::Deserialize;
 use shop_core::shop_slug_id::ShopSlugId;

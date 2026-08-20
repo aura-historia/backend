@@ -1,8 +1,9 @@
-use common::{error::boxed::BoxError, event_id::EventId, product_id::ProductId, user_id::UserId};
+use common::{error::boxed::BoxError, event_id::EventId, user_id::UserId};
 use notification_core::{
     notification::NotificationPayload, notification_id::NotificationId,
     notification_type::NotificationType,
 };
+use product_core::product_id::ProductId;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]

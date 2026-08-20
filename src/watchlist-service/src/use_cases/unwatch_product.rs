@@ -3,8 +3,8 @@ use application::transaction::{Transaction, UnitOfWork};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::product_id::ProductId;
 use common::user_id::UserId;
+use product_core::product_id::ProductId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnwatchProductCommand {

@@ -9,8 +9,8 @@ use common::event_id::EventId;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::product_id::{ProductId, ProductKey};
 use common::user_id::UserId;
+use product_core::product_id::{ProductId, ProductKey};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteProductResult {
@@ -381,10 +381,6 @@ mod tests {
     use super::*;
     use application::transaction::TransactionError;
     use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shops_product_id::ShopsProductId;
     use common::versioned::Versioned;
     use indexmap::IndexSet;
     use localization::Language;
@@ -396,6 +392,10 @@ mod tests {
         NewProduct, Product, ProductAddress, ProductAuction, ProductDomainEvent, ProductPricing,
         RehydratedProductState,
     };
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_slug_id::ProductSlugId;
+    use product_core::product_state::ProductState;
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::title::Title;
     use shop_core::shop_id::ShopId;
     use std::sync::{Arc, Mutex, MutexGuard};

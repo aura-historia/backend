@@ -9,9 +9,9 @@ use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::patch_field::PatchField;
-use common::product_id::ProductId;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
+use product_core::product_id::ProductId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateSearchFilterMatchFeedbackCommand {

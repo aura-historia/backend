@@ -80,7 +80,7 @@
     "oauth-service": {"test-data": ["test-data"]},
     "partner-shop-application": {"data": ["api"], "dynamodb": ["dynamodb"], "test-data": ["test-data"]},
     "product": {"data": ["api"], "dynamodb": ["dynamodb"], "opensearch": ["opensearch"], "postgres": ["postgres"], "sqs": ["sqs"], "test-data": ["test-data"]},
-    "product-core": {"test-data": ["test-data"]},
+
     "product-service": {"test-data": ["test-data"]},
     "product-watchlist": {"data": ["api"], "dynamodb": ["dynamodb"], "test-data": ["test-data"]},
     "search-filter": {"dynamodb": ["dynamodb"], "opensearch": ["opensearch"], "service": ["dynamodb"], "test-data": ["test-data"]},
@@ -133,7 +133,7 @@
       "product": [],
       "product-api": ["api", "opensearch"],
       "product-api-partner": ["api", "opensearch"],
-      "product-core": [],
+
       "product-lambda-delete-product": ["dynamodb", "event_bridge", "opensearch"],
       "product-lambda-ingest-partner-products": ["api", "opensearch", "sqs"],
       "product-lambda-materialize-opensearch": ["api", "dynamodb", "event_bridge", "opensearch"],

@@ -90,7 +90,7 @@ pub async fn post_woocommerce(
                 kind,
                 signature,
                 raw_body: body.to_vec(),
-                shops_product_id: common::shops_product_id::ShopsProductId::from(
+                shops_product_id: product_core::shops_product_id::ShopsProductId::from(
                     payload.id.to_string(),
                 ),
                 title: payload.name,

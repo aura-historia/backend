@@ -1,4 +1,5 @@
-use common::{error::boxed::BoxError, product_id::ProductId, product_slug_id::ProductSlugId};
+use common::error::boxed::BoxError;
+use product_core::{product_id::ProductId, product_slug_id::ProductSlugId};
 use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Clone, PartialEq)]

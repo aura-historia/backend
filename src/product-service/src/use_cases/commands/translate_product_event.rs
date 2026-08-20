@@ -7,10 +7,10 @@ use common::{
     error::boxed::{BoxError, box_error},
     event_id::EventId,
     operation_context::{OperationAuthorizationError, OperationContext},
-    product_id::ProductId,
     transaction::{Transaction, UnitOfWork},
 };
 use localization::Language;
+use product_core::product_id::ProductId;
 const EMBEDDED_EVENT_TYPE: &str = "ENRICHMENT_EMBEDDED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

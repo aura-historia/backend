@@ -1,8 +1,6 @@
 use crate::values::{CurrencyData, GeoDistanceQueryData, LanguageData};
 use common::event_id::EventId;
 use common::patch_field::PatchField;
-use common::product_id::ProductId;
-use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -11,6 +9,8 @@ use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use money::MonetaryAmount;
+use product_core::product_id::ProductId;
+use product_core::product_state::ProductState;
 use shop_core::seller_slug_id::SellerSlugId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;

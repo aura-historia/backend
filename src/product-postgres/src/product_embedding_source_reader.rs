@@ -1,11 +1,10 @@
 use common::{
     error::boxed::{box_error, static_error},
     event_id::EventId,
-    product_id::ProductId,
 };
 use localization::Language;
 use localization::Localized;
-use product_core::{description::Description, title::Title};
+use product_core::{description::Description, product_id::ProductId, title::Title};
 use product_service::ports::{
     ProductEmbeddingSource, ProductEmbeddingSourceReadError, ProductEmbeddingSourceReader,
 };

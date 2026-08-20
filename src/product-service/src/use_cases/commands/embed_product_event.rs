@@ -7,10 +7,10 @@ use common::{
     error::boxed::{BoxError, box_error},
     event_id::EventId,
     operation_context::{OperationAuthorizationError, OperationContext},
-    product_id::ProductId,
     transaction::{Transaction, UnitOfWork},
 };
 use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText};
+use product_core::product_id::ProductId;
 
 const CREATED_EVENT_TYPE: &str = "DOMAIN_CREATED";
 

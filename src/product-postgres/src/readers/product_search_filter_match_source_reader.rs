@@ -1,11 +1,6 @@
 use common::{
     error::boxed::{BoxError, box_error, static_error},
     event_id::EventId,
-    product_id::ProductId,
-    product_lifecycle::domain::ProductLifecycle,
-    product_slug_id::ProductSlugId,
-    product_state::domain::ProductState,
-    shops_product_id::ShopsProductId,
     utm::append_utm_params,
 };
 use fxrate_core::FxRateId;
@@ -17,8 +12,13 @@ use platform_postgres::SqlxTransaction;
 use product_core::{
     description::Description,
     product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
+    product_id::ProductId,
     product_image::ProductImage,
+    product_lifecycle::ProductLifecycle,
+    product_slug_id::ProductSlugId,
+    product_state::ProductState,
     prohibited_content::ProhibitedContent,
+    shops_product_id::ShopsProductId,
     title::Title,
 };
 use product_service::ports::{

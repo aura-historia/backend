@@ -13,14 +13,12 @@ use fxrate_service::ports::{
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::product_id::{ProductId, ProductKey};
 use localization::Language;
 use localization::Localized;
 use money::Price;
+use product_core::product_id::{ProductId, ProductKey};
 
 use application::transaction::{Transaction, UnitOfWork};
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
 use common::user_id::UserId;
 use indexmap::IndexSet;
 use product_core::description::Description;
@@ -29,6 +27,8 @@ use product_core::product::{
     ProductStateTransitionError, RehydrateProductError,
 };
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use shop_core::shop_id::ShopId;
 use url::Url;

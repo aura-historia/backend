@@ -2,9 +2,9 @@
 
 use common::error::boxed::BoxError;
 use common::event_id::EventId;
-use common::product_id::{ProductId, ProductKey};
 use common::versioned::Versioned;
 use product_core::product::Product;
+use product_core::product_id::{ProductId, ProductKey};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductRepositoryError {

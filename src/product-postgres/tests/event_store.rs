@@ -1,6 +1,4 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::product_id::ProductId;
-use common::product_state::domain::ProductState;
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
@@ -9,7 +7,9 @@ use money::{MonetaryAmount, Price};
 use platform_postgres::SqlxUnitOfWork;
 use product_core::description::Description;
 use product_core::product::{NewProduct, Product, ProductAddress, ProductAuction, ProductPricing};
+use product_core::product_id::ProductId;
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
 use product_postgres::{SqlxProductEventStoreFactory, SqlxProductRepositoryFactory};
@@ -79,7 +79,7 @@ fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> Product {
         id: ProductId::new(),
         shop_id,
         seller_id,
-        shops_product_id: common::shops_product_id::ShopsProductId::from(slug),
+        shops_product_id: product_core::shops_product_id::ShopsProductId::from(slug),
         address: ProductAddress::default(),
         title: Some(Localized::new(Language::En, Title::from(slug))),
         description: Some(Localized::new(

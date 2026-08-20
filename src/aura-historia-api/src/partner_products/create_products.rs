@@ -80,9 +80,9 @@ mod tests {
     use axum::http::{Request, header};
     use common::event_id::EventId;
     use common::operation_context::{CredentialCapability, OperationContext};
-    use common::product_id::{ProductId, ProductKey};
-    use common::product_slug_id::ProductSlugId;
     use common::user_id::UserId;
+    use product_core::product_id::{ProductId, ProductKey};
+    use product_core::product_slug_id::ProductSlugId;
     use product_service::use_cases::{
         CreateProductCommand, CreateProductError, CreateProductResult, CreateProductUseCase,
         DeleteProductError, DeleteProductResult, DeleteProductUseCase, UpdateProductCommand,

@@ -42,3 +42,14 @@
 |---|---|---|---|---|---|---|---|---|---|
 | `common::fx_rate_id::FxRateId` | FX snapshot identifier | FX, Product, Search Filter, Watchlist, API, Worker, and PostgreSQL/OpenSearch adapters | Legacy Product and legacy runtimes | `test-data` | FX-rate domain | `fxrate-core` | move | `common::fx_rate_id` re-export | Legacy consumers migrate to `fxrate-core` |
 | `common::price::domain::{FixedFxRate, FxRate, FX_RATE_SCALE}` | historical fixed-rate conversion | none | Legacy Product, API, and acceptance paths | `test-data` | legacy compatibility | `common` | retain-legacy | none | Proven legacy consumers migrate or retire |
+
+## Iteration 6 — Product ownership
+
+| Current path/type | Kind | Canonical consumers | Legacy consumers | Features | Semantic owner | Target | Action | Compatibility shim | Deletion prerequisite |
+|---|---|---|---|---|---|---|---|---|---|
+| `common::product_id::{ProductId, ProductKey}` | Product identity and canonical shop-product key | Product core/service/adapters, API, worker, Search Filter, Watchlist, Notification | Legacy Product and runtimes | `test-data` | Product domain | `product-core` | split | `common::product_id` re-export; legacy API/key helpers remain local | Legacy Product consumers migrate; legacy boundary helpers retire |
+| `common::{product_slug_id::ProductSlugId, shops_product_id::ShopsProductId}` | Product slug and shop-local Product ID | Product core/service/adapters, API, worker, Search Filter, Watchlist, Notification | Legacy Product and runtimes | `test-data` | Product domain | `product-core` | move | `common` re-exports with legacy `SlugId` conversions | Legacy consumers migrate |
+| `common::product_state::domain::ProductState` | Product state | Product core/service/adapters and canonical consumers | Legacy Product state API/DynamoDB paths | `test-data` | Product domain | `product-core` | split | No direct re-export: legacy state retains legacy localization/boundary behavior | Legacy Product state boundary mappings migrate |
+| `common::product_lifecycle::domain::ProductLifecycle` | Product lifecycle | Product core/service/adapters and Search Filter | Legacy Product lifecycle record/document paths | `test-data` | Product domain | `product-core` | split | No direct re-export: legacy record/document conversions remain local | Legacy Product lifecycle boundary mappings migrate |
+| `common::query::{AnyOfQuery, RangeQuery, TextQuery}` | Domain-neutral query values | Product core and canonical search consumers | Existing legacy crates | `test-data` | domain-neutral primitives | `domain-primitives` | move | `common::query` re-exports | Legacy consumers migrate |
+| `product-core::user_state::*` | Product user-state presentation values | Product, Search Filter, Watchlist, API, Postgres readers | none | none | Product application read model | `product-service` | move | none | Consumers use `product-service::user_state` |

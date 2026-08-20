@@ -2,15 +2,15 @@ use crate::use_cases::{
     UpsertProductCommand, UpsertProductError, UpsertProductResult, UpsertProductUseCase,
 };
 use common::operation_context::OperationContext;
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
 use indexmap::IndexSet;
 use localization::Localized;
 use money::{MonetaryAmount, Price};
 use product_core::description::Description;
 use product_core::product::ProductAddress;
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
@@ -350,7 +350,7 @@ mod tests {
                 .unwrap_or_else(|error| error.into_inner()) = Some(command);
             Ok(UpsertProductResult::Created(
                 crate::use_cases::CreateProductResult {
-                    product_id: common::product_id::ProductId::new(),
+                    product_id: product_core::product_id::ProductId::new(),
                     product_slug_id: "shopify-product".into(),
                     event_id: common::event_id::EventId::new(),
                 },

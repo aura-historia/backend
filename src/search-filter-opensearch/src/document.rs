@@ -1,6 +1,3 @@
-use common::product_id::ProductId;
-use common::product_lifecycle::data::ProductLifecycleData;
-use common::product_state::domain::ProductState;
 use common::query::any_of_query::AnyOfQuery;
 use common::query::range_query::RangeQuery;
 use common::query::text_query::TextQuery;
@@ -15,7 +12,10 @@ use geo::{
 use isocountry::CountryCode;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
+use product_core::product_id::ProductId;
+use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_state::ProductState;
 use product_opensearch::build_percolator_query;
 use search_filter_service::ports::{SearchFilterProjection, SearchFilterView};
 use serde::ser::Error as _;
@@ -264,7 +264,7 @@ struct ProductSearchDocument {
     #[serde(rename = "state")]
     state_query: HashSet<ProductStateDocument>,
     #[serde(rename = "lifecycle")]
-    lifecycle_query: HashSet<ProductLifecycleData>,
+    lifecycle_query: HashSet<ProductLifecycleDocument>,
     #[serde(rename = "created")]
     created_query: Option<TimeRangeDocument>,
     #[serde(rename = "updated")]
@@ -440,6 +440,32 @@ impl From<ProductStateDocument> for ProductState {
             ProductStateDocument::Sold => Self::Sold,
             ProductStateDocument::Removed => Self::Removed,
             ProductStateDocument::Unknown => Self::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum ProductLifecycleDocument {
+    #[default]
+    Active,
+    Deleted,
+}
+
+impl From<ProductLifecycle> for ProductLifecycleDocument {
+    fn from(value: ProductLifecycle) -> Self {
+        match value {
+            ProductLifecycle::Active => Self::Active,
+            ProductLifecycle::Deleted => Self::Deleted,
+        }
+    }
+}
+
+impl From<ProductLifecycleDocument> for ProductLifecycle {
+    fn from(value: ProductLifecycleDocument) -> Self {
+        match value {
+            ProductLifecycleDocument::Active => Self::Active,
+            ProductLifecycleDocument::Deleted => Self::Deleted,
         }
     }
 }
@@ -696,6 +722,25 @@ mod tests {
             },
             source_version: 12,
         }
+    }
+
+    #[test]
+    fn should_encode_legacy_lifecycle_document_in_screaming_snake_case()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let lifecycle = ProductLifecycleDocument::from(
+            product_core::product_lifecycle::ProductLifecycle::Deleted,
+        );
+
+        assert_eq!(
+            serde_json::json!("DELETED"),
+            serde_json::to_value(lifecycle)?
+        );
+        assert_eq!(
+            product_core::product_lifecycle::ProductLifecycle::Deleted,
+            serde_json::from_value::<ProductLifecycleDocument>(serde_json::json!("DELETED"))?
+                .into()
+        );
+        Ok(())
     }
 
     #[test]

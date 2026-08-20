@@ -9,6 +9,7 @@ common = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }
+product-core = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 mockall = { workspace = true, optional = true }
