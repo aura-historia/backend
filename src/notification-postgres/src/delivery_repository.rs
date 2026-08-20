@@ -1,7 +1,6 @@
 use crate::mapping::{NotificationRow, mapping_error};
 use common::{
-    currency::domain::Currency, error::boxed::box_error, language::domain::Language,
-    notification_id::NotificationId,
+    error::boxed::box_error, language::domain::Language, notification_id::NotificationId,
 };
 use notification_core::{
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
@@ -47,7 +46,6 @@ struct DeliverySourceRow {
     channel: String,
     target_key: String,
     language: Option<String>,
-    currency: Option<String>,
     prohibited_content_consent: bool,
     notification_id: Uuid,
     user_id: Uuid,
@@ -114,7 +112,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
 
         let claimed = claimed_from_row(row)?;
         let source = sqlx::query_as::<_, DeliverySourceRow>(
-            "SELECT d.notification_delivery_id, d.channel, d.target_key, (SELECT language FROM users WHERE user_id = n.user_id) AS language, (SELECT currency FROM users WHERE user_id = n.user_id) AS currency, (SELECT prohibited_content_consent FROM users WHERE user_id = n.user_id) AS prohibited_content_consent, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id WHERE d.notification_delivery_id = $1",
+            "SELECT d.notification_delivery_id, d.channel, d.target_key, (SELECT language FROM users WHERE user_id = n.user_id) AS language, (SELECT prohibited_content_consent FROM users WHERE user_id = n.user_id) AS prohibited_content_consent, n.notification_id, n.user_id, n.kind, n.origin_event_id, n.product_id, n.user_search_filter_id, n.partner_shop_application_id, n.payload_version, n.payload, n.seen, n.created, n.updated FROM notification_deliveries d JOIN notifications n ON n.notification_id = d.notification_id WHERE d.notification_delivery_id = $1",
         )
         .bind(Uuid::from(notification_delivery_id))
         .fetch_optional(&mut *transaction)
@@ -222,12 +220,6 @@ fn source_from_row(
                 .map(parse_language)
                 .transpose()?
                 .unwrap_or(Language::En),
-            currency: row
-                .currency
-                .as_deref()
-                .map(parse_currency)
-                .transpose()?
-                .unwrap_or(Currency::Eur),
             prohibited_content_consent: row.prohibited_content_consent,
         },
     })
@@ -259,30 +251,6 @@ fn parse_language(value: &str) -> Result<Language, NotificationDeliveryError> {
         "ru" => Ok(Language::Ru),
         "ar" => Ok(Language::Ar),
         _ => Err(invalid_delivery_source("unknown user language")),
-    }
-}
-
-fn parse_currency(value: &str) -> Result<Currency, NotificationDeliveryError> {
-    match value {
-        "EUR" => Ok(Currency::Eur),
-        "GBP" => Ok(Currency::Gbp),
-        "USD" => Ok(Currency::Usd),
-        "AUD" => Ok(Currency::Aud),
-        "CAD" => Ok(Currency::Cad),
-        "NZD" => Ok(Currency::Nzd),
-        "CNY" => Ok(Currency::Cny),
-        "BRL" => Ok(Currency::Brl),
-        "PLN" => Ok(Currency::Pln),
-        "TRY" => Ok(Currency::Try),
-        "JPY" => Ok(Currency::Jpy),
-        "CZK" => Ok(Currency::Czk),
-        "RUB" => Ok(Currency::Rub),
-        "AED" => Ok(Currency::Aed),
-        "SAR" => Ok(Currency::Sar),
-        "HKD" => Ok(Currency::Hkd),
-        "SGD" => Ok(Currency::Sgd),
-        "CHF" => Ok(Currency::Chf),
-        _ => Err(invalid_delivery_source("unknown user currency")),
     }
 }
 

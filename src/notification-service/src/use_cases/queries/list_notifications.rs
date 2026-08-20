@@ -3,7 +3,6 @@ use crate::ports::notification_list_reader::{
 };
 use crate::presentation::NotificationPresentationPreferences;
 use common::{
-    currency::domain::Currency,
     language::domain::Language,
     notification_id::NotificationId,
     operation_context::{OperationAuthorizationError, OperationContext, Principal},
@@ -15,7 +14,6 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListNotificationsRequest {
     pub languages: Vec<Language>,
-    pub currency: Currency,
     pub cursor: Option<NotificationListCursor>,
     pub limit: u32,
 }
@@ -85,9 +83,7 @@ where
             .into_iter()
             .map(|item| ListedNotification {
                 notification_id: item.notification_id,
-                content: item
-                    .content
-                    .localized(&request.currency, &request.languages),
+                content: item.content.localized(&request.languages),
                 seen: item.seen,
                 created: item.created,
                 updated: item.updated,
@@ -98,7 +94,6 @@ where
             next_cursor: page.next_cursor,
             presentation_preferences: NotificationPresentationPreferences {
                 language: request.languages.first().copied().unwrap_or(Language::En),
-                currency: request.currency,
                 prohibited_content_consent: page.prohibited_content_consent,
             },
         })

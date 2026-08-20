@@ -1,10 +1,9 @@
 use common::{
-    currency::domain::Currency,
     error::boxed::{BoxError, box_error},
     event_id::EventId,
     notification_id::NotificationId,
     partner_shop_application_id::PartnerShopApplicationId,
-    price::domain::MonetaryAmount,
+    price::{data::PriceData, domain::Price},
     product_id::ProductId,
     product_slug_id::ProductSlugId,
     product_state::domain::ProductState,
@@ -111,8 +110,8 @@ struct ProductNotificationSnapshotV1 {
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum NotificationWatchlistChangeV1 {
     PriceChange {
-        old_price: HashMap<Currency, MonetaryAmount>,
-        new_price: HashMap<Currency, MonetaryAmount>,
+        old_price: Option<PriceData>,
+        new_price: Option<PriceData>,
     },
     StateChange {
         old_state: ProductState,
@@ -194,8 +193,8 @@ impl From<&NotificationWatchlistChange> for NotificationWatchlistChangeV1 {
                 old_price,
                 new_price,
             } => Self::PriceChange {
-                old_price: old_price.clone(),
-                new_price: new_price.clone(),
+                old_price: old_price.map(PriceData::from),
+                new_price: new_price.map(PriceData::from),
             },
             NotificationWatchlistChange::StateChange {
                 old_state,
@@ -215,8 +214,8 @@ impl From<NotificationWatchlistChangeV1> for NotificationWatchlistChange {
                 old_price,
                 new_price,
             } => Self::PriceChange {
-                old_price,
-                new_price,
+                old_price: old_price.map(Price::from),
+                new_price: new_price.map(Price::from),
             },
             NotificationWatchlistChangeV1::StateChange {
                 old_state,
@@ -473,4 +472,29 @@ fn change_kind(change: &NotificationWatchlistChange) -> NotificationKind {
 
 pub(crate) fn mapping_error(error: NotificationMappingError) -> BoxError {
     box_error(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::{currency::domain::Currency, price::domain::MonetaryAmount};
+
+    #[test]
+    fn should_serialize_source_currency_explicitly() -> Result<(), Box<dyn std::error::Error>> {
+        let change = NotificationWatchlistChange::PriceChange {
+            old_price: Some(Price::new(MonetaryAmount::from(1000_u64), Currency::Eur)),
+            new_price: Some(Price::new(MonetaryAmount::from(900_u64), Currency::Eur)),
+        };
+        let persisted = NotificationWatchlistChangeV1::from(&change);
+
+        assert_eq!(
+            serde_json::json!({
+                "type": "PRICE_CHANGE",
+                "old_price": { "currency": "EUR", "amount": 1000 },
+                "new_price": { "currency": "EUR", "amount": 900 },
+            }),
+            serde_json::to_value(persisted)?
+        );
+        Ok(())
+    }
 }

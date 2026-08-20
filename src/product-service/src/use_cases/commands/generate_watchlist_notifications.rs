@@ -16,8 +16,6 @@ use notification_service::ports::notification_creator::{
     ExternalDeliveryRequest, NewNotification, NotificationCreationError,
     NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
-use std::collections::HashMap;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenerateWatchlistNotificationsCommand {
     pub event_id: EventId,
@@ -182,8 +180,8 @@ fn notification_content(
             old_price,
             new_price,
         } => NotificationWatchlistChange::PriceChange {
-            old_price: old_price.map(price_map).unwrap_or_default(),
-            new_price: new_price.map(price_map).unwrap_or_default(),
+            old_price,
+            new_price,
         },
         ProductWatchlistNotificationChange::StateChanged {
             old_state,
@@ -209,10 +207,4 @@ fn notification_content(
         },
         change,
     }
-}
-
-fn price_map(
-    price: common::price::domain::Price,
-) -> HashMap<common::currency::domain::Currency, common::price::domain::MonetaryAmount> {
-    HashMap::from([(price.currency, price.monetary_amount)])
 }

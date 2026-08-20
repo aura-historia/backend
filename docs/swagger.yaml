@@ -5446,7 +5446,9 @@ paths:
       summary: List user notifications
       description: |
         Retrieves the authenticated user’s canonical notifications in newest-first order.
-        Product image classifications remain visible; unsafe image URLs are omitted unless the authenticated user’s current prohibited-content consent is enabled.
+        Watchlist price-change notifications preserve each event’s immutable source currency; no FX conversion
+        is applied from the user’s preferences. Product image classifications remain visible; unsafe image URLs
+        are omitted unless the authenticated user’s current prohibited-content consent is enabled.
       operationId: listNotifications
       tags: [Notifications]
       parameters:
@@ -5455,12 +5457,6 @@ paths:
             in: query,
             required: false,
             schema: { $ref: "#/components/schemas/LanguageData" },
-          }
-        - {
-            name: currency,
-            in: query,
-            required: false,
-            schema: { $ref: "#/components/schemas/CurrencyData" },
           }
         - {
             name: size,
@@ -13502,9 +13498,11 @@ components:
         oldPrice:
           allOf: [{ $ref: "#/components/schemas/PriceData" }]
           nullable: true
+          description: Previous event price, preserving its source currency. Null when unavailable.
         newPrice:
           allOf: [{ $ref: "#/components/schemas/PriceData" }]
           nullable: true
+          description: New event price, preserving its source currency. Null when unavailable.
 
     WatchlistNotificationStateChangeData:
       type: object

@@ -1,20 +1,10 @@
 use crate::notification_kind::NotificationKind;
 use common::{
-    currency::domain::Currency,
-    event_id::EventId,
-    localized::Localized,
-    notification_id::NotificationId,
-    partner_shop_application_id::PartnerShopApplicationId,
-    price::domain::{MonetaryAmount, Price},
-    product_id::ProductId,
-    product_slug_id::ProductSlugId,
-    product_state::domain::ProductState,
-    shop_id::ShopId,
-    shop_name::ShopName,
-    shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId,
-    user_id::UserId,
-    user_search_filter_id::UserSearchFilterId,
+    event_id::EventId, localized::Localized, notification_id::NotificationId,
+    partner_shop_application_id::PartnerShopApplicationId, price::domain::Price,
+    product_id::ProductId, product_slug_id::ProductSlugId, product_state::domain::ProductState,
+    shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
+    shops_product_id::ShopsProductId, user_id::UserId, user_search_filter_id::UserSearchFilterId,
     user_search_filter_name::UserSearchFilterName,
 };
 use product_core::{product_image::ProductImage, title::Title};
@@ -162,7 +152,6 @@ impl NotificationContent {
 
     pub fn localized(
         self,
-        currency: &Currency,
         preferred_languages: &[common::language::domain::Language],
     ) -> LocalizedNotificationContent {
         match self {
@@ -174,7 +163,7 @@ impl NotificationContent {
             } => LocalizedNotificationContent::Watchlist {
                 product_id,
                 snapshot: snapshot.localized(preferred_languages),
-                change: change.localized(currency),
+                change: change.localized(),
             },
             Self::SearchFilter {
                 product_id,
@@ -250,8 +239,8 @@ pub enum PartnerApplicationDecision {
 #[derive(Debug, Clone, PartialEq)]
 pub enum NotificationWatchlistChange {
     PriceChange {
-        old_price: HashMap<Currency, MonetaryAmount>,
-        new_price: HashMap<Currency, MonetaryAmount>,
+        old_price: Option<Price>,
+        new_price: Option<Price>,
     },
     StateChange {
         old_state: ProductState,
@@ -260,14 +249,14 @@ pub enum NotificationWatchlistChange {
 }
 
 impl NotificationWatchlistChange {
-    fn localized(self, currency: &Currency) -> LocalizedNotificationWatchlistChange {
+    fn localized(self) -> LocalizedNotificationWatchlistChange {
         match self {
             Self::PriceChange {
                 old_price,
                 new_price,
             } => LocalizedNotificationWatchlistChange::PriceChange {
-                old_price: Currency::resolve(&[*currency], old_price),
-                new_price: Currency::resolve(&[*currency], new_price),
+                old_price,
+                new_price,
             },
             Self::StateChange {
                 old_state,

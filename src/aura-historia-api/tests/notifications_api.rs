@@ -250,7 +250,7 @@ async fn should_return_localized_reason_specific_notification_payloads() {
     let response = reqwest::Client::new()
         .get(notifications_path())
         .bearer_auth(String::from(token))
-        .query(&[("size", "100"), ("language", "de"), ("currency", "USD")])
+        .query(&[("size", "100"), ("language", "de")])
         .send()
         .await
         .unwrap_or_else(|error| panic!("failed to list localized notifications: {error}"));
@@ -271,11 +271,11 @@ async fn should_return_localized_reason_specific_notification_payloads() {
         price_change["payload"]["title"]["language"]
     );
     assert_eq!(
-        serde_json::json!("USD"),
+        serde_json::json!("EUR"),
         price_change["payload"]["change"]["oldPrice"]["currency"]
     );
     assert_eq!(
-        serde_json::json!(1100),
+        serde_json::json!(1000),
         price_change["payload"]["change"]["oldPrice"]["amount"]
     );
     assert_eq!(
@@ -567,6 +567,54 @@ async fn should_return_not_found_for_missing_notification_mutations() {
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_preserve_source_currency_for_opposite_user_preferences() {
+    let eur_source_user = seed_user("USER").await;
+    set_user_currency(eur_source_user, "USD").await;
+    seed_price_notification(eur_source_user, "EUR", Some(1000), Some(0)).await;
+    let eur_body =
+        list_notification_page(&notification_token(eur_source_user).await, 10, None).await;
+    let eur_items = eur_body["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("EUR notification list is missing items"));
+    let eur_payload = notification_with_kind(eur_items, "WATCHLIST_PRICE_CHANGED");
+    assert_eq!(
+        serde_json::json!("EUR"),
+        eur_payload["payload"]["change"]["oldPrice"]["currency"]
+    );
+    assert_eq!(
+        serde_json::json!(1000),
+        eur_payload["payload"]["change"]["oldPrice"]["amount"]
+    );
+    assert_eq!(
+        serde_json::json!("EUR"),
+        eur_payload["payload"]["change"]["newPrice"]["currency"]
+    );
+    assert_eq!(
+        serde_json::json!(0),
+        eur_payload["payload"]["change"]["newPrice"]["amount"]
+    );
+
+    let usd_source_user = seed_user("USER").await;
+    set_user_currency(usd_source_user, "EUR").await;
+    seed_price_notification(usd_source_user, "USD", None, Some(1100)).await;
+    let usd_body =
+        list_notification_page(&notification_token(usd_source_user).await, 10, None).await;
+    let usd_items = usd_body["items"]
+        .as_array()
+        .unwrap_or_else(|| panic!("USD notification list is missing items"));
+    let usd_payload = notification_with_kind(usd_items, "WATCHLIST_PRICE_CHANGED");
+    assert!(usd_payload["payload"]["change"]["oldPrice"].is_null());
+    assert_eq!(
+        serde_json::json!("USD"),
+        usd_payload["payload"]["change"]["newPrice"]["currency"]
+    );
+    assert_eq!(
+        serde_json::json!(1100),
+        usd_payload["payload"]["change"]["newPrice"]["amount"]
+    );
+}
+
 fn notifications_path() -> String {
     format!("{}/api/v1/me/notifications", AURA_API.base_url())
 }
@@ -690,6 +738,54 @@ async fn list_notification_page(
     body
 }
 
+async fn set_user_currency(user_id: UserId, currency: &str) {
+    let pool = get_postgres_client().await;
+    sqlx::query("UPDATE users SET currency = $2 WHERE user_id = $1")
+        .bind(Uuid::from(user_id))
+        .bind(currency)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("failed to set user currency: {error}"));
+}
+
+async fn seed_price_notification(
+    user_id: UserId,
+    currency: &str,
+    old_amount: Option<u64>,
+    new_amount: Option<u64>,
+) {
+    let product_id = Uuid::new_v4();
+    let price = |amount| serde_json::json!({ "currency": currency, "amount": amount });
+    seed_notification_with_payload(
+        user_id,
+        "WATCHLIST_PRICE_CHANGED",
+        Some(Uuid::new_v4()),
+        Some(product_id),
+        None,
+        None,
+        serde_json::json!({
+            "type": "WATCHLIST",
+            "snapshot": {
+                "shop_id": Uuid::new_v4(),
+                "shops_product_id": "source-currency-product",
+                "shop_slug_id": "source-currency-shop",
+                "product_slug_id": "source-currency-product-a1b2c3",
+                "shop_name": "Source Currency Shop",
+                "title": null,
+                "image": null,
+                "url": "https://shop.example/source-currency-product",
+                "view_url": "https://aura-historia.example/source-currency-product"
+            },
+            "change": {
+                "type": "PRICE_CHANGE",
+                "old_price": old_amount.map(price).unwrap_or(Value::Null),
+                "new_price": new_amount.map(price).unwrap_or(Value::Null)
+            }
+        }),
+    )
+    .await;
+}
+
 async fn seed_notification_payloads(user_id: UserId) {
     let product_id = Uuid::new_v4();
     let product_snapshot = |title: serde_json::Value, image: serde_json::Value| {
@@ -726,8 +822,8 @@ async fn seed_notification_payloads(user_id: UserId) {
             "snapshot": product_snapshot(localized_title.clone(), image),
             "change": {
                 "type": "PRICE_CHANGE",
-                "old_price": { "Eur": 1000, "Usd": 1100 },
-                "new_price": { "Eur": 900, "Usd": 990 }
+                "old_price": { "currency": "EUR", "amount": 1000 },
+                "new_price": { "currency": "EUR", "amount": 900 }
             }
         }),
     )

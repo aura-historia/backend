@@ -191,10 +191,10 @@ pub(crate) fn template_data(
     email_language: EmailLanguage,
     first_name: Option<&str>,
 ) -> Value {
-    let localized = source.content.clone().localized(
-        &source.presentation_preferences.currency,
-        &[email_language.as_language()],
-    );
+    let localized = source
+        .content
+        .clone()
+        .localized(&[email_language.as_language()]);
     let present_image_url = |image| {
         present_image(
             image,
@@ -300,10 +300,18 @@ mod tests {
     use super::*;
     use common::product_state::domain::ProductState;
     use common::{
-        currency::domain::Currency, event_id::EventId, language::domain::Language,
-        notification_id::NotificationId, product_id::ProductId, product_slug_id::ProductSlugId,
-        shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
-        shops_product_id::ShopsProductId, user_id::UserId,
+        currency::domain::Currency,
+        event_id::EventId,
+        language::domain::Language,
+        notification_id::NotificationId,
+        price::domain::{MonetaryAmount, Price},
+        product_id::ProductId,
+        product_slug_id::ProductSlugId,
+        shop_id::ShopId,
+        shop_name::ShopName,
+        shop_slug_id::ShopSlugId,
+        shops_product_id::ShopsProductId,
+        user_id::UserId,
     };
     use notification_core::{
         notification::{
@@ -492,6 +500,53 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case(Currency::Eur, "10,00 €", "9,00 €")]
+    #[case(Currency::Usd, "$10.00", "$9.00")]
+    fn should_format_watchlist_prices_in_their_source_currency(
+        #[case] currency: Currency,
+        #[case] expected_old_price: &str,
+        #[case] expected_new_price: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        let NotificationContent::Watchlist { change, .. } = &mut source.content else {
+            return Err(
+                std::io::Error::other("test source is not a watchlist notification").into(),
+            );
+        };
+        *change = NotificationWatchlistChange::PriceChange {
+            old_price: Some(Price::new(MonetaryAmount::from(1000_u64), currency)),
+            new_price: Some(Price::new(MonetaryAmount::from(900_u64), currency)),
+        };
+
+        let data = template_data(&source, EmailLanguage::En, None);
+
+        assert_eq!(Some(expected_old_price), data["old_price"].as_str());
+        assert_eq!(Some(expected_new_price), data["new_price"].as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn should_distinguish_zero_and_absent_watchlist_prices()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        let NotificationContent::Watchlist { change, .. } = &mut source.content else {
+            return Err(
+                std::io::Error::other("test source is not a watchlist notification").into(),
+            );
+        };
+        *change = NotificationWatchlistChange::PriceChange {
+            old_price: None,
+            new_price: Some(Price::new(MonetaryAmount::from(0_u64), Currency::Eur)),
+        };
+
+        let data = template_data(&source, EmailLanguage::En, None);
+
+        assert!(data["old_price"].is_null());
+        assert_eq!(Some("0,00 €"), data["new_price"].as_str());
+        Ok(())
+    }
+
     fn source(
         prohibited_content_consent: bool,
         prohibited_content: Option<&str>,
@@ -530,7 +585,6 @@ mod tests {
             },
             presentation_preferences: NotificationPresentationPreferences {
                 language: Language::En,
-                currency: Currency::Eur,
                 prohibited_content_consent,
             },
         })

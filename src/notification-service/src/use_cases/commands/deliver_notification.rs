@@ -271,9 +271,9 @@ mod tests {
         },
     };
     use common::{
-        currency::domain::Currency, error::boxed::box_error, language::domain::Language,
-        notification_id::NotificationId, partner_shop_application_id::PartnerShopApplicationId,
-        shop_name::ShopName, user_id::UserId,
+        error::boxed::box_error, language::domain::Language, notification_id::NotificationId,
+        partner_shop_application_id::PartnerShopApplicationId, shop_name::ShopName,
+        user_id::UserId,
     };
     use notification_core::{
         notification::{
@@ -559,7 +559,6 @@ mod tests {
             },
             presentation_preferences: crate::presentation::NotificationPresentationPreferences {
                 language: Language::En,
-                currency: Currency::Eur,
                 prohibited_content_consent: false,
             },
         }

@@ -6,7 +6,6 @@ use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
 use common::language::data::LanguageData;
 use common::notification_id::NotificationId;
 use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
@@ -22,8 +21,6 @@ use uuid::Uuid;
 struct ListNotificationsQuery {
     #[serde(default)]
     language: LanguageData,
-    #[serde(default)]
-    currency: CurrencyData,
     size: Option<u64>,
     search_after: Option<String>,
 }
@@ -58,7 +55,6 @@ pub(super) async fn list_notifications(
             &context,
             ListNotificationsRequest {
                 languages: vec![query.language.into()],
-                currency: query.currency.into(),
                 cursor,
                 limit,
             },
