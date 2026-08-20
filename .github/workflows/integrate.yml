@@ -11,6 +11,7 @@ on:
       - "depgraph-rules.toml"
       - "sonar-project.properties"
       - "src/**"
+      - "migrations/**"
       - "infra/**"
       - "mjml/**"
   pull_request:
@@ -22,6 +23,7 @@ on:
       - "depgraph-rules.toml"
       - "sonar-project.properties"
       - "src/**"
+      - "migrations/**"
       - "infra/**"
       - "opensearch/**"
       - "mjml/**"

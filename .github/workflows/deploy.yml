@@ -8,6 +8,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "src/**"
+      - "migrations/**"
       - "infra/**"
       - "mjml/**"
   workflow_dispatch:

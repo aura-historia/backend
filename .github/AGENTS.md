@@ -7,8 +7,8 @@
 ## Core Design
 
 - `workflows/` drive integrate, deploy, and repo automation.
-- Integrate workflow checks Rust dependency graph rules, runs Rust crate tests with required coverage, processes only `coverage-profraw` profiles, and uploads merged LCOV to SonarCloud. Profile search/generation errors, missing coverage input, or an empty report fail CI.
-- Deploy workflow deploys split CDK stacks from one stage prefix, pushes active Lambda artifacts, and merges stack outputs for smoke tests.
+- Integrate workflow checks Rust dependency graph rules, runs Rust crate tests with required coverage, processes only `coverage-profraw` profiles, and uploads merged LCOV to SonarCloud. Profile search/generation errors, missing coverage input, or an empty report fail CI. Changes under `migrations/**` trigger integration validation.
+- Deploy workflow deploys split CDK stacks from one stage prefix, pushes active Lambda artifacts, and merges stack outputs for smoke tests. Changes under `migrations/**` trigger deployment validation.
 - Workflow change can change CI gate, deploy path, or DOX contract for many crates.
 - Command failure MUST fail its job. `always()` only for cleanup; explicit fallback must fail if recovery fails.
 
