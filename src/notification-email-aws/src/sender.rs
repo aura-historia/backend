@@ -84,12 +84,12 @@ impl SesNotificationChannelSender {
             .templates
             .render(
                 template_type,
-                source.language,
+                source.presentation_preferences.language,
                 &template_data(source, first_name),
             )
             .await?;
         Ok((
-            subject(template_type, source.language).to_owned(),
+            subject(template_type, source.presentation_preferences.language).to_owned(),
             body,
             ses_template_tag_value(template_type),
         ))

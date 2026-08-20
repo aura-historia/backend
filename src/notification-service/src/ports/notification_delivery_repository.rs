@@ -1,7 +1,5 @@
-use common::{
-    currency::domain::Currency, error::boxed::BoxError, language::domain::Language,
-    notification_id::NotificationId, user_id::UserId,
-};
+use crate::presentation::NotificationPresentationPreferences;
+use common::{error::boxed::BoxError, notification_id::NotificationId, user_id::UserId};
 use notification_core::{
     notification::NotificationContent,
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
@@ -35,8 +33,7 @@ pub struct NotificationDeliverySource {
     pub channel: NotificationDeliveryChannel,
     pub target_key: NotificationDeliveryTargetKey,
     pub content: NotificationContent,
-    pub language: Language,
-    pub currency: Currency,
+    pub presentation_preferences: NotificationPresentationPreferences,
 }
 
 #[derive(Debug, Clone, PartialEq)]

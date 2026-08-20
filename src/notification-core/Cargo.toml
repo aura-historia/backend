@@ -15,6 +15,9 @@ uuid = { workspace = true }
 # Optional
 fake = { workspace = true, optional = true }
 
+[dev-dependencies]
+rstest = { workspace = true }
+
 [features]
 default = []
 test-data = ["fake", "common/test-data", "product-core/test-data"]

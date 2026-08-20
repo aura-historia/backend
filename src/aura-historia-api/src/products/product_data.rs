@@ -17,6 +17,7 @@ use common::shops_product_id::ShopsProductId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use notification_core::presentation::NotificationImagePresentation;
 use product_core::product::ProductPricing;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::user_state::{
@@ -439,6 +440,13 @@ impl From<ProductSummary> for ProductSummaryData {
 }
 
 impl ProductImageData {
+    pub(crate) fn from_presented(image: NotificationImagePresentation) -> Self {
+        Self {
+            url: image.url,
+            prohibited_content: image.prohibited_content.into(),
+        }
+    }
+
     pub(crate) fn from_with_consent(
         image: product_core::product_image::ProductImage,
         prohibited_content_consent: bool,

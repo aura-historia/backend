@@ -5444,7 +5444,9 @@ paths:
   /api/v1/me/notifications:
     get:
       summary: List user notifications
-      description: Retrieves the authenticated user’s canonical notifications in newest-first order.
+      description: |
+        Retrieves the authenticated user’s canonical notifications in newest-first order.
+        Product image classifications remain visible; unsafe image URLs are omitted unless the authenticated user’s current prohibited-content consent is enabled.
       operationId: listNotifications
       tags: [Notifications]
       parameters:

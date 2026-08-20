@@ -271,10 +271,25 @@ pub fn assert_problem(
 }
 
 pub async fn seed_user(role: &'static str) -> UserId {
-    seed_user_with_tier(role, UserTier::Free).await
+    seed_user_with_tier_and_consent(role, UserTier::Free, false).await
+}
+
+pub async fn seed_user_with_consent(
+    role: &'static str,
+    prohibited_content_consent: bool,
+) -> UserId {
+    seed_user_with_tier_and_consent(role, UserTier::Free, prohibited_content_consent).await
 }
 
 pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
+    seed_user_with_tier_and_consent(role, tier, false).await
+}
+
+async fn seed_user_with_tier_and_consent(
+    role: &'static str,
+    tier: UserTier,
+    prohibited_content_consent: bool,
+) -> UserId {
     let user_id = UserId::new();
     let email = format!("{}@example.test", user_id);
     let tier = match tier {
@@ -285,12 +300,13 @@ pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
         r#"
-        INSERT INTO users (user_id, email, tier, role)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO users (user_id, email, prohibited_content_consent, tier, role)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(email)
+    .bind(prohibited_content_consent)
     .bind(tier)
     .bind(role)
     .execute(&pool)

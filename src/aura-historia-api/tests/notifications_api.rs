@@ -1,6 +1,8 @@
 mod api_support;
 
-use api_support::{assert_problem, json_response, seed_access_token_for, seed_user};
+use api_support::{
+    assert_problem, json_response, seed_access_token_for, seed_user, seed_user_with_consent,
+};
 use common::user_id::UserId;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -358,6 +360,34 @@ async fn should_return_localized_reason_specific_notification_payloads() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
+async fn should_filter_notification_image_urls_by_current_prohibited_content_consent() {
+    let denied_user_id = seed_user_with_consent("USER", false).await;
+    let allowed_user_id = seed_user_with_consent("USER", true).await;
+    let denied_token = notification_token(denied_user_id).await;
+    let allowed_token = notification_token(allowed_user_id).await;
+    seed_unsafe_image_notification(denied_user_id).await;
+    seed_unsafe_image_notification(allowed_user_id).await;
+
+    let denied = list_notification_page(&denied_token, 1, None).await;
+    let denied_image = &denied["items"][0]["payload"]["image"];
+    assert_eq!(
+        serde_json::json!("UNKNOWN"),
+        denied_image["prohibitedContent"]
+    );
+    assert!(denied_image.get("url").is_none());
+
+    let allowed = list_notification_page(&allowed_token, 1, None).await;
+    assert_eq!(
+        serde_json::json!("https://unsafe.shop.example/image.jpg"),
+        allowed["items"][0]["payload"]["image"]["url"]
+    );
+    assert_eq!(
+        serde_json::json!("UNKNOWN"),
+        allowed["items"][0]["payload"]["image"]["prohibitedContent"]
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, DYNAMODB, &AURA_API])]
 async fn should_reject_malformed_notification_id() {
     let user_id = seed_user("USER").await;
     let token = notification_token(user_id).await;
@@ -580,6 +610,40 @@ async fn seed_notification(user_id: UserId, seen: bool) -> Uuid {
     notification_id
 }
 
+async fn seed_unsafe_image_notification(user_id: UserId) {
+    seed_notification_with_payload(
+        user_id,
+        "WATCHLIST_STATE_CHANGED",
+        Some(Uuid::new_v4()),
+        Some(Uuid::new_v4()),
+        None,
+        None,
+        serde_json::json!({
+            "type": "WATCHLIST",
+            "snapshot": {
+                "shop_id": Uuid::new_v4(),
+                "shops_product_id": "unsafe-product",
+                "shop_slug_id": "unsafe-shop",
+                "product_slug_id": "unsafe-product-abcdef",
+                "shop_name": "Unsafe Shop",
+                "title": null,
+                "image": {
+                    "url": "https://unsafe.shop.example/image.jpg",
+                    "prohibited_content": "Unknown"
+                },
+                "url": "https://unsafe.shop.example/product",
+                "view_url": "https://aura-historia.example/product"
+            },
+            "change": {
+                "type": "STATE_CHANGE",
+                "old_state": "Listed",
+                "new_state": "Available"
+            }
+        }),
+    )
+    .await;
+}
+
 async fn seed_notification_at(user_id: UserId, notification_id: Uuid, created: OffsetDateTime) {
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
@@ -622,7 +686,7 @@ async fn list_notification_page(
         .await
         .unwrap_or_else(|error| panic!("failed to list notification page: {error}"));
     let (status, body) = json_response(response).await;
-    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(reqwest::StatusCode::OK, status, "notification page: {body}");
     body
 }
 

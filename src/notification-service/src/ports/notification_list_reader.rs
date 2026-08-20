@@ -21,6 +21,7 @@ pub struct NotificationListItem {
 pub struct NotificationListPage {
     pub items: Vec<NotificationListItem>,
     pub next_cursor: Option<NotificationListCursor>,
+    pub prohibited_content_consent: bool,
 }
 
 #[derive(Debug, thiserror::Error)]

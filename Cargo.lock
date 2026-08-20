@@ -4794,6 +4794,7 @@ dependencies = [
  "common",
  "fake",
  "product-core",
+ "rstest",
  "serde",
  "thiserror 2.0.20",
  "url",

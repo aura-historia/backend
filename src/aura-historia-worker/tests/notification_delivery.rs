@@ -42,6 +42,7 @@ const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const POLL_ATTEMPTS: usize = 80;
 const NO_SIDE_EFFECT_OBSERVATION: Duration = Duration::from_secs(2);
+const UNSAFE_IMAGE_URL: &str = "https://unsafe.shop.example/image.jpg";
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses(), WORKER_SEQUIN])]
 async fn should_deliver_committed_notification_delivery_and_persist_result() {
@@ -138,6 +139,13 @@ async fn deliver_committed_notification_delivery() -> Result<(), Box<dyn std::er
                 .html_part
                 .as_deref()
                 .is_some_and(|body| body.contains("Delivery test shop"))
+        );
+        assert!(
+            email
+                .body
+                .html_part
+                .as_deref()
+                .is_some_and(|body| !body.contains(UNSAFE_IMAGE_URL))
         );
         Ok(())
     }
@@ -598,7 +606,7 @@ impl Template {
     fn bytes(self) -> Vec<u8> {
         match self {
             Self::Valid => {
-                b"<html><body>{{shop_name}} <a href=\"{{view_url}}\">View</a></body></html>"
+                b"<html><body>{{shop_name}} <img src=\"{{image_url}}\"><a href=\"{{view_url}}\">View</a></body></html>"
                     .to_vec()
             }
             Self::InvalidUtf8 => vec![0xff],
@@ -641,7 +649,7 @@ async fn insert_delivery_in_transaction(
     let recipient_email = format!("notification-delivery-{delivery_id}@example.test");
 
     sqlx::query(
-        "INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'ULTIMATE', 'USER')",
+        "INSERT INTO users (user_id, email, prohibited_content_consent, tier, role) VALUES ($1, $2, false, 'ULTIMATE', 'USER')",
     )
     .bind(user_id)
     .bind(&recipient_email)
@@ -706,7 +714,10 @@ fn notification_payload() -> serde_json::Value {
             "product_slug_id": "worker-delivery-product-abcdef",
             "shop_name": "Delivery test shop",
             "title": null,
-            "image": null,
+            "image": {
+                "url": UNSAFE_IMAGE_URL,
+                "prohibited_content": "NaziGermany"
+            },
             "url": "https://example.test/products/delivery",
             "view_url": "https://aura-historia.test/products/delivery"
         },

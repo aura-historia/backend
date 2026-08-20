@@ -1,7 +1,10 @@
 use common::{language::domain::Language, price::domain::Price};
-use notification_core::notification::{
-    LocalizedNotificationContent, LocalizedNotificationWatchlistChange, NotificationContent,
-    NotificationWatchlistChange, PartnerApplicationDecision,
+use notification_core::{
+    notification::{
+        LocalizedNotificationContent, LocalizedNotificationWatchlistChange, NotificationContent,
+        NotificationWatchlistChange, PartnerApplicationDecision,
+    },
+    presentation::present_image,
 };
 use notification_service::ports::notification_delivery_repository::NotificationDeliverySource;
 use serde_json::{Value, json};
@@ -93,10 +96,18 @@ pub(crate) fn template_data(
     source: &NotificationDeliverySource,
     first_name: Option<&str>,
 ) -> Value {
-    let localized = source
-        .content
-        .clone()
-        .localized(&source.currency, &[source.language]);
+    let localized = source.content.clone().localized(
+        &source.presentation_preferences.currency,
+        &[source.presentation_preferences.language],
+    );
+    let present_image_url = |image| {
+        present_image(
+            image,
+            source.presentation_preferences.prohibited_content_consent,
+        )
+        .and_then(|image| image.url)
+        .map(|url| url.to_string())
+    };
     match localized {
         LocalizedNotificationContent::Watchlist {
             snapshot, change, ..
@@ -106,7 +117,7 @@ pub(crate) fn template_data(
                 snapshot.shop_slug_id.to_string(),
                 snapshot.product_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
-                snapshot.image.map(|image| image.url.to_string()),
+                present_image_url(snapshot.image),
                 snapshot.view_url.to_string(),
             );
             match change {
@@ -122,8 +133,14 @@ pub(crate) fn template_data(
                     old_state,
                     new_state,
                 } => {
-                    data["old_state"] = json!(state_text(old_state, source.language));
-                    data["new_state"] = json!(state_text(new_state, source.language));
+                    data["old_state"] = json!(state_text(
+                        old_state,
+                        source.presentation_preferences.language
+                    ));
+                    data["new_state"] = json!(state_text(
+                        new_state,
+                        source.presentation_preferences.language
+                    ));
                     data["notification_type"] = json!("state_change");
                 }
             }
@@ -140,7 +157,7 @@ pub(crate) fn template_data(
                 snapshot.shop_slug_id.to_string(),
                 snapshot.product_slug_id.to_string(),
                 snapshot.title.map(|title| title.payload.to_string()),
-                snapshot.image.map(|image| image.url.to_string()),
+                present_image_url(snapshot.image),
                 snapshot.view_url.to_string(),
             );
             data["search_filter_id"] = json!(user_search_filter_id.to_string());
@@ -193,7 +210,25 @@ fn state_text(
 mod tests {
     use super::*;
     use common::product_state::domain::ProductState;
+    use common::{
+        currency::domain::Currency, event_id::EventId, language::domain::Language,
+        notification_id::NotificationId, product_id::ProductId, product_slug_id::ProductSlugId,
+        shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
+        shops_product_id::ShopsProductId, user_id::UserId,
+    };
+    use notification_core::{
+        notification::{
+            NotificationContent, NotificationWatchlistChange, ProductNotificationSnapshot,
+        },
+        notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
+        notification_delivery_id::NotificationDeliveryId,
+    };
+    use notification_service::{
+        ports::notification_delivery_repository::NotificationDeliverySource,
+        presentation::NotificationPresentationPreferences,
+    };
     use rstest::rstest;
+    use url::Url;
 
     #[rstest]
     #[case(
@@ -246,5 +281,66 @@ mod tests {
             expected_new_state,
             state_text(ProductState::Available, language)
         );
+    }
+
+    #[rstest]
+    #[case(Some("None"), false, Some("https://shop.example/image.jpg"))]
+    #[case(Some("NaziGermany"), false, None)]
+    #[case(Some("NaziGermany"), true, Some("https://shop.example/image.jpg"))]
+    #[case(None, false, None)]
+    fn should_filter_image_url_in_email_template_data(
+        #[case] prohibited_content: Option<&str>,
+        #[case] consent: bool,
+        #[case] expected_image_url: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let source = source(consent, prohibited_content)?;
+        let data = template_data(&source, None);
+
+        assert_eq!(expected_image_url, data["image_url"].as_str());
+        Ok(())
+    }
+
+    fn source(
+        prohibited_content_consent: bool,
+        prohibited_content: Option<&str>,
+    ) -> Result<NotificationDeliverySource, Box<dyn std::error::Error>> {
+        Ok(NotificationDeliverySource {
+            notification_delivery_id: NotificationDeliveryId::new(),
+            notification_id: NotificationId::new(),
+            user_id: UserId::new(),
+            channel: NotificationDeliveryChannel::Email,
+            target_key: NotificationDeliveryTargetKey::primary(),
+            content: NotificationContent::Watchlist {
+                origin_event_id: EventId::new(),
+                product_id: ProductId::new(),
+                snapshot: ProductNotificationSnapshot {
+                    shop_id: ShopId::new(),
+                    shops_product_id: ShopsProductId::from("shop-product"),
+                    shop_slug_id: ShopSlugId::from("shop"),
+                    product_slug_id: ProductSlugId::from("product"),
+                    shop_name: ShopName::from("Test Shop"),
+                    title: None,
+                    image: prohibited_content
+                        .map(|prohibited_content| {
+                            serde_json::from_value(serde_json::json!({
+                                "url": "https://shop.example/image.jpg",
+                                "prohibited_content": prohibited_content,
+                            }))
+                        })
+                        .transpose()?,
+                    url: Url::parse("https://shop.example/product")?,
+                    view_url: Url::parse("https://aura-historia.example/product")?,
+                },
+                change: NotificationWatchlistChange::StateChange {
+                    old_state: ProductState::Listed,
+                    new_state: ProductState::Available,
+                },
+            },
+            presentation_preferences: NotificationPresentationPreferences {
+                language: Language::En,
+                currency: Currency::Eur,
+                prohibited_content_consent,
+            },
+        })
     }
 }

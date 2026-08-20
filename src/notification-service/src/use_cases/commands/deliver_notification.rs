@@ -557,8 +557,11 @@ mod tests {
                 },
                 decision: PartnerApplicationDecision::Approved,
             },
-            language: Language::En,
-            currency: Currency::Eur,
+            presentation_preferences: crate::presentation::NotificationPresentationPreferences {
+                language: Language::En,
+                currency: Currency::Eur,
+                prohibited_content_consent: false,
+            },
         }
     }
 

@@ -78,7 +78,7 @@ pub(super) async fn list_notifications(
                 items: result
                     .items
                     .into_iter()
-                    .map(NotificationData::from)
+                    .map(|item| NotificationData::from((item, result.presentation_preferences)))
                     .collect(),
                 cursor: Cursor {
                     size: u64::from(limit),

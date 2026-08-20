@@ -1,6 +1,7 @@
 use crate::ports::notification_list_reader::{
     NotificationListCursor, NotificationListReadError, NotificationListReader,
 };
+use crate::presentation::NotificationPresentationPreferences;
 use common::{
     currency::domain::Currency,
     language::domain::Language,
@@ -32,6 +33,7 @@ pub struct ListedNotification {
 pub struct ListNotificationsResult {
     pub items: Vec<ListedNotification>,
     pub next_cursor: Option<NotificationListCursor>,
+    pub presentation_preferences: NotificationPresentationPreferences,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -94,6 +96,11 @@ where
         Ok(ListNotificationsResult {
             items,
             next_cursor: page.next_cursor,
+            presentation_preferences: NotificationPresentationPreferences {
+                language: request.languages.first().copied().unwrap_or(Language::En),
+                currency: request.currency,
+                prohibited_content_consent: page.prohibited_content_consent,
+            },
         })
     }
 }

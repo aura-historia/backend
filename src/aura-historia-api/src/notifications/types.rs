@@ -5,10 +5,14 @@ use common::{
     language::data::LocalizedTextData, notification_id::NotificationId, price::data::PriceData,
     product_state::domain::ProductState,
 };
-use notification_core::notification::{
-    LocalizedNotificationContent, LocalizedNotificationWatchlistChange,
-    LocalizedProductNotificationSnapshot, PartnerApplicationDecision,
+use notification_core::{
+    notification::{
+        LocalizedNotificationContent, LocalizedNotificationWatchlistChange,
+        LocalizedProductNotificationSnapshot, PartnerApplicationDecision,
+    },
+    presentation::present_image,
 };
+use notification_service::presentation::NotificationPresentationPreferences;
 use notification_service::use_cases::queries::list_notifications::ListedNotification;
 use serde::{Deserialize, Serialize, Serializer};
 use time::OffsetDateTime;
@@ -41,15 +45,20 @@ pub(crate) struct NotificationData {
     payload: NotificationContentData,
 }
 
-impl From<ListedNotification> for NotificationData {
-    fn from(value: ListedNotification) -> Self {
+impl From<(ListedNotification, NotificationPresentationPreferences)> for NotificationData {
+    fn from(
+        (value, presentation_preferences): (
+            ListedNotification,
+            NotificationPresentationPreferences,
+        ),
+    ) -> Self {
         Self {
             notification_id: Uuid::from(value.notification_id),
             seen: value.seen,
             created: value.created,
             updated: value.updated,
             kind: NotificationKindData::from(&value.content),
-            payload: value.content.into(),
+            payload: (value.content, presentation_preferences).into(),
         }
     }
 }
@@ -187,15 +196,25 @@ impl From<&LocalizedNotificationContent> for NotificationKindData {
     }
 }
 
-impl From<LocalizedNotificationContent> for NotificationContentData {
-    fn from(value: LocalizedNotificationContent) -> Self {
+impl
+    From<(
+        LocalizedNotificationContent,
+        NotificationPresentationPreferences,
+    )> for NotificationContentData
+{
+    fn from(
+        (value, presentation_preferences): (
+            LocalizedNotificationContent,
+            NotificationPresentationPreferences,
+        ),
+    ) -> Self {
         match value {
             LocalizedNotificationContent::Watchlist {
                 product_id,
                 snapshot,
                 change,
             } => {
-                let snapshot = notification_product_snapshot(snapshot);
+                let snapshot = notification_product_snapshot(snapshot, presentation_preferences);
                 Self::Watchlist(WatchlistNotificationPayloadData {
                     product_id: Uuid::from(product_id),
                     shop_id: snapshot.shop_id,
@@ -216,7 +235,7 @@ impl From<LocalizedNotificationContent> for NotificationContentData {
                 user_search_filter_id,
                 user_search_filter_name,
             } => {
-                let snapshot = notification_product_snapshot(snapshot);
+                let snapshot = notification_product_snapshot(snapshot, presentation_preferences);
                 Self::SearchFilter(SearchFilterNotificationPayloadData {
                     product_id: Uuid::from(product_id),
                     user_search_filter_id: Uuid::from(user_search_filter_id),
@@ -248,6 +267,7 @@ impl From<LocalizedNotificationContent> for NotificationContentData {
 
 fn notification_product_snapshot(
     snapshot: LocalizedProductNotificationSnapshot,
+    presentation_preferences: NotificationPresentationPreferences,
 ) -> NotificationProductSnapshotData {
     NotificationProductSnapshotData {
         shop_id: Uuid::from(snapshot.shop_id),
@@ -256,9 +276,11 @@ fn notification_product_snapshot(
         product_slug_id: snapshot.product_slug_id.to_string(),
         shop_name: snapshot.shop_name.to_string(),
         title: snapshot.title.map(LocalizedTextData::from),
-        image: snapshot
-            .image
-            .map(|image| ProductImageData::from_with_consent(image, true)),
+        image: present_image(
+            snapshot.image,
+            presentation_preferences.prohibited_content_consent,
+        )
+        .map(ProductImageData::from_presented),
         url: snapshot.url,
         view_url: snapshot.view_url,
     }
