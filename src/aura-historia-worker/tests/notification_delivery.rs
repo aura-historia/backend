@@ -117,7 +117,8 @@ async fn should_clear_retry_failure_state_when_a_retry_succeeds() {
 async fn deliver_committed_notification_delivery() -> Result<(), Box<dyn std::error::Error>> {
     let worker = NotificationDeliveryWorker::start(Template::Valid).await?;
     let result = async {
-        let delivery = insert_delivery(&worker.pool, DeliveryState::Pending).await?;
+        let delivery =
+            insert_delivery_with_language(&worker.pool, DeliveryState::Pending, "zh").await?;
 
         let persisted = wait_for_delivery(&worker.pool, delivery.delivery_id, "DELIVERED").await?;
         assert_eq!(1, persisted.attempt_count);
@@ -133,13 +134,12 @@ async fn deliver_committed_notification_delivery() -> Result<(), Box<dyn std::er
             email.destination.to_addresses
         );
         assert_eq!("Your watchlist item changed", email.subject);
-        assert!(
-            email
-                .body
-                .html_part
-                .as_deref()
-                .is_some_and(|body| body.contains("Delivery test shop"))
-        );
+        assert!(email.body.html_part.as_deref().is_some_and(|body| {
+            body.contains("data-template-language=\"en\"")
+                && body.contains("Delivery test shop")
+                && body.contains("Listed")
+                && body.contains("Available")
+        }));
         assert!(
             email
                 .body
@@ -606,7 +606,7 @@ impl Template {
     fn bytes(self) -> Vec<u8> {
         match self {
             Self::Valid => {
-                b"<html><body>{{shop_name}} <img src=\"{{image_url}}\"><a href=\"{{view_url}}\">View</a></body></html>"
+                b"<html><body data-template-language=\"en\">{{shop_name}} {{old_state}} {{new_state}} <img src=\"{{image_url}}\"><a href=\"{{view_url}}\">View</a></body></html>"
                     .to_vec()
             }
             Self::InvalidUtf8 => vec![0xff],
@@ -631,8 +631,17 @@ async fn insert_delivery(
     pool: &sqlx::PgPool,
     state: DeliveryState,
 ) -> Result<NotificationDeliveryFixture, sqlx::Error> {
+    insert_delivery_with_language(pool, state, "en").await
+}
+
+async fn insert_delivery_with_language(
+    pool: &sqlx::PgPool,
+    state: DeliveryState,
+    language: &str,
+) -> Result<NotificationDeliveryFixture, sqlx::Error> {
     let mut transaction = pool.begin().await?;
-    let delivery = insert_delivery_in_transaction(&mut transaction, state).await?;
+    let delivery =
+        insert_delivery_in_transaction_with_language(&mut transaction, state, language).await?;
     transaction.commit().await?;
     Ok(delivery)
 }
@@ -640,6 +649,14 @@ async fn insert_delivery(
 async fn insert_delivery_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     state: DeliveryState,
+) -> Result<NotificationDeliveryFixture, sqlx::Error> {
+    insert_delivery_in_transaction_with_language(transaction, state, "en").await
+}
+
+async fn insert_delivery_in_transaction_with_language(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    state: DeliveryState,
+    language: &str,
 ) -> Result<NotificationDeliveryFixture, sqlx::Error> {
     let user_id = uuid::Uuid::new_v4();
     let notification_id = uuid::Uuid::new_v4();
@@ -649,10 +666,11 @@ async fn insert_delivery_in_transaction(
     let recipient_email = format!("notification-delivery-{delivery_id}@example.test");
 
     sqlx::query(
-        "INSERT INTO users (user_id, email, prohibited_content_consent, tier, role) VALUES ($1, $2, false, 'ULTIMATE', 'USER')",
+        "INSERT INTO users (user_id, email, language, prohibited_content_consent, tier, role) VALUES ($1, $2, $3, false, 'ULTIMATE', 'USER')",
     )
     .bind(user_id)
     .bind(&recipient_email)
+    .bind(language)
     .execute(&mut **transaction)
     .await?;
     sqlx::query(

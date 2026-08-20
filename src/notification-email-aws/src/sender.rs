@@ -1,6 +1,8 @@
 use crate::{
     provider_failure::{classify_ses_send, provider_error},
-    template_mapping::{ses_template_tag_value, subject, template_data, template_type},
+    template_mapping::{
+        EmailLanguage, ses_template_tag_value, subject, template_data, template_type,
+    },
     template_reader::TemplateReader,
 };
 use aws_sdk_s3::Client as S3Client;
@@ -80,16 +82,17 @@ impl SesNotificationChannelSender {
         first_name: Option<&str>,
     ) -> Result<(String, String, &'static str), NotificationChannelSendError> {
         let template_type = template_type(&source.content);
+        let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
         let body = self
             .templates
             .render(
                 template_type,
-                source.presentation_preferences.language,
-                &template_data(source, first_name),
+                email_language,
+                &template_data(source, email_language, first_name),
             )
             .await?;
         Ok((
-            subject(template_type, source.presentation_preferences.language).to_owned(),
+            subject(template_type, email_language).to_owned(),
             body,
             ses_template_tag_value(template_type),
         ))

@@ -1,9 +1,9 @@
 use crate::{
     provider_failure::{classify_s3_template_fetch, provider_error},
-    template_mapping::{EmailTemplateType, s3_template_key},
+    template_mapping::{EmailLanguage, EmailTemplateType, s3_template_key},
 };
 use aws_sdk_s3::Client as S3Client;
-use common::{error::boxed::box_error, language::domain::Language};
+use common::error::boxed::box_error;
 use handlebars::Handlebars;
 use notification_service::ports::notification_channel_sender::NotificationChannelSendError;
 use serde_json::Value;
@@ -35,7 +35,7 @@ impl TemplateReader {
     pub(crate) async fn render(
         &self,
         template_type: EmailTemplateType,
-        language: Language,
+        language: EmailLanguage,
         data: &Value,
     ) -> Result<String, NotificationChannelSendError> {
         let key = s3_template_key(&self.stage, &self.commit_sha, template_type, language);

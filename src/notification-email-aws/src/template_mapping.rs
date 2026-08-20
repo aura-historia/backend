@@ -10,6 +10,56 @@ use notification_service::ports::notification_delivery_repository::NotificationD
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EmailLanguage {
+    De,
+    En,
+    Fr,
+    Es,
+    It,
+}
+
+impl EmailLanguage {
+    pub(crate) const fn resolve(language: Language) -> Self {
+        match language {
+            Language::De => Self::De,
+            Language::Fr => Self::Fr,
+            Language::Es => Self::Es,
+            Language::It => Self::It,
+            Language::En
+            | Language::Zh
+            | Language::Pt
+            | Language::Pl
+            | Language::Tr
+            | Language::Nl
+            | Language::Cs
+            | Language::Ja
+            | Language::Ru
+            | Language::Ar => Self::En,
+        }
+    }
+
+    pub(crate) const fn as_language(self) -> Language {
+        match self {
+            Self::De => Language::De,
+            Self::En => Language::En,
+            Self::Fr => Language::Fr,
+            Self::Es => Language::Es,
+            Self::It => Language::It,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::De => "de",
+            Self::En => "en",
+            Self::Fr => "fr",
+            Self::Es => "es",
+            Self::It => "it",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EmailTemplateType {
     WatchlistUpdatePrice,
     WatchlistUpdateState,
@@ -50,7 +100,7 @@ pub(crate) fn s3_template_key(
     stage: &str,
     commit_sha: &str,
     template_type: EmailTemplateType,
-    language: Language,
+    language: EmailLanguage,
 ) -> String {
     format!(
         "{stage}/{commit_sha}/{}/{}.html",
@@ -69,9 +119,12 @@ pub(crate) const fn ses_template_tag_value(template_type: EmailTemplateType) -> 
     }
 }
 
-pub(crate) const fn subject(template_type: EmailTemplateType, language: Language) -> &'static str {
+pub(crate) const fn subject(
+    template_type: EmailTemplateType,
+    language: EmailLanguage,
+) -> &'static str {
     match language {
-        Language::De => match template_type {
+        EmailLanguage::De => match template_type {
             EmailTemplateType::WatchlistUpdatePrice => {
                 "Der Preis auf deiner Merkliste hat sich geändert"
             }
@@ -82,7 +135,48 @@ pub(crate) const fn subject(template_type: EmailTemplateType, language: Language
             EmailTemplateType::PartnerApplicationApproval => "Partnerantrag genehmigt",
             EmailTemplateType::PartnerApplicationRejection => "Update zu deinem Partnerantrag",
         },
-        _ => match template_type {
+        EmailLanguage::Fr => match template_type {
+            EmailTemplateType::WatchlistUpdatePrice => {
+                "Le prix de votre liste de souhaits a changé"
+            }
+            EmailTemplateType::WatchlistUpdateState => {
+                "Un article de votre liste de souhaits a changé"
+            }
+            EmailTemplateType::SearchFilterMatch => {
+                "Nouveau résultat pour votre filtre de recherche"
+            }
+            EmailTemplateType::PartnerApplicationApproval => "Demande de partenariat approuvée",
+            EmailTemplateType::PartnerApplicationRejection => {
+                "Mise à jour de votre demande de partenariat"
+            }
+        },
+        EmailLanguage::Es => match template_type {
+            EmailTemplateType::WatchlistUpdatePrice => {
+                "El precio de tu lista de deseos ha cambiado"
+            }
+            EmailTemplateType::WatchlistUpdateState => {
+                "Un artículo de tu lista de deseos ha cambiado"
+            }
+            EmailTemplateType::SearchFilterMatch => "Nuevo resultado para tu filtro de búsqueda",
+            EmailTemplateType::PartnerApplicationApproval => "Solicitud de asociación aprobada",
+            EmailTemplateType::PartnerApplicationRejection => {
+                "Actualización de tu solicitud de asociación"
+            }
+        },
+        EmailLanguage::It => match template_type {
+            EmailTemplateType::WatchlistUpdatePrice => {
+                "Il prezzo della tua lista dei desideri è cambiato"
+            }
+            EmailTemplateType::WatchlistUpdateState => {
+                "Un articolo nella tua lista dei desideri è cambiato"
+            }
+            EmailTemplateType::SearchFilterMatch => "Nuovo risultato per il tuo filtro di ricerca",
+            EmailTemplateType::PartnerApplicationApproval => "Richiesta di partnership approvata",
+            EmailTemplateType::PartnerApplicationRejection => {
+                "Aggiornamento della tua richiesta di partnership"
+            }
+        },
+        EmailLanguage::En => match template_type {
             EmailTemplateType::WatchlistUpdatePrice => "Your watchlist price changed",
             EmailTemplateType::WatchlistUpdateState => "Your watchlist item changed",
             EmailTemplateType::SearchFilterMatch => "New search filter match",
@@ -94,11 +188,12 @@ pub(crate) const fn subject(template_type: EmailTemplateType, language: Language
 
 pub(crate) fn template_data(
     source: &NotificationDeliverySource,
+    email_language: EmailLanguage,
     first_name: Option<&str>,
 ) -> Value {
     let localized = source.content.clone().localized(
         &source.presentation_preferences.currency,
-        &[source.presentation_preferences.language],
+        &[email_language.as_language()],
     );
     let present_image_url = |image| {
         present_image(
@@ -133,14 +228,8 @@ pub(crate) fn template_data(
                     old_state,
                     new_state,
                 } => {
-                    data["old_state"] = json!(state_text(
-                        old_state,
-                        source.presentation_preferences.language
-                    ));
-                    data["new_state"] = json!(state_text(
-                        new_state,
-                        source.presentation_preferences.language
-                    ));
+                    data["old_state"] = json!(state_text(old_state, email_language.as_language()));
+                    data["new_state"] = json!(state_text(new_state, email_language.as_language()));
                     data["notification_type"] = json!("state_change");
                 }
             }
@@ -228,41 +317,103 @@ mod tests {
         presentation::NotificationPresentationPreferences,
     };
     use rstest::rstest;
+    use std::collections::HashMap;
     use url::Url;
+
+    #[rstest]
+    #[case(Language::De, EmailLanguage::De)]
+    #[case(Language::En, EmailLanguage::En)]
+    #[case(Language::Fr, EmailLanguage::Fr)]
+    #[case(Language::Es, EmailLanguage::Es)]
+    #[case(Language::It, EmailLanguage::It)]
+    #[case(Language::Zh, EmailLanguage::En)]
+    #[case(Language::Pt, EmailLanguage::En)]
+    #[case(Language::Pl, EmailLanguage::En)]
+    #[case(Language::Tr, EmailLanguage::En)]
+    #[case(Language::Nl, EmailLanguage::En)]
+    #[case(Language::Cs, EmailLanguage::En)]
+    #[case(Language::Ja, EmailLanguage::En)]
+    #[case(Language::Ru, EmailLanguage::En)]
+    #[case(Language::Ar, EmailLanguage::En)]
+    fn should_resolve_profile_language_to_deployed_email_language(
+        #[case] profile_language: Language,
+        #[case] expected_email_language: EmailLanguage,
+    ) {
+        assert_eq!(
+            expected_email_language,
+            EmailLanguage::resolve(profile_language)
+        );
+    }
+
+    #[test]
+    fn should_use_english_template_key_for_ingestion_only_language() {
+        let key = s3_template_key(
+            "test",
+            "commit",
+            EmailTemplateType::WatchlistUpdateState,
+            EmailLanguage::resolve(Language::Zh),
+        );
+
+        assert_eq!(
+            "test/commit/mjml/watchlist/product-update/state/en.html",
+            key
+        );
+    }
 
     #[rstest]
     #[case(
         EmailTemplateType::WatchlistUpdatePrice,
+        "Der Preis auf deiner Merkliste hat sich geändert",
         "Your watchlist price changed",
-        "Der Preis auf deiner Merkliste hat sich geändert"
+        "Le prix de votre liste de souhaits a changé",
+        "El precio de tu lista de deseos ha cambiado",
+        "Il prezzo della tua lista dei desideri è cambiato"
     )]
     #[case(
         EmailTemplateType::WatchlistUpdateState,
+        "Ein Artikel auf deiner Merkliste hat sich geändert",
         "Your watchlist item changed",
-        "Ein Artikel auf deiner Merkliste hat sich geändert"
+        "Un article de votre liste de souhaits a changé",
+        "Un artículo de tu lista de deseos ha cambiado",
+        "Un articolo nella tua lista dei desideri è cambiato"
     )]
     #[case(
         EmailTemplateType::SearchFilterMatch,
+        "Neuer Treffer für deinen Suchfilter",
         "New search filter match",
-        "Neuer Treffer für deinen Suchfilter"
+        "Nouveau résultat pour votre filtre de recherche",
+        "Nuevo resultado para tu filtro de búsqueda",
+        "Nuovo risultato per il tuo filtro di ricerca"
     )]
     #[case(
         EmailTemplateType::PartnerApplicationApproval,
+        "Partnerantrag genehmigt",
         "Partner application approved",
-        "Partnerantrag genehmigt"
+        "Demande de partenariat approuvée",
+        "Solicitud de asociación aprobada",
+        "Richiesta di partnership approvata"
     )]
     #[case(
         EmailTemplateType::PartnerApplicationRejection,
+        "Update zu deinem Partnerantrag",
         "Partner application update",
-        "Update zu deinem Partnerantrag"
+        "Mise à jour de votre demande de partenariat",
+        "Actualización de tu solicitud de asociación",
+        "Aggiornamento della tua richiesta di partnership"
     )]
-    fn should_localize_subject_for_every_email_template(
+    fn should_localize_subject_for_every_email_template_and_email_language(
         #[case] template: EmailTemplateType,
-        #[case] expected_en: &str,
         #[case] expected_de: &str,
+        #[case] expected_en: &str,
+        #[case] expected_fr: &str,
+        #[case] expected_es: &str,
+        #[case] expected_it: &str,
     ) {
-        assert_eq!(expected_en, subject(template, Language::En));
-        assert_eq!(expected_de, subject(template, Language::De));
+        assert_eq!(expected_de, subject(template, EmailLanguage::De));
+        assert_eq!(expected_en, subject(template, EmailLanguage::En));
+        assert_eq!(expected_fr, subject(template, EmailLanguage::Fr));
+        assert_eq!(expected_es, subject(template, EmailLanguage::Es));
+        assert_eq!(expected_it, subject(template, EmailLanguage::It));
     }
 
     #[rstest]
@@ -294,9 +445,50 @@ mod tests {
         #[case] expected_image_url: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let source = source(consent, prohibited_content)?;
-        let data = template_data(&source, None);
+        let data = template_data(&source, EmailLanguage::En, None);
 
         assert_eq!(expected_image_url, data["image_url"].as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn should_localize_template_data_with_resolved_email_language()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        source.presentation_preferences.language = Language::Zh;
+        let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
+        let data = template_data(&source, email_language, None);
+
+        assert_eq!(Some("Listed"), data["old_state"].as_str());
+        assert_eq!(Some("Available"), data["new_state"].as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn should_localize_notification_title_with_resolved_email_language()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        source.presentation_preferences.language = Language::Zh;
+        let NotificationContent::Watchlist { snapshot, .. } = &mut source.content else {
+            return Err(
+                std::io::Error::other("test source is not a watchlist notification").into(),
+            );
+        };
+        snapshot.title = Some(HashMap::from([
+            (
+                Language::En,
+                serde_json::from_value(json!("English title"))?,
+            ),
+            (
+                Language::Zh,
+                serde_json::from_value(json!("Chinese title"))?,
+            ),
+        ]));
+
+        let email_language = EmailLanguage::resolve(source.presentation_preferences.language);
+        let data = template_data(&source, email_language, None);
+
+        assert_eq!(Some("English title"), data["title"].as_str());
         Ok(())
     }
 
