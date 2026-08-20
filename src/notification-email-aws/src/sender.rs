@@ -1,4 +1,5 @@
 use crate::{
+    provider_failure::{classify_ses_send, provider_error},
     template_mapping::{ses_template_tag_value, subject, template_data, template_type},
     template_reader::TemplateReader,
 };
@@ -156,9 +157,29 @@ impl NotificationChannelSender for SesNotificationChannelSender {
             .email_tags(email_tag)
             .send()
             .await
-            .map_err(|source| NotificationChannelSendError::Retryable {
-                code: "SES_SEND_FAILED",
-                source: box_error(source),
+            .map_err(|source| {
+                let (throttled, permanently_rejected) = source
+                    .as_service_error()
+                    .map(|error| {
+                        (
+                            error.is_limit_exceeded_exception()
+                                || error.is_too_many_requests_exception(),
+                            error.is_bad_request_exception()
+                                || error.is_message_rejected()
+                                || error.is_account_suspended_exception()
+                                || error.is_mail_from_domain_not_verified_exception()
+                                || error.is_not_found_exception()
+                                || error.is_sending_paused_exception(),
+                        )
+                    })
+                    .unwrap_or_default();
+                let status_code = source
+                    .raw_response()
+                    .map(|response| response.status().as_u16());
+                provider_error(
+                    classify_ses_send(throttled, permanently_rejected, status_code),
+                    box_error(source),
+                )
             })?;
         let provider_message_id =
             response

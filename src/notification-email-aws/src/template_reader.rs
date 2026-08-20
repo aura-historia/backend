@@ -1,4 +1,7 @@
-use crate::template_mapping::{EmailTemplateType, s3_template_key};
+use crate::{
+    provider_failure::{classify_s3_template_fetch, provider_error},
+    template_mapping::{EmailTemplateType, s3_template_key},
+};
 use aws_sdk_s3::Client as S3Client;
 use common::{error::boxed::box_error, language::domain::Language};
 use handlebars::Handlebars;
@@ -43,9 +46,17 @@ impl TemplateReader {
             .key(key)
             .send()
             .await
-            .map_err(|source| NotificationChannelSendError::Retryable {
-                code: "S3_TEMPLATE_FETCH_FAILED",
-                source: box_error(source),
+            .map_err(|source| {
+                let template_missing = source
+                    .as_service_error()
+                    .is_some_and(|error| error.is_no_such_key());
+                let status_code = source
+                    .raw_response()
+                    .map(|response| response.status().as_u16());
+                provider_error(
+                    classify_s3_template_fetch(template_missing, status_code),
+                    box_error(source),
+                )
             })?;
         let bytes = response
             .body

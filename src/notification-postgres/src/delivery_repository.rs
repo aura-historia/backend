@@ -134,7 +134,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         provider_message_id: &str,
         delivered_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
-        complete(&self.pool, "UPDATE notification_deliveries SET status = 'DELIVERED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = $3, delivered_at = $4, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $5", notification_delivery_id, lease_token, provider_message_id, Some(delivered_at), delivered_at).await
+        complete(&self.pool, "UPDATE notification_deliveries SET status = 'DELIVERED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = $3, last_error_code = NULL, delivered_at = $4, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $5", notification_delivery_id, lease_token, provider_message_id, Some(delivered_at), delivered_at).await
     }
 
     async fn mark_retryable_failure(
@@ -144,7 +144,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         error_code: &str,
         completed_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
-        complete(&self.pool, "UPDATE notification_deliveries SET status = 'PENDING', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
+        complete(&self.pool, "UPDATE notification_deliveries SET status = 'PENDING', lease_token = NULL, lease_expires_at = NULL, provider_message_id = NULL, last_error_code = $3, delivered_at = NULL, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
     }
 
     async fn mark_permanent_failure(
@@ -154,7 +154,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         error_code: &str,
         completed_at: OffsetDateTime,
     ) -> Result<bool, NotificationDeliveryError> {
-        complete(&self.pool, "UPDATE notification_deliveries SET status = 'FAILED', lease_token = NULL, lease_expires_at = NULL, last_error_code = $3, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
+        complete(&self.pool, "UPDATE notification_deliveries SET status = 'FAILED', lease_token = NULL, lease_expires_at = NULL, provider_message_id = NULL, last_error_code = $3, delivered_at = NULL, updated = now() WHERE notification_delivery_id = $1 AND status = 'PROCESSING' AND lease_token = $2 AND lease_expires_at > $4", notification_delivery_id, lease_token, error_code, None, completed_at).await
     }
 }
 

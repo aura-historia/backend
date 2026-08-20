@@ -122,8 +122,8 @@ pub(crate) fn template_data(
                     old_state,
                     new_state,
                 } => {
-                    data["old_state"] = json!(old_state.format_human_readable(&source.language));
-                    data["new_state"] = json!(new_state.format_human_readable(&source.language));
+                    data["old_state"] = json!(state_text(old_state, source.language));
+                    data["new_state"] = json!(state_text(new_state, source.language));
                     data["notification_type"] = json!("state_change");
                 }
             }
@@ -180,4 +180,71 @@ fn product_template_data(
 }
 fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
+}
+
+fn state_text(
+    state: common::product_state::domain::ProductState,
+    language: Language,
+) -> &'static str {
+    state.format_human_readable(&language)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::product_state::domain::ProductState;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(
+        EmailTemplateType::WatchlistUpdatePrice,
+        "Your watchlist price changed",
+        "Der Preis auf deiner Merkliste hat sich geändert"
+    )]
+    #[case(
+        EmailTemplateType::WatchlistUpdateState,
+        "Your watchlist item changed",
+        "Ein Artikel auf deiner Merkliste hat sich geändert"
+    )]
+    #[case(
+        EmailTemplateType::SearchFilterMatch,
+        "New search filter match",
+        "Neuer Treffer für deinen Suchfilter"
+    )]
+    #[case(
+        EmailTemplateType::PartnerApplicationApproval,
+        "Partner application approved",
+        "Partnerantrag genehmigt"
+    )]
+    #[case(
+        EmailTemplateType::PartnerApplicationRejection,
+        "Partner application update",
+        "Update zu deinem Partnerantrag"
+    )]
+    fn should_localize_subject_for_every_email_template(
+        #[case] template: EmailTemplateType,
+        #[case] expected_en: &str,
+        #[case] expected_de: &str,
+    ) {
+        assert_eq!(expected_en, subject(template, Language::En));
+        assert_eq!(expected_de, subject(template, Language::De));
+    }
+
+    #[rstest]
+    #[case(Language::En, "Listed", "Available")]
+    #[case(Language::De, "Gelistet", "Verfügbar")]
+    fn should_localize_watchlist_state_change_for_recipient_language(
+        #[case] language: Language,
+        #[case] expected_old_state: &str,
+        #[case] expected_new_state: &str,
+    ) {
+        assert_eq!(
+            expected_old_state,
+            state_text(ProductState::Listed, language)
+        );
+        assert_eq!(
+            expected_new_state,
+            state_text(ProductState::Available, language)
+        );
+    }
 }

@@ -503,11 +503,13 @@ CREATE TABLE notification_deliveries (
     CONSTRAINT notification_deliveries_delivered_shape_check CHECK (
         (
             status = 'DELIVERED'
+            AND provider_message_id IS NOT NULL
             AND delivered_at IS NOT NULL
         )
         OR
         (
             status <> 'DELIVERED'
+            AND provider_message_id IS NULL
             AND delivered_at IS NULL
         )
     )

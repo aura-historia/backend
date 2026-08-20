@@ -83,6 +83,16 @@ async fn should_persist_permanent_failure_when_template_is_invalid() {
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses(), WORKER_SEQUIN])]
+async fn should_clear_retry_failure_state_when_a_retry_succeeds() {
+    let result = clear_retry_failure_state_after_successful_delivery().await;
+
+    assert!(
+        result.is_ok(),
+        "notification delivery retry-success acceptance test failed: {result:?}"
+    );
+}
+
 async fn deliver_committed_notification_delivery() -> Result<(), Box<dyn std::error::Error>> {
     let worker = NotificationDeliveryWorker::start(Template::Valid).await?;
     let result = async {
@@ -219,6 +229,27 @@ async fn redeliver_after_expired_lease() -> Result<(), Box<dyn std::error::Error
         assert_eq!(5, persisted.attempt_count);
         assert!(persisted.provider_message_id.is_some());
         assert_email_count_for(&delivery.recipient_email, 1).await
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
+async fn clear_retry_failure_state_after_successful_delivery()
+-> Result<(), Box<dyn std::error::Error>> {
+    let worker = NotificationDeliveryWorker::start(Template::Valid).await?;
+    let result = async {
+        let delivery =
+            insert_delivery(&worker.pool, DeliveryState::PendingWithRetryableFailure).await?;
+
+        let persisted = wait_for_delivery(&worker.pool, delivery.delivery_id, "DELIVERED").await?;
+        assert_eq!(1, persisted.attempt_count);
+        assert!(persisted.provider_message_id.is_some());
+        assert!(persisted.delivered_at.is_some());
+        assert!(persisted.last_error_code.is_none());
+        assert!(persisted.lease_token.is_none());
+        assert!(persisted.lease_expires_at.is_none());
+        Ok(())
     }
     .await;
 
@@ -385,6 +416,7 @@ impl Template {
 #[derive(Clone, Copy)]
 enum DeliveryState {
     Pending,
+    PendingWithRetryableFailure,
     ActiveLease,
 }
 
@@ -437,6 +469,15 @@ async fn insert_delivery_in_transaction(
         DeliveryState::Pending => {
             sqlx::query(
                 "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key) VALUES ($1, $2, 'EMAIL', 'PRIMARY')",
+            )
+            .bind(delivery_id)
+            .bind(notification_id)
+            .execute(&mut **transaction)
+            .await?;
+        }
+        DeliveryState::PendingWithRetryableFailure => {
+            sqlx::query(
+                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key, last_error_code) VALUES ($1, $2, 'EMAIL', 'PRIMARY', 'S3_TEMPLATE_FETCH_RETRYABLE')",
             )
             .bind(delivery_id)
             .bind(notification_id)
