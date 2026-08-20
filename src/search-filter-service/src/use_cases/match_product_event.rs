@@ -8,7 +8,6 @@ use crate::ports::{
 use application::transaction::{Transaction, UnitOfWork};
 use common::error::boxed::{BoxError, box_error};
 use common::event_id::EventId;
-use common::resource_state::domain::ResourceState;
 use fxrate_core::FxRateId;
 #[cfg(test)]
 use fxrate_core::FxRateSnapshot;
@@ -28,6 +27,7 @@ use product_service::ports::{
     ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
     ProductSearchFilterMatchSourceReaderFactory,
 };
+use search_filter_core::ResourceState;
 use search_filter_core::{PriceMatchValuation, SearchFilterProductMatch};
 use serde::Deserialize;
 use std::num::NonZeroUsize;

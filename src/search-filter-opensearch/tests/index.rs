@@ -1,7 +1,6 @@
 use common::event_id::EventId;
 use common::pagination::cursor::Cursor;
 use common::query::text_query::TextQuery;
-use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
@@ -17,6 +16,7 @@ use product_core::{
 use product_service::ports::{
     ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
 };
+use search_filter_core::ResourceState;
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_service::ports::{
     SearchFilterIndex, SearchFilterIndexQuery, SearchFilterProjection,

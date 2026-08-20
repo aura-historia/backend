@@ -8,12 +8,12 @@ use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use product_core::product_id::ProductId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
+use watchlist_core::ResourceState;
 use watchlist_core::WatchlistProduct;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -246,7 +246,6 @@ mod tests {
     use common::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
     };
-    use common::resource_state::domain::ResourceState;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
@@ -254,6 +253,7 @@ mod tests {
     use user_service::ports::{
         UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
     };
+    use watchlist_core::ResourceState;
     use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
     #[derive(Clone, Default)]

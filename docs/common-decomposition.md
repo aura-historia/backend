@@ -1,6 +1,6 @@
 # `common` decomposition inventory
 
-Iteration 0 baseline. No production code moved.
+Decomposition baseline and iteration record. Legacy `common` paths remain only as documented compatibility shims.
 
 Machine guard data: `scripts/common-decomposition/baseline.json`.
 Run it with:
@@ -204,3 +204,15 @@ boundaries map their own transport and stored shapes.
 `common` retains documented acyclic aliases for the moved Shop and geo domain paths. Delete
 them only after legacy consumers migrate. `shop-core` is removed from the direct-consumer
 baseline.
+
+## Iteration 8 — search filter, watchlist, partner shop, notification
+
+`search-filter-core` owns `UserSearchFilterId`, `UserSearchFilterName`,
+`EnhancedMatchReason`, and `SearchFilterState`. `watchlist-core` owns a separate
+`WatchlistState`; both preserve the existing three stored state values through their adapters.
+`shop-partner-core` owns `PartnerShopApplicationId`. `notification-core` now directly uses
+public identifiers from the semantic owner cores.
+
+`common` re-exports the moved IDs, name, and match reason for legacy code. Each shim is
+acyclic because its new owner does not depend on `common`; remove it only after legacy callers
+have migrated. The four canonical core crates are removed from the direct-consumer baseline.

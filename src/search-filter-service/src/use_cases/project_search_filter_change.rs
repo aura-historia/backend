@@ -158,12 +158,12 @@ mod tests {
     use super::*;
     use crate::ports::{SearchFilterIndexQuery, SearchFilterProjection, SearchFilterView};
     use common::pagination::cursor::CursoredResult;
-    use common::resource_state::domain::ResourceState;
     use common::user_id::UserId;
     use common::user_search_filter_name::UserSearchFilterName;
     use localization::Language;
     use money::Currency;
     use product_core::product_search::ProductSearch;
+    use search_filter_core::ResourceState;
     use std::sync::Mutex;
     use time::macros::datetime;
 

@@ -1,9 +1,9 @@
 use crate::ports::PersistedSearchFilter;
-use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::ProductSearch;
+use search_filter_core::ResourceState;
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq)]

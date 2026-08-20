@@ -1,6 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
 use common::event_id::EventId;
-use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
 use common::user_search_filter_name::UserSearchFilterName;
@@ -10,6 +9,7 @@ use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
 use product_core::product_id::ProductId;
 use product_core::{product::ProductPriceValuationBasis, product_search::ProductSearch};
+use search_filter_core::ResourceState;
 use search_filter_core::{
     NewSearchFilter, PriceMatchValuation, SearchFilter, SearchFilterProductMatch,
 };

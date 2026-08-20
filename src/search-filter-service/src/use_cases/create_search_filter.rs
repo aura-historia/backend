@@ -10,9 +10,9 @@ use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::ResourceState;
 
 use common::user_search_filter_name::UserSearchFilterName;
 use embedding::{EmbeddingError, EmbeddingGenerator};

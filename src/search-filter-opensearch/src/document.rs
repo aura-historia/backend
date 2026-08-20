@@ -17,6 +17,7 @@ use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use product_core::product_state::ProductState;
 use product_opensearch::build_percolator_query;
+use search_filter_core::ResourceState;
 use search_filter_service::ports::{SearchFilterProjection, SearchFilterView};
 use serde::ser::Error as _;
 use serde::{Deserialize, Serialize};
@@ -96,7 +97,7 @@ impl TryFrom<&SearchFilterProjection> for SearchFilterDocument {
             user_id: view.user_id,
             name: view.name.clone(),
             notifications: view.notifications,
-            state: view.state.into(),
+            state: state_to_document(view.state),
             source_version: projection.source_version,
             search: product_search_to_value(&view.search)?,
             query: build_percolator_query(&view.search)?,
@@ -117,13 +118,29 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
             user_id: document.user_id,
             name: document.name,
             notifications: document.notifications,
-            state: document.state.into(),
+            state: state_from_document(document.state),
             search: product_search_from_value(document.search)?,
             embedding: document.embedding,
             created: document.created,
             updated: document.updated,
             last_hybrid_search_matched: document.last_hybrid_search_matched,
         })
+    }
+}
+
+pub(crate) fn state_to_document(state: ResourceState) -> ResourceStateDocument {
+    match state {
+        ResourceState::Active => ResourceStateDocument::Active,
+        ResourceState::InactiveByUser => ResourceStateDocument::InactiveByUser,
+        ResourceState::InactiveByRestrictedPlan => ResourceStateDocument::InactiveByRestrictedPlan,
+    }
+}
+
+fn state_from_document(state: ResourceStateDocument) -> ResourceState {
+    match state {
+        ResourceStateDocument::Active => ResourceState::Active,
+        ResourceStateDocument::InactiveByUser => ResourceState::InactiveByUser,
+        ResourceStateDocument::InactiveByRestrictedPlan => ResourceState::InactiveByRestrictedPlan,
     }
 }
 
@@ -713,7 +730,7 @@ mod tests {
                 user_id: UserId::new(),
                 name: UserSearchFilterName::from("daily"),
                 notifications: true,
-                state: common::resource_state::domain::ResourceState::Active,
+                state: search_filter_core::ResourceState::Active,
                 search,
                 embedding: Some(vec![1.0]),
                 created: datetime!(2026-01-01 00:00:00 UTC),

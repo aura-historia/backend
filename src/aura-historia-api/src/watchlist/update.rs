@@ -1,4 +1,4 @@
-use super::types::{PatchWatchlistData, WatchlistEntryData};
+use super::types::{PatchWatchlistData, WatchlistEntryData, watchlist_state};
 use super::util::parse_json;
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
@@ -41,7 +41,7 @@ pub async fn patch_watchlist(
                 user_id,
                 product_id,
                 notifications: data.notifications,
-                state: data.state.map(Into::into),
+                state: data.state.map(watchlist_state),
             },
         )
         .await

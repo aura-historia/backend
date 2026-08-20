@@ -19,6 +19,7 @@ use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use search_filter_core::ResourceState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
 use search_filter_service::use_cases::ProductSearchPatch;
 use serde::{Deserialize, Serialize};
@@ -58,13 +59,13 @@ impl UpdateSearchFilterData {
     ) -> (
         PatchField<UserSearchFilterName>,
         PatchField<bool>,
-        PatchField<common::resource_state::domain::ResourceState>,
+        PatchField<ResourceState>,
         ProductSearchPatch,
     ) {
         (
             patch(self.name),
             patch(self.notifications),
-            patch(self.state.map(Into::into)),
+            patch(self.state.map(search_filter_state)),
             self.search.map(Into::into).unwrap_or_default(),
         )
     }
@@ -484,11 +485,26 @@ impl From<SearchFilterView> for SearchFilterData {
             user_search_filter_id: view.search_filter_id,
             name: view.name,
             notifications: view.notifications,
-            state: view.state.into(),
+            state: resource_state_data(view.state),
             search: view.search.into(),
             created: Some(view.created),
             updated: Some(view.updated),
         }
+    }
+}
+
+fn resource_state_data(state: ResourceState) -> ResourceStateData {
+    match state {
+        ResourceState::Active => ResourceStateData::Active,
+        ResourceState::InactiveByUser => ResourceStateData::InactiveByUser,
+        ResourceState::InactiveByRestrictedPlan => ResourceStateData::InactiveByRestrictedPlan,
+    }
+}
+
+fn search_filter_state(state: PatchResourceStateData) -> ResourceState {
+    match state {
+        PatchResourceStateData::Active => ResourceState::Active,
+        PatchResourceStateData::InactiveByUser => ResourceState::InactiveByUser,
     }
 }
 

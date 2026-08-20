@@ -8,7 +8,8 @@
 ## Core Design
 
 - Domain-only crate.
-- Reuses canonical `product-core::product_search::ProductSearch` and neutral event/outcome values from `domain-primitives`.
+- Owns `UserSearchFilterId`, `UserSearchFilterName`, `EnhancedMatchReason`, and `SearchFilterState`.
+- Reuses canonical `user-core::UserId`, `product-core::product_search::ProductSearch`, and neutral event/outcome values from `domain-primitives`.
 - Aggregate has no persistence timestamps.
 - No legacy, service, adapter, transport, or runtime dependency.
 

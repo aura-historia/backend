@@ -28,7 +28,9 @@ fxrate-core = { workspace = true }
 geo = { workspace = true }
 platform-observability = { workspace = true }
 product-core = { workspace = true }
+search-filter-core = { workspace = true }
 shop-core = { workspace = true }
+shop-partner-core = { workspace = true }
 user-core = { workspace = true }
 
 # Optional dependencies via feature-flags
@@ -69,4 +71,4 @@ api = [
     "httpdate",
     "lambda_runtime"
 ]
-test-data = ["fake", "credential-core/test-data", "domain-primitives/test-data", "fxrate-core/test-data", "geo/test-data", "product-core/test-data", "shop-core/test-data", "user-core/test-data"]
+test-data = ["fake", "credential-core/test-data", "domain-primitives/test-data", "fxrate-core/test-data", "geo/test-data", "product-core/test-data", "search-filter-core/test-data", "shop-core/test-data", "shop-partner-core/test-data", "user-core/test-data"]

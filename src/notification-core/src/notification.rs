@@ -1,19 +1,21 @@
 use crate::{notification_id::NotificationId, notification_type::NotificationType};
-use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
-use common::{event_id::EventId, user_id::UserId};
+use domain_primitives::event_id::EventId;
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use product_core::{
     product_id::ProductId, product_image::ProductImage, product_slug_id::ProductSlugId,
     product_state::ProductState, shops_product_id::ShopsProductId, title::Title,
 };
+use search_filter_core::{
+    user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
+};
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::HashMap;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Notification {

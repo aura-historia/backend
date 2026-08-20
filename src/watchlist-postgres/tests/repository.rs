@@ -1,9 +1,9 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use platform_postgres::SqlxUnitOfWork;
 use product_core::product_id::ProductId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use watchlist_core::ResourceState;
 use watchlist_core::WatchlistProduct;
 use watchlist_postgres::{
     SqlxWatchlistQuotaReaderFactory, SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory,

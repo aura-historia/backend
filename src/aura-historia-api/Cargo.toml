@@ -50,6 +50,7 @@ product-core = { workspace = true }
 product-opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
+search-filter-core = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
 thiserror = { workspace = true }

@@ -17,7 +17,7 @@
 - `change_outcome`, `event`, and `event_id` alias `domain-primitives`; legacy EventId API extraction remains local. Version and newtype macro modules remain legacy copies while canonical owners use `domain-primitives`. Remove each legacy path after consumers migrate.
 - `logging` delegates subscriber setup to `platform-observability` and retains legacy log vocabulary. Remove the setup shims after legacy runtimes migrate.
 - `transaction` and `operation_context` re-export `application`; `postgres` re-exports SQLx primitives from `platform-postgres` and retains legacy `POSTGRES_*` parsing. Remove shims after legacy consumers migrate.
-- `user_id` and `stripe_customer_id` re-export `user-core`; `oauth_client_id` re-exports `credential-core`. `domain`, shop IDs, distance, FX, Product IDs, and query values re-export their canonical owners. Remove these shims after legacy consumers migrate. Legacy boundary DTOs remain only to preserve boundary forms.
+- `user_id` and `stripe_customer_id` re-export `user-core`; `oauth_client_id` re-exports `credential-core`; search-filter IDs, name, and enhanced match reason re-export `search-filter-core`; partner application ID re-exports `shop-partner-core`. `domain`, shop IDs, distance, FX, Product IDs, and query values re-export their canonical owners. Remove these shims after legacy consumers migrate. Legacy boundary DTOs remain only to preserve boundary forms.
 - Legacy `product_state` and `product_lifecycle` remain separate until their legacy boundary mappings migrate; canonical code must use `product-core` values.
 - `price` FX helpers use scaled unsigned `Rate` values; do not calculate exchange rates with floating point.
 

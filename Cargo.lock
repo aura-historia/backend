@@ -266,6 +266,7 @@ dependencies = [
  "product-service",
  "reqwest 0.12.28",
  "rstest",
+ "search-filter-core",
  "search-filter-postgres",
  "search-filter-service",
  "serde",
@@ -1843,10 +1844,12 @@ dependencies = [
  "platform-postgres",
  "product-core",
  "rstest",
+ "search-filter-core",
  "serde",
  "serde_dynamo",
  "serde_json",
  "shop-core",
+ "shop-partner-core",
  "slug",
  "sqlx",
  "strum 0.28.0",
@@ -4982,15 +4985,18 @@ dependencies = [
 name = "notification-core"
 version = "0.1.0"
 dependencies = [
- "common",
+ "domain-primitives",
  "fake",
  "localization",
  "money",
  "product-core",
+ "search-filter-core",
  "serde",
  "serde-email",
  "shop-core",
+ "shop-partner-core",
  "url",
+ "user-core",
  "uuid",
 ]
 
@@ -7378,14 +7384,16 @@ dependencies = [
 name = "search-filter-core"
 version = "0.1.0"
 dependencies = [
- "common",
  "domain-primitives",
  "fake",
  "fxrate-core",
  "localization",
  "money",
  "product-core",
+ "serde",
  "serde_fields",
+ "user-core",
+ "uuid",
 ]
 
 [[package]]
@@ -8126,11 +8134,13 @@ dependencies = [
 name = "shop-partner-core"
 version = "0.1.0"
 dependencies = [
- "common",
  "fake",
+ "serde",
  "shop-core",
  "thiserror 2.0.20",
  "time",
+ "user-core",
+ "uuid",
 ]
 
 [[package]]
@@ -10170,10 +10180,10 @@ dependencies = [
 name = "watchlist-core"
 version = "0.1.0"
 dependencies = [
- "common",
  "fake",
  "product-core",
  "time",
+ "user-core",
 ]
 
 [[package]]

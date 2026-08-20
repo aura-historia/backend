@@ -1,8 +1,8 @@
-use crate::document::SearchFilterDocument;
+use crate::document::{SearchFilterDocument, state_to_document};
 use common::error::boxed::box_error;
 use common::opensearch::search_response::SearchResponse;
 use common::pagination::cursor::{Cursor, CursoredResult};
-use common::resource_state::document::ResourceStateDocument;
+
 use common::user_search_filter_id::UserSearchFilterId;
 use opensearch::{
     DeleteParts, IndexParts, OpenSearch, SearchParts,
@@ -380,7 +380,7 @@ fn projection_write_outcome(
 fn build_query_body(query: &SearchFilterIndexQuery) -> serde_json::Value {
     let mut filter = Vec::new();
     if let Some(state) = query.state {
-        filter.push(json!({"term": {"state": ResourceStateDocument::from(state)}}));
+        filter.push(json!({"term": {"state": state_to_document(state)}}));
     }
     if let Some(has) = query.has_enhanced_search_description {
         filter.push(if has {
@@ -407,7 +407,7 @@ fn build_query_body(query: &SearchFilterIndexQuery) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::resource_state::domain::ResourceState;
+    use search_filter_core::ResourceState;
 
     #[test]
     fn should_build_query_body_with_filters_and_cursor() {

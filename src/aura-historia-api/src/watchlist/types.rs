@@ -3,7 +3,7 @@ use common::user_id::UserId;
 use product_core::product_id::ProductId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-use watchlist_core::WatchlistProduct;
+use watchlist_core::{ResourceState, WatchlistProduct};
 use watchlist_service::ports::WatchlistProductView;
 
 #[derive(Debug, Serialize)]
@@ -30,7 +30,7 @@ impl From<WatchlistProduct> for WatchlistEntryData {
             user_id: e.user_id(),
             product_id: e.product_id(),
             notifications: e.notifications(),
-            state: e.state().into(),
+            state: resource_state_data(e.state()),
             created: None,
             updated: None,
         }
@@ -42,10 +42,25 @@ impl From<WatchlistProductView> for WatchlistEntryData {
             user_id: v.user_id,
             product_id: v.product_id,
             notifications: v.notifications,
-            state: v.state.into(),
+            state: resource_state_data(v.state),
             created: Some(v.created),
             updated: Some(v.updated),
         }
+    }
+}
+
+pub(crate) fn resource_state_data(state: ResourceState) -> ResourceStateData {
+    match state {
+        ResourceState::Active => ResourceStateData::Active,
+        ResourceState::InactiveByUser => ResourceStateData::InactiveByUser,
+        ResourceState::InactiveByRestrictedPlan => ResourceStateData::InactiveByRestrictedPlan,
+    }
+}
+
+pub(crate) fn watchlist_state(state: PatchResourceStateData) -> ResourceState {
+    match state {
+        PatchResourceStateData::Active => ResourceState::Active,
+        PatchResourceStateData::InactiveByUser => ResourceState::InactiveByUser,
     }
 }
 

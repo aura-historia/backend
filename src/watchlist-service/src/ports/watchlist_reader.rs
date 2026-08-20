@@ -1,7 +1,7 @@
-use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use product_core::product_id::ProductId;
 use time::OffsetDateTime;
+use watchlist_core::ResourceState;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatchlistProductView {
