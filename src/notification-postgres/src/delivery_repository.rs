@@ -231,7 +231,6 @@ fn source_from_row(
 fn parse_channel(value: &str) -> Result<NotificationDeliveryChannel, NotificationDeliveryError> {
     match value {
         "EMAIL" => Ok(NotificationDeliveryChannel::Email),
-        "PUSH" => Ok(NotificationDeliveryChannel::Push),
         _ => Err(invalid_delivery_source(
             "unknown notification delivery channel",
         )),

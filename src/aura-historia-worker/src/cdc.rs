@@ -1163,7 +1163,7 @@ mod tests {
             primary_key: BTreeMap::new(),
             record: Some(serde_json::json!({
                 "notification_delivery_id": "60000000-0000-0000-0000-000000000001",
-                "channel": "PUSH"
+                "channel": "EMAIL"
             })),
             old_record: None,
             changed_columns: Vec::new(),

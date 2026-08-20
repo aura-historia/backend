@@ -207,9 +207,8 @@ mod tests {
     use super::*;
     use crate::ports::{
         notification_channel_sender::{
-            NotificationChannelSender, NotificationDeliveryDispatchError,
-            NotificationDeliveryDispatcher, NotificationDeliveryDispatcherRegistrationError,
-            SentNotificationDelivery,
+            NotificationChannelSender, NotificationDeliveryDispatcher,
+            NotificationDeliveryDispatcherRegistrationError, SentNotificationDelivery,
         },
         notification_delivery_repository::{
             ClaimedNotificationDelivery, NotificationDeliverySource,
@@ -350,47 +349,12 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    struct RecordingPushSender {
-        sent_sources: Mutex<Vec<NotificationDeliverySource>>,
-    }
-
-    #[async_trait::async_trait]
-    impl NotificationChannelSender for RecordingPushSender {
-        fn channel(&self) -> NotificationDeliveryChannel {
-            NotificationDeliveryChannel::Push
-        }
-
-        async fn send(
-            &self,
-            source: &NotificationDeliverySource,
-        ) -> Result<SentNotificationDelivery, NotificationChannelSendError> {
-            self.sent_sources
-                .lock()
-                .map_err(|_| NotificationChannelSendError::Permanent {
-                    code: "TEST_SENDER_LOCK_FAILED",
-                    source: box_error(std::io::Error::other("test sender lock poisoned")),
-                })?
-                .push(source.clone());
-            Ok(SentNotificationDelivery {
-                provider_message_id: "push-message-1".to_owned(),
-            })
-        }
-    }
-
     fn source(notification_delivery_id: NotificationDeliveryId) -> NotificationDeliverySource {
-        source_for_channel(notification_delivery_id, NotificationDeliveryChannel::Email)
-    }
-
-    fn source_for_channel(
-        notification_delivery_id: NotificationDeliveryId,
-        channel: NotificationDeliveryChannel,
-    ) -> NotificationDeliverySource {
         NotificationDeliverySource {
             notification_delivery_id,
             notification_id: NotificationId::new(),
             user_id: UserId::new(),
-            channel,
+            channel: NotificationDeliveryChannel::Email,
             target_key: NotificationDeliveryTargetKey::primary(),
             content: NotificationContent::PartnerApplication {
                 partner_shop_application_id: PartnerShopApplicationId::new(),
@@ -461,66 +425,6 @@ mod tests {
                 .clone()
         );
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn should_claim_send_and_finalize_with_test_push_sender()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let notification_delivery_id = NotificationDeliveryId::new();
-        let source =
-            source_for_channel(notification_delivery_id, NotificationDeliveryChannel::Push);
-        let state = Arc::new(DeliveryState::default());
-        let sender = Arc::new(RecordingPushSender::default());
-        let handler = DeliverNotificationHandler::new(
-            FakeDeliveryRepository::new(notification_delivery_id, source.clone(), state.clone()),
-            NotificationDeliveryDispatcher::new(vec![
-                sender.clone() as Arc<dyn NotificationChannelSender>
-            ])?,
-        );
-
-        assert_eq!(
-            DeliverNotificationResult::Delivered { attempt_count: 2 },
-            handler
-                .execute(DeliverNotificationCommand {
-                    notification_delivery_id
-                })
-                .await?
-        );
-        assert_eq!(
-            vec![source],
-            sender
-                .sent_sources
-                .lock()
-                .map_err(|_| std::io::Error::other("test sender lock poisoned"))?
-                .clone()
-        );
-        assert_eq!(
-            vec!["push-message-1".to_owned()],
-            state
-                .delivered_message_ids
-                .lock()
-                .map_err(|_| std::io::Error::other("test state lock poisoned"))?
-                .clone()
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_reject_unregistered_planner_channel_during_startup_validation() {
-        let dispatcher =
-            NotificationDeliveryDispatcher::new(vec![
-                Arc::new(RecordingEmailSender::default()) as Arc<dyn NotificationChannelSender>
-            ]);
-
-        assert!(dispatcher.is_ok());
-        if let Ok(dispatcher) = dispatcher {
-            assert!(matches!(
-                dispatcher.validate_channels([NotificationDeliveryChannel::Push]),
-                Err(NotificationDeliveryDispatchError::UnregisteredChannel {
-                    channel: NotificationDeliveryChannel::Push,
-                })
-            ));
-        }
     }
 
     #[test]

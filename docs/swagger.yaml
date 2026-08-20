@@ -10940,7 +10940,7 @@ components:
           type: boolean
           nullable: true
           description: |
-            Whether to enable or disable email/push notifications for new products matching this search filter.
+            Whether to enable or disable email notifications for new products matching this search filter.
             When `true`, the user will be notified when a new product matches this filter.
             When `false`, no notifications are sent for this filter.
             Omit to leave unchanged.
