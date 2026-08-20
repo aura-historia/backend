@@ -1,0 +1,11 @@
+[package]
+name = "notification-email"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+common = { workspace = true }
+notification-core = { workspace = true }
+serde-email = { workspace = true }
+thiserror = { workspace = true }

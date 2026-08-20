@@ -2727,7 +2727,7 @@ paths:
                       prohibitedContent:
                         consent: false
                       notification:
-                        seen: true
+                        unseenNotificationIds: []
                       searchFilter:
                         matched: true
                         hidden: false
@@ -3308,7 +3308,7 @@ paths:
                       prohibitedContent:
                         consent: false
                       notification:
-                        seen: true
+                        unseenNotificationIds: []
                       searchFilter:
                         matched: false
                         hidden: false
@@ -5358,7 +5358,7 @@ paths:
                   prohibitedContent:
                     consent: false
                   notification:
-                    seen: true
+                    unseenNotificationIds: []
         "400":
           description: Bad request - invalid parameters or body
           content:

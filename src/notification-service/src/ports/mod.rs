@@ -1,4 +1,3 @@
-pub mod email_delivery_target_reader;
 pub mod external_delivery_plan_reader;
 pub mod notification_channel_sender;
 pub mod notification_creator;

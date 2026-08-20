@@ -8,7 +8,7 @@
 ## Core Design
 
 - Implements service-owned `NotificationChannelSender` for EMAIL only.
-- Resolves current `PRIMARY` email target through `EmailDeliveryTargetReader` after generic delivery claim.
+- Consumes the EMAIL target-reader contract from `notification-email`. Channel-specific runtime wiring resolves the current `PRIMARY` target after generic delivery claim.
 - Owns email templates, localized subject/state text, S3 keys, SES mapping, and safe provider-error classification. Missing templates and invalid/configuration failures are permanent; timeouts, transport failures, throttling, and 5xx responses are retryable.
 - Takes clients and typed config through constructor. No env read. No logs.
 

@@ -10,8 +10,8 @@ use aws_sdk_sesv2::{
 };
 use common::error::boxed::box_error;
 use notification_core::notification_delivery::NotificationDeliveryChannel;
+use notification_email::{EmailDeliveryTargetReadError, EmailDeliveryTargetReader};
 use notification_service::ports::{
-    email_delivery_target_reader::{EmailDeliveryTargetReadError, EmailDeliveryTargetReader},
     notification_channel_sender::{
         NotificationChannelSendError, NotificationChannelSender, SentNotificationDelivery,
     },

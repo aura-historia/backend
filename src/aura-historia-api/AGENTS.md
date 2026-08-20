@@ -47,6 +47,7 @@
 ## Work Guidance
 
 - Keep runtime glue thin.
+- API implements no service port or use case. It only maps HTTP/auth transport and composes adapters from adapter crates. Transport-local auth and readiness traits are allowed.
 - Put business behavior in domain crates and services.
 - Use runtime-neutral request/auth context; no API Gateway context.
 

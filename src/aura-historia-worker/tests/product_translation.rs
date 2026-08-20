@@ -1,10 +1,6 @@
 use aura_historia_worker::{
-    QueueConfig, WorkerRunError, WorkerRuntime,
-    cdc::WorkerQueue,
-    product_translation::{
-        LargeLanguageModelProductTitleTranslator, consume_product_translation_queue,
-    },
-    serve_with_runtime,
+    QueueConfig, WorkerRunError, WorkerRuntime, cdc::WorkerQueue,
+    product_translation::consume_product_translation_queue, serve_with_runtime,
 };
 use common::{event_id::EventId, postgres::SqlxUnitOfWork, product_id::ProductId};
 use large_language_model::{
@@ -12,6 +8,7 @@ use large_language_model::{
 };
 use product_postgres::{SqlxProductTranslationSourceReader, SqlxProductTranslationWriterFactory};
 use product_service::use_cases::{TranslateProductEventHandler, TranslateProductEventUseCase};
+use product_translation_llm::LargeLanguageModelProductTitleTranslator;
 use std::{sync::Arc, time::Duration};
 use test_api::{
     IntegrationTestService, Postgres, Sequin, aura_integration_test, get_postgres_client,

@@ -305,6 +305,7 @@ dependencies = [
  "newsletter-api",
  "notification",
  "notification-core",
+ "notification-email",
  "notification-postgres",
  "notification-service",
  "oauth",
@@ -325,6 +326,7 @@ dependencies = [
  "product-personalization",
  "product-postgres",
  "product-service",
+ "product-translation-llm",
  "product-watchlist",
  "product-watchlist-api",
  "search-filter",
@@ -386,6 +388,7 @@ dependencies = [
  "product-opensearch",
  "product-postgres",
  "product-service",
+ "product-translation-llm",
  "reqwest 0.12.28",
  "rstest",
  "search-filter-core",
@@ -4792,10 +4795,20 @@ dependencies = [
  "fake",
  "product-core",
  "serde",
- "serde-email",
  "thiserror 2.0.20",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "notification-email"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "notification-core",
+ "serde-email",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -4808,6 +4821,7 @@ dependencies = [
  "common",
  "handlebars",
  "notification-core",
+ "notification-email",
  "notification-service",
  "rstest",
  "serde_json",
@@ -4821,6 +4835,7 @@ dependencies = [
  "async-trait",
  "common",
  "notification-core",
+ "notification-email",
  "notification-service",
  "product-core",
  "serde",
@@ -4846,7 +4861,6 @@ dependencies = [
  "notification-core",
  "notification-service",
  "rstest",
- "serde-email",
  "thiserror 2.0.20",
  "time",
  "tokio",
@@ -6124,6 +6138,20 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "product-translation-llm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "indexmap 2.14.0",
+ "large-language-model",
+ "product-core",
+ "product-service",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

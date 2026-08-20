@@ -40,6 +40,7 @@ stripe-api = { workspace = true }
 product = { workspace = true }
 product-core = { workspace = true }
 product-service = { workspace = true }
+product-translation-llm = { workspace = true }
 product-postgres = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
@@ -67,6 +68,7 @@ user-lambda = { workspace = true }
 user-zoho = { workspace = true }
 notification = { workspace = true }
 notification-core = { workspace = true }
+notification-email = { workspace = true }
 notification-service = { workspace = true }
 notification-postgres = { workspace = true }
 newsletter-api = { workspace = true }
@@ -107,6 +109,7 @@ members = [
     "src/product",
     "src/product-core",
     "src/product-service",
+    "src/product-translation-llm",
     "src/product-postgres",
     "src/fxrate-core",
     "src/fxrate-service",
@@ -146,6 +149,7 @@ members = [
     "src/user-zoho",
     "src/notification",
     "src/notification-core",
+    "src/notification-email",
     "src/notification-email-aws",
     "src/notification-service",
     "src/notification-postgres",
@@ -222,6 +226,7 @@ stripe-api = { path = "src/stripe-api" }
 newsletter-api = { path = "src/newsletter-api" }
 notification = { path = "src/notification" }
 notification-core = { path = "src/notification-core" }
+notification-email = { path = "src/notification-email" }
 notification-email-aws = { path = "src/notification-email-aws" }
 notification-service = { path = "src/notification-service" }
 notification-postgres = { path = "src/notification-postgres" }
@@ -237,6 +242,7 @@ httpdate = "1.0.3"
 product = { path = "src/product" }
 product-core = { path = "src/product-core" }
 product-service = { path = "src/product-service" }
+product-translation-llm = { path = "src/product-translation-llm" }
 product-postgres = { path = "src/product-postgres" }
 fxrate-core = { path = "src/fxrate-core" }
 fxrate-service = { path = "src/fxrate-service" }

@@ -1,9 +1,7 @@
 use aura_historia_worker::notification_delivery::consume_notification_delivery_queue;
 use aura_historia_worker::product_embedding::consume_product_embedding_queue;
 use aura_historia_worker::product_opensearch::consume_product_opensearch_queue;
-use aura_historia_worker::product_translation::{
-    LargeLanguageModelProductTitleTranslator, consume_product_translation_queue,
-};
+use aura_historia_worker::product_translation::consume_product_translation_queue;
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
 use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
@@ -57,6 +55,7 @@ use product_service::use_cases::{
     GenerateWatchlistNotificationsUseCase, ProjectProductHandler, ProjectProductUseCase,
     TranslateProductEventHandler, TranslateProductEventUseCase,
 };
+use product_translation_llm::LargeLanguageModelProductTitleTranslator;
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
     SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,

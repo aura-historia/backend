@@ -25,6 +25,7 @@ product-core = { workspace = true }
 product-opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
+product-translation-llm = { workspace = true }
 reqwest = { workspace = true }
 search-filter-opensearch = { workspace = true }
 search-filter-postgres = { workspace = true }
@@ -33,6 +34,7 @@ watchlist-postgres = { workspace = true }
 user-postgres = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }

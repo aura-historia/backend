@@ -466,7 +466,7 @@ CREATE TABLE notification_deliveries (
         UNIQUE (notification_id, channel, target_key),
 
     CONSTRAINT notification_deliveries_channel_check CHECK (
-        channel IN ('EMAIL')
+        channel IN ('EMAIL', 'PUSH')
     ),
 
     CONSTRAINT notification_deliveries_target_key_nonempty_check CHECK (

@@ -8,7 +8,8 @@
 
 - PostgreSQL owns notification and external-delivery state.
 - Private rows and versioned JSON payload mapping reconstruct typed Notification content.
-- Low-level notification and delivery-intent repositories share the caller transaction. Generic delivery claim loads channel, target key, content, and preference defaults only. The focused email target reader loads current PRIMARY email after claim. Channel selection belongs to the notification-service planner, never this adapter.
+- Low-level notification and delivery-intent repositories share the caller transaction. Generic delivery claim loads channel, target key, content, and preference defaults only. Channel-specific runtime adapters resolve targets after claim. Channel selection belongs to the notification-service planner, never this adapter.
+- Implements the EMAIL target lookup contract with PostgreSQL. Worker only composes this adapter.
 - Invalid persisted rows fail; never skip them.
 
 ## Verification

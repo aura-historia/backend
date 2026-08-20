@@ -7,18 +7,24 @@ use aws_sdk_s3::{
     types::{BucketLocationConstraint, CreateBucketConfiguration},
 };
 use aws_sdk_sesv2::Client as SesClient;
+use notification_core::{
+    notification_delivery::NotificationDeliveryChannel,
+    notification_delivery_id::NotificationDeliveryId,
+};
 use notification_email_aws::{EmailDeliveryConfig, SesNotificationChannelSender};
-use notification_postgres::{SqlxEmailDeliveryTargetReader, SqlxNotificationDeliveryRepository};
+use notification_postgres::SqlxEmailDeliveryTargetReader;
+use notification_postgres::SqlxNotificationDeliveryRepository;
 use notification_service::{
     ports::notification_channel_sender::{
-        NotificationChannelSender, NotificationDeliveryDispatcher,
+        NotificationChannelSendError, NotificationChannelSender, NotificationDeliveryDispatcher,
+        SentNotificationDelivery,
     },
     use_cases::commands::deliver_notification::{
         DeliverNotificationHandler, DeliverNotificationUseCase,
     },
 };
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use test_api::{
     IntegrationTestService, Postgres, S3, Sequin, Ses, aura_integration_test, get_postgres_client,
@@ -80,6 +86,16 @@ async fn should_persist_permanent_failure_when_template_is_invalid() {
     assert!(
         result.is_ok(),
         "notification delivery failure acceptance test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses(), WORKER_SEQUIN])]
+async fn should_deliver_persisted_push_delivery_through_generic_cdc_flow() {
+    let result = deliver_persisted_push_delivery().await;
+
+    assert!(
+        result.is_ok(),
+        "notification PUSH delivery acceptance test failed: {result:?}"
     );
 }
 
@@ -235,6 +251,33 @@ async fn redeliver_after_expired_lease() -> Result<(), Box<dyn std::error::Error
     worker.finish(result).await
 }
 
+async fn deliver_persisted_push_delivery() -> Result<(), Box<dyn std::error::Error>> {
+    let (worker, sender) = NotificationDeliveryWorker::start_push().await?;
+    let result = async {
+        let delivery =
+            insert_delivery_for_channel(&worker.pool, DeliveryState::Pending, "PUSH").await?;
+
+        let persisted = wait_for_delivery(&worker.pool, delivery.delivery_id, "DELIVERED").await?;
+        assert_eq!(1, persisted.attempt_count);
+        assert_eq!(
+            Some("push-message-1".to_owned()),
+            persisted.provider_message_id
+        );
+        assert_eq!(
+            vec![NotificationDeliveryId::from(delivery.delivery_id)],
+            sender
+                .sent_delivery_ids
+                .lock()
+                .map_err(|_| std::io::Error::other("push sender state lock poisoned"))?
+                .clone()
+        );
+        Ok(())
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
 async fn clear_retry_failure_state_after_successful_delivery()
 -> Result<(), Box<dyn std::error::Error>> {
     let worker = NotificationDeliveryWorker::start(Template::Valid).await?;
@@ -334,6 +377,39 @@ impl NotificationDeliveryWorker {
         })
     }
 
+    async fn start_push() -> Result<(Self, Arc<RecordingPushSender>), Box<dyn std::error::Error>> {
+        let pool = get_postgres_client().await;
+        let sender = Arc::new(RecordingPushSender::default());
+        let handler: Arc<dyn DeliverNotificationUseCase> =
+            Arc::new(DeliverNotificationHandler::new(
+                SqlxNotificationDeliveryRepository::new(pool.clone()),
+                NotificationDeliveryDispatcher::new(vec![
+                    sender.clone() as Arc<dyn NotificationChannelSender>
+                ])?,
+            ));
+        let (runtime, mut receivers) =
+            WorkerRuntime::with_notification_delivery_queue(QueueConfig::new(16))?;
+        let receiver = receivers
+            .take(WorkerQueue::NotificationDelivery)
+            .ok_or_else(|| std::io::Error::other("notification delivery queue is missing"))?;
+        let consumer = tokio::spawn(consume_notification_delivery_queue(receiver, handler));
+        let listener = tokio::net::TcpListener::bind(get_sequin_worker_webhook_bind_addr()).await?;
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(serve_with_runtime(listener, runtime, async move {
+            let _ = shutdown_rx.await;
+        }));
+
+        Ok((
+            Self {
+                pool,
+                consumer,
+                shutdown_tx,
+                server,
+            },
+            sender,
+        ))
+    }
+
     async fn finish(
         self,
         result: Result<(), Box<dyn std::error::Error>>,
@@ -350,6 +426,36 @@ impl NotificationDeliveryWorker {
         self.server.await??;
         self.consumer.await?;
         Ok(())
+    }
+}
+
+#[derive(Default)]
+struct RecordingPushSender {
+    sent_delivery_ids: Mutex<Vec<NotificationDeliveryId>>,
+}
+
+#[async_trait::async_trait]
+impl NotificationChannelSender for RecordingPushSender {
+    fn channel(&self) -> NotificationDeliveryChannel {
+        NotificationDeliveryChannel::Push
+    }
+
+    async fn send(
+        &self,
+        source: &notification_service::ports::notification_delivery_repository::NotificationDeliverySource,
+    ) -> Result<SentNotificationDelivery, NotificationChannelSendError> {
+        self.sent_delivery_ids
+            .lock()
+            .map_err(|_| NotificationChannelSendError::Permanent {
+                code: "TEST_PUSH_SENDER_LOCK_FAILED",
+                source: common::error::boxed::box_error(std::io::Error::other(
+                    "push sender state lock poisoned",
+                )),
+            })?
+            .push(source.notification_delivery_id);
+        Ok(SentNotificationDelivery {
+            provider_message_id: "push-message-1".to_owned(),
+        })
     }
 }
 
@@ -430,8 +536,17 @@ async fn insert_delivery(
     pool: &sqlx::PgPool,
     state: DeliveryState,
 ) -> Result<NotificationDeliveryFixture, sqlx::Error> {
+    insert_delivery_for_channel(pool, state, "EMAIL").await
+}
+
+async fn insert_delivery_for_channel(
+    pool: &sqlx::PgPool,
+    state: DeliveryState,
+    channel: &str,
+) -> Result<NotificationDeliveryFixture, sqlx::Error> {
     let mut transaction = pool.begin().await?;
-    let delivery = insert_delivery_in_transaction(&mut transaction, state).await?;
+    let delivery =
+        insert_delivery_in_transaction_for_channel(&mut transaction, state, channel).await?;
     transaction.commit().await?;
     Ok(delivery)
 }
@@ -439,6 +554,14 @@ async fn insert_delivery(
 async fn insert_delivery_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     state: DeliveryState,
+) -> Result<NotificationDeliveryFixture, sqlx::Error> {
+    insert_delivery_in_transaction_for_channel(transaction, state, "EMAIL").await
+}
+
+async fn insert_delivery_in_transaction_for_channel(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    state: DeliveryState,
+    channel: &str,
 ) -> Result<NotificationDeliveryFixture, sqlx::Error> {
     let user_id = uuid::Uuid::new_v4();
     let notification_id = uuid::Uuid::new_v4();
@@ -468,28 +591,31 @@ async fn insert_delivery_in_transaction(
     match state {
         DeliveryState::Pending => {
             sqlx::query(
-                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key) VALUES ($1, $2, 'EMAIL', 'PRIMARY')",
+                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key) VALUES ($1, $2, $3, 'PRIMARY')",
             )
             .bind(delivery_id)
             .bind(notification_id)
+            .bind(channel)
             .execute(&mut **transaction)
             .await?;
         }
         DeliveryState::PendingWithRetryableFailure => {
             sqlx::query(
-                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key, last_error_code) VALUES ($1, $2, 'EMAIL', 'PRIMARY', 'S3_TEMPLATE_FETCH_RETRYABLE')",
+                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key, last_error_code) VALUES ($1, $2, $3, 'PRIMARY', 'S3_TEMPLATE_FETCH_RETRYABLE')",
             )
             .bind(delivery_id)
             .bind(notification_id)
+            .bind(channel)
             .execute(&mut **transaction)
             .await?;
         }
         DeliveryState::ActiveLease => {
             sqlx::query(
-                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key, status, attempt_count, lease_token, lease_expires_at) VALUES ($1, $2, 'EMAIL', 'PRIMARY', 'PROCESSING', 4, $3, now() + interval '1 hour')",
+                "INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key, status, attempt_count, lease_token, lease_expires_at) VALUES ($1, $2, $3, 'PRIMARY', 'PROCESSING', 4, $4, now() + interval '1 hour')",
             )
             .bind(delivery_id)
             .bind(notification_id)
+            .bind(channel)
             .bind(uuid::Uuid::new_v4())
             .execute(&mut **transaction)
             .await?;

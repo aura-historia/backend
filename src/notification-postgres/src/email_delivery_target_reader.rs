@@ -1,6 +1,6 @@
 use common::{error::boxed::box_error, user_id::UserId};
 use notification_core::notification_delivery::NotificationDeliveryTargetKey;
-use notification_service::ports::email_delivery_target_reader::{
+use notification_email::{
     EmailDeliveryTarget, EmailDeliveryTargetReadError, EmailDeliveryTargetReader,
 };
 use serde_email::Email;

@@ -59,6 +59,14 @@ const INTEGRATION_TEST_CRATES: &[&str] = &[
 /// These paths are relative to the workspace root.
 const ACCEPTANCE_TEST_CRATES: &[&str] = &["src/acceptance-tests"];
 
+const NOTIFICATION_DELIVERY_TEST_CRATES: &[&str] = &[
+    "src/notification-core",
+    "src/notification-email-aws",
+    "src/notification-postgres",
+    "src/notification-service",
+    "src/aura-historia-worker",
+];
+
 fn main() -> Result<()> {
     let base_ref = std::env::args()
         .nth(1)
@@ -75,11 +83,8 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let infrastructure_changed = changed_files.iter().any(|path| {
-        path.starts_with("infra/")
-            || path == ".github/workflows/deploy.yml"
-            || path == ".github/workflows/integrate.yml"
-    });
+    let infrastructure_changed = has_infrastructure_change(&changed_files);
+    let notification_delivery_changed = has_notification_delivery_change(&changed_files);
 
     let graph = MetadataCommand::new()
         .exec()
@@ -103,13 +108,16 @@ fn main() -> Result<()> {
         })
         .collect();
 
-    let integration_test: Vec<&str> = INTEGRATION_TEST_CRATES
-        .iter()
-        .copied()
-        .filter(|c| affected_dirs.contains(*c))
-        .collect();
+    let mut integration_test = integration_test_crates(&affected_dirs);
+    if notification_delivery_changed {
+        for crate_path in NOTIFICATION_DELIVERY_TEST_CRATES {
+            if !integration_test.contains(crate_path) {
+                integration_test.push(crate_path);
+            }
+        }
+    }
 
-    let acceptance_test: Vec<&str> = if infrastructure_changed {
+    let acceptance_test: Vec<&str> = if infrastructure_changed || notification_delivery_changed {
         ACCEPTANCE_TEST_CRATES.to_vec()
     } else {
         ACCEPTANCE_TEST_CRATES
@@ -126,6 +134,40 @@ fn main() -> Result<()> {
     println!("{output}");
 
     Ok(())
+}
+
+fn integration_test_crates(affected_dirs: &HashSet<String>) -> Vec<&'static str> {
+    INTEGRATION_TEST_CRATES
+        .iter()
+        .copied()
+        .filter(|crate_path| affected_dirs.contains(*crate_path))
+        .collect()
+}
+
+fn has_infrastructure_change(changed_files: &[String]) -> bool {
+    changed_files.iter().any(|path| {
+        path.starts_with("infra/")
+            || path.starts_with("mjml/")
+            || path == ".github/workflows/deploy.yml"
+            || path == ".github/workflows/integrate.yml"
+    })
+}
+
+fn has_notification_delivery_change(changed_files: &[String]) -> bool {
+    changed_files.iter().any(|path| {
+        path.starts_with("migrations/")
+            || path.starts_with("src/notification-core/")
+            || path.starts_with("src/notification-service/")
+            || path.starts_with("src/notification-postgres/")
+            || path.starts_with("src/notification-email-aws/")
+            || matches!(
+                path.as_str(),
+                "src/aura-historia-worker/src/cdc.rs"
+                    | "src/aura-historia-worker/src/notification_delivery.rs"
+                    | "src/aura-historia-worker/src/main.rs"
+                    | "src/aura-historia-worker/src/lib.rs"
+            )
+    })
 }
 
 fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
@@ -147,4 +189,62 @@ fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
         .collect();
 
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_catalog_all_notification_delivery_packages() {
+        assert!(
+            NOTIFICATION_DELIVERY_TEST_CRATES
+                .iter()
+                .all(|crate_path| INTEGRATION_TEST_CRATES.contains(crate_path))
+        );
+    }
+
+    #[test]
+    fn should_select_notification_delivery_validation_for_migrations_and_runtime_changes() {
+        for changed_path in [
+            "migrations/20260725090000_initial_business_schema.sql",
+            "src/notification-core/src/notification_delivery.rs",
+            "src/notification-service/src/notification_creation.rs",
+            "src/notification-postgres/src/delivery_repository.rs",
+            "src/notification-email-aws/src/sender.rs",
+            "src/aura-historia-worker/src/cdc.rs",
+            "src/aura-historia-worker/src/notification_delivery.rs",
+        ] {
+            assert!(has_notification_delivery_change(&[changed_path.to_owned()]));
+        }
+    }
+
+    #[test]
+    fn should_select_acceptance_for_worker_infrastructure_and_sequin_related_changes() {
+        for changed_path in [
+            "infra/src/application-stack.ts",
+            "mjml/notification.mjml",
+            ".github/workflows/deploy.yml",
+            "src/aura-historia-worker/src/main.rs",
+        ] {
+            let changed_files = vec![changed_path.to_owned()];
+            assert!(
+                has_infrastructure_change(&changed_files)
+                    || has_notification_delivery_change(&changed_files)
+            );
+        }
+    }
+
+    #[test]
+    fn should_select_affected_integration_crates() {
+        let affected_dirs = HashSet::from([
+            "src/notification-email-aws".to_owned(),
+            "src/aura-historia-worker".to_owned(),
+        ]);
+
+        assert_eq!(
+            vec!["src/aura-historia-worker", "src/notification-email-aws"],
+            integration_test_crates(&affected_dirs)
+        );
+    }
 }

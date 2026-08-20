@@ -5,6 +5,7 @@ on:
     branches: [prod, develop]
     paths:
       - ".github/workflows/integrate.yml"
+      - ".github/workflows/deploy.yml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "depgraph-rules.toml"
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/integrate.yml"
+      - ".github/workflows/deploy.yml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "depgraph-rules.toml"
@@ -197,7 +199,7 @@ jobs:
   acceptance-test:
     name: Acceptance-Test
     needs: [determine-affected-crates]
-    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]' && !always() # temporary disabled while migrating to Hetzner/Postgres
+    if: needs.determine-affected-crates.outputs.acceptance_test_crates != '[]'
     permissions:
       contents: read
     runs-on: self-hosted

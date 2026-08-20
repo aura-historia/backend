@@ -10,8 +10,10 @@ aws-sdk-sesv2 = { workspace = true }
 common = { workspace = true }
 handlebars = { workspace = true }
 notification-core = { workspace = true }
+notification-email = { workspace = true }
 notification-service = { workspace = true }
 serde_json = { workspace = true }
+
 
 [dev-dependencies]
 rstest = { workspace = true }

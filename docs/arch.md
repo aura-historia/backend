@@ -233,7 +233,7 @@ runtime/
         └── record.rs
 ```
 
-The composition root MAY depend on every crate required to assemble the process. It MUST NOT contain business behavior.
+The composition root MAY depend on every crate required to assemble the process. It MUST NOT contain business behavior. API and worker composition-root crates MUST NOT implement service-owned inbound or outbound ports, readers, repositories, writers, senders, or use cases. They map transport/runtime inputs and compose concrete adapter crates. Transport- or runtime-local traits are allowed.
 
 In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients. Route files authenticate and map only; protected endpoint authorization policies MUST live inside service use cases or service-owned policies, not in controllers.
 
@@ -1708,7 +1708,7 @@ PostgreSQL owns business truth for:
 * product watchlists;
 * search filters;
 * search-filter matches;
-* notifications and notification delivery state; notification storage has no DynamoDB rows or TTL.
+* notifications and notification delivery state; a Notification is separate from its one-or-more delivery rows, each uniquely identified by `(notification_id, channel, target_key)`. The application planner selects channels, each channel adapter resolves its target, and generic delivery claim/send/finalize stays outside notification producers. EMAIL is the sole production sender; notification storage has no DynamoDB rows or TTL.
 
 DynamoDB remains the operational owner for:
 

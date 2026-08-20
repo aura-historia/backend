@@ -9,7 +9,7 @@
 ## Core Design
 
 - Workspace split by job: domain libs hold rules, `*-api`/`aura-historia-api` crates speak HTTP, `aura-historia-worker` handles async CDC/queues, survivor `*-lambda` crates speak AWS event/runtime, test crates prove behavior.
-- Keep reusable logic in domain or service modules. Handler `main.rs`, route files, and Lambda bootstrap stay thin.
+- Keep reusable logic in domain or service modules. Handler `main.rs`, route files, and Lambda bootstrap stay thin. API and worker crates implement no service port or use case; they only map transport/runtime input and compose adapter crates.
 - Shared OpenSearch assets under `src/opensearch/` stay governed here unless they grow own durable boundary.
 - Crate submodule-design
   - core: domain logic and business rules
@@ -105,6 +105,7 @@
 - `src/newsletter-api/AGENTS.md` — `newsletter-api` crate.
 - `src/notification/AGENTS.md` — legacy notification crate retained only for the untouched periodic matcher follow-up.
 - `src/notification-core/AGENTS.md` — canonical Notification domain crate.
+- `src/notification-email/AGENTS.md` — EMAIL target contract crate.
 - `src/notification-email-aws/AGENTS.md` — canonical Notification email AWS adapter crate.
 - `src/notification-service/AGENTS.md` — canonical Notification service/use-case crate.
 - `src/notification-postgres/AGENTS.md` — canonical Notification PostgreSQL adapter crate.
@@ -120,6 +121,7 @@
 - `src/product/AGENTS.md` — legacy `product` crate.
 - `src/product-core/AGENTS.md` — canonical Product domain crate.
 - `src/product-service/AGENTS.md` — canonical Product service crate.
+- `src/product-translation-llm/AGENTS.md` — Product title LLM adapter crate.
 - `src/product-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
 - `src/product-opensearch/AGENTS.md` — canonical Product OpenSearch adapter crate.
 - `src/product-api/AGENTS.md` — `product-api` crate.

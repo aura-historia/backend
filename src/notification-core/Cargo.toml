@@ -7,7 +7,7 @@ edition = "2024"
 common = { workspace = true }
 product-core = { workspace = true }
 serde = { workspace = true }
-serde-email = { workspace = true }
+
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true }
