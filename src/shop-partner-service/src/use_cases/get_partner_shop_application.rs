@@ -2,14 +2,14 @@ use crate::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,
     PartnerShopApplicationRepositoryFactory,
 };
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
 use shop_partner_core::partner_shop_application::PartnerShopApplication;
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetPartnerShopApplicationRequest {
@@ -140,13 +140,13 @@ impl From<PartnerShopApplicationRepositoryError> for GetPartnerShopApplicationEr
 mod tests {
     use super::*;
     use crate::ports::{PartnerShopApplicationStorageVersion, VersionedPartnerShopApplication};
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::partner_shop_application_id::PartnerShopApplicationId;
     use shop_core::shop_id::ShopId;
     use shop_partner_core::partner_shop_application::{
         NewPartnerShopApplication, PartnerShopApplicationPayload,
     };
+    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Default)]

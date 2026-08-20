@@ -2,12 +2,11 @@ use crate::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,
     PartnerShopApplicationRepositoryFactory,
 };
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, static_error};
-use common::operation_context::{
+use application::error::{BoxError, static_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::partner_shop_application_id::PartnerShopApplicationId;
+use application::transaction::{Transaction, UnitOfWork};
 use geo::{Geocoder, GeocodingError};
 use localization::Language;
 use money::Currency;
@@ -26,13 +25,14 @@ use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_partner_core::partner_shop_application::{
     NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
 };
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_service::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use std::collections::HashSet;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreatePartnerShopApplicationCommand {
-    pub applicant_user_id: common::user_id::UserId,
+    pub applicant_user_id: user_core::user_id::UserId,
     pub payload: CreatePartnerShopApplicationPayload,
 }
 
@@ -317,7 +317,7 @@ impl From<ShopRepositoryError> for CreatePartnerShopApplicationError {
 
 fn authorize_create(
     context: &OperationContext,
-    applicant_user_id: common::user_id::UserId,
+    applicant_user_id: user_core::user_id::UserId,
 ) -> Result<(), CreatePartnerShopApplicationError> {
     context
         .require()

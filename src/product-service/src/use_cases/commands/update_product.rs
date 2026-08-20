@@ -3,14 +3,13 @@ use crate::ports::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::event_id::EventId;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::patch_field::PatchField;
-use common::user_id::UserId;
+use application::patch_field::PatchField;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
@@ -24,6 +23,7 @@ use product_core::product_id::{ProductId, ProductKey};
 use product_core::product_image::ProductImage;
 use product_core::product_state::ProductState;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateProductCommand {
@@ -733,14 +733,14 @@ impl From<ProductEventStoreError> for UpdateProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use localization::Language;
     use localization::Localized;
     use money::Currency;
     use money::{MonetaryAmount, Price};
 
     use application::transaction::TransactionError;
-    use common::versioned::Versioned;
+    use domain_primitives::versioned::Versioned;
     use product_core::description::Description;
     use product_core::product::{NewProduct, Product, ProductDomainEvent};
     use product_core::shops_product_id::ShopsProductId;

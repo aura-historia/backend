@@ -1,6 +1,6 @@
-use common::user_id::UserId;
 use product_core::product_id::ProductId;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 use watchlist_core::ResourceState;
 
 #[derive(Debug, Clone, PartialEq)]

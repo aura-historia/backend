@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `user-core`, shared `common` identifiers, pure `money`/`localization` values, and shared `application` transaction contracts.
+- Depends on `user-core` identifiers and values, pure `money`/`localization` values, and shared `application` contracts.
 - Root modules: `ports`, `use_case_bundle`, `use_cases`.
 - `use_cases::authorization` owns shared service-layer admin actor policy helpers.
 - Admin actor checks use transaction-scoped `UserAdminReader::find_admin_actor`, not controller checks.

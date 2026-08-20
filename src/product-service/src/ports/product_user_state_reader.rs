@@ -1,8 +1,8 @@
 use crate::user_state::ProductUserState;
-use common::error::boxed::BoxError;
-use common::user_id::UserId;
+use application::error::BoxError;
 use product_core::product_id::ProductId;
 use std::collections::HashMap;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductUserStateLookup {

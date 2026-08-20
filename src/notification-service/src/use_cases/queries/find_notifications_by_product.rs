@@ -1,12 +1,12 @@
 use crate::ports::product_notifications_reader::{
     ProductNotificationsReadError, ProductNotificationsReader,
 };
-use common::user_id::UserId;
 use notification_core::{
     notification::NotificationPayload, notification_id::NotificationId,
     notification_type::NotificationType,
 };
 use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FindNotificationsByProductRequest {
@@ -91,10 +91,11 @@ where
 mod tests {
     use super::*;
     use crate::ports::product_notifications_reader::ProductNotificationReadItem;
-    use common::{partner_shop_application_id::PartnerShopApplicationId, shop_name::ShopName};
     use notification_core::{
         notification::NotificationPartnerApplicationPayload, notification_id::NotificationId,
     };
+    use shop_core::shop_name::ShopName;
+    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 
     #[derive(Clone)]
     struct FakeReader(Vec<ProductNotificationReadItem>);
@@ -102,7 +103,7 @@ mod tests {
     fn item() -> ProductNotificationReadItem {
         ProductNotificationReadItem {
             user_id: UserId::new(),
-            origin_event_id: common::event_id::EventId::new(),
+            origin_event_id: domain_primitives::event_id::EventId::new(),
             notification_id: NotificationId::new(),
             notification_type: None,
             notification_payload: NotificationPayload::PartnerApplication {

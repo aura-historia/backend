@@ -1,5 +1,5 @@
 use crate::ports::notification_recipient_reader::NotificationRecipient;
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use notification_core::notification::LocalizedNotificationPayload;
 
 #[derive(Debug, Clone, PartialEq)]

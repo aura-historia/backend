@@ -2,13 +2,13 @@ use crate::ports::{
     PartnerShopRepository, PartnerShopRepositoryError, PartnerShopRepositoryFactory,
     ShopRepository, ShopRepositoryError, ShopRepositoryFactory,
 };
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, static_error};
-use common::operation_context::{
+use application::error::{BoxError, static_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
 use shop_core::shop_id::ShopId;
+use user_core::user_id::UserId;
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
 };
@@ -250,9 +250,9 @@ impl From<PartnerShopRepositoryError> for GrantPartnerShopError {
 mod tests {
     use super::*;
     use crate::ports::{ShopStorageVersion, StoredShop};
+    use application::error::static_error;
+    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use application::transaction::{TransactionError, UnitOfWork};
-    use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
     use shop_core::shop_name::ShopName;

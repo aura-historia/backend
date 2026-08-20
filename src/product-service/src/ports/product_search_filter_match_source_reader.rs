@@ -1,4 +1,4 @@
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
@@ -93,12 +93,12 @@ pub enum ProductSearchFilterMatchSourceReadError {
     #[error("product search-filter match source query failed")]
     QueryFailed {
         #[source]
-        source: common::error::boxed::BoxError,
+        source: application::error::BoxError,
     },
     #[error("product search-filter match source persisted state is invalid")]
     InvalidPersistedState {
         #[source]
-        source: common::error::boxed::BoxError,
+        source: application::error::BoxError,
     },
 }
 

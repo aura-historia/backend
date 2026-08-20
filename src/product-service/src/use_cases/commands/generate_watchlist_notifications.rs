@@ -3,11 +3,9 @@ use crate::ports::{
     ProductWatchlistNotificationSourceReader, ProductWatchlistNotificationSourceReaderFactory,
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    transaction::{Transaction, UnitOfWork},
-};
+use application::error::{BoxError, box_error};
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
 use notification_service::use_cases::commands::create_notification::{
     CreateNotificationCommand, CreateNotificationResult, CreateNotificationUseCase,

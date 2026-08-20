@@ -4,7 +4,7 @@ use crate::ports::{
     OAuthClientRepository, ThirdPartyExchangeCodeRepository,
 };
 use crate::use_cases::support::{THIRD_PARTY_EXCHANGE_CODE_TTL, authenticate_client, verify_s256};
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{OAuthAuthorizationCode, OAuthCodeVerifier};
 use oauth_core::third_party_exchange_code::{ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant};
 use std::collections::HashSet;

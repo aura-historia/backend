@@ -1,5 +1,5 @@
 use crate::ports::ProductSearchFilterMatchSource;
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use fxrate_core::FxRateSnapshot;
 use product_core::product_id::ProductId;
 

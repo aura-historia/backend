@@ -1,4 +1,4 @@
-use common::query::range_query::RangeQuery;
+use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::{
     DisplayAmountRange, FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode,
 };

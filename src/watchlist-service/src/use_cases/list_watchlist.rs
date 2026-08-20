@@ -1,10 +1,9 @@
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
+use application::error::{BoxError, box_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::user_id::UserId;
+use application::pagination::{Cursor, CursoredResult};
+use application::transaction::{Transaction, UnitOfWork};
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -26,6 +25,7 @@ use product_service::use_cases::{
 use product_service::user_state::NotificationUserState;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListWatchlistRequest {
@@ -371,13 +371,10 @@ impl From<ProductPricingPresentationError> for ListWatchlistError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::personalized::Personalized;
     use application::transaction::TransactionError;
-    use common::event_id::EventId;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::personalized::Personalized;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
+    use domain_primitives::event_id::EventId;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
@@ -395,6 +392,9 @@ mod tests {
     use product_service::ports::{PersonalizedProductDetailsReadModel, ProductDetailsReadModel};
     use product_service::use_cases::ProductPricingValuation;
     use product_service::user_state::ProductUserState;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;

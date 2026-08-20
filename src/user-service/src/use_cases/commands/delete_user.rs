@@ -3,12 +3,12 @@ use crate::ports::{
     UserRepositoryFactory,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
+use application::error::BoxError;
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::user_id::UserId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteUserCommand {
@@ -238,15 +238,15 @@ mod tests {
         UserAdminActorView, UserAdminReader, UserAdminReaderFactory, UserDetailsView,
         UserStorageVersion, VersionedUser,
     };
+    use application::error::{BoxError, box_error};
     use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::{Transaction, TransactionError};
-    use common::error::boxed::{BoxError, box_error};
-    use common::stripe_customer_id::StripeCustomerId;
-    use common::versioned::Versioned;
+    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::role::UserRole;
+    use user_core::stripe_customer_id::StripeCustomerId;
     use user_core::tier::UserTier;
     use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
 

@@ -1,4 +1,4 @@
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use indexmap::IndexMap;
 use localization::Language;
 use product_core::title::Title;

@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 
-use common::error::boxed::BoxError;
-use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
+use application::error::BoxError;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
 use user_core::measurement_unit::MeasurementUnit;
+use user_core::stripe_customer_id::StripeCustomerId;
+use user_core::user_id::UserId;
 use user_core::{first_name::FirstName, last_name::LastName, role::UserRole, tier::UserTier};
 
 #[derive(Debug, Clone, PartialEq)]

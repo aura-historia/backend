@@ -3,12 +3,11 @@ use crate::ports::{
     ProductDetailsReader, ProductDetailsReaderFactory,
 };
 use crate::user_state::{NotificationUserState, ProductUserState};
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationContext, Principal};
+use application::personalized::Personalized;
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, box_error};
-use common::event_id::EventId;
-use common::operation_context::{OperationContext, Principal};
-use common::personalized::Personalized;
-use common::user_id::UserId;
+use domain_primitives::event_id::EventId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -34,6 +33,7 @@ use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProductLookup {
@@ -486,8 +486,8 @@ impl From<ProductPricingPresentationError> for GetProductError {
 mod tests {
     use super::*;
     use crate::ports::ProductDetailsReadModel;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
@@ -839,7 +839,7 @@ mod tests {
                 image: None,
                 partner_application_payload: NotificationPartnerApplicationPayload::Approved {
                     partner_application_id:
-                        common::partner_shop_application_id::PartnerShopApplicationId::new(),
+                        shop_partner_core::partner_shop_application_id::PartnerShopApplicationId::new(),
                 },
             },
             seen,

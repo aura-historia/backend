@@ -1,10 +1,10 @@
 use crate::ports::PersonalizedProductDetailsReadModel;
-use common::error::boxed::BoxError;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
+use application::error::BoxError;
 use localization::Language;
 use product_core::product_id::ProductId;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use std::collections::HashMap;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductDetailsBatchReadRequest {
@@ -39,7 +39,7 @@ pub trait ProductDetailsBatchReader: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::error::boxed::static_error;
+    use application::error::static_error;
     use std::error::Error;
 
     #[test]

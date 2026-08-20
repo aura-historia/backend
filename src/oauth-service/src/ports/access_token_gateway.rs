@@ -1,9 +1,9 @@
-use common::error::boxed::BoxError;
-use common::oauth_client_id::OAuthClientId;
-use common::user_id::UserId;
+use application::error::BoxError;
+use credential_core::oauth_client_id::OAuthClientId;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::{AccessTokenOrigin, RawAccessToken, Scope};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IssuedAccessToken {

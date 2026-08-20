@@ -1,4 +1,4 @@
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use notification_core::notification::Notification;
 
 #[derive(Debug, thiserror::Error)]

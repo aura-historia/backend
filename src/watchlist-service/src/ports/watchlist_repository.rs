@@ -1,5 +1,5 @@
-use common::user_id::UserId;
 use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
 use watchlist_core::WatchlistProduct;
 
 #[derive(Debug, thiserror::Error)]

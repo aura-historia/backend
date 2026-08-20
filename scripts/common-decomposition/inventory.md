@@ -72,3 +72,26 @@
 | `common::sort::{Sort, SortOrder}` | domain-neutral query values | API and canonical read/query contracts | Existing legacy crates | `api` for legacy extraction | domain primitives | `domain-primitives` | move | `common::sort` re-exports values; legacy API extractor remains local | Legacy users migrate from `common` |
 | `common::personalized::api::PersonalizedData`, `common::pagination::cursor::api::JsonCursoredData`, `common::resource_state::data::*` | REST DTOs | `aura-historia-api` | Existing legacy API crates | `api` | Axum transport | `aura-historia-api` | split | none | Legacy API consumers retire or migrate |
 | `common` direct dependency in API and worker | legacy compatibility dependency | `aura-historia-api`, `aura-historia-worker` | none | `api` in API only | runtime/transport plus existing owners | API and worker crates | move | none | Removed in this iteration |
+
+## Iteration 7 — credential and `OperationContext` ownership
+
+| Current path/type | Kind | Canonical consumers | Legacy consumers | Features | Semantic owner | Target | Action | Compatibility shim | Deletion prerequisite |
+|---|---|---|---|---|---|---|---|---|---|
+| `common::operation_context::{OperationContext, Principal, CredentialCapability}` | caller identity and authorization context | Canonical services and API mapping | Legacy APIs and services | none | `application` plus `credential-core` scope vocabulary | `application` / `credential-core` | move/split | `common::operation_context` re-export | Legacy callers migrate; transport forms stay at the edge |
+| `common::oauth_client_id::OAuthClientId` | credential identifier | OAuth service and adapters | Legacy OAuth paths | none | credential identifiers | `credential-core` | move | `common::oauth_client_id` re-export | Legacy OAuth callers migrate |
+
+The credential vocabulary now has no cycle through `common`: `application` owns the operation contract, while `credential-core` owns scope and credential identifiers. Legacy shims remain for old callers.
+
+## Current status — Iteration 3 canonical service cutover
+
+The ten canonical service crates no longer have a normal or development `common` dependency and no longer import `common::*`: `billing-service`, `fxrate-service`, `notification-service`, `oauth-service`, `product-service`, `search-filter-service`, `shop-partner-service`, `shop-service`, `user-service`, and `watchlist-service`.
+
+The machine baseline is current after this cutover: 60 normal direct consumers, 12 development edges, 13 forwarded-package feature records (33 forwarded feature entries), seven declared `common` features, and 56 public top-level modules. The remaining canonical direct consumers are the 21 adapters/runtimes listed in `docs/common-decomposition.md`, plus dual-purpose `notification-dynamodb`; legacy entity/API/Lambda paths remain unchanged.
+
+Validation completed for this slice:
+
+- `cargo check -p billing-service -p fxrate-service -p notification-service -p oauth-service -p product-service -p search-filter-service -p shop-partner-service -p shop-service -p user-service -p watchlist-service --all-targets --all-features` — passed.
+- `cargo depgraph-check check` — passed.
+- `python3 scripts/common-decomposition/check_baseline.py` — passed.
+- `python3 -m unittest discover -s scripts/common-decomposition -p 'test_*.py'` — passed, including negative and bootstrap tests.
+- Broader workspace tests and Clippy remain pending.

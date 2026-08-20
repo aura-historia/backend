@@ -1,5 +1,5 @@
 use crate::{ports::ProductPriceFilterPlan, use_cases::ProductSummary};
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use localization::Language;
 use product_core::product_id::ProductId;
 

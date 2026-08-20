@@ -1399,8 +1399,8 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 name = "billing-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
  "serde-email",
  "thiserror 2.0.20",
  "tokio",
@@ -3156,8 +3156,8 @@ dependencies = [
 name = "fxrate-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
  "fxrate-core",
  "money",
  "strum 0.28.0",
@@ -3165,6 +3165,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "user-core",
 ]
 
 [[package]]
@@ -5065,8 +5066,9 @@ dependencies = [
 name = "notification-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "fake",
  "localization",
  "mockall",
@@ -5075,9 +5077,12 @@ dependencies = [
  "notification-service",
  "product-core",
  "rstest",
+ "shop-core",
+ "shop-partner-core",
  "thiserror 2.0.20",
  "time",
  "tokio",
+ "user-core",
 ]
 
 [[package]]
@@ -5285,7 +5290,8 @@ dependencies = [
  "application",
  "async-trait",
  "base64 0.23.1",
- "common",
+ "credential-core",
+ "domain-primitives",
  "fake",
  "mockall",
  "oauth-core",
@@ -6378,6 +6384,7 @@ dependencies = [
  "application",
  "async-trait",
  "common",
+ "domain-primitives",
  "fxrate-core",
  "geo",
  "indexmap 2.14.0",
@@ -6408,7 +6415,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "domain-primitives",
  "embedding",
  "fake",
@@ -6422,8 +6428,10 @@ dependencies = [
  "notification-core",
  "notification-service",
  "product-core",
+ "search-filter-core",
  "serde_json",
  "shop-core",
+ "shop-partner-core",
  "shop-service",
  "strum 0.28.0",
  "thiserror 2.0.20",
@@ -6431,6 +6439,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "user-core",
  "uuid",
 ]
 
@@ -7554,7 +7563,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "embedding",
  "fxrate-core",
  "fxrate-service",
@@ -8149,6 +8158,7 @@ dependencies = [
  "application",
  "async-trait",
  "common",
+ "domain-primitives",
  "geo",
  "isocountry",
  "localization",
@@ -8180,7 +8190,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "fake",
  "geo",
  "localization",
@@ -8236,7 +8246,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "fake",
  "geo",
  "isocountry",
@@ -8252,6 +8262,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "user-core",
  "user-service",
 ]
 
@@ -9931,6 +9942,7 @@ dependencies = [
  "application",
  "async-trait",
  "common",
+ "domain-primitives",
  "geo",
  "isocountry",
  "localization",
@@ -9956,7 +9968,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "fake",
  "geo",
  "localization",
@@ -10212,7 +10224,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "fxrate-core",
  "fxrate-service",
  "localization",
@@ -10222,6 +10234,7 @@ dependencies = [
  "product-core",
  "product-service",
  "serde-email",
+ "shop-core",
  "strum 0.28.0",
  "thiserror 2.0.20",
  "time",

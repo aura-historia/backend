@@ -1,4 +1,4 @@
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use search_filter_core::SearchFilterProductMatch;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

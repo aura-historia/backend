@@ -3,13 +3,13 @@ use crate::ports::{
     WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
 };
 use crate::tier_policy::active_watchlist_quota;
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
+use application::error::{BoxError, box_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
 use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
@@ -222,17 +222,17 @@ mod tests {
 
     use super::*;
 
-    use common::error::boxed::static_error;
+    use application::error::static_error;
 
     use crate::ports::{
         WatchlistProductView, WatchlistQuotaReadError, WatchlistQuotaReader,
         WatchlistQuotaReaderFactory, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
         WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
     };
-    use application::transaction::{Transaction, TransactionError, UnitOfWork};
-    use common::operation_context::{
+    use application::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
     };
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;

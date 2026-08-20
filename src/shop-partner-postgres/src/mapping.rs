@@ -1,5 +1,5 @@
-use common::versioned::Versioned;
 use common::{partner_shop_application_id::PartnerShopApplicationId, user_id::UserId};
+use domain_primitives::versioned::Versioned;
 use shop_core::shop_id::ShopId;
 use shop_partner_core::partner_shop_application::{
     PartnerShopApplication, PartnerShopApplicationPayload, RehydratedPartnerShopApplicationState,

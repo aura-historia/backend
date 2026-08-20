@@ -7,10 +7,10 @@ use crate::use_cases::PersonalizedProductSummary;
 use crate::use_cases::queries::product_summary_personalization::{
     ProductSummaryPersonalizationError, hydrate_product_summaries,
 };
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationContext, Principal};
+use application::personalized::Personalized;
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{OperationContext, Principal};
-use common::personalized::Personalized;
 use localization::Language;
 use money::Currency;
 
@@ -214,7 +214,7 @@ where
     }
 }
 
-fn personalization_user_id(principal: &Principal) -> Option<common::user_id::UserId> {
+fn personalization_user_id(principal: &Principal) -> Option<user_core::user_id::UserId> {
     match principal {
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
         Principal::Anonymous | Principal::Service(_) | Principal::System => None,
@@ -280,10 +280,10 @@ mod tests {
     use crate::ports::{ProductEmbedding, ProductSimilarProductsReadError};
     use crate::use_cases::{ProductSummary, ProductSummaryPriceValuation};
     use crate::user_state::ProductUserState;
+    use application::error::box_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use common::error::boxed::box_error;
-    use common::event_id::EventId;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use domain_primitives::event_id::EventId;
     use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
     use localization::Localized;
@@ -515,7 +515,7 @@ mod tests {
     impl AllNotificationsReader for EmptyNotificationsReader {
         async fn list_all_by_user(
             &self,
-            _user_id: &common::user_id::UserId,
+            _user_id: &user_core::user_id::UserId,
         ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
             Ok(Vec::new())
         }
@@ -570,7 +570,7 @@ mod tests {
         }
     }
 
-    fn authenticated_context(user_id: common::user_id::UserId) -> OperationContext {
+    fn authenticated_context(user_id: user_core::user_id::UserId) -> OperationContext {
         OperationContext {
             principal: Principal::User(user_id),
             request_id: RequestId::new("request"),
@@ -672,7 +672,7 @@ mod tests {
     async fn should_hydrate_ready_similar_products_for_authenticated_user()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
-        let user_id = common::user_id::UserId::new();
+        let user_id = user_core::user_id::UserId::new();
         let product_id = ProductId::new();
         let mut user_state = ProductUserState::default();
         user_state.watchlist.watching = true;

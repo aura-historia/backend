@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use product_core::product::ProductDomainEvent;
 use product_core::product_id::ProductId;
 

@@ -3,20 +3,20 @@ use crate::ports::{
     UserRepositoryError, UserRepositoryFactory,
 };
 use crate::use_cases::authorization::{RequireAdminActorError, require_admin_actor};
+use application::error::{BoxError, box_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
+use application::patch_field::PatchField;
 use application::transaction::{Transaction, UnitOfWork};
-use common::change_outcome::ChangeOutcome;
-use common::error::boxed::{BoxError, box_error};
-use common::patch_field::PatchField;
-use common::user_id::UserId;
+use domain_primitives::change_outcome::ChangeOutcome;
 use geo::core::address::StructuredAddress;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
 use user_core::measurement_unit::MeasurementUnit;
 use user_core::user::{RehydrateUserError, User, UserPreferences, UserProfile};
+use user_core::user_id::UserId;
 use user_core::{first_name::FirstName, last_name::LastName};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -157,7 +157,7 @@ where
             .map_err(|_| UpdateUserProfileError::BeginTransactionFailed)?;
         authorize_user_profile_write(context, command.user_id, &mut tx, &self.admin_reader).await?;
         let mut users = self.users.in_transaction(&mut tx);
-        let common::versioned::Versioned {
+        let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
         } = users

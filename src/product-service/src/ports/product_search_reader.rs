@@ -3,7 +3,8 @@
 use crate::{
     ports::ProductPriceFilterPlan, use_cases::queries::search_products::ProductSearchReadResult,
 };
-use common::{pagination::cursor::Cursor, sort::Sort};
+use application::pagination::Cursor;
+use domain_primitives::sort::Sort;
 use product_core::{product_search::ProductSearch, sort_product_field::SortProductField};
 use serde_json::Value;
 

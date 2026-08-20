@@ -9,17 +9,17 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = ROOT / "scripts/common-decomposition/baseline.json"
 COMMON_MANIFEST = ROOT / "src/common/Cargo.toml"
 COMMON_LIB = ROOT / "src/common/src/lib.rs"
 KIND_NAMES = {None: "normal", "dev": "development", "build": "build"}
-INITIAL_BASELINE_SHA256 = "cba7b71dfc78d0f03d0f923571a6f1499178d83d9e1a0dd5b938d68632b0d7ea"
+INITIAL_BASELINE_SHA256 = "ef16a5a204d34b3a7c8a2781743c4c272fc2b2ddc8a0c8567fabd41b4e4c2805"
 
 
-def fail(message: str) -> None:
+def fail(message: str) -> NoReturn:
     print(f"common decomposition baseline failed: {message}", file=sys.stderr)
     raise SystemExit(1)
 

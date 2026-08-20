@@ -1,17 +1,15 @@
 use crate::ports::list_notifications_reader::{
     ListNotificationsReadError, ListNotificationsReader,
 };
-use common::{
-    event_id::EventId,
-    pagination::cursor::{Cursor, CursoredResult},
-    user_id::UserId,
-};
+use application::pagination::{Cursor, CursoredResult};
+use domain_primitives::event_id::EventId;
 use localization::Language;
 use money::Currency;
 use notification_core::{
     notification::LocalizedNotificationPayload, notification_id::NotificationId,
 };
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListNotificationsRequest {
@@ -109,10 +107,11 @@ where
 mod tests {
     use super::*;
     use crate::ports::list_notifications_reader::NotificationListReadItem;
-    use common::{partner_shop_application_id::PartnerShopApplicationId, shop_name::ShopName};
     use notification_core::{
         notification::NotificationPartnerApplicationPayload, notification_id::NotificationId,
     };
+    use shop_core::shop_name::ShopName;
+    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 
     #[derive(Clone)]
     struct FakeReader {

@@ -1,4 +1,4 @@
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use money::Currency;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

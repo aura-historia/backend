@@ -143,7 +143,7 @@ pub(crate) enum UserRowMappingError {
     #[error("incomplete user geo address")]
     IncompleteGeoAddress,
     #[error("invalid user version")]
-    InvalidVersion(#[from] common::version::InvalidVersionError),
+    InvalidVersion(#[from] domain_primitives::version::InvalidVersionError),
     #[error("invalid rehydrated user")]
     InvalidUser(#[from] user_core::user::RehydrateUserError),
 }
@@ -366,7 +366,7 @@ fn parse_role(value: &str) -> Result<UserRole, UserRowMappingError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::version::InvalidVersionError;
+    use domain_primitives::version::InvalidVersionError;
     use user_service::use_cases::queries::find_user_by_stripe_customer_id::UserStripeLookupView;
 
     #[test]

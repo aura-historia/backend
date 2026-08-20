@@ -1,7 +1,7 @@
 use crate::use_cases::{
     UpsertProductCommand, UpsertProductError, UpsertProductResult, UpsertProductUseCase,
 };
-use common::operation_context::OperationContext;
+use application::operation_context::OperationContext;
 use indexmap::IndexSet;
 use localization::Localized;
 use money::{MonetaryAmount, Price};
@@ -227,7 +227,7 @@ impl From<GetShopError> for IngestShopifyProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use localization::Language;
     use money::Currency;
     use shop_core::shop_id::ShopId;
@@ -352,7 +352,7 @@ mod tests {
                 crate::use_cases::CreateProductResult {
                     product_id: product_core::product_id::ProductId::new(),
                     product_slug_id: "shopify-product".into(),
-                    event_id: common::event_id::EventId::new(),
+                    event_id: domain_primitives::event_id::EventId::new(),
                 },
             ))
         }

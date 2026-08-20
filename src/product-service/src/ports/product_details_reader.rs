@@ -2,9 +2,8 @@
 
 use crate::use_cases::queries::get_product::ProductLookup;
 use crate::user_state::ProductUserState;
-use common::event_id::EventId;
-use common::personalized::Personalized;
-use common::user_id::UserId;
+use application::personalized::Personalized;
+use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
@@ -22,6 +21,7 @@ use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductDetailsReadRequest {

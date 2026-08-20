@@ -2,8 +2,8 @@ use crate::ports::{
     CreateStripeCheckoutSessionRequest, CreateStripeCustomerRequest, StripeBillingError,
     StripeCheckoutSessionCreator, StripeCustomerCreator,
 };
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 
@@ -193,7 +193,7 @@ where
 
 pub(crate) fn authorize_billing_user(
     context: &OperationContext,
-) -> Result<common::user_id::UserId, CreateBillingCheckoutSessionError> {
+) -> Result<user_core::user_id::UserId, CreateBillingCheckoutSessionError> {
     context
         .require()
         .credential_capability(CredentialCapability::UsersRead)
@@ -306,9 +306,9 @@ impl From<StripeBillingError> for CreateBillingCheckoutSessionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::stripe_customer_id::StripeCustomerId;
     use std::sync::{Arc, Mutex};
     use user_core::role::UserRole;
+    use user_core::stripe_customer_id::StripeCustomerId;
     use user_core::tier::UserTier;
     use user_service::ports::UserDetailsView;
 
@@ -413,14 +413,14 @@ mod tests {
     fn context(principal: Principal) -> OperationContext {
         OperationContext {
             principal,
-            request_id: common::operation_context::RequestId::new("request"),
-            correlation_id: common::operation_context::CorrelationId::new("correlation"),
+            request_id: application::operation_context::RequestId::new("request"),
+            correlation_id: application::operation_context::CorrelationId::new("correlation"),
         }
     }
 
     fn user(stripe_customer_id: Option<StripeCustomerId>) -> UserDetailsView {
         UserDetailsView {
-            user_id: common::user_id::UserId::new(),
+            user_id: user_core::user_id::UserId::new(),
             email: serde_email::Email::try_from("ada@example.test")
                 .unwrap_or_else(|error| panic!("invalid test email: {error}")),
             first_name: Some("Ada".into()),
@@ -500,7 +500,7 @@ mod tests {
         let result = handler(fakes.clone())
             .execute(
                 &context(Principal::DelegatedUser {
-                    user_id: common::user_id::UserId::new(),
+                    user_id: user_core::user_id::UserId::new(),
                     capabilities: Default::default(),
                 }),
                 CreateBillingCheckoutSessionCommand {

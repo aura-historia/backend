@@ -3,11 +3,9 @@ use crate::ports::{
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
     ProductSearchProjection, ProductSearchProjectionWriteOutcome,
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    transaction::{Transaction, UnitOfWork},
-};
+use application::error::{BoxError, box_error};
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateSnapshot;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -226,7 +224,8 @@ mod tests {
         ProductSearchFilterMatchShopType, ProductSearchFilterMatchSourceEventKind,
         ProductSearchProjectionWriteError,
     };
-    use common::{error::boxed::box_error, transaction::TransactionError};
+    use application::error::box_error;
+    use application::transaction::TransactionError;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };

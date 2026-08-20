@@ -1,11 +1,10 @@
 use crate::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use crate::use_cases::queries::get_shop::ShopDetailsView;
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, static_error};
-use common::operation_context::{
+use application::error::{BoxError, static_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
 use geo::{Geocoder, GeocodingError};
 use localization::Language;
 use money::Currency;
@@ -27,6 +26,7 @@ use shop_core::{
 };
 use std::collections::HashSet;
 use url::Url;
+use user_core::user_id::UserId;
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
 };
@@ -358,9 +358,9 @@ mod tests {
     use crate::ports::{
         ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, StoredShop,
     };
+    use application::error::static_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::{TransactionError, UnitOfWork};
-    use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
     use shop_core::shop::{NewShop, ShopContact, ShopPresentation};
     use std::sync::{Arc, Mutex};
     use user_service::use_cases::queries::check_user_admin::{

@@ -2,11 +2,9 @@ use crate::ports::{
     FxRateQuote, FxRateQuoteProvider, FxRateQuoteProviderError, FxRateSnapshotInsertOutcome,
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    operation_context::{OperationAuthorizationError, OperationContext},
-    transaction::{Transaction, UnitOfWork},
-};
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationAuthorizationError, OperationContext};
+use application::transaction::{Transaction, UnitOfWork};
 use fxrate_core::{
     FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote as SnapshotQuote, FxRateSource,
     NewFxRateSnapshot,
@@ -218,11 +216,9 @@ impl From<FxRateSnapshotRepositoryError> for CaptureFxRateSnapshotError {
 mod tests {
     use super::*;
     use crate::ports::{FxRateQuoteSet, FxRateSnapshotRepository};
-    use common::{
-        error::boxed::static_error,
-        operation_context::{CorrelationId, Principal, RequestId},
-        transaction::TransactionError,
-    };
+    use application::error::static_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::transaction::TransactionError;
 
     use std::sync::{Arc, Mutex};
     use strum::IntoEnumIterator;
@@ -403,7 +399,7 @@ mod tests {
         assert!(matches!(
             handler
                 .execute(
-                    &context(Principal::User(common::user_id::UserId::new())),
+                    &context(Principal::User(user_core::user_id::UserId::new())),
                     command()
                 )
                 .await,

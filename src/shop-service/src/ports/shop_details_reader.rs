@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::use_cases::queries::get_shop::{GetShopRequest, ShopDetailsView};
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShopDetailsReadError {

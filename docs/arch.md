@@ -278,6 +278,18 @@ controller           -X-> storage row/document/item
 
 Cross-entity use cases MUST have one clear owning service crate. If no existing entity service is a natural owner, create a dedicated application/service crate rather than introducing cyclic dependencies.
 
+### 3.7 Durable shared crates
+
+The workspace has narrow shared owners. They are not a replacement `common` hub:
+
+- `application` owns technology-neutral application contracts such as `OperationContext`, `UnitOfWork`, `PatchField`, pagination, personalization, and boxed application errors.
+- `domain-primitives` owns proven domain-neutral values, query/sort types, event IDs, version wrappers, and newtype machinery.
+- `credential-core` owns credential identifiers and scope vocabulary.
+- `money` and `localization` own pure currency/amount/price and language/localized values.
+- `platform-postgres` and `platform-observability` own concrete SQLx transaction mechanics and subscriber setup.
+
+Canonical core, service, adapter, runtime, and transport crates MUST import these owners directly. `common` remains only for legacy compatibility and MUST NOT gain new canonical consumers. A shared crate MUST stay narrow, technology-neutral where named as such, and free of bounded-context storage or transport representations.
+
 ## 4. Domain-Driven Design boundaries
 
 ### 4.1 Aggregates
@@ -566,7 +578,7 @@ UpdateRecord {
 }
 ```
 
-When a public PATCH endpoint is intentionally broad, the service use case is still named `Update*`. Use a service-owned `Update*Command` with shared tri-state `common::patch_field::PatchField`: `Unchanged`, `Set(value)`, and `Clear`. The helper may live in `common`, but the command belongs in `service`, not in `core`.
+When a public PATCH endpoint is intentionally broad, the service use case is still named `Update*`. Use a service-owned `Update*Command` with shared tri-state `application::patch_field::PatchField`: `Unchanged`, `Set(value)`, and `Clear`. The helper belongs to the narrow `application` crate, but the command belongs in `service`, not in `core`.
 
 The update handler MUST translate command fields into explicit aggregate methods such as `change_title`, `replace_address`, or `replace_contact`, and track `ChangeOutcome`. Generic update MUST NOT include state-machine transitions that deserve their own use case, such as publishing, archiving, or changing aggregate status.
 
@@ -1028,7 +1040,7 @@ pub struct RecordDetailsView {
 }
 
 pub type PersonalizedRecordDetailsView =
-    common::personalized::Personalized<RecordDetailsView, RecordUserState>;
+    application::personalized::Personalized<RecordDetailsView, RecordUserState>;
 ```
 
 The API maps that wrapper to a required `item` plus optional `userState`; do not inline `user_state` into the reusable item view.
@@ -2004,7 +2016,7 @@ PersistedProductStateInvalid
 
 They MAY wrap internal errors privately but MUST expose stable semantic variants. Do not use vague variants such as `Forbidden`, `Conflict`, `InvalidPersistedState`, or `Internal` when a narrower cause is known.
 
-When a service or port error represents an adapter/read-model failure, keep the original cause as `#[source]` with `common::error::boxed::BoxError`. Do not convert technical causes to bare unit variants.
+When a service or port error represents an adapter/read-model failure, keep the original cause as `#[source]` with `application::error::BoxError`. Do not convert technical causes to bare unit variants.
 
 ### Adapter errors
 
@@ -2019,7 +2031,7 @@ InvalidProductUrlPersisted
 ExternalResponseMissingPrice
 ```
 
-They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context. Preserve the infrastructure error as the semantic error's `#[source]`, usually boxed through `common::error::boxed::box_error`. Do not hide adapter error mapping in ad-hoc `map_*_error` helper functions; make the source operation explicit in the wrapper type.
+They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context. Preserve the infrastructure error as the semantic error's `#[source]`, usually boxed through `application::error::box_error`. Do not hide adapter error mapping in ad-hoc `map_*_error` helper functions; make the source operation explicit in the wrapper type.
 
 ### HTTP mapping
 
@@ -2853,6 +2865,7 @@ Agents MUST read this document before implementing architecture-affecting work.
 - [ ] Add acceptance tests
 - [ ] Verify no N+1 access pattern was introduced.
 - [ ] Verify Cargo dependencies enforce core <- service <- adapters <- runtime/transport.
+- [ ] Verify canonical crates use durable shared owners directly and do not add `common` edges.
 - [ ] Verify no service/core import points toward an adapter.
 - [ ] Verify no controller accesses a repository or database client.
 - [ ] Verify logs contain no secrets or sensitive payloads.
@@ -2878,6 +2891,7 @@ Reviewers SHOULD reject changes that cannot answer these questions clearly:
 12. Are public items required by a real production crate boundary rather than only by tests?
 13. Are private/real-infrastructure implementation tests beside the code and `/tests` limited to black-box behavior?
 14. Are the important rules covered by tests?
+15. If `common` changed, does the exact shrinking-baseline guard and decomposition inventory still pass?
 
 ---
 

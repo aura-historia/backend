@@ -1,14 +1,14 @@
 use crate::ports::{UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory};
+use application::error::{BoxError, box_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, box_error};
-use common::user_id::UserId;
 use serde_email::Email;
 use user_core::user::{
     NewUser, RehydrateUserError, User, UserAccount, UserPreferences, UserProfile,
 };
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateUserCommand {
@@ -235,21 +235,21 @@ impl From<UserRepositoryError> for CreateUserError {
 mod tests {
     #![allow(dead_code, unused_imports)]
     use super::{CreateUserCommand, CreateUserError, CreateUserHandler, CreateUserUseCase};
-    use common::user_id::UserId;
+    use user_core::user_id::UserId;
 
     use crate::ports::{
         UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
         UserStorageVersion, VersionedUser,
     };
+    use application::error::{BoxError, box_error};
     use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use application::transaction::{Transaction, TransactionError, UnitOfWork};
-    use common::error::boxed::{BoxError, box_error};
-    use common::stripe_customer_id::StripeCustomerId;
-    use common::versioned::Versioned;
+    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::role::UserRole;
+    use user_core::stripe_customer_id::StripeCustomerId;
     use user_core::tier::UserTier;
     use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
 
@@ -324,7 +324,7 @@ mod tests {
     }
 
     fn user_with(
-        id: common::user_id::UserId,
+        id: user_core::user_id::UserId,
         email_value: &str,
         role: UserRole,
         tier: UserTier,
@@ -425,7 +425,7 @@ mod tests {
     impl UserRepository for FakeUserRepository {
         async fn find_by_id(
             &mut self,
-            _id: common::user_id::UserId,
+            _id: user_core::user_id::UserId,
         ) -> Result<Option<VersionedUser>, UserRepositoryError> {
             let mut state = lock(&self.state);
             state.find_by_id_calls += 1;

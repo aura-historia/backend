@@ -2,11 +2,11 @@ use crate::{
     ports::{ShopSearchReadError, ShopSearchReader, ShopSearchReaderFactory},
     shop_search::ShopSearch,
 };
+use application::error::BoxError;
+use application::operation_context::OperationContext;
+use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
-use common::pagination::cursor::Cursor;
-use common::sort::Sort;
+use domain_primitives::sort::Sort;
 use shop_core::domain::Domain;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
@@ -139,9 +139,9 @@ impl From<ShopSearchReadError> for SearchShopsError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::error::static_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::{TransactionError, UnitOfWork};
-    use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Copy)]

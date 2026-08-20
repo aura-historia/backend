@@ -1,7 +1,7 @@
 use crate::ports::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory, StoredShop};
+use application::error::BoxError;
+use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::operation_context::OperationContext;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -184,9 +184,9 @@ impl From<ShopDetailsReadError> for GetShopError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::error::static_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::{TransactionError, UnitOfWork};
-    use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Copy)]

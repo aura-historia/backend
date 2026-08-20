@@ -1,8 +1,8 @@
-use application::transaction::Transaction;
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
+use application::transaction::Transaction;
 use user_core::role::UserRole;
 use user_service::ports::{UserAdminReadError, UserAdminReader, UserAdminReaderFactory};
 
@@ -58,7 +58,7 @@ where
             }
         }
         Principal::Anonymous => Err(OperationAuthorizationError::AuthenticationRequired(
-            common::operation_context::AuthenticationRequired,
+            application::operation_context::AuthenticationRequired,
         )
         .into()),
     }

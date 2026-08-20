@@ -5,9 +5,9 @@ use crate::ports::{
     SearchFilterMatchPersistOutcome, SearchFilterMatchWriteError, SearchFilterMatchWriter,
     SearchFilterMatchWriterFactory,
 };
+use application::error::{BoxError, box_error};
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, box_error};
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 #[cfg(test)]
 use fxrate_core::FxRateSnapshot;
@@ -651,7 +651,7 @@ fn enhanced_filter_request(
         language.format_human_readable(),
     );
     Ok(StructuredGenerationRequest {
-        operation: common::logging::LlmOperation::ProductEnhancedSearchDescriptionMatching,
+        operation: large_language_model::LlmOperation::ProductEnhancedSearchDescriptionMatching,
         system_instruction: PRODUCT_MATCH_SYSTEM_INSTRUCTION.to_owned(),
         prompt,
         image_urls: product
@@ -670,14 +670,17 @@ fn enhanced_filter_request(
 
 fn product_match_reason(
     decision: ProductMatchDecision,
-) -> Result<Option<common::enhanced_match_reason::EnhancedMatchReason>, LargeLanguageModelError> {
+) -> Result<
+    Option<search_filter_core::enhanced_match_reason::EnhancedMatchReason>,
+    LargeLanguageModelError,
+> {
     if !decision.matches {
         return Ok(None);
     }
     decision
         .reason
         .filter(|reason| !reason.trim().is_empty())
-        .map(common::enhanced_match_reason::EnhancedMatchReason::from)
+        .map(search_filter_core::enhanced_match_reason::EnhancedMatchReason::from)
         .map(Some)
         .ok_or_else(|| LargeLanguageModelError::InvalidResponse {
             source: box_error(std::io::Error::other("matched response has no reason")),
@@ -765,12 +768,8 @@ mod tests {
     use crate::ports::{
         SearchFilterIndexQuery, SearchFilterProjectionWriteOutcome, SearchFilterView,
     };
-    use common::{
-        query::range_query::RangeQuery, shop_id::ShopId, shop_name::ShopName,
-        shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId, transaction::TransactionError,
-        user_id::UserId, user_search_filter_id::UserSearchFilterId,
-        user_search_filter_name::UserSearchFilterName,
-    };
+    use application::transaction::TransactionError;
+    use domain_primitives::query::range_query::RangeQuery;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
@@ -781,6 +780,7 @@ mod tests {
     use indexmap::IndexSet;
     use localization::Language;
     use money::{Currency, MonetaryAmount, Price};
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::{
         product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
         product_image::ProductImage,
@@ -793,9 +793,15 @@ mod tests {
         ProductCurrentRevisionGuardFactory, ProductSearchFilterMatchShopType,
         ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceEventKind,
     };
+    use search_filter_core::user_search_filter_id::UserSearchFilterId;
+    use search_filter_core::user_search_filter_name::UserSearchFilterName;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::sync::{Arc, Mutex};
     use strum::IntoEnumIterator;
     use tokio::sync::Notify;
+    use user_core::user_id::UserId;
 
     use time::OffsetDateTime;
     use url::Url;
@@ -932,7 +938,7 @@ mod tests {
             &self,
             _query: &SearchFilterIndexQuery,
         ) -> Result<
-            common::pagination::cursor::CursoredResult<SearchFilterView, serde_json::Value>,
+            application::pagination::CursoredResult<SearchFilterView, serde_json::Value>,
             SearchFilterIndexError,
         > {
             Ok(Default::default())
@@ -975,7 +981,7 @@ mod tests {
             &self,
             _query: &SearchFilterIndexQuery,
         ) -> Result<
-            common::pagination::cursor::CursoredResult<SearchFilterView, serde_json::Value>,
+            application::pagination::CursoredResult<SearchFilterView, serde_json::Value>,
             SearchFilterIndexError,
         > {
             Ok(Default::default())

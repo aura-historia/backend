@@ -3,13 +3,12 @@ use crate::ports::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::event_id::EventId;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
@@ -29,6 +28,7 @@ use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use shop_core::shop_id::ShopId;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateProductCommand {
@@ -518,8 +518,8 @@ impl From<ProductEventStoreError> for CreateProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
     use money::Currency;
     use money::{MonetaryAmount, Price};
     use product_core::product::ProductDomainEvent;
@@ -532,8 +532,12 @@ mod tests {
         commit_error: bool,
         begin_count: usize,
         commit_count: usize,
-        insert_result:
-            Option<Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>>,
+        insert_result: Option<
+            Result<
+                domain_primitives::versioned::Versioned<Product, EventId>,
+                ProductRepositoryError,
+            >,
+        >,
         append_result: Option<Result<(), ProductEventStoreError>>,
         inserted_product: Option<Product>,
         insert_count: usize,
@@ -738,16 +742,20 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ProductId,
-        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
-        {
+        ) -> Result<
+            Option<domain_primitives::versioned::Versioned<Product, EventId>>,
+            ProductRepositoryError,
+        > {
             Ok(None)
         }
 
         async fn find_by_key(
             &mut self,
             _key: &product_core::product_id::ProductKey,
-        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
-        {
+        ) -> Result<
+            Option<domain_primitives::versioned::Versioned<Product, EventId>>,
+            ProductRepositoryError,
+        > {
             Ok(None)
         }
 
@@ -755,14 +763,14 @@ mod tests {
             &mut self,
             product: &Product,
             current_event_id: EventId,
-        ) -> Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>
+        ) -> Result<domain_primitives::versioned::Versioned<Product, EventId>, ProductRepositoryError>
         {
             let mut state = lock_state(&self.state);
             state.insert_count += 1;
             state.inserted_product = Some(product.clone());
             match state.insert_result.take() {
                 Some(result) => result,
-                None => Ok(common::versioned::Versioned::new(
+                None => Ok(domain_primitives::versioned::Versioned::new(
                     product.clone(),
                     current_event_id,
                 )),
@@ -774,9 +782,9 @@ mod tests {
             product: &Product,
             _expected_event_id: EventId,
             new_event_id: EventId,
-        ) -> Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>
+        ) -> Result<domain_primitives::versioned::Versioned<Product, EventId>, ProductRepositoryError>
         {
-            Ok(common::versioned::Versioned::new(
+            Ok(domain_primitives::versioned::Versioned::new(
                 product.clone(),
                 new_event_id,
             ))

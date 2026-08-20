@@ -3,14 +3,14 @@ use crate::ports::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::event_id::EventId;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use product_core::product_id::{ProductId, ProductKey};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteProductResult {
@@ -379,9 +379,9 @@ impl From<ProductEventStoreError> for DeleteProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::versioned::Versioned;
+    use domain_primitives::versioned::Versioned;
     use indexmap::IndexSet;
     use localization::Language;
     use localization::Localized;

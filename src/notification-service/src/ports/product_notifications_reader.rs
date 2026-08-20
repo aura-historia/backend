@@ -1,9 +1,11 @@
-use common::{error::boxed::BoxError, event_id::EventId, user_id::UserId};
+use application::error::BoxError;
+use domain_primitives::event_id::EventId;
 use notification_core::{
     notification::NotificationPayload, notification_id::NotificationId,
     notification_type::NotificationType,
 };
 use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductNotificationReadItem {

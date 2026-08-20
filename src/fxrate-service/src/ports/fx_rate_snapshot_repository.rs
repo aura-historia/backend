@@ -1,4 +1,4 @@
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use fxrate_core::{FxRateId, FxRateSnapshot, NewFxRateSnapshot};
 use time::OffsetDateTime;
 

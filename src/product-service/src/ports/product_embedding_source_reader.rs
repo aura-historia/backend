@@ -1,4 +1,5 @@
-use common::{error::boxed::BoxError, event_id::EventId};
+use application::error::BoxError;
+use domain_primitives::event_id::EventId;
 use localization::Language;
 use localization::Localized;
 use product_core::{description::Description, product_id::ProductId, title::Title};

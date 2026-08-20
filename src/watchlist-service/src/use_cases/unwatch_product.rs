@@ -1,10 +1,10 @@
 use crate::ports::{WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory};
-use application::transaction::{Transaction, UnitOfWork};
-use common::operation_context::{
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
 use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnwatchProductCommand {
@@ -155,10 +155,10 @@ mod tests {
         WatchlistProductView, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
         WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
     };
-    use application::transaction::{Transaction, TransactionError, UnitOfWork};
-    use common::operation_context::{
+    use application::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
     };
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;

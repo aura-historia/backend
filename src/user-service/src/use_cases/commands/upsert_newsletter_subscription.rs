@@ -1,8 +1,8 @@
 use crate::ports::{
     NewsletterProfileReader, NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
 };
+use application::error::BoxError;
 use application::operation_context::{OperationContext, Principal};
-use common::error::boxed::BoxError;
 use localization::Language;
 use money::Currency;
 use serde_email::Email;
@@ -162,14 +162,14 @@ mod tests {
         NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader,
         NewsletterSubscriptionWriteError, NewsletterSubscriptionWriter,
     };
+    use application::error::{BoxError, box_error};
     use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-    use common::error::boxed::{BoxError, box_error};
-    use common::user_id::UserId;
     use localization::Language;
     use money::Currency;
     use serde_email::Email;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::newsletter_subscription::NewsletterSubscription;
+    use user_core::user_id::UserId;
 
     #[derive(Debug, Clone, Copy)]
     enum ProfileErrorKind {

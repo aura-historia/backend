@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 
-use common::error::boxed::BoxError;
-use common::versioned::Versioned;
-use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
+use application::error::BoxError;
+use domain_primitives::versioned::Versioned;
 use serde_email::Email;
+use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user::User;
+use user_core::user_id::UserId;
 
-common::version_newtype!(UserStorageVersion);
+domain_primitives::version_newtype!(UserStorageVersion);
 
 pub type VersionedUser = Versioned<User, UserStorageVersion>;
 

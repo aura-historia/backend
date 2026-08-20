@@ -2,8 +2,8 @@ use crate::ports::{
     SearchFilterIndex, SearchFilterIndexError, SearchFilterIndexReadError, SearchFilterIndexReader,
     SearchFilterProjectionWriteOutcome,
 };
-use common::error::boxed::{BoxError, box_error};
-use common::user_search_filter_id::UserSearchFilterId;
+use application::error::{BoxError, box_error};
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchFilterProjectionOperation {
@@ -157,15 +157,15 @@ fn index_error(error: SearchFilterIndexError) -> ProjectSearchFilterChangeError 
 mod tests {
     use super::*;
     use crate::ports::{SearchFilterIndexQuery, SearchFilterProjection, SearchFilterView};
-    use common::pagination::cursor::CursoredResult;
-    use common::user_id::UserId;
-    use common::user_search_filter_name::UserSearchFilterName;
+    use application::pagination::CursoredResult;
     use localization::Language;
     use money::Currency;
     use product_core::product_search::ProductSearch;
     use search_filter_core::ResourceState;
+    use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use std::sync::Mutex;
     use time::macros::datetime;
+    use user_core::user_id::UserId;
 
     #[derive(Default)]
     struct Source {

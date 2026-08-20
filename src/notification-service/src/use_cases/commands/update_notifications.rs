@@ -2,8 +2,8 @@ use crate::ports::{
     all_notifications_reader::{AllNotificationsReadError, AllNotificationsReader},
     notification_repository::{NotificationRepository, NotificationRepositoryError},
 };
-use common::user_id::UserId;
 use notification_core::notification::{Notification, RehydratedNotificationState};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct UpdateNotificationsCommand {
@@ -92,16 +92,14 @@ where
 mod tests {
     use super::*;
     use crate::ports::all_notifications_reader::AllNotificationsReadItem;
-    use common::{
-        error::boxed::{BoxError, box_error},
-        event_id::EventId,
-        partner_shop_application_id::PartnerShopApplicationId,
-        shop_name::ShopName,
-    };
+    use application::error::{BoxError, box_error};
+    use domain_primitives::event_id::EventId;
     use notification_core::{
         notification::{NotificationPartnerApplicationPayload, NotificationPayload},
         notification_id::NotificationId,
     };
+    use shop_core::shop_name::ShopName;
+    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
 

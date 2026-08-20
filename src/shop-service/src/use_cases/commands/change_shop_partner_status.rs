@@ -1,9 +1,9 @@
 use crate::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
+use application::transaction::{Transaction, UnitOfWork};
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
@@ -204,7 +204,7 @@ fn map_admin_error(error: CheckUserAdminError) -> ChangeShopPartnerStatusError {
         CheckUserAdminError::BeginTransactionFailed
         | CheckUserAdminError::CommitTransactionFailed => {
             ChangeShopPartnerStatusError::TemporarilyUnavailable {
-                source: common::error::boxed::static_error("check user admin transaction failed"),
+                source: application::error::static_error("check user admin transaction failed"),
             }
         }
     }
@@ -242,9 +242,9 @@ impl From<ShopRepositoryError> for ChangeShopPartnerStatusError {
 mod tests {
     use super::*;
     use crate::ports::{ShopRepository, ShopRepositoryFactory, ShopStorageVersion, StoredShop};
+    use application::error::static_error;
+    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use application::transaction::{TransactionError, UnitOfWork};
-    use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 
     use shop_core::shop::{NewShop, ShopContact, ShopPresentation};
     use shop_core::shop_type::ShopType;

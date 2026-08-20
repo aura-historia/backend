@@ -4,12 +4,11 @@ use crate::ports::{
     PartnerShopApplicationRepositoryFactory, UserPartnerShopMembershipRepository,
     UserPartnerShopMembershipRepositoryError, UserPartnerShopMembershipRepositoryFactory,
 };
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
-use common::change_outcome::ChangeOutcome;
-use common::error::boxed::{BoxError, box_error};
-use common::event_id::EventId;
-use common::operation_context::{OperationAuthorizationError, OperationContext};
-use common::partner_shop_application_id::PartnerShopApplicationId;
+use domain_primitives::change_outcome::ChangeOutcome;
+use domain_primitives::event_id::EventId;
 use notification_core::notification::{NotificationPartnerApplicationPayload, NotificationPayload};
 use notification_service::use_cases::commands::create_notification::{
     CreateNotificationCommand, CreateNotificationUseCase,
@@ -18,6 +17,7 @@ pub use shop_partner_core::partner_shop_application::PartnerShopApplicationDecis
 use shop_partner_core::partner_shop_application::{
     PartnerShopApplication, PartnerShopApplicationTransitionError,
 };
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_service::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use user_service::ports::UserAdminReaderFactory;
 
@@ -359,9 +359,8 @@ mod tests {
         PartnerShopApplicationStorageVersion, UserPartnerShopMembershipRepository,
         VersionedPartnerShopApplication,
     };
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::user_id::UserId;
     use notification_service::use_cases::commands::create_notification::{
         CreateNotificationError, CreateNotificationResult,
     };
@@ -379,6 +378,7 @@ mod tests {
     use shop_service::ports::{ShopStorageVersion, StoredShop};
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
+    use user_core::user_id::UserId;
     use user_service::ports::{
         UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,
     };

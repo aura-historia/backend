@@ -1,7 +1,7 @@
-use common::error::boxed::BoxError;
-use common::user_id::UserId;
+use application::error::BoxError;
 use localization::Language;
 use money::Currency;
+use user_core::user_id::UserId;
 use user_core::{first_name::FirstName, last_name::LastName};
 
 #[derive(Debug, Clone, PartialEq, Default)]

@@ -1,4 +1,6 @@
-use common::{error::boxed::BoxError, event_id::EventId, user_id::UserId};
+use application::error::BoxError;
+use domain_primitives::event_id::EventId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum NotificationDeleteError {

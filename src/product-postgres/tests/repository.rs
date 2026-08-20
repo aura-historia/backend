@@ -1,6 +1,6 @@
 use application::transaction::{Transaction, UnitOfWork};
 use common::event_id::EventId;
-use common::versioned::Versioned;
+use domain_primitives::versioned::Versioned;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use localization::Language;

@@ -1,11 +1,12 @@
 use crate::ports::{
     UserStripeCustomerReadError, UserStripeCustomerReader, UserStripeCustomerReaderFactory,
 };
+use application::error::BoxError;
 use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
 use serde_email::Email;
+use user_core::stripe_customer_id::StripeCustomerId;
+use user_core::user_id::UserId;
 use user_core::{role::UserRole, tier::UserTier};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -134,11 +135,11 @@ mod tests {
     use crate::ports::{
         UserStripeCustomerReadError, UserStripeCustomerReader, UserStripeCustomerReaderFactory,
     };
-    use common::stripe_customer_id::StripeCustomerId;
-    use common::user_id::UserId;
     use serde_email::Email;
     use user_core::role::UserRole;
+    use user_core::stripe_customer_id::StripeCustomerId;
     use user_core::tier::UserTier;
+    use user_core::user_id::UserId;
 
     use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use application::transaction::{Transaction, TransactionError, UnitOfWork};
@@ -225,7 +226,7 @@ mod tests {
         }
     }
 
-    use common::error::boxed::{BoxError, box_error};
+    use application::error::{BoxError, box_error};
 
     #[derive(Debug, Clone, Copy)]
     enum ReadErrorKind {

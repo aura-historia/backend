@@ -1,9 +1,9 @@
 use crate::ports::PersonalizedProductDetailsReadModel;
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::user_id::UserId;
+use application::pagination::{Cursor, CursoredResult};
 use localization::Language;
 use product_core::product_id::ProductId;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProductWatchlistDetailsCursor {

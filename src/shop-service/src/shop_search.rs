@@ -1,4 +1,6 @@
-use common::query::{any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery};
+use domain_primitives::query::{
+    any_of_query::AnyOfQuery, range_query::RangeQuery, text_query::TextQuery,
+};
 use isocountry::CountryCode;
 use shop_core::{continent::Continent, partner_status::ShopPartnerStatus, shop_type::ShopType};
 use time::OffsetDateTime;

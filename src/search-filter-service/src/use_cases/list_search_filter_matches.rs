@@ -1,14 +1,12 @@
 use crate::ports::{
     SearchFilterMatchListQuery, SearchFilterMatchReadError, SearchFilterMatchReader,
 };
-use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, box_error, static_error};
-use common::operation_context::{
+use application::error::{BoxError, box_error, static_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
+use application::pagination::{Cursor, CursoredResult};
+use application::transaction::{Transaction, UnitOfWork};
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -28,8 +26,10 @@ use product_service::use_cases::{
     redact_hidden_product,
 };
 use product_service::user_state::NotificationUserState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListSearchFilterMatchesRequest {
@@ -38,7 +38,7 @@ pub struct ListSearchFilterMatchesRequest {
     pub language: Language,
     pub currency: Currency,
     pub cursor: Option<Cursor<crate::ports::SearchFilterMatchCursor>>,
-    pub order: common::sort::SortOrder,
+    pub order: domain_primitives::sort::SortOrder,
 }
 
 pub type ListSearchFilterMatchesResult =
@@ -449,10 +449,10 @@ mod tests {
     use crate::ports::{
         SearchFilterMatchCursor, SearchFilterMatchListItem, SearchFilterMatchReadError,
     };
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::personalized::Personalized;
     use application::transaction::TransactionError;
-    use common::event_id::EventId;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::personalized::Personalized;
+    use domain_primitives::event_id::EventId;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
@@ -704,7 +704,7 @@ mod tests {
             language: Language::En,
             currency: Currency::Usd,
             cursor: None,
-            order: common::sort::SortOrder::Asc,
+            order: domain_primitives::sort::SortOrder::Asc,
         }
     }
 

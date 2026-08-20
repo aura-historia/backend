@@ -3,12 +3,10 @@ use crate::ports::{
     ProductEmbeddingWriteError, ProductEmbeddingWriteOutcome, ProductEmbeddingWriter,
     ProductEmbeddingWriterFactory,
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    operation_context::{OperationAuthorizationError, OperationContext},
-    transaction::{Transaction, UnitOfWork},
-};
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationAuthorizationError, OperationContext};
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use embedding::{EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText};
 use product_core::product_id::ProductId;
 
@@ -253,10 +251,8 @@ impl From<ProductEmbeddingWriteError> for EmbedProductEventError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        operation_context::{CorrelationId, Principal, RequestId},
-        transaction::TransactionError,
-    };
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::transaction::TransactionError;
     use embedding::{EMBEDDING_DIMENSIONS, EmbeddingVector};
     use localization::{Language, Localized};
     use product_core::{description::Description, title::Title};
@@ -514,7 +510,7 @@ mod tests {
         let state = state();
         let result = handler(&state)
             .execute(
-                &context(Principal::User(common::user_id::UserId::new())),
+                &context(Principal::User(user_core::user_id::UserId::new())),
                 command(&state),
             )
             .await;

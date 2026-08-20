@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `search-filter-core`, shared `common` identifiers, pure `money`/`localization` values, shared `application` transaction contracts, canonical Product identifiers/state/lifecycle from `product-core`, public ProductSearch field types from `geo`, `isocountry`, and `shop-core`, plus canonical `user-service` tier-entitlements contracts.
+- Depends on `search-filter-core`, owning core identifiers and values, pure `money`/`localization` values, shared `application` contracts, canonical Product identifiers/state/lifecycle from `product-core`, public ProductSearch field types from `geo`, `isocountry`, and `shop-core`, plus canonical `user-service` tier-entitlements contracts.
 - Write use cases own transactions.
 - Postgres and OpenSearch hidden behind ports. Create/update pass typed semantic query text to `embedding::EmbeddingGenerator::embed_search_query`; the configured provider adapter owns model-specific prompt format. Product-event matching owns its product-match prompt, response schema, typed response mapping, retry policy, and first-five-image policy; it calls the neutral generic `large-language-model::LargeLanguageModel` capability. Provider/model selection stays in runtime/provider configuration.
 - Repository writes return persisted search-filter state.

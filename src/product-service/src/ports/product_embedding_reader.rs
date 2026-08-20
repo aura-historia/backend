@@ -1,4 +1,4 @@
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use product_core::{product_id::ProductId, product_slug_id::ProductSlugId};
 use shop_core::shop_slug_id::ShopSlugId;
 

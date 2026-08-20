@@ -2,7 +2,7 @@
 
 use common::error::boxed::box_error;
 use common::event_id::EventId;
-use common::versioned::Versioned;
+use domain_primitives::versioned::Versioned;
 use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;

@@ -5,10 +5,9 @@ use crate::ports::{
 use crate::use_cases::{
     UpdateProductError, UpdateProductResult, UpsertProductError, UpsertProductResult,
 };
+use application::error::BoxError;
+use application::operation_context::{CredentialCapability, OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::operation_context::{CredentialCapability, OperationContext, Principal};
-use common::user_id::UserId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
@@ -35,6 +34,7 @@ use shop_service::ports::{
 };
 use shop_service::use_cases::CheckUserPartnerShopRequest;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WoocommerceProductEventKind {
@@ -766,10 +766,10 @@ mod tests {
         );
     }
 
+    use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
-    use common::event_id::EventId;
-    use common::operation_context::{CorrelationId, RequestId};
-    use common::versioned::Versioned;
+    use domain_primitives::event_id::EventId;
+    use domain_primitives::versioned::Versioned;
     use localization::Language;
     use money::Currency;
     use product_core::product::ProductDomainEvent;

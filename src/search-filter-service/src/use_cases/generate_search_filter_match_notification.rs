@@ -5,13 +5,9 @@ use crate::ports::{
     SearchFilterMonthlyMatchQuotaReaderFactory,
 };
 use crate::tier_policy::monthly_match_quota;
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    transaction::{Transaction, UnitOfWork},
-    user_id::UserId,
-    user_search_filter_id::UserSearchFilterId,
-};
+use application::error::{BoxError, box_error};
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use notification_core::notification::{NotificationPayload, NotificationSearchFilterPayload};
 use notification_service::use_cases::commands::create_notification::{
     CreateNotificationCommand, CreateNotificationResult, CreateNotificationUseCase,
@@ -21,6 +17,8 @@ use product_service::ports::{
     ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
 };
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use user_core::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
@@ -355,12 +353,9 @@ fn commit_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName,
-        shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId, transaction::TransactionError,
-        user_search_filter_name::UserSearchFilterName,
-    };
+    use application::transaction::TransactionError;
     use indexmap::IndexSet;
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::{
         product::{ProductAddress, ProductAuction, ProductPricing},
         product_image::ProductImage,
@@ -370,6 +365,11 @@ mod tests {
     };
     use product_service::ports::ProductSearchFilterMatchShopType;
     use product_service::ports::ProductSearchFilterMatchSourceEventKind;
+    use search_filter_core::user_search_filter_name::UserSearchFilterName;
+    use shop_core::seller_slug_id::SellerSlugId;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::{
         error::Error,
         sync::{Arc, Mutex},

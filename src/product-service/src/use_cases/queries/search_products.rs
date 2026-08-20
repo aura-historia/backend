@@ -5,13 +5,13 @@ use crate::ports::{
 use crate::use_cases::queries::product_summary_personalization::{
     ProductSummaryPersonalizationError, hydrate_product_summaries,
 };
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationContext, Principal};
+use application::pagination::{Cursor, CursoredResult};
+use application::personalized::Personalized;
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::{BoxError, box_error};
-use common::event_id::EventId;
-use common::operation_context::{OperationContext, Principal};
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::personalized::Personalized;
-use common::sort::Sort;
+use domain_primitives::event_id::EventId;
+use domain_primitives::sort::Sort;
 use embedding::{EmbeddingGenerator, EmbeddingText};
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
@@ -371,7 +371,7 @@ fn hybrid_embedding_query(request: &SearchProductsRequest) -> Option<EmbeddingTe
     Some(text)
 }
 
-fn personalization_user_id(principal: &Principal) -> Option<common::user_id::UserId> {
+fn personalization_user_id(principal: &Principal) -> Option<user_core::user_id::UserId> {
     match principal {
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
         Principal::Anonymous | Principal::Service(_) | Principal::System => None,
@@ -415,11 +415,10 @@ impl From<ProductSummaryPersonalizationError> for SearchProductsError {
 mod tests {
     use super::*;
     use crate::ports::{ProductUserStateLookup, ProductUserStateReadError};
+    use application::error::box_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::{TransactionError, UnitOfWork};
-    use common::error::boxed::box_error;
-    use common::event_id::EventId;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::user_id::UserId;
+    use domain_primitives::event_id::EventId;
     use embedding::{EmbeddingError, EmbeddingVector};
     use fxrate_core::{
         FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSnapshot, FxRateSource, NewFxRateSnapshot,
@@ -428,6 +427,7 @@ mod tests {
     use localization::Language;
     use money::Currency;
     use money::MonetaryAmount;
+    use user_core::user_id::UserId;
 
     use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
     use notification_core::notification_id::NotificationId;
@@ -955,7 +955,7 @@ mod tests {
         lock_state(&state).fx_rate_snapshot = Some(Ok(Some(snapshot.clone())));
         lock_state(&state).search_result = Some(Ok(search_result()?));
         let mut request = request();
-        request.search.price_query = Some(common::query::range_query::RangeQuery {
+        request.search.price_query = Some(domain_primitives::query::range_query::RangeQuery {
             min: Some(100_u64.into()),
             max: Some(200_u64.into()),
         });

@@ -1,7 +1,7 @@
 use crate::ports::{ProductEventReadError, ProductEventReader, ProductEventReaderFactory};
+use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
-use common::event_id::EventId;
-use common::operation_context::OperationContext;
+use domain_primitives::event_id::EventId;
 use localization::Language;
 use localization::Localized;
 use product_core::product_id::ProductId;

@@ -2,12 +2,12 @@ use crate::ports::{
     UserDetailsView, UserRepository, UserRepositoryError, UserRepositoryFactory,
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
+use application::error::BoxError;
 use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::stripe_customer_id::StripeCustomerId;
-use common::user_id::UserId;
+use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::tier::UserTier;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApplyStripeSubscriptionTarget {
@@ -152,7 +152,7 @@ where
             .await?
             .ok_or(ApplyStripeSubscriptionError::UserNotFound)?;
 
-        let common::versioned::Versioned {
+        let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
         } = self
@@ -257,7 +257,7 @@ mod tests {
     use crate::ports::{UserRepository, UserStorageVersion, VersionedUser};
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use common::versioned::Versioned;
+    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::role::UserRole;

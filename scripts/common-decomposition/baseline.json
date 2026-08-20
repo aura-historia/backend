@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "purpose": "Iteration 0 allowlist for direct and forwarded features. Lists may only shrink; additions require an approved architecture change.",
+  "purpose": "Final compatibility baseline after canonical service cutover. Exact current Cargo/features/public modules; tracked sets may only shrink.",
   "common_features": [
     "api",
     "dynamodb",
@@ -69,130 +69,337 @@
     "year"
   ],
   "forwarded_common_features": {
-    "crawler": {"test-data": ["test-data"]},
-    "notification": {"data": ["api"], "dynamodb": ["dynamodb"], "test-data": ["test-data"]},
-
-    "notification-dynamodb": {"test-data": ["test-data"]},
-    "notification-service": {"data": ["api"], "test-data": ["test-data"]},
-    "oauth": {"test-data": ["test-data"]},
-
-    "oauth-dynamodb": {"test-data": ["test-data"]},
-    "oauth-service": {"test-data": ["test-data"]},
-    "partner-shop-application": {"data": ["api"], "dynamodb": ["dynamodb"], "test-data": ["test-data"]},
-    "product": {"data": ["api"], "dynamodb": ["dynamodb"], "opensearch": ["opensearch"], "postgres": ["postgres"], "sqs": ["sqs"], "test-data": ["test-data"]},
-
-    "product-service": {"test-data": ["test-data"]},
-    "product-watchlist": {"data": ["api"], "dynamodb": ["dynamodb"], "test-data": ["test-data"]},
-    "search-filter": {"dynamodb": ["dynamodb"], "opensearch": ["opensearch"], "service": ["dynamodb"], "test-data": ["test-data"]},
-    "search-filter-api": {"test-data": ["test-data"]},
-
-    "shop": {"data": ["api"], "dynamodb": ["dynamodb"], "opensearch": ["opensearch"], "test-data": ["test-data"]},
-
-
-
-    "shop-partner-service": {"test-data": ["test-data"]},
-    "shop-service": {"test-data": ["test-data"]},
-    "user": {"data": ["api"], "dynamodb": ["dynamodb"], "opensearch": ["opensearch"], "test-data": ["test-data"]},
-
-    "user-dynamodb": {"test-data": ["test-data"]},
-    "user-service": {"test-data": ["test-data"]}
+    "notification": {
+      "data": [
+        "api"
+      ],
+      "dynamodb": [
+        "dynamodb"
+      ],
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "product": {
+      "data": [
+        "api"
+      ],
+      "dynamodb": [
+        "dynamodb"
+      ],
+      "opensearch": [
+        "opensearch"
+      ],
+      "postgres": [
+        "postgres"
+      ],
+      "sqs": [
+        "sqs"
+      ],
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "shop": {
+      "data": [
+        "api"
+      ],
+      "dynamodb": [
+        "dynamodb"
+      ],
+      "opensearch": [
+        "opensearch"
+      ],
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "user": {
+      "data": [
+        "api"
+      ],
+      "dynamodb": [
+        "dynamodb"
+      ],
+      "opensearch": [
+        "opensearch"
+      ],
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "notification-dynamodb": {
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "search-filter": {
+      "dynamodb": [
+        "dynamodb"
+      ],
+      "opensearch": [
+        "opensearch"
+      ],
+      "service": [
+        "dynamodb"
+      ],
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "product-watchlist": {
+      "data": [
+        "api"
+      ],
+      "dynamodb": [
+        "dynamodb"
+      ],
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "partner-shop-application": {
+      "data": [
+        "api"
+      ],
+      "dynamodb": [
+        "dynamodb"
+      ],
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "oauth": {
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "search-filter-api": {
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "oauth-dynamodb": {
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "user-dynamodb": {
+      "test-data": [
+        "test-data"
+      ]
+    },
+    "crawler": {
+      "test-data": [
+        "test-data"
+      ]
+    }
   },
   "direct_dependencies": {
     "normal": {
-      "acceptance-tests": ["opensearch"],
-
-      "aura-historia-parent": [],
-
-      "aws-tests-common": ["opensearch"],
-      "billing-service": [],
-      "billing-stripe": [],
-      "cloudwatch-log-retention-lambda": [],
-      "cognito": ["api"],
-      "cognito-post-confirmation": ["postgres"],
-      "crawler": [],
-      "fxrate-fxratesapi": [],
-      "fxrate-lambda": ["postgres"],
-      "fxrate-postgres": [],
-      "fxrate-service": [],
-      "large-language-model": [],
-      "newsletter-api": ["api"],
+      "acceptance-tests": [
+        "opensearch"
+      ],
+      "aws-tests-common": [
+        "opensearch"
+      ],
       "notification": [],
-      "notification-api": ["api"],
-
-      "notification-dynamodb": ["dynamodb"],
-      "notification-send": ["dynamodb", "event_bridge"],
-      "notification-service": [],
-      "oauth": ["api"],
-      "oauth-api": ["api"],
-
-      "oauth-dynamodb": ["dynamodb"],
-      "oauth-service": [],
-      "partner-shop-application": [],
-      "partner-shop-application-api": ["api"],
-      "partner-shop-application-lambda": [],
       "product": [],
-      "product-api": ["api", "opensearch"],
-      "product-api-partner": ["api", "opensearch"],
-
-      "product-lambda-delete-product": ["dynamodb", "event_bridge", "opensearch"],
-      "product-lambda-ingest-partner-products": ["api", "opensearch", "sqs"],
-      "product-lambda-materialize-opensearch": ["api", "dynamodb", "event_bridge", "opensearch"],
-      "product-lambda-update-notify-user": ["dynamodb", "event_bridge"],
-      "product-opensearch": ["opensearch"],
-      "product-personalization": ["api"],
-      "product-postgres": [],
-      "product-service": [],
-      "product-watchlist": [],
-      "product-watchlist-api": ["api", "opensearch"],
-      "search-filter": [],
-      "search-filter-api": ["api", "opensearch"],
-
-      "search-filter-lambda-opensearch-sync": ["api", "dynamodb", "event_bridge", "opensearch"],
-      "search-filter-lambda-percolate-product": ["api", "dynamodb", "event_bridge", "opensearch"],
-      "search-filter-opensearch": ["opensearch"],
-      "search-filter-periodic-match": ["api", "dynamodb", "opensearch"],
-      "search-filter-postgres": [],
-      "search-filter-service": [],
       "shop": [],
-      "shop-api": ["api", "opensearch"],
-
-      "shop-lambda-opensearch-index": ["api", "dynamodb", "event_bridge", "opensearch"],
-
-      "shop-partner-postgres": [],
-      "shop-partner-service": [],
-      "shop-postgres": [],
-      "shop-service": [],
-      "shopify-lambda": ["postgres"],
-      "stripe-api": ["api"],
-      "stripe-lambda": ["postgres"],
       "test-api": [],
       "user": [],
-      "user-api": ["api", "opensearch"],
-
-      "user-dynamodb": ["dynamodb"],
-      "user-lambda-index-opensearch": ["api", "dynamodb", "event_bridge", "opensearch"],
-      "user-lambda-tier-update": ["dynamodb", "event_bridge"],
+      "cognito": [
+        "api"
+      ],
+      "fxrate-postgres": [],
+      "large-language-model": [],
+      "notification-dynamodb": [
+        "dynamodb"
+      ],
+      "product-opensearch": [
+        "opensearch"
+      ],
+      "product-postgres": [],
+      "search-filter-opensearch": [
+        "opensearch"
+      ],
+      "search-filter-postgres": [],
       "user-postgres": [],
-      "user-service": [],
-      "user-zoho": [],
-
       "watchlist-postgres": [],
-      "watchlist-service": [],
-      "webhook-api": ["api", "opensearch"]
+      "search-filter": [],
+      "product-watchlist": [],
+      "partner-shop-application": [],
+      "search-filter-periodic-match": [
+        "api",
+        "dynamodb",
+        "opensearch"
+      ],
+      "notification-api": [
+        "api"
+      ],
+      "oauth": [
+        "api"
+      ],
+      "product-watchlist-api": [
+        "api",
+        "opensearch"
+      ],
+      "product-personalization": [
+        "api"
+      ],
+      "search-filter-api": [
+        "api",
+        "opensearch"
+      ],
+      "billing-stripe": [],
+      "oauth-dynamodb": [
+        "dynamodb"
+      ],
+      "shop-partner-postgres": [],
+      "shop-postgres": [],
+      "user-dynamodb": [
+        "dynamodb"
+      ],
+      "user-zoho": [],
+      "cloudwatch-log-retention-lambda": [],
+      "cognito-post-confirmation": [
+        "postgres"
+      ],
+      "search-filter-lambda-opensearch-sync": [
+        "api",
+        "dynamodb",
+        "event_bridge",
+        "opensearch"
+      ],
+      "search-filter-lambda-percolate-product": [
+        "api",
+        "dynamodb",
+        "event_bridge",
+        "opensearch"
+      ],
+      "fxrate-fxratesapi": [],
+      "product-api": [
+        "api",
+        "opensearch"
+      ],
+      "product-api-partner": [
+        "api",
+        "opensearch"
+      ],
+      "product-lambda-ingest-partner-products": [
+        "api",
+        "opensearch",
+        "sqs"
+      ],
+      "product-lambda-delete-product": [
+        "dynamodb",
+        "event_bridge",
+        "opensearch"
+      ],
+      "product-lambda-materialize-opensearch": [
+        "api",
+        "dynamodb",
+        "event_bridge",
+        "opensearch"
+      ],
+      "product-lambda-update-notify-user": [
+        "dynamodb",
+        "event_bridge"
+      ],
+      "shop-api": [
+        "api",
+        "opensearch"
+      ],
+      "webhook-api": [
+        "api",
+        "opensearch"
+      ],
+      "shop-lambda-opensearch-index": [
+        "api",
+        "dynamodb",
+        "event_bridge",
+        "opensearch"
+      ],
+      "shopify-lambda": [
+        "postgres"
+      ],
+      "stripe-lambda": [
+        "postgres"
+      ],
+      "stripe-api": [
+        "api"
+      ],
+      "user-api": [
+        "api",
+        "opensearch"
+      ],
+      "user-lambda-index-opensearch": [
+        "api",
+        "dynamodb",
+        "event_bridge",
+        "opensearch"
+      ],
+      "user-lambda-tier-update": [
+        "dynamodb",
+        "event_bridge"
+      ],
+      "notification-send": [
+        "dynamodb",
+        "event_bridge"
+      ],
+      "newsletter-api": [
+        "api"
+      ],
+      "oauth-api": [
+        "api"
+      ],
+      "fxrate-lambda": [
+        "postgres"
+      ],
+      "crawler": [],
+      "partner-shop-application-api": [
+        "api"
+      ],
+      "partner-shop-application-lambda": [],
+      "aura-historia-parent": []
     },
     "development": {
-      "acceptance-tests": ["test-data"],
-      "newsletter-api": ["test-data"],
-      "partner-shop-application-api": ["test-data"],
-      "partner-shop-application-lambda": ["test-data"],
-      "product-api-partner": ["test-data"],
-      "product-lambda-ingest-partner-products": ["test-data"],
-      "search-filter-lambda-percolate-product": ["test-data"],
-      "search-filter-periodic-match": ["test-data"],
-      "shopify-lambda": ["postgres"],
-      "stripe-api": ["test-data"],
-      "user-api": ["test-data"],
-      "webhook-api": ["test-data"]
+      "acceptance-tests": [
+        "test-data"
+      ],
+      "search-filter-periodic-match": [
+        "test-data"
+      ],
+      "search-filter-lambda-percolate-product": [
+        "test-data"
+      ],
+      "product-api-partner": [
+        "test-data"
+      ],
+      "product-lambda-ingest-partner-products": [
+        "test-data"
+      ],
+      "webhook-api": [
+        "test-data"
+      ],
+      "shopify-lambda": [
+        "postgres"
+      ],
+      "stripe-api": [
+        "test-data"
+      ],
+      "user-api": [
+        "test-data"
+      ],
+      "newsletter-api": [
+        "test-data"
+      ],
+      "partner-shop-application-api": [
+        "test-data"
+      ],
+      "partner-shop-application-lambda": [
+        "test-data"
+      ]
     },
     "build": {}
   }

@@ -3,10 +3,10 @@ use crate::ports::{
     PartnerShopApplicationReader, PartnerShopApplicationReaderFactory,
     PartnerShopApplicationRepositoryError, PartnerShopApplicationView,
 };
+use application::error::BoxError;
+use application::operation_context::{OperationAuthorizationError, OperationContext};
 use application::transaction::{Transaction, UnitOfWork};
-use common::error::boxed::BoxError;
-use common::operation_context::{OperationAuthorizationError, OperationContext};
-use common::user_id::UserId;
+use user_core::user_id::UserId;
 
 use user_service::ports::UserAdminReaderFactory;
 
@@ -155,13 +155,13 @@ impl From<PartnerShopApplicationRepositoryError> for AdminListPartnerShopApplica
 mod tests {
     use super::*;
     use crate::ports::{PartnerShopApplicationStorageVersion, VersionedPartnerShopApplication};
+    use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::partner_shop_application_id::PartnerShopApplicationId;
     use shop_core::shop_id::ShopId;
     use shop_partner_core::partner_shop_application::{
         NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
     };
+    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
     use std::sync::{Arc, Mutex};
     use user_service::ports::{
         UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,

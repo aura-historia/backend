@@ -3,7 +3,7 @@
 use crate::use_cases::queries::find_user_by_stripe_customer_id::{
     FindUserByStripeCustomerIdRequest, UserStripeLookupView,
 };
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UserStripeCustomerReadError {

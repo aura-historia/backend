@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true }
+domain-primitives = { workspace = true }
 platform-postgres = { workspace = true }
 geo = { workspace = true }
 isocountry = { workspace = true }

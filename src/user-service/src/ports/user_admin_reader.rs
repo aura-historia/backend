@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use common::error::boxed::BoxError;
-use common::user_id::UserId;
+use application::error::BoxError;
 use user_core::role::UserRole;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserAdminActorView {

@@ -5,12 +5,12 @@ use crate::ports::{
 };
 use crate::use_cases::commands::create_product::CreateProductResult;
 use crate::use_cases::commands::update_product::UpdateProductResult;
-use common::error::boxed::{BoxError, box_error};
+use application::error::{BoxError, box_error};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 
-use common::operation_context::{
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use localization::Language;
@@ -19,7 +19,6 @@ use money::Price;
 use product_core::product_id::{ProductId, ProductKey};
 
 use application::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
 use indexmap::IndexSet;
 use product_core::description::Description;
 use product_core::product::{
@@ -32,6 +31,7 @@ use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use shop_core::shop_id::ShopId;
 use url::Url;
+use user_core::user_id::UserId;
 
 const MISSING_PRODUCT_URL: &str = "https://not-provided.invalid";
 
@@ -631,10 +631,10 @@ impl From<ProductEventStoreError> for UpsertProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use application::operation_context::{CorrelationId, RequestId};
     use application::transaction::TransactionError;
-    use common::event_id::EventId;
-    use common::operation_context::{CorrelationId, RequestId};
-    use common::versioned::Versioned;
+    use domain_primitives::event_id::EventId;
+    use domain_primitives::versioned::Versioned;
     use money::Currency;
     use money::{MonetaryAmount, Price};
     use product_core::product::ProductDomainEvent;
