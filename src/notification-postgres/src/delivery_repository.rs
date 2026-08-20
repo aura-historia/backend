@@ -1,9 +1,12 @@
-use crate::mapping::{NotificationRow, mapping_error};
+use crate::{
+    delivery_mapping::channel_from_persisted,
+    mapping::{NotificationRow, mapping_error},
+};
 use common::{
     error::boxed::box_error, language::domain::Language, notification_id::NotificationId,
 };
 use notification_core::{
-    notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
+    notification_delivery::NotificationDeliveryTargetKey,
     notification_delivery_id::NotificationDeliveryId,
 };
 use notification_service::ports::notification_delivery_repository::{
@@ -206,7 +209,11 @@ fn source_from_row(
         notification_delivery_id: NotificationDeliveryId::from(row.notification_delivery_id),
         notification_id: notification.notification_id(),
         user_id: notification.user_id(),
-        channel: parse_channel(&row.channel)?,
+        channel: channel_from_persisted(&row.channel).map_err(|source| {
+            NotificationDeliveryError::InvalidPersistedState {
+                source: box_error(source),
+            }
+        })?,
         target_key: NotificationDeliveryTargetKey::try_from(row.target_key).map_err(|source| {
             NotificationDeliveryError::InvalidPersistedState {
                 source: box_error(source),
@@ -223,15 +230,6 @@ fn source_from_row(
             prohibited_content_consent: row.prohibited_content_consent,
         },
     })
-}
-
-fn parse_channel(value: &str) -> Result<NotificationDeliveryChannel, NotificationDeliveryError> {
-    match value {
-        "EMAIL" => Ok(NotificationDeliveryChannel::Email),
-        _ => Err(invalid_delivery_source(
-            "unknown notification delivery channel",
-        )),
-    }
 }
 
 fn parse_language(value: &str) -> Result<Language, NotificationDeliveryError> {

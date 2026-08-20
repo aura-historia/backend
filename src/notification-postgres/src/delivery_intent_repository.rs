@@ -1,3 +1,4 @@
+use crate::delivery_mapping::channel_to_persisted;
 use common::{error::boxed::box_error, postgres::SqlxTransaction};
 use notification_service::ports::{
     notification_creator::NotificationCreationError,
@@ -49,7 +50,7 @@ impl NotificationDeliveryIntentRepository for SqlxNotificationDeliveryIntentRepo
             query.push_values(deliveries, |mut row, delivery| {
                 row.push_bind(uuid::Uuid::from(delivery.notification_delivery_id))
                     .push_bind(uuid::Uuid::from(delivery.notification_id))
-                    .push_bind(delivery.plan.channel.persisted())
+                    .push_bind(channel_to_persisted(delivery.plan.channel))
                     .push_bind(delivery.plan.target_key.as_str());
             });
             query

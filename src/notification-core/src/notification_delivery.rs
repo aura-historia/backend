@@ -3,14 +3,6 @@ pub enum NotificationDeliveryChannel {
     Email,
 }
 
-impl NotificationDeliveryChannel {
-    pub const fn persisted(self) -> &'static str {
-        match self {
-            Self::Email => "EMAIL",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NotificationDeliveryTargetKey(String);
 
@@ -28,10 +20,11 @@ impl TryFrom<String> for NotificationDeliveryTargetKey {
     type Error = InvalidNotificationDeliveryTargetKey;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        if value.trim().is_empty() {
+        let normalized = value.trim();
+        if normalized.is_empty() {
             return Err(InvalidNotificationDeliveryTargetKey);
         }
-        Ok(Self(value))
+        Ok(Self(normalized.to_owned()))
     }
 }
 
@@ -44,8 +37,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_persist_channels_as_screaming_snake_case() {
-        assert_eq!("EMAIL", NotificationDeliveryChannel::Email.persisted());
+    fn should_normalize_surrounding_target_key_whitespace() {
+        assert_eq!(
+            "PRIMARY",
+            NotificationDeliveryTargetKey::try_from("  PRIMARY \t".to_owned())
+                .expect("target key should be valid")
+                .as_str()
+        );
     }
 
     #[test]
