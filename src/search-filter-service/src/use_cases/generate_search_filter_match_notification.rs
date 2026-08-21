@@ -416,6 +416,7 @@ mod tests {
     #[derive(Default)]
     struct State {
         commits: usize,
+        quota_reads: usize,
         notification_commit_counts: Vec<usize>,
     }
 
@@ -504,8 +505,15 @@ mod tests {
         }
     }
 
-    struct ProductRevisionGuards;
-    struct ProductRevisionGuard;
+    #[derive(Clone, Copy)]
+    enum ProductRevisionCheckOutcome {
+        Current,
+        Stale,
+        Error,
+    }
+
+    struct ProductRevisionGuards(ProductRevisionCheckOutcome);
+    struct ProductRevisionGuard(ProductRevisionCheckOutcome);
 
     #[async_trait::async_trait]
     impl ProductCurrentRevisionGuard for ProductRevisionGuard {
@@ -514,7 +522,15 @@ mod tests {
             _product_id: ProductId,
             _expected_event_id: EventId,
         ) -> Result<ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError> {
-            Ok(ProductCurrentRevisionCheck::Current)
+            match self.0 {
+                ProductRevisionCheckOutcome::Current => Ok(ProductCurrentRevisionCheck::Current),
+                ProductRevisionCheckOutcome::Stale => Ok(ProductCurrentRevisionCheck::Stale),
+                ProductRevisionCheckOutcome::Error => {
+                    Err(ProductCurrentRevisionCheckError::CheckFailed {
+                        source: box_error(std::io::Error::other("guard read failed")),
+                    })
+                }
+            }
         }
     }
 
@@ -523,12 +539,12 @@ mod tests {
             &'tx self,
             _tx: &'tx mut TestTransaction,
         ) -> impl ProductCurrentRevisionGuard + 'tx {
-            ProductRevisionGuard
+            ProductRevisionGuard(self.0)
         }
     }
 
-    struct Quotas;
-    struct QuotaReader;
+    struct Quotas(Arc<Mutex<State>>);
+    struct QuotaReader(Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
     impl SearchFilterMonthlyMatchQuotaReader for QuotaReader {
@@ -538,6 +554,9 @@ mod tests {
             _matched_at: OffsetDateTime,
             _origin_event_id: EventId,
         ) -> Result<usize, SearchFilterMonthlyMatchQuotaReadError> {
+            if let Ok(mut state) = self.0.lock() {
+                state.quota_reads += 1;
+            }
             Ok(1)
         }
     }
@@ -547,7 +566,7 @@ mod tests {
             &'tx self,
             _tx: &'tx mut TestTransaction,
         ) -> impl SearchFilterMonthlyMatchQuotaReader + 'tx {
-            QuotaReader
+            QuotaReader(Arc::clone(&self.0))
         }
     }
 
@@ -711,9 +730,9 @@ mod tests {
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
             ProductSources(Some(product)),
-            Quotas,
+            Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
             Notifications(Arc::clone(&state)),
         );
 
@@ -737,9 +756,9 @@ mod tests {
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
             ProductSources(Some(product)),
-            Quotas,
+            Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
             DuplicateNotifications,
         );
 
@@ -764,9 +783,9 @@ mod tests {
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
             ProductSources(Some(product)),
-            Quotas,
+            Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
             Notifications(Arc::clone(&state)),
         );
 
@@ -783,6 +802,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_suppress_stale_product_event_without_reading_quota_or_creating_notification()
+    -> Result<(), Box<dyn Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (command, match_source, product) = sources()?;
+        let handler = GenerateSearchFilterMatchNotificationHandler::new(
+            TestUnitOfWork(Arc::clone(&state)),
+            MatchSources::Found(Some(match_source)),
+            ProductSources(Some(product)),
+            Quotas(Arc::clone(&state)),
+            Tiers,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Stale),
+            Notifications(Arc::clone(&state)),
+        );
+
+        assert_eq!(
+            GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductEvent,
+            handler.execute(command).await?
+        );
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(1, state.commits);
+        assert_eq!(0, state.quota_reads);
+        assert!(state.notification_commit_counts.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_typed_revision_check_failure_without_reading_quota_or_creating_notification()
+    -> Result<(), Box<dyn Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (command, match_source, product) = sources()?;
+        let handler = GenerateSearchFilterMatchNotificationHandler::new(
+            TestUnitOfWork(Arc::clone(&state)),
+            MatchSources::Found(Some(match_source)),
+            ProductSources(Some(product)),
+            Quotas(Arc::clone(&state)),
+            Tiers,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Error),
+            Notifications(Arc::clone(&state)),
+        );
+
+        let error = handler
+            .execute(command)
+            .await
+            .err()
+            .ok_or_else(|| std::io::Error::other("expected error"))?;
+        assert!(matches!(
+            &error,
+            GenerateSearchFilterMatchNotificationError::ProductCurrentRevisionCheckFailed { .. }
+        ));
+        assert!(matches!(
+            Error::source(&error)
+                .and_then(|source| { source.downcast_ref::<ProductCurrentRevisionCheckError>() }),
+            Some(ProductCurrentRevisionCheckError::CheckFailed { .. })
+        ));
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(0, state.commits);
+        assert_eq!(0, state.quota_reads);
+        assert!(state.notification_commit_counts.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_preserve_match_source_query_failure_in_service_error_chain()
     -> Result<(), Box<dyn Error>> {
         let state = Arc::new(Mutex::new(State::default()));
@@ -791,9 +876,9 @@ mod tests {
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::QueryFailure,
             ProductSources(Some(product)),
-            Quotas,
+            Quotas(Arc::clone(&state)),
             Tiers,
-            ProductRevisionGuards,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
             Notifications(state),
         );
 
