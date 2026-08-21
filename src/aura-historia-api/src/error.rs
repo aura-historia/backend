@@ -1489,7 +1489,7 @@ impl From<WatchProductError> for ApiError {
             } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
                 "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
             )),
-            WatchProductError::TemporarilyUnavailable
+            WatchProductError::TemporarilyUnavailable { .. }
             | WatchProductError::UserTierEntitlementsLockFailed { .. }
             | WatchProductError::WatchlistQuotaReadFailed { .. }
             | WatchProductError::BeginTransactionFailed
@@ -1529,7 +1529,7 @@ impl From<UpdateWatchlistProductError> for ApiError {
             } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
                 "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
             )),
-            UpdateWatchlistProductError::TemporarilyUnavailable
+            UpdateWatchlistProductError::TemporarilyUnavailable { .. }
             | UpdateWatchlistProductError::UserTierEntitlementsLockFailed { .. }
             | UpdateWatchlistProductError::WatchlistQuotaReadFailed { .. }
             | UpdateWatchlistProductError::BeginTransactionFailed
@@ -1559,7 +1559,7 @@ impl From<UnwatchProductError> for ApiError {
                 .with_detail("Watchlist entry was not found."),
             UnwatchProductError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
                 .with_detail("Watchlist entry was changed concurrently."),
-            UnwatchProductError::TemporarilyUnavailable
+            UnwatchProductError::TemporarilyUnavailable { .. }
             | UnwatchProductError::BeginTransactionFailed
             | UnwatchProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)

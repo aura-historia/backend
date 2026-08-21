@@ -1,4 +1,5 @@
 use crate::ports::{WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory};
+use common::error::boxed::{BoxError, box_error};
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -29,7 +30,10 @@ pub enum UnwatchProductError {
     #[error("watchlist entry changed concurrently")]
     ConcurrencyConflict,
     #[error("temporary watchlist persistence failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid persisted watchlist state")]
     InvalidPersistedState,
     #[error("failed to begin watchlist transaction")]
@@ -136,11 +140,15 @@ impl From<WatchlistRepositoryError> for UnwatchProductError {
         match value {
             WatchlistRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
             WatchlistRepositoryError::InvalidPersistedState => Self::InvalidPersistedState,
-            WatchlistRepositoryError::LookupFailed
-            | WatchlistRepositoryError::InsertFailed
-            | WatchlistRepositoryError::UpdateFailed
-            | WatchlistRepositoryError::DeleteFailed => Self::TemporarilyUnavailable,
-            WatchlistRepositoryError::AlreadyExists => Self::TemporarilyUnavailable,
+            WatchlistRepositoryError::LookupFailed { source }
+            | WatchlistRepositoryError::InsertFailed { source }
+            | WatchlistRepositoryError::UpdateFailed { source }
+            | WatchlistRepositoryError::DeleteFailed { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            error @ WatchlistRepositoryError::AlreadyExists => Self::TemporarilyUnavailable {
+                source: box_error(error),
+            },
         }
     }
 }
@@ -150,6 +158,8 @@ mod tests {
     #![allow(dead_code)]
 
     use super::*;
+
+    use common::error::boxed::static_error;
 
     use crate::ports::{
         VersionedWatchlistProduct, WatchlistProductView, WatchlistReadError, WatchlistReader,
@@ -279,7 +289,9 @@ mod tests {
             self.state
                 .entries
                 .lock()
-                .map_err(|_| WatchlistRepositoryError::LookupFailed)
+                .map_err(|_| WatchlistRepositoryError::LookupFailed {
+                    source: static_error("watchlist test lookup mutex is poisoned"),
+                })
                 .map(|entries| {
                     entries
                         .iter()
@@ -295,11 +307,13 @@ mod tests {
             &mut self,
             entry: &WatchlistProduct,
         ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
-            let mut entries = self
-                .state
-                .entries
-                .lock()
-                .map_err(|_| WatchlistRepositoryError::InsertFailed)?;
+            let mut entries =
+                self.state
+                    .entries
+                    .lock()
+                    .map_err(|_| WatchlistRepositoryError::InsertFailed {
+                        source: static_error("watchlist test insert mutex is poisoned"),
+                    })?;
             if entries.iter().any(|existing| {
                 existing.value.user_id() == entry.user_id()
                     && existing.value.product_id() == entry.product_id()
@@ -317,16 +331,20 @@ mod tests {
             entry: &WatchlistProduct,
             expected_version: WatchlistStorageVersion,
         ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
-            let mut entries = self
-                .state
-                .entries
-                .lock()
-                .map_err(|_| WatchlistRepositoryError::UpdateFailed)?;
+            let mut entries =
+                self.state
+                    .entries
+                    .lock()
+                    .map_err(|_| WatchlistRepositoryError::UpdateFailed {
+                        source: static_error("watchlist test update mutex is poisoned"),
+                    })?;
             let Some(existing) = entries.iter_mut().find(|existing| {
                 existing.value.user_id() == entry.user_id()
                     && existing.value.product_id() == entry.product_id()
             }) else {
-                return Err(WatchlistRepositoryError::UpdateFailed);
+                return Err(WatchlistRepositoryError::UpdateFailed {
+                    source: static_error("watchlist test entry is missing"),
+                });
             };
             if existing.version != expected_version {
                 return Err(WatchlistRepositoryError::ConcurrencyConflict);
@@ -337,7 +355,9 @@ mod tests {
                 .updated
                 .lock()
                 .map(|mut updated| *updated += 1)
-                .map_err(|_| WatchlistRepositoryError::UpdateFailed)?;
+                .map_err(|_| WatchlistRepositoryError::UpdateFailed {
+                    source: static_error("watchlist test update counter mutex is poisoned"),
+                })?;
             Ok(persisted)
         }
 
@@ -347,11 +367,13 @@ mod tests {
             product_id: ProductId,
             expected_version: WatchlistStorageVersion,
         ) -> Result<(), WatchlistRepositoryError> {
-            let mut entries = self
-                .state
-                .entries
-                .lock()
-                .map_err(|_| WatchlistRepositoryError::DeleteFailed)?;
+            let mut entries =
+                self.state
+                    .entries
+                    .lock()
+                    .map_err(|_| WatchlistRepositoryError::DeleteFailed {
+                        source: static_error("watchlist test delete mutex is poisoned"),
+                    })?;
             let Some(index) = entries.iter().position(|entry| {
                 entry.value.user_id() == user_id && entry.value.product_id() == product_id
             }) else {
@@ -365,7 +387,9 @@ mod tests {
                 .unwatched
                 .lock()
                 .map(|mut unwatched| *unwatched += 1)
-                .map_err(|_| WatchlistRepositoryError::DeleteFailed)
+                .map_err(|_| WatchlistRepositoryError::DeleteFailed {
+                    source: static_error("watchlist test delete counter mutex is poisoned"),
+                })
         }
     }
 

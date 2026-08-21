@@ -163,6 +163,7 @@ mod tests {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
+    use common::error::boxed::static_error;
     use common::event_id::EventId;
     use common::fx_rate_id::FxRateId;
     use common::language::domain::Language;
@@ -221,7 +222,9 @@ mod tests {
             _context: &OperationContext,
             _command: WatchProductCommand,
         ) -> Result<WatchProductResult, WatchProductError> {
-            Err(WatchProductError::TemporarilyUnavailable)
+            Err(WatchProductError::TemporarilyUnavailable {
+                source: static_error("unused watch product use case"),
+            })
         }
     }
 
@@ -233,7 +236,9 @@ mod tests {
             _context: &OperationContext,
             _command: UpdateWatchlistProductCommand,
         ) -> Result<UpdateWatchlistProductResult, UpdateWatchlistProductError> {
-            Err(UpdateWatchlistProductError::TemporarilyUnavailable)
+            Err(UpdateWatchlistProductError::TemporarilyUnavailable {
+                source: static_error("unused update watchlist product use case"),
+            })
         }
     }
 
@@ -245,7 +250,9 @@ mod tests {
             _context: &OperationContext,
             _command: UnwatchProductCommand,
         ) -> Result<UnwatchProductResult, UnwatchProductError> {
-            Err(UnwatchProductError::TemporarilyUnavailable)
+            Err(UnwatchProductError::TemporarilyUnavailable {
+                source: static_error("unused unwatch product use case"),
+            })
         }
     }
 

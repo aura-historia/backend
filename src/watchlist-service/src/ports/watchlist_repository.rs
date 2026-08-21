@@ -1,3 +1,4 @@
+use common::error::boxed::BoxError;
 use common::product_id::ProductId;
 use common::user_id::UserId;
 use common::versioned::Versioned;
@@ -14,13 +15,25 @@ pub enum WatchlistRepositoryError {
     #[error("watchlist entry already exists")]
     AlreadyExists,
     #[error("watchlist entry lookup failed")]
-    LookupFailed,
+    LookupFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("watchlist entry insert failed")]
-    InsertFailed,
+    InsertFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("watchlist entry update failed")]
-    UpdateFailed,
+    UpdateFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("watchlist entry delete failed")]
-    DeleteFailed,
+    DeleteFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("persisted watchlist state is invalid")]
     InvalidPersistedState,
 }
@@ -54,4 +67,23 @@ pub trait WatchlistRepository: Send {
 
 pub trait WatchlistRepositoryFactory<Tx>: Send + Sync {
     fn in_transaction<'tx>(&'tx self, tx: &'tx mut Tx) -> impl WatchlistRepository + 'tx;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use common::error::boxed::static_error;
+    use std::error::Error;
+
+    #[test]
+    fn should_preserve_repository_query_failure_source() {
+        let error = WatchlistRepositoryError::UpdateFailed {
+            source: static_error("database connection lost"),
+        };
+
+        assert_eq!(
+            Some("database connection lost"),
+            error.source().map(ToString::to_string).as_deref()
+        );
+    }
 }

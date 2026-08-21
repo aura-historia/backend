@@ -1,4 +1,5 @@
 use crate::mapping::{WatchlistRepositoryRow, format_state};
+use common::error::boxed::box_error;
 use common::postgres::SqlxTransaction;
 use common::product_id::ProductId;
 use common::user_id::UserId;
@@ -42,7 +43,9 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
             .bind(uuid::Uuid::from(product_id))
             .fetch_optional(self.tx.connection())
             .await
-            .map_err(|_| WatchlistRepositoryError::LookupFailed)?;
+            .map_err(|source| WatchlistRepositoryError::LookupFailed {
+                source: box_error(source),
+            })?;
 
         row.map(VersionedWatchlistProduct::try_from).transpose()
     }
@@ -106,7 +109,9 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
             .bind(expected_version)
             .fetch_optional(self.tx.connection())
             .await
-            .map_err(|_| WatchlistRepositoryError::UpdateFailed)?
+            .map_err(|source| WatchlistRepositoryError::UpdateFailed {
+                source: box_error(source),
+            })?
             .ok_or(WatchlistRepositoryError::ConcurrencyConflict)?;
 
         VersionedWatchlistProduct::try_from(row)
@@ -127,7 +132,9 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         .bind(expected_version)
         .execute(self.tx.connection())
         .await
-        .map_err(|_| WatchlistRepositoryError::DeleteFailed)?;
+        .map_err(|source| WatchlistRepositoryError::DeleteFailed {
+            source: box_error(source),
+        })?;
         if result.rows_affected() == 0 {
             return Err(WatchlistRepositoryError::ConcurrencyConflict);
         }
@@ -145,5 +152,7 @@ fn map_insert_error(error: sqlx::Error) -> WatchlistRepositoryError {
     {
         return WatchlistRepositoryError::AlreadyExists;
     }
-    WatchlistRepositoryError::InsertFailed
+    WatchlistRepositoryError::InsertFailed {
+        source: box_error(error),
+    }
 }
