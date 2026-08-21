@@ -6,7 +6,7 @@ use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
 use product_core::product_id::ProductId;
 use product_core::{product::ProductPriceValuationBasis, product_search::ProductSearch};
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::{
@@ -152,7 +152,7 @@ async fn should_count_only_active_search_filters_in_transaction() {
     let user_id = seed_user(&pool, "search-filter-postgres-quota@example.com").await;
     let active = sample_filter(user_id, "active filter");
     let mut inactive = sample_filter(user_id, "inactive filter");
-    let _ = inactive.change_state(ResourceState::InactiveByUser);
+    let _ = inactive.change_state(SearchFilterState::InactiveByUser);
 
     let mut tx = begin(&unit).await;
     filters
@@ -235,7 +235,7 @@ fn sample_filter(user_id: UserId, name: &str) -> SearchFilter {
         user_id,
         name: UserSearchFilterName::from(name),
         notifications: true,
-        state: ResourceState::Active,
+        state: SearchFilterState::Active,
         search: ProductSearch::new(Language::En, Currency::Eur),
         embedding: None,
     })

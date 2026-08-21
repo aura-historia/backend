@@ -10,13 +10,14 @@ use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use user_core::user_id::UserId;
 
 use embedding::{EmbeddingError, EmbeddingGenerator};
+use product_core::product_search::ProductSearch;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
-use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
+use search_filter_core::{NewSearchFilter, SearchFilter};
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
@@ -156,7 +157,7 @@ where
             user_id: command.user_id,
             name: command.name,
             notifications: command.notifications,
-            state: ResourceState::Active,
+            state: SearchFilterState::Active,
             search: command.search,
             embedding,
         });

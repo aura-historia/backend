@@ -407,12 +407,12 @@ fn build_query_body(query: &SearchFilterIndexQuery) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use search_filter_core::ResourceState;
+    use search_filter_core::search_filter_state::SearchFilterState;
 
     #[test]
     fn should_build_query_body_with_filters_and_cursor() {
         let body = build_query_body(&SearchFilterIndexQuery {
-            state: Some(ResourceState::Active),
+            state: Some(SearchFilterState::Active),
             has_enhanced_search_description: Some(true),
             cursor: Some(Cursor {
                 size: 25,

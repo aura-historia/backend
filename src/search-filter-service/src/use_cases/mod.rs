@@ -1,5 +1,5 @@
 use embedding::{EmbeddingError, EmbeddingText};
-use search_filter_core::ProductSearch;
+use product_core::product_search::ProductSearch;
 
 mod create_search_filter;
 mod delete_owned_search_filter;
@@ -48,7 +48,7 @@ mod tests {
     use super::embedding_query;
     use localization::Language;
     use money::Currency;
-    use search_filter_core::ProductSearch;
+    use product_core::product_search::ProductSearch;
 
     #[test]
     fn should_build_search_embedding_query() -> Result<(), Box<dyn std::error::Error>> {

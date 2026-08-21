@@ -11,6 +11,7 @@
 - Root modules: `description`, `heuristics`, `product`, `product_event`, `product_id`, `product_image`, `product_lifecycle`, `product_search`, `product_slug_id`, `product_state`, `prohibited_content`, `sanitize`, `shops_product_id`, `sort_product_field`, `title`.
 - `product::Product` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
 - Product translations, embeddings, user-state read models, read joins, and FX snapshots stay outside this aggregate. `ProductPricing` stores source prices only; `ProductSaleValuation` records a sold-at timestamp plus immutable FX snapshot ID. Product user-state read models live in `product-service`.
+- `ProductKey` owns only the semantic `(ShopId, ShopsProductId)` pair; labeled storage and transport codecs live at their owning boundaries.
 - Uses `shop-core` identifiers plus `geo`, `money`, and `localization` values; `domain-primitives` stays for neutral event/outcome values.
 - No dependency on `product-service`, legacy `product`, or adapters.
 

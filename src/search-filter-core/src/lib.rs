@@ -5,14 +5,12 @@ use crate::{
 use domain_primitives::{change_outcome::ChangeOutcome, event_id::EventId};
 use fxrate_core::FxRateId;
 use product_core::product_id::ProductId;
+use product_core::product_search::ProductSearch;
 use user_core::user_id::UserId;
 pub mod enhanced_match_reason;
 pub mod search_filter_state;
 pub mod user_search_filter_id;
 pub mod user_search_filter_name;
-
-pub use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
-pub use search_filter_state::SearchFilterState as ResourceState;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilter {

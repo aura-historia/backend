@@ -8,7 +8,7 @@
 
 - Depends on `application`, `user-core`, and `user-service`; Stripe transport stays in the adapter crate.
 - Operation context and boxed error contracts come from `application`.
-- No legacy `common` dependency or compatibility import.
+
 
 ## Ownership
 

@@ -23,13 +23,14 @@ use notification_service::ports::all_notifications_reader::{
 use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use opensearch::GetParts;
 use platform_postgres::SqlxUnitOfWork;
+use product_core::product_search::ProductSearch;
 use product_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
 };
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
-use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
+use search_filter_core::{NewSearchFilter, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
     SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
@@ -181,7 +182,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Create and update notification filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         worker.project_filter(&filter).await?;
@@ -215,7 +216,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         let update_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Update notification filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         worker.project_filter(&update_filter).await?;
@@ -275,19 +276,19 @@ async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::E
         let active_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Active matching filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         let inactive_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Inactive matching filter"),
-            ResourceState::InactiveByUser,
+            SearchFilterState::InactiveByUser,
             &product_query,
         )?;
         let no_match_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Active non-matching filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             "Unrelated carved marble lion",
         )?;
         worker.project_filter(&active_filter).await?;
@@ -326,7 +327,7 @@ async fn complete_percolation_flow() -> Result<(), Box<dyn std::error::Error>> {
                 search_filter(
                     user_id,
                     UserSearchFilterName::from(format!("Active percolation filter {number}")),
-                    ResourceState::Active,
+                    SearchFilterState::Active,
                     &product_query,
                 )
             })
@@ -334,7 +335,7 @@ async fn complete_percolation_flow() -> Result<(), Box<dyn std::error::Error>> {
         let inactive_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Inactive percolation filter"),
-            ResourceState::InactiveByUser,
+            SearchFilterState::InactiveByUser,
             &product_query,
         )?;
 
@@ -367,7 +368,7 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Free tier quota filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         let filter_version = insert_filter(&worker.pool, &filter).await?;
@@ -416,7 +417,7 @@ async fn ignored_product_events_flow() -> Result<(), Box<dyn std::error::Error>>
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Ignored event filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         worker.project_filter(&filter).await?;
@@ -452,7 +453,7 @@ async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Erro
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Rollback filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         worker.project_filter(&filter).await?;
@@ -484,7 +485,7 @@ async fn stale_event_ordering_flow() -> Result<(), Box<dyn std::error::Error>> {
         let filter = search_filter(
             user_id,
             UserSearchFilterName::from("Stale event ordering filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         worker.project_filter(&filter).await?;
@@ -578,7 +579,7 @@ async fn cross_currency_saved_filter_percolation_flow() -> Result<(), Box<dyn st
         let no_price_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Saved-filter without price bounds"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         let price_filters = [&eur_filter, &usd_filter, &jpy_filter];
@@ -806,13 +807,13 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
         let first_filter = search_filter(
             user_id,
             UserSearchFilterName::from("First deterministic filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         let second_filter = search_filter(
             user_id,
             UserSearchFilterName::from("Second deterministic filter"),
-            ResourceState::Active,
+            SearchFilterState::Active,
             &product_query,
         )?;
         let selected_filter_id = [first_filter.id(), second_filter.id()]
@@ -1308,7 +1309,7 @@ async fn insert_fx_snapshot(
 fn search_filter(
     user_id: UserId,
     name: UserSearchFilterName,
-    state: ResourceState,
+    state: SearchFilterState,
     product_query: &str,
 ) -> Result<SearchFilter, Box<dyn std::error::Error>> {
     Ok(SearchFilter::create(NewSearchFilter {
@@ -1336,7 +1337,7 @@ fn price_search_filter(
         user_id,
         name,
         notifications: true,
-        state: ResourceState::Active,
+        state: SearchFilterState::Active,
         search: ProductSearch::new(Language::En, currency)
             .with_product_query(product_query.try_into()?)
             .with_price_query(RangeQuery {

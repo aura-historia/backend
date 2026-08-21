@@ -19,7 +19,7 @@ use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
 use search_filter_service::use_cases::ProductSearchPatch;
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,7 @@ use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum ResourceStateData {
+enum SearchFilterStateData {
     #[default]
     Active,
     InactiveByUser,
@@ -38,7 +38,7 @@ enum ResourceStateData {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(super) enum PatchResourceStateData {
+pub(super) enum PatchSearchFilterStateData {
     Active,
     InactiveByUser,
 }
@@ -64,7 +64,7 @@ pub(super) struct UpdateSearchFilterData {
     #[serde(default)]
     pub(super) notifications: Option<bool>,
     #[serde(default)]
-    pub(super) state: Option<PatchResourceStateData>,
+    pub(super) state: Option<PatchSearchFilterStateData>,
     #[serde(default)]
     pub(super) search: Option<ProductSearchPatchData>,
 }
@@ -75,7 +75,7 @@ impl UpdateSearchFilterData {
     ) -> (
         PatchField<UserSearchFilterName>,
         PatchField<bool>,
-        PatchField<ResourceState>,
+        PatchField<SearchFilterState>,
         ProductSearchPatch,
     ) {
         (
@@ -480,7 +480,7 @@ pub(super) struct SearchFilterData {
     user_search_filter_id: UserSearchFilterId,
     name: UserSearchFilterName,
     notifications: bool,
-    state: ResourceStateData,
+    state: SearchFilterStateData,
     search: ProductSearchData,
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -501,7 +501,7 @@ impl From<SearchFilterView> for SearchFilterData {
             user_search_filter_id: view.search_filter_id,
             name: view.name,
             notifications: view.notifications,
-            state: resource_state_data(view.state),
+            state: search_filter_state_data(view.state),
             search: view.search.into(),
             created: Some(view.created),
             updated: Some(view.updated),
@@ -509,18 +509,20 @@ impl From<SearchFilterView> for SearchFilterData {
     }
 }
 
-fn resource_state_data(state: ResourceState) -> ResourceStateData {
+fn search_filter_state_data(state: SearchFilterState) -> SearchFilterStateData {
     match state {
-        ResourceState::Active => ResourceStateData::Active,
-        ResourceState::InactiveByUser => ResourceStateData::InactiveByUser,
-        ResourceState::InactiveByRestrictedPlan => ResourceStateData::InactiveByRestrictedPlan,
+        SearchFilterState::Active => SearchFilterStateData::Active,
+        SearchFilterState::InactiveByUser => SearchFilterStateData::InactiveByUser,
+        SearchFilterState::InactiveByRestrictedPlan => {
+            SearchFilterStateData::InactiveByRestrictedPlan
+        }
     }
 }
 
-fn search_filter_state(state: PatchResourceStateData) -> ResourceState {
+fn search_filter_state(state: PatchSearchFilterStateData) -> SearchFilterState {
     match state {
-        PatchResourceStateData::Active => ResourceState::Active,
-        PatchResourceStateData::InactiveByUser => ResourceState::InactiveByUser,
+        PatchSearchFilterStateData::Active => SearchFilterState::Active,
+        PatchSearchFilterStateData::InactiveByUser => SearchFilterState::InactiveByUser,
     }
 }
 

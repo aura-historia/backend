@@ -3,7 +3,7 @@ use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum ResourceStateDocument {
+pub(crate) enum SearchFilterStateDocument {
     #[default]
     Active,
     InactiveByUser,
@@ -21,7 +21,7 @@ use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use product_core::product_state::ProductState;
 use product_opensearch::build_percolator_query;
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_service::ports::{SearchFilterProjection, SearchFilterView};
@@ -68,7 +68,7 @@ pub(crate) struct SearchFilterDocument {
     pub user_id: UserId,
     pub name: UserSearchFilterName,
     pub notifications: bool,
-    pub state: ResourceStateDocument,
+    pub state: SearchFilterStateDocument,
     pub source_version: i64,
     pub search: serde_json::Value,
     pub query: serde_json::Value,
@@ -135,19 +135,23 @@ impl TryFrom<SearchFilterDocument> for SearchFilterView {
     }
 }
 
-pub(crate) fn state_to_document(state: ResourceState) -> ResourceStateDocument {
+pub(crate) fn state_to_document(state: SearchFilterState) -> SearchFilterStateDocument {
     match state {
-        ResourceState::Active => ResourceStateDocument::Active,
-        ResourceState::InactiveByUser => ResourceStateDocument::InactiveByUser,
-        ResourceState::InactiveByRestrictedPlan => ResourceStateDocument::InactiveByRestrictedPlan,
+        SearchFilterState::Active => SearchFilterStateDocument::Active,
+        SearchFilterState::InactiveByUser => SearchFilterStateDocument::InactiveByUser,
+        SearchFilterState::InactiveByRestrictedPlan => {
+            SearchFilterStateDocument::InactiveByRestrictedPlan
+        }
     }
 }
 
-fn state_from_document(state: ResourceStateDocument) -> ResourceState {
+fn state_from_document(state: SearchFilterStateDocument) -> SearchFilterState {
     match state {
-        ResourceStateDocument::Active => ResourceState::Active,
-        ResourceStateDocument::InactiveByUser => ResourceState::InactiveByUser,
-        ResourceStateDocument::InactiveByRestrictedPlan => ResourceState::InactiveByRestrictedPlan,
+        SearchFilterStateDocument::Active => SearchFilterState::Active,
+        SearchFilterStateDocument::InactiveByUser => SearchFilterState::InactiveByUser,
+        SearchFilterStateDocument::InactiveByRestrictedPlan => {
+            SearchFilterState::InactiveByRestrictedPlan
+        }
     }
 }
 
@@ -737,7 +741,7 @@ mod tests {
                 user_id: UserId::new(),
                 name: UserSearchFilterName::from("daily"),
                 notifications: true,
-                state: search_filter_core::ResourceState::Active,
+                state: search_filter_core::search_filter_state::SearchFilterState::Active,
                 search,
                 embedding: Some(vec![1.0]),
                 created: datetime!(2026-01-01 00:00:00 UTC),

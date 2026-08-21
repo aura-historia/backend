@@ -162,7 +162,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
-    use watchlist_core::ResourceState;
+    use watchlist_core::watchlist_state::WatchlistState;
     use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
     #[derive(Clone, Default)]
@@ -416,7 +416,7 @@ mod tests {
             user_id,
             product_id,
             notifications,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         })
     }
 

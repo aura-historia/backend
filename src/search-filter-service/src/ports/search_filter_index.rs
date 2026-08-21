@@ -12,7 +12,7 @@ pub enum SearchFilterProjectionWriteOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SearchFilterIndexQuery {
-    pub state: Option<search_filter_core::ResourceState>,
+    pub state: Option<search_filter_core::search_filter_state::SearchFilterState>,
     pub has_enhanced_search_description: Option<bool>,
     pub cursor: Option<Cursor<serde_json::Value>>,
 }

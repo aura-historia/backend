@@ -13,7 +13,7 @@ use product_core::{
 use product_service::ports::{
     ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
 };
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
@@ -44,7 +44,7 @@ async fn should_index_query_percolate_and_delete_search_filter_document() {
 
     let query_result = index
         .query(&SearchFilterIndexQuery {
-            state: Some(ResourceState::Active),
+            state: Some(SearchFilterState::Active),
             has_enhanced_search_description: Some(false),
             cursor: Some(Cursor {
                 size: 50,
@@ -153,7 +153,7 @@ async fn should_use_application_default_size_for_first_query_page() {
 
     let result = index
         .query(&SearchFilterIndexQuery {
-            state: Some(ResourceState::Active),
+            state: Some(SearchFilterState::Active),
             has_enhanced_search_description: Some(false),
             ..Default::default()
         })
@@ -179,7 +179,7 @@ async fn should_filter_query_by_enhanced_description_presence() {
 
     let query_result = index
         .query(&SearchFilterIndexQuery {
-            state: Some(ResourceState::Active),
+            state: Some(SearchFilterState::Active),
             has_enhanced_search_description: Some(true),
             cursor: Some(Cursor {
                 size: 50,
@@ -257,7 +257,7 @@ fn sample_view(query_text: &str) -> SearchFilterView {
         user_id: UserId::new(),
         name: UserSearchFilterName::from("canonical search"),
         notifications: true,
-        state: ResourceState::Active,
+        state: SearchFilterState::Active,
         search: ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query(text_query(query_text)),
         embedding: None,

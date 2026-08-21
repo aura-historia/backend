@@ -1,11 +1,13 @@
 # Common Decomposition Inventory
 
-## Current state — Iteration 6 complete
+## Current state — Iteration 7 complete
 
 All canonical production crates are now `common`-free. Six runtime/leaf consumers were
-removed in this iteration; only legacy consumers and explicitly dual test/composition
-roots remain. The exact machine baseline is in `baseline.json` and CI compares it with
-its explicit base revision so the compatibility surface may only shrink.
+removed in Iteration 6; only legacy consumers and explicitly dual test/composition roots
+remain. Product key storage encoding is owned by the legacy DynamoDB boundary, and
+canonical search-filter/watchlist state names are distinct. The exact machine baseline is
+in `baseline.json` and CI compares it with its explicit base revision so the compatibility
+surface may only shrink.
 
 ## Iteration 1 — transaction foundation
 
@@ -97,7 +99,7 @@ search document: each adapter keeps its document type private and supplies it as
 `common::opensearch::search_response` is an acyclic legacy re-export. No other
 OpenSearch client, response, query, or document helper moved without separate sharing proof.
 
-## Current status — follow-up Iterations 4–6 complete
+## Current status — follow-up Iterations 4–7 complete
 
 The ten canonical service crates, seven canonical PostgreSQL adapters, listed canonical
 integrations, and six canonical runtime leaves no longer have a normal or development
@@ -113,7 +115,8 @@ queries, and mappings; `platform-opensearch` owns only the generic search-respon
 DynamoDB adapters own update, batch, and record mechanics.
 `large-language-model` owns LLM vocabulary and invocation metrics/logging; the
 observability platform owns subscriber setup only. Legacy `common` APIs, entities, APIs,
-Lambdas, and tests remain.
+Lambdas, and tests remain. Product key string encoding is tested and owned at the legacy
+DynamoDB boundary; canonical core state types have no generic `ResourceState` alias.
 
 The current machine baseline has 38 normal direct consumers, 11 development edges, 10
 forwarded-package feature records (30 forwarded feature entries), seven declared `common`

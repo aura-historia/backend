@@ -23,7 +23,7 @@ use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use product_core::product_state::ProductState;
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use shop_core::shop_type::ShopType;
@@ -66,7 +66,7 @@ pub struct UpdateOwnedSearchFilterCommand {
     pub search_filter_id: UserSearchFilterId,
     pub name: PatchField<UserSearchFilterName>,
     pub notifications: PatchField<bool>,
-    pub state: PatchField<ResourceState>,
+    pub state: PatchField<SearchFilterState>,
     pub search: ProductSearchPatch,
 }
 

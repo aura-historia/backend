@@ -7,6 +7,7 @@ use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_search::ProductSearch;
 use product_core::product_slug_id::ProductSlugId;
 use product_core::product_state::ProductState;
 use product_core::shops_product_id::ShopsProductId;
@@ -17,10 +18,10 @@ use product_core::{
 use product_service::ports::{
     ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
 };
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
-use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
+use search_filter_core::{NewSearchFilter, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{SqlxSearchFilterIndexReader, SqlxSearchFilterRepositoryFactory};
 use search_filter_service::ports::{
@@ -416,7 +417,7 @@ fn search_filter(user_id: UserId, query: &str) -> Result<SearchFilter, Box<dyn s
         user_id,
         name: UserSearchFilterName::from("Sequin acceptance filter"),
         notifications: true,
-        state: ResourceState::Active,
+        state: SearchFilterState::Active,
         search: ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query(query.try_into()?),
         embedding: None,

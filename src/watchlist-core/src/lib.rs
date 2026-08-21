@@ -4,8 +4,6 @@ use user_core::user_id::UserId;
 
 pub mod watchlist_state;
 
-pub use watchlist_state::WatchlistState as ResourceState;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatchlistProduct {
     user_id: UserId,

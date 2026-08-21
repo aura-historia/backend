@@ -3,8 +3,8 @@ use platform_postgres::SqlxUnitOfWork;
 use product_core::product_id::ProductId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use user_core::user_id::UserId;
-use watchlist_core::ResourceState;
 use watchlist_core::WatchlistProduct;
+use watchlist_core::watchlist_state::WatchlistState;
 use watchlist_postgres::{
     SqlxWatchlistQuotaReaderFactory, SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory,
 };
@@ -23,7 +23,7 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
     let reader = SqlxWatchlistReaderFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-user@example.com").await;
     let product_id = seed_product(&pool, "watchlist-postgres-product").await;
-    let mut entry = WatchlistProduct::rehydrate(user_id, product_id, true, ResourceState::Active);
+    let mut entry = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
 
     let mut tx = begin(&unit).await;
     repo.in_transaction(&mut tx)
@@ -83,12 +83,12 @@ async fn should_count_only_active_watchlist_entries_in_transaction() {
     let active_product_id = seed_product(&pool, "watchlist-postgres-active-product").await;
     let inactive_product_id = seed_product(&pool, "watchlist-postgres-inactive-product").await;
     let active =
-        WatchlistProduct::rehydrate(user_id, active_product_id, true, ResourceState::Active);
+        WatchlistProduct::rehydrate(user_id, active_product_id, true, WatchlistState::Active);
     let inactive = WatchlistProduct::rehydrate(
         user_id,
         inactive_product_id,
         true,
-        ResourceState::InactiveByUser,
+        WatchlistState::InactiveByUser,
     );
 
     let mut tx = begin(&unit).await;
@@ -119,7 +119,7 @@ async fn should_return_already_exists_when_watchlist_entry_exists() {
     let repo = SqlxWatchlistRepositoryFactory;
     let user_id = seed_user(&pool, "watchlist-postgres-duplicate@example.com").await;
     let product_id = seed_product(&pool, "watchlist-postgres-duplicate-product").await;
-    let entry = WatchlistProduct::rehydrate(user_id, product_id, true, ResourceState::Active);
+    let entry = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
 
     let mut tx = begin(&unit).await;
     repo.in_transaction(&mut tx)

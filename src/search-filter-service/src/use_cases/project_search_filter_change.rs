@@ -161,7 +161,7 @@ mod tests {
     use localization::Language;
     use money::Currency;
     use product_core::product_search::ProductSearch;
-    use search_filter_core::ResourceState;
+    use search_filter_core::search_filter_state::SearchFilterState;
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use std::sync::Mutex;
     use time::macros::datetime;
@@ -253,7 +253,7 @@ mod tests {
                 user_id: UserId::new(),
                 name: UserSearchFilterName::from("daily"),
                 notifications: true,
-                state: ResourceState::Active,
+                state: SearchFilterState::Active,
                 search: ProductSearch::new(Language::En, Currency::Usd),
                 embedding: None,
                 created: datetime!(2026-01-01 0:00 UTC),

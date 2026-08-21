@@ -13,7 +13,7 @@ use user_core::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
-use watchlist_core::ResourceState;
+use watchlist_core::watchlist_state::WatchlistState;
 use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -143,7 +143,7 @@ where
             user_id: command.user_id,
             product_id: command.product_id,
             notifications: command.notifications,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         });
         let entry = self
             .watchlist
@@ -240,7 +240,7 @@ mod tests {
     use user_service::ports::{
         UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
     };
-    use watchlist_core::ResourceState;
+    use watchlist_core::watchlist_state::WatchlistState;
     use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
     #[derive(Clone, Default)]
@@ -556,7 +556,7 @@ mod tests {
             user_id,
             product_id,
             notifications,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         })
     }
 

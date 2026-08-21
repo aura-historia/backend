@@ -6,7 +6,7 @@ use fxrate_core::FxRateId;
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_state::ProductState;
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
@@ -255,11 +255,11 @@ impl TryFrom<MatchRow> for SearchFilterMatchView {
     }
 }
 
-pub(crate) fn format_state(value: ResourceState) -> &'static str {
+pub(crate) fn format_state(value: SearchFilterState) -> &'static str {
     match value {
-        ResourceState::Active => "ACTIVE",
-        ResourceState::InactiveByUser => "INACTIVE_BY_USER",
-        ResourceState::InactiveByRestrictedPlan => "INACTIVE_BY_RESTRICTED_PLAN",
+        SearchFilterState::Active => "ACTIVE",
+        SearchFilterState::InactiveByUser => "INACTIVE_BY_USER",
+        SearchFilterState::InactiveByRestrictedPlan => "INACTIVE_BY_RESTRICTED_PLAN",
     }
 }
 pub(crate) fn user_search_filter_uuid(id: UserSearchFilterId) -> Result<uuid::Uuid, uuid::Error> {
@@ -284,11 +284,11 @@ fn price_match_valuation(
     }
 }
 
-fn state(v: &str) -> Result<ResourceState, SearchFilterRowMappingError> {
+fn state(v: &str) -> Result<SearchFilterState, SearchFilterRowMappingError> {
     match v {
-        "ACTIVE" => Ok(ResourceState::Active),
-        "INACTIVE_BY_USER" => Ok(ResourceState::InactiveByUser),
-        "INACTIVE_BY_RESTRICTED_PLAN" => Ok(ResourceState::InactiveByRestrictedPlan),
+        "ACTIVE" => Ok(SearchFilterState::Active),
+        "INACTIVE_BY_USER" => Ok(SearchFilterState::InactiveByUser),
+        "INACTIVE_BY_RESTRICTED_PLAN" => Ok(SearchFilterState::InactiveByRestrictedPlan),
         _ => Err(SearchFilterRowMappingError::InvalidState),
     }
 }

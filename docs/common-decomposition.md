@@ -221,3 +221,15 @@ mapping; legacy API callers keep their `common::api` mappings at their own bound
 six normal and one development baseline entries and matching dependency-rule allowances
 are gone. The exact CI guard still compares the committed baseline with the explicit PR
 base or push predecessor and rejects any growth.
+
+## Follow-up Iteration 7 — boundary and naming cleanup
+
+`product-core::ProductKey` now owns only the semantic `(ShopId, ShopsProductId)` pair. The
+labeled `shop_id#...#shops_product_id#...` codec lives in the legacy Product DynamoDB
+boundary, including the `product#` partition-key composition; round-trip coverage remains
+beside that adapter code and the persisted strings are unchanged.
+
+Canonical search-filter and watchlist code uses `SearchFilterState` and `WatchlistState`
+without `ResourceState` compatibility aliases. Their transport DTOs and adapter mappings
+use explicit bounded-context names while preserving the existing `SCREAMING_SNAKE_CASE`
+values. No Cargo dependency or baseline entry changed in this naming-only slice.

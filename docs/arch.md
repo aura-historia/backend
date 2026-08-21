@@ -1086,7 +1086,7 @@ Key-value item        -> key-value adapter mapping
 External response     -> corresponding adapter mapping
 ```
 
-Storage and transport mapping MUST NOT be placed in `core`.
+Storage and transport mapping MUST NOT be placed in `core`. A core crate MAY own the semantic fields of a composite domain key, but labeled string encodings for storage or transport MUST live at the owning boundary and preserve their legacy format there when compatibility requires it.
 
 ### 10.1 REST mapping
 
@@ -2719,7 +2719,7 @@ OpenSearchQuery
 PostgresPort
 ```
 
-Names SHOULD describe business intent or application capability.
+Names SHOULD describe business intent or application capability. When bounded contexts have similarly shaped lifecycle values, keep their Rust names distinct (`SearchFilterState`, `WatchlistState`) instead of using a generic compatibility alias.
 
 ---
 

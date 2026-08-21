@@ -13,15 +13,15 @@ use user_core::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
-use watchlist_core::ResourceState;
 use watchlist_core::WatchlistProduct;
+use watchlist_core::watchlist_state::WatchlistState;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateWatchlistProductCommand {
     pub user_id: UserId,
     pub product_id: ProductId,
     pub notifications: Option<bool>,
-    pub state: Option<ResourceState>,
+    pub state: Option<WatchlistState>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,7 +117,7 @@ where
             .ok_or(UpdateWatchlistProductError::NotFound)?;
 
         let reactivating =
-            matches!(command.state, Some(ResourceState::Active)) && !entry.state().is_active();
+            matches!(command.state, Some(WatchlistState::Active)) && !entry.state().is_active();
         if reactivating {
             let tier = self
                 .tier_entitlements
@@ -253,7 +253,7 @@ mod tests {
     use user_service::ports::{
         UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
     };
-    use watchlist_core::ResourceState;
+    use watchlist_core::watchlist_state::WatchlistState;
     use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
     #[derive(Clone, Default)]
@@ -569,7 +569,7 @@ mod tests {
             user_id,
             product_id,
             notifications,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         })
     }
 

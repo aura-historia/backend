@@ -27,7 +27,7 @@ use product_service::ports::{
     ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
     ProductSearchFilterMatchSourceReaderFactory,
 };
-use search_filter_core::ResourceState;
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::{PriceMatchValuation, SearchFilterProductMatch};
 use serde::Deserialize;
 use std::num::NonZeroUsize;
@@ -491,7 +491,7 @@ async fn evaluate_candidates<E>(
 where
     E: LargeLanguageModel,
 {
-    filters.retain(|filter| filter.state == ResourceState::Active);
+    filters.retain(|filter| filter.state == SearchFilterState::Active);
     filters.sort_by_key(|filter| filter.search_filter_id.to_string());
     filters.dedup_by(|left, right| left.search_filter_id == right.search_filter_id);
 
@@ -1240,8 +1240,8 @@ mod tests {
             user_id,
             name: UserSearchFilterName::from("daily"),
             notifications: true,
-            state: ResourceState::Active,
-            search: search_filter_core::ProductSearch::new(Language::En, Currency::Eur),
+            state: SearchFilterState::Active,
+            search: product_core::product_search::ProductSearch::new(Language::En, Currency::Eur),
             embedding: None,
             created: OffsetDateTime::UNIX_EPOCH,
             updated: OffsetDateTime::UNIX_EPOCH,

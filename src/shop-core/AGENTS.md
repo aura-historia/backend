@@ -12,7 +12,7 @@
 - Owns `Domain`, `ShopId`, `ShopName`, `ShopSlugId`, and `SellerSlugId`. `ShopSearch` is a service query contract.
 - `shop::Shop` is canonical aggregate. Fields private. Rehydrate boundary public for adapter crates.
 - Shop lifecycle defaults to `Drafted`; partner applications may create draft shops. A discarded draft is terminal and cannot be published.
-- Uses `domain-primitives` for neutral change outcomes plus pure `geo`, `money`, and `localization` values. No `common` dependency.
+- Uses `domain-primitives` for neutral change outcomes plus pure `geo`, `money`, and `localization` values.
 - No dependency on `shop-service`, legacy `shop`, or adapters.
 
 ## Ownership

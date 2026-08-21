@@ -18,7 +18,7 @@
 ## Work Guidance
 
 - Keep crate narrow. Add protocol shape only after more than one canonical consumer proves need.
-- Do not depend on `common`, core, service, adapter, runtime, or transport crates.
+- Do not depend on application, bounded-context, adapter, runtime, or transport crates.
 
 ## Verification
 
