@@ -7,7 +7,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{CodeChallengeMethod, OAuthCodeChallenge};
 use oauth_service::use_cases::{
     AuthorizeRequest, OAuthResponseType, OAuthState as OAuthRequestState,
@@ -22,7 +22,7 @@ pub async fn authorize(
     let (_context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await
     {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let request = match request(query) {
         Ok(value) => value,

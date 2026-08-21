@@ -1,11 +1,11 @@
 use crate::ports::{UserDetailsView, UserRepository, UserRepositoryError, UserRepositoryFactory};
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::stripe_customer_id::StripeCustomerId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use user_core::stripe_customer_id::StripeCustomerId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetUserStripeCustomerIdCommand {
@@ -115,7 +115,7 @@ where
             .await
             .map_err(|_| SetUserStripeCustomerIdError::BeginTransactionFailed)?;
         let mut users = self.users.in_transaction(&mut tx);
-        let common::versioned::Versioned {
+        let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
         } = users

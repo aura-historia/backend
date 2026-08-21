@@ -1,23 +1,21 @@
 use crate::error::{ApiError, ApiErrorCode, BAD_BODY_VALUE};
-use common::language::data::LocalizedTextData;
-use common::localized::Localized;
-use common::patch_field::PatchField;
-use common::price::data::PriceData;
-use common::price::domain::Price;
-use common::product_id::ProductKey;
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
+use crate::values::{LocalizedTextData, PriceData};
+use application::patch_field::PatchField;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use money::Price;
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+use product_core::product_id::ProductKey;
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use product_service::use_cases::{
     CreateProductCommand, UpdateProductCommand, UpsertProductCommand,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use shop_core::shop_id::ShopId;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -247,18 +245,18 @@ fn patch<T>(value: Option<T>) -> PatchField<T> {
     value.map(PatchField::Set).unwrap_or(PatchField::Unchanged)
 }
 
-fn title(value: LocalizedTextData) -> Localized<common::language::domain::Language, Title> {
-    Localized::new(value.language.into(), Title::from(value.text))
+fn title(value: LocalizedTextData) -> localization::Localized<localization::Language, Title> {
+    value.into_localized()
 }
 
 fn description(
     value: LocalizedTextData,
-) -> Localized<common::language::domain::Language, Description> {
-    Localized::new(value.language.into(), Description::from(value.text))
+) -> localization::Localized<localization::Language, Description> {
+    value.into_localized()
 }
 
 fn price(value: PriceData) -> Price {
-    Price::new(value.amount.into(), value.currency.into())
+    value.into()
 }
 
 fn product_address(

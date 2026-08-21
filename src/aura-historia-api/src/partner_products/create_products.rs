@@ -6,7 +6,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 
 pub async fn create_products(
     State(state): State<PartnerProductsState>,
@@ -20,7 +20,7 @@ pub async fn create_products(
     };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let products: Vec<CreateProductData> = match parse_partner_product_batch(&body) {
         Ok(products) => products,
@@ -75,14 +75,13 @@ mod tests {
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
     use crate::partner_products::types::MAX_PARTNER_PRODUCT_BATCH_SIZE;
+    use application::operation_context::{CredentialCapability, OperationContext};
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};
-    use common::event_id::EventId;
-    use common::operation_context::{CredentialCapability, OperationContext};
-    use common::product_id::{ProductId, ProductKey};
-    use common::product_slug_id::ProductSlugId;
-    use common::user_id::UserId;
+    use domain_primitives::event_id::EventId;
+    use product_core::product_id::{ProductId, ProductKey};
+    use product_core::product_slug_id::ProductSlugId;
     use product_service::use_cases::{
         CreateProductCommand, CreateProductError, CreateProductResult, CreateProductUseCase,
         DeleteProductError, DeleteProductResult, DeleteProductUseCase, UpdateProductCommand,
@@ -93,6 +92,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use tower::ServiceExt;
+    use user_core::user_id::UserId;
 
     mockall::mock! {
         CreateUseCase {}

@@ -45,57 +45,127 @@ const SENDER_MAIL: &str = "no-reply@notify.aura-historia.com";
 const REPLY_TO_MAIL: &str = "contact@aura-historia.com";
 
 #[derive(thiserror::Error, Debug)]
-#[allow(clippy::large_enum_variant)]
 pub enum NotificationError {
     #[error("There exists no Notification for user '{0}' with origin-event-id '{1}'.")]
     NotificationNotFound(UserId, EventId),
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for QueryItem: {0:?}")]
-    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
+    SdkQueryError(
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>,
+    ),
 
     #[error("Encountered DynamoDB SdkError for PutItem: {0:?}")]
     SdkPutItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
     SdkUpdateItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
+        #[source]
+        Box<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for DeleteItem: {0:?}")]
     SdkDeleteItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+        #[source]
+        Box<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for BatchWriteItem (delete): {0}")]
     SdkBatchDeleteError(
-        #[from]
-        SdkError<aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError, HttpResponse>,
+        #[source]
+        Box<
+            SdkError<
+                aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
+                HttpResponse,
+            >,
+        >,
     ),
 
     #[error("User with UserId '{0}' not found.")]
     UserNotFound(UserId),
 
     #[error("Failed looking up user: {0}")]
-    UserLookupFailed(#[source] UserServiceError),
+    UserLookupFailed(#[source] Box<UserServiceError>),
 
     #[error("Encountered SES SdkError for SendMail: {0:?}")]
-    SdkSESSendMailError(SdkError<SendEmailError>),
+    SdkSESSendMailError(#[source] Box<SdkError<SendEmailError>>),
 
     #[error("Encountered S3 SdkError for GetObject: {0:?}")]
-    SdkS3GetObjectError(SdkError<GetObjectError>),
+    SdkS3GetObjectError(#[source] Box<SdkError<GetObjectError>>),
 
     #[error("Encountered Handlebars-Error for Render: {0}")]
     TemplateRenderError(#[from] handlebars::RenderError),
 
     #[error("Missing persistence field: {0}")]
     MissingPersistenceField(#[from] common::error::missing_field::MissingPersistenceField),
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>
+    for NotificationError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkGetItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>
+    for NotificationError
+{
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>) -> Self {
+        Self::SdkQueryError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>>
+    for NotificationError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkPutItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>>
+    for NotificationError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkUpdateItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>>
+    for NotificationError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkDeleteItemError(Box::new(error))
+    }
+}
+
+impl
+    From<SdkError<aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError, HttpResponse>>
+    for NotificationError
+{
+    fn from(
+        error: SdkError<
+            aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
+            HttpResponse,
+        >,
+    ) -> Self {
+        Self::SdkBatchDeleteError(Box::new(error))
+    }
 }
 
 #[derive(Debug)]
@@ -219,7 +289,7 @@ impl<'a> NotificationServiceImpl<'a> {
     async fn resolve_template(
         &self,
         template: MailTemplate,
-    ) -> Result<String, SdkError<GetObjectError>> {
+    ) -> Result<String, Box<SdkError<GetObjectError>>> {
         let template_cache_rw =
             TEMPLATE_CACHE.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
 
@@ -264,7 +334,7 @@ impl<'a> NotificationServiceImpl<'a> {
             .await
             .map_err(|err| match &err {
                 UserServiceError::UserNotFound(uid) => NotificationError::UserNotFound(*uid),
-                _ => NotificationError::UserLookupFailed(err),
+                _ => NotificationError::UserLookupFailed(Box::new(err)),
             })?;
 
         let language = user.language.unwrap_or(Language::En);
@@ -317,7 +387,7 @@ impl<'a> NotificationServiceImpl<'a> {
                 vec![message_tag],
             )
             .await
-            .map_err(NotificationError::SdkSESSendMailError)?;
+            .map_err(|error| NotificationError::SdkSESSendMailError(Box::new(error)))?;
 
         Ok(())
     }
@@ -726,11 +796,11 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                             if failed_user_ids.contains(&user_id) {
                                 unprocessed.push((
                                     cmd,
-                                    NotificationError::SdkPutItemError(
+                                    NotificationError::SdkPutItemError(Box::new(
                                         SdkError::construction_failure(
                                             "Item returned as unprocessed in BatchWriteItem",
                                         ),
-                                    ),
+                                    )),
                                 ));
                             } else {
                                 processed.push(notif);
@@ -748,8 +818,10 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                         if let Some((cmd, _)) = cmd_map.remove(&user_id) {
                             unprocessed.push((
                                 cmd,
-                                NotificationError::SdkPutItemError(SdkError::construction_failure(
-                                    "BatchWriteItem operation failed",
+                                NotificationError::SdkPutItemError(Box::new(
+                                    SdkError::construction_failure(
+                                        "BatchWriteItem operation failed",
+                                    ),
                                 )),
                             ));
                         }
@@ -795,9 +867,9 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
                 .update_notification_record(user_id, origin_event_id, record_update)
                 .await?
                 .ok_or_else(|| {
-                    NotificationError::SdkUpdateItemError(SdkError::construction_failure(
+                    NotificationError::SdkUpdateItemError(Box::new(SdkError::construction_failure(
                         "Failed parsing DynamoDB UpdateItem Response-Payload",
-                    ))
+                    )))
                 })?;
 
             Ok(updated_record.try_into()?)
@@ -902,9 +974,9 @@ impl<'a> NotificationService for NotificationServiceImpl<'a> {
             .update_notification_record(user_id, origin_event_id, record_update)
             .await?
             .ok_or_else(|| {
-                NotificationError::SdkUpdateItemError(SdkError::construction_failure(
+                NotificationError::SdkUpdateItemError(Box::new(SdkError::construction_failure(
                     "Failed parsing DynamoDB UpdateItem Response-Payload after send_externally",
-                ))
+                )))
             })?;
 
         let updated_notification: Notification = updated_record.try_into()?;
@@ -1085,12 +1157,12 @@ mod api_error_impls {
                 NotificationError::NotificationNotFound(_, _) => {
                     ApiError::not_found(NOTIFICATION_NOT_FOUND, Box::new(err))
                 }
-                NotificationError::SdkGetItemError(e) => e.into(),
-                NotificationError::SdkQueryError(e) => e.into(),
-                NotificationError::SdkPutItemError(e) => e.into(),
-                NotificationError::SdkUpdateItemError(e) => e.into(),
-                NotificationError::SdkDeleteItemError(e) => e.into(),
-                NotificationError::SdkBatchDeleteError(e) => e.into(),
+                NotificationError::SdkGetItemError(e) => (*e).into(),
+                NotificationError::SdkQueryError(e) => (*e).into(),
+                NotificationError::SdkPutItemError(e) => (*e).into(),
+                NotificationError::SdkUpdateItemError(e) => (*e).into(),
+                NotificationError::SdkDeleteItemError(e) => (*e).into(),
+                NotificationError::SdkBatchDeleteError(e) => (*e).into(),
                 NotificationError::UserNotFound(_)
                 | NotificationError::UserLookupFailed(_)
                 | NotificationError::SdkSESSendMailError(_)

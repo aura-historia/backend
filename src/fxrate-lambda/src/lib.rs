@@ -1,7 +1,7 @@
 //! Scheduled AWS Lambda edge handler for immutable canonical FX snapshots.
 
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use fxrate_service::{
     CaptureFxRateSnapshotCommand, CaptureFxRateSnapshotOutcome, CaptureFxRateSnapshotUseCase,
 };

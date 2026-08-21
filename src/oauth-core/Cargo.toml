@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true }
+credential-core = { workspace = true }
+domain-primitives = { workspace = true }
 serde = { workspace = true }
 time = { workspace = true, features = ["serde"] }
 url = { workspace = true, features = ["serde"] }
@@ -16,4 +17,4 @@ fake = { workspace = true, optional = true }
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "user-core/test-data"]
+test-data = ["fake", "credential-core/test-data", "user-core/test-data"]

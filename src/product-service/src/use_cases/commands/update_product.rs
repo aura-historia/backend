@@ -3,27 +3,27 @@ use crate::ports::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
-use common::error::boxed::BoxError;
-use common::event_id::EventId;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::patch_field::PatchField;
-use common::price::domain::Price;
-use common::product_id::{ProductId, ProductKey};
-use common::product_state::domain::ProductState;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::patch_field::PatchField;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
+use money::Price;
 use product_core::product::{
     ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     ProductStateTransitionError,
 };
+use product_core::product_id::{ProductId, ProductKey};
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UpdateProductCommand {
@@ -683,14 +683,14 @@ impl FxRateSnapshotRepository for MissingFxRateSnapshotRepository {
 
     async fn find_by_id(
         &mut self,
-        _id: common::fx_rate_id::FxRateId,
+        _id: fxrate_core::FxRateId,
     ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(None)
     }
 
     async fn find_by_ids(
         &mut self,
-        _ids: &[common::fx_rate_id::FxRateId],
+        _ids: &[fxrate_core::FxRateId],
     ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(Vec::new())
     }
@@ -733,19 +733,19 @@ impl From<ProductEventStoreError> for UpdateProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::language::domain::Language;
-    use common::localized::Localized;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use localization::Language;
+    use localization::Localized;
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
 
-    use common::shop_id::ShopId;
-    use common::shops_product_id::ShopsProductId;
-    use common::transaction::TransactionError;
-    use common::versioned::Versioned;
+    use application::transaction::TransactionError;
+    use domain_primitives::versioned::Versioned;
     use product_core::description::Description;
     use product_core::product::{NewProduct, Product, ProductDomainEvent};
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::title::Title;
+    use shop_core::shop_id::ShopId;
     use std::sync::{Arc, Mutex, MutexGuard};
 
     #[derive(Debug, Default)]

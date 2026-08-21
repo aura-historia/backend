@@ -1,13 +1,16 @@
-use common::change_outcome::ChangeOutcome;
-use common::enhanced_match_reason::EnhancedMatchReason;
-use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
-use common::product_id::ProductId;
-use common::resource_state::domain::ResourceState;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
-pub use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use crate::{
+    enhanced_match_reason::EnhancedMatchReason, search_filter_state::SearchFilterState,
+    user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
+};
+use domain_primitives::{change_outcome::ChangeOutcome, event_id::EventId};
+use fxrate_core::FxRateId;
+use product_core::product_id::ProductId;
+use product_core::product_search::ProductSearch;
+use user_core::user_id::UserId;
+pub mod enhanced_match_reason;
+pub mod search_filter_state;
+pub mod user_search_filter_id;
+pub mod user_search_filter_name;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilter {
@@ -15,7 +18,7 @@ pub struct SearchFilter {
     user_id: UserId,
     name: UserSearchFilterName,
     notifications: bool,
-    state: ResourceState,
+    state: SearchFilterState,
     search: ProductSearch,
     embedding: Option<Vec<f32>>,
 }
@@ -26,7 +29,7 @@ pub struct NewSearchFilter {
     pub user_id: UserId,
     pub name: UserSearchFilterName,
     pub notifications: bool,
-    pub state: ResourceState,
+    pub state: SearchFilterState,
     pub search: ProductSearch,
     pub embedding: Option<Vec<f32>>,
 }
@@ -49,7 +52,7 @@ impl SearchFilter {
         user_id: UserId,
         name: UserSearchFilterName,
         notifications: bool,
-        state: ResourceState,
+        state: SearchFilterState,
         search: ProductSearch,
         embedding: Option<Vec<f32>>,
     ) -> Self {
@@ -80,7 +83,7 @@ impl SearchFilter {
         ChangeOutcome::Changed
     }
 
-    pub fn change_state(&mut self, state: ResourceState) -> ChangeOutcome {
+    pub fn change_state(&mut self, state: SearchFilterState) -> ChangeOutcome {
         if self.state == state {
             return ChangeOutcome::Unchanged;
         }
@@ -113,7 +116,7 @@ impl SearchFilter {
     pub fn notifications(&self) -> bool {
         self.notifications
     }
-    pub fn state(&self) -> ResourceState {
+    pub fn state(&self) -> SearchFilterState {
         self.state
     }
     pub fn search(&self) -> &ProductSearch {
@@ -156,7 +159,8 @@ impl SearchFilterProductMatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{currency::domain::Currency, language::domain::Language};
+    use localization::Language;
+    use money::Currency;
 
     fn sample_filter() -> SearchFilter {
         SearchFilter::create(NewSearchFilter {
@@ -164,7 +168,7 @@ mod tests {
             user_id: UserId::new(),
             name: UserSearchFilterName::from("daily"),
             notifications: true,
-            state: ResourceState::Active,
+            state: SearchFilterState::Active,
             search: ProductSearch::new(Language::En, Currency::Eur),
             embedding: None,
         })
@@ -174,7 +178,7 @@ mod tests {
     fn should_create_search_filter() {
         let filter = sample_filter();
         assert!(filter.notifications());
-        assert_eq!(ResourceState::Active, filter.state());
+        assert_eq!(SearchFilterState::Active, filter.state());
         assert_eq!(Language::En, filter.search().language);
     }
 

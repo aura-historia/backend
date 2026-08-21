@@ -1,9 +1,9 @@
 use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
+use application::patch_field::PatchField;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use common::patch_field::PatchField;
-use common::user_id::UserId;
 use serde::Deserialize;
+use user_core::user_id::UserId;
 
 pub(crate) fn no_store(mut response: Response) -> Response {
     response.headers_mut().insert(

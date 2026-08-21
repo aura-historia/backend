@@ -1,11 +1,11 @@
 use crate::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
 use crate::use_cases::queries::search_shops::ShopSummary;
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListUserPartnerShopsRequest {

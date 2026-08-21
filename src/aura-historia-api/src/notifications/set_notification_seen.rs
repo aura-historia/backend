@@ -16,7 +16,7 @@ pub(super) async fn update_notification(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let notification_id = match Uuid::parse_str(&raw_notification_id) {
         Ok(value) => notification_id(value),

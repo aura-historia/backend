@@ -1,16 +1,15 @@
-use uuid::Uuid;
+// Legacy shim. Owner: product-core. Remove after legacy Product consumers migrate.
+pub use product_core::shops_product_id::ShopsProductId;
 
-crate::slug_id_newtype!(ShopsProductId, 0);
-
-impl ShopsProductId {
-    pub fn new() -> Self {
-        Self::from(Uuid::new_v4().to_string())
+impl From<crate::slug_id::SlugId<0>> for ShopsProductId {
+    fn from(value: crate::slug_id::SlugId<0>) -> Self {
+        Self::from(value.to_string())
     }
 }
 
-impl Default for ShopsProductId {
-    fn default() -> Self {
-        Self::new()
+impl From<ShopsProductId> for crate::slug_id::SlugId<0> {
+    fn from(value: ShopsProductId) -> Self {
+        Self::from(value.to_string())
     }
 }
 

@@ -1,12 +1,12 @@
 use super::{no_store, parse_form, required_form};
 use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
 use crate::state::OAuthState;
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use axum::{
     extract::State,
     response::{IntoResponse, Response},
 };
-use common::oauth_client_id::OAuthClientId;
-use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_service::use_cases::RevokeTokenRequest;
 use user_core::access_token::{RawAccessToken, RawOAuthClientSecret};
 

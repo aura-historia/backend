@@ -6,12 +6,12 @@ use common::{
     user_search_filter_id::UserSearchFilterId,
     user_search_filter_name::UserSearchFilterName,
 };
-use product_core::user_state::{
-    NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
-    WatchlistUserState,
-};
 use product_service::ports::{
     ProductUserStateLookup, ProductUserStateReadError, ProductUserStateReader,
+};
+use product_service::user_state::{
+    NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
+    WatchlistUserState,
 };
 use sqlx::PgPool;
 use std::collections::HashMap;

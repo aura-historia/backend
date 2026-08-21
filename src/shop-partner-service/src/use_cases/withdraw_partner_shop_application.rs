@@ -2,16 +2,16 @@ use crate::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,
     PartnerShopApplicationRepositoryFactory,
 };
-use common::change_outcome::ChangeOutcome;
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::change_outcome::ChangeOutcome;
 use shop_partner_core::partner_shop_application::PartnerShopApplicationTransitionError;
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_service::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WithdrawPartnerShopApplicationCommand {

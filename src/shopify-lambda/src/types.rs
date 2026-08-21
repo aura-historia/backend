@@ -1,5 +1,5 @@
-use common::product_state::domain::ProductState;
 use indexmap::IndexSet;
+use product_core::product_state::ProductState;
 use product_service::use_cases::IngestShopifyProductCommand;
 use serde::Deserialize;
 use url::Url;
@@ -68,7 +68,7 @@ pub enum ShopifyProductEventError {
 impl ShopifyProductEventKind {
     pub fn command(
         self,
-        shop_domain: common::domain::Domain,
+        shop_domain: shop_core::domain::Domain,
         payload: ShopifyProductPayload,
     ) -> Result<IngestShopifyProductCommand, ShopifyProductEventError> {
         let state = match self {
@@ -86,7 +86,7 @@ impl ShopifyProductEventKind {
 
         Ok(IngestShopifyProductCommand {
             shop_domain,
-            shops_product_id: common::shops_product_id::ShopsProductId::from(
+            shops_product_id: product_core::shops_product_id::ShopsProductId::from(
                 payload.id.to_string(),
             ),
             title,
@@ -152,7 +152,7 @@ mod tests {
 
         let command = ShopifyProductEventKind::Delete
             .command(
-                common::domain::Domain::try_from("partner.example")
+                shop_core::domain::Domain::try_from("partner.example")
                     .unwrap_or_else(|error| panic!("invalid domain: {error}")),
                 payload,
             )

@@ -1,6 +1,7 @@
 use crate::ports::ProductSearchFilterMatchSource;
-use common::{error::boxed::BoxError, product_id::ProductId};
+use application::error::BoxError;
 use fxrate_core::FxRateSnapshot;
+use product_core::product_id::ProductId;
 
 /// Writes the rebuildable Product search projection. PostgreSQL remains authoritative.
 #[async_trait::async_trait]

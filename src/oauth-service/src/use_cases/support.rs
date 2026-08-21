@@ -1,9 +1,9 @@
 use crate::error::OAuthServiceError;
 use crate::ports::OAuthClientRepository;
+use application::operation_context::{CredentialCapability, OperationContext};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use common::oauth_client_id::OAuthClientId;
-use common::operation_context::{CredentialCapability, OperationContext};
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{OAuthCodeChallenge, OAuthCodeVerifier};
 use oauth_core::client::OAuthClient;
 use sha2::{Digest, Sha256};

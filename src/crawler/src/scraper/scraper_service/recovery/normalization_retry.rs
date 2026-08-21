@@ -304,7 +304,7 @@ impl ScraperServiceImpl {
                 return Err(ScraperError::SchemaRegenerationExhausted {
                     url: ctx.url.clone(),
                     attempts: 1,
-                    last_error: apply_err,
+                    last_error: Box::new(apply_err),
                 });
             }
         };
@@ -321,7 +321,7 @@ impl ScraperServiceImpl {
                 return Err(ScraperError::NormalizationFixExhausted {
                     url: ctx.url.clone(),
                     attempts: 1,
-                    last_norm_error: norm_err,
+                    last_norm_error: Box::new(norm_err),
                 });
             }
             Err(norm_err) => return Err(ScraperError::NormalizationError(norm_err)),
@@ -392,7 +392,7 @@ impl ScraperServiceImpl {
                     return Err(ScraperError::NormalizationFixExhausted {
                         url: ctx.url.clone(),
                         attempts: 1,
-                        last_norm_error: norm_err,
+                        last_norm_error: Box::new(norm_err),
                     });
                 }
                 Err(ScraperError::NormalizationError(norm_err))

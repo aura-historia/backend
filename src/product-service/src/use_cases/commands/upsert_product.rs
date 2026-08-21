@@ -5,24 +5,20 @@ use crate::ports::{
 };
 use crate::use_cases::commands::create_product::CreateProductResult;
 use crate::use_cases::commands::update_product::UpdateProductResult;
-use common::error::boxed::{BoxError, box_error};
+use application::error::{BoxError, box_error};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::operation_context::{
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::price::domain::Price;
-use common::product_id::{ProductId, ProductKey};
+use localization::Language;
+use localization::Localized;
+use money::Price;
+use product_core::product_id::{ProductId, ProductKey};
 
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
 use indexmap::IndexSet;
 use product_core::description::Description;
 use product_core::product::{
@@ -30,8 +26,12 @@ use product_core::product::{
     ProductStateTransitionError, RehydrateProductError,
 };
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
+use shop_core::shop_id::ShopId;
 use url::Url;
+use user_core::user_id::UserId;
 
 const MISSING_PRODUCT_URL: &str = "https://not-provided.invalid";
 
@@ -577,14 +577,14 @@ impl FxRateSnapshotRepository for MissingFxRateSnapshotRepository {
 
     async fn find_by_id(
         &mut self,
-        _id: common::fx_rate_id::FxRateId,
+        _id: fxrate_core::FxRateId,
     ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(None)
     }
 
     async fn find_by_ids(
         &mut self,
-        _ids: &[common::fx_rate_id::FxRateId],
+        _ids: &[fxrate_core::FxRateId],
     ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(Vec::new())
     }
@@ -631,12 +631,12 @@ impl From<ProductEventStoreError> for UpsertProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::event_id::EventId;
-    use common::operation_context::{CorrelationId, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
-    use common::transaction::TransactionError;
-    use common::versioned::Versioned;
+    use application::operation_context::{CorrelationId, RequestId};
+    use application::transaction::TransactionError;
+    use domain_primitives::event_id::EventId;
+    use domain_primitives::versioned::Versioned;
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};
 

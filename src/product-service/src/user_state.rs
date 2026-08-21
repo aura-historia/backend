@@ -1,7 +1,8 @@
-use common::enhanced_match_reason::EnhancedMatchReason;
 use common::notification_id::NotificationId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use search_filter_core::{
+    enhanced_match_reason::EnhancedMatchReason, user_search_filter_id::UserSearchFilterId,
+    user_search_filter_name::UserSearchFilterName,
+};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProductUserState {

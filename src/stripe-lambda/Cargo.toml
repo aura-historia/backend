@@ -4,12 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true, features = ["postgres"] }
+application = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
 tracing = { workspace = true }
 user-core = { workspace = true }
 user-service = { workspace = true }
 user-postgres = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["json"] }
+
 tokio = { workspace = true, features = ["macros"] }
 aws_lambda_events = { workspace = true, features = ["eventbridge"] }
 lambda_runtime = { workspace = true }

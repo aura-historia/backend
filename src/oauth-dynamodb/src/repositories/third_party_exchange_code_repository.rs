@@ -1,8 +1,8 @@
 use crate::repository::OAuthDynamoDbStore;
 use crate::third_party_exchange_code_record::{self, ThirdPartyExchangeCodeRecord};
 
+use application::error::box_error;
 use aws_sdk_dynamodb::types::AttributeValue;
-use common::error::boxed::box_error;
 use oauth_core::third_party_exchange_code::{ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant};
 use oauth_service::ports::{OAuthCodeRepositoryError, ThirdPartyExchangeCodeRepository};
 

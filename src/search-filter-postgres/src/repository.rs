@@ -2,9 +2,10 @@ use crate::mapping::{
     FILTER_COLUMNS, FilterRow, ProductSearchJsonMappingError, format_state, product_search_to_json,
     user_search_filter_uuid,
 };
-use common::user_search_filter_id::UserSearchFilterId;
-use common::{error::boxed::box_error, postgres::SqlxTransaction};
+use application::error::box_error;
+use platform_postgres::SqlxTransaction;
 use search_filter_core::SearchFilter;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     PersistedSearchFilter, SearchFilterRepository, SearchFilterRepositoryError,
     SearchFilterRepositoryFactory,

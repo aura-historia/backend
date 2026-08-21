@@ -5,22 +5,22 @@ use crate::error::{
 use crate::shops::shop_data::{ShopSummaryData, cache_control};
 use crate::shops::types::{ShopContinentData, ShopPartnerStatusData, ShopTypeData};
 use crate::state::ShopsState;
+use application::pagination::Cursor;
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::pagination::cursor::Cursor;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
-use common::shop_id::ShopId;
-use common::sort::{Sort, SortOrder};
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
+use domain_primitives::sort::{Sort, SortOrder};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use shop_core::continent::Continent;
 use shop_core::partner_status::ShopPartnerStatus;
-use shop_core::shop_search::ShopSearch;
+use shop_core::shop_id::ShopId;
 use shop_core::shop_type::ShopType;
 use shop_core::sort_shop_field::SortShopField;
+use shop_service::shop_search::ShopSearch;
 use shop_service::use_cases::queries::search_shops::SearchShopsRequest;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -38,9 +38,15 @@ struct ShopSearchData {
     countries: HashSet<CountryCode>,
     #[serde(default)]
     continents: HashSet<ShopContinentData>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     created: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     updated: Option<RangeQuery<OffsetDateTime>>,
 }
 

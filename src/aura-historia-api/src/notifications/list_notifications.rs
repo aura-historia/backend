@@ -2,11 +2,12 @@ use super::types::NotificationData;
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE};
 use crate::state::NotificationsState;
+use crate::values::LanguageData;
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::language::data::LanguageData;
+
 use common::notification_id::NotificationId;
 use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
 use notification_service::ports::notification_list_reader::NotificationListCursor;
@@ -46,7 +47,7 @@ pub(super) async fn list_notifications(
     };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     match state

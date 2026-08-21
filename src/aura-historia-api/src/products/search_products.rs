@@ -4,33 +4,31 @@ use crate::products::product_data::{
     PersonalizedProductSummaryData, personalized_product_summary_data,
 };
 use crate::state::ProductsState;
+use crate::values::{CurrencyData, GeoDistanceQueryData, LanguageData};
+use application::operation_context::Principal;
+use application::pagination::Cursor;
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::distance::data::GeoDistanceQueryData;
-use common::fx_rate_id::FxRateId;
-use common::language::data::LanguageData;
-use common::operation_context::Principal;
-use common::pagination::cursor::Cursor;
-use common::price::domain::MonetaryAmount;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_state::domain::ProductState;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
-use common::sort::{Sort, SortOrder};
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
+use domain_primitives::sort::{Sort, SortOrder};
+use fxrate_core::FxRateId;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
+use money::MonetaryAmount;
+use product_core::product_id::ProductId;
+use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_state::ProductState;
 use product_core::sort_product_field::SortProductField;
 use product_service::use_cases::{ProductSearchCursor, SearchProductsRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use shop_core::shop_type::ShopType;
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -78,13 +76,25 @@ struct ProductSearchData {
     state: HashSet<ProductStateData>,
     #[serde(default)]
     lifecycle: HashSet<ProductLifecycleData>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     created: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     updated: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     auction_start: Option<RangeQuery<OffsetDateTime>>,
-    #[serde(with = "common::query::range_query::range_rfc3339::option", default)]
+    #[serde(
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
+        default
+    )]
     auction_end: Option<RangeQuery<OffsetDateTime>>,
 }
 
@@ -413,14 +423,14 @@ fn query_values(raw_query: Option<&str>, key: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::auth::{AuthError, RequestMetadata, TokenAuthenticator, TransportPrincipal};
+    use application::operation_context::OperationContext;
+    use application::pagination::Cursor;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::currency::domain::Currency;
-    use common::language::domain::Language;
-    use common::operation_context::OperationContext;
-    use common::pagination::cursor::Cursor;
-    use common::sort::SortOrder;
+    use domain_primitives::sort::SortOrder;
+    use localization::Language;
+    use money::Currency;
     use product_service::use_cases::{
         GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,

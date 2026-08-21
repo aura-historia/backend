@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use common::error::boxed::BoxError;
-use common::event_id::EventId;
-use common::product_id::{ProductId, ProductKey};
-use common::versioned::Versioned;
+use application::error::BoxError;
+use domain_primitives::event_id::EventId;
+use domain_primitives::versioned::Versioned;
 use product_core::product::Product;
+use product_core::product_id::{ProductId, ProductKey};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProductRepositoryError {

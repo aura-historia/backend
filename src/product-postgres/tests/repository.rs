@@ -1,24 +1,22 @@
-use common::currency::domain::Currency;
-use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::postgres::SqlxUnitOfWork;
-use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::{ProductId, ProductKey};
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::transaction::{Transaction, UnitOfWork};
-use common::versioned::Versioned;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
+use domain_primitives::versioned::Versioned;
+use fxrate_core::FxRateId;
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Currency;
+use money::{MonetaryAmount, Price};
+use platform_postgres::SqlxUnitOfWork;
 use product_core::description::Description;
 use product_core::product::{
     NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, RehydratedProductState,
 };
+use product_core::product_id::{ProductId, ProductKey};
 use product_core::product_image::ProductImage;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
 use product_postgres::{SqlxProductEventStoreFactory, SqlxProductRepositoryFactory};
@@ -26,6 +24,8 @@ use product_service::ports::{
     ProductEventStore, ProductEventStoreFactory, ProductRepository, ProductRepositoryError,
     ProductRepositoryFactory,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::OffsetDateTime;
@@ -164,7 +164,7 @@ async fn should_round_trip_immutable_sale_valuation_in_postgres() {
     let transition = product.mark_sold(valuation);
     assert!(matches!(
         transition,
-        Ok(common::change_outcome::ChangeOutcome::Changed)
+        Ok(domain_primitives::change_outcome::ChangeOutcome::Changed)
     ));
     let current_event_id = match product.pending_events().last() {
         Some(event) => event.event_id,
@@ -556,7 +556,7 @@ fn rehydrate_product_for_update(
     product: &Product,
     slug_id: ProductSlugId,
     shop_id: ShopId,
-    shops_product_id: common::shops_product_id::ShopsProductId,
+    shops_product_id: product_core::shops_product_id::ShopsProductId,
 ) -> Product {
     match Product::rehydrate(RehydratedProductState {
         id: product.id(),
@@ -587,10 +587,10 @@ fn sample_product(slug: &str, shop_id: ShopId, seller_id: ShopId) -> Product {
         prohibited_content: ProhibitedContent::None,
     });
     match Product::create(NewProduct {
-        id: common::product_id::ProductId::new(),
+        id: product_core::product_id::ProductId::new(),
         shop_id,
         seller_id,
-        shops_product_id: common::shops_product_id::ShopsProductId::from(slug),
+        shops_product_id: product_core::shops_product_id::ShopsProductId::from(slug),
         address: ProductAddress::default(),
         title: Some(Localized::new(Language::En, Title::from(slug))),
         description: Some(Localized::new(
@@ -677,14 +677,14 @@ fn url(value: &str) -> Url {
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

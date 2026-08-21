@@ -5,15 +5,18 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+application = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 aws-sdk-sesv2 = { workspace = true }
 aws-smithy-types = { workspace = true }
 
 common = { workspace = true, features = ["postgres"] }
+domain-primitives = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }
 large-language-model = { workspace = true }
+localization = { workspace = true }
 google-cloud-auth = { workspace = true }
 indexmap = { workspace = true }
 notification-core = { workspace = true }
@@ -21,16 +24,20 @@ notification-email-aws = { workspace = true }
 notification-postgres = { workspace = true }
 notification-service = { workspace = true }
 opensearch = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
 product-core = { workspace = true }
 product-opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
 product-translation-llm = { workspace = true }
 reqwest = { workspace = true }
+search-filter-core = { workspace = true }
 search-filter-opensearch = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
 watchlist-postgres = { workspace = true }
+user-core = { workspace = true }
 user-postgres = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

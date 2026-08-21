@@ -6,10 +6,10 @@ use crate::{
     shop_type::ShopType,
     woocommerce_webhook_secret::WoocommerceWebhookSecret,
 };
-use common::change_outcome::ChangeOutcome;
-use common::currency::domain::Currency;
-use common::language::domain::Language;
-use common::{domain::Domain, shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use crate::{domain::Domain, shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use domain_primitives::change_outcome::ChangeOutcome;
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 use std::collections::HashSet;
 use url::Url;
@@ -250,7 +250,7 @@ impl Shop {
             self.affiliate_configuration
                 .as_ref()
                 .map(|configuration| configuration.build_url(url))
-                .unwrap_or_else(|| common::utm::append_utm_params(url.clone()))
+                .unwrap_or_else(|| append_utm_params(url.clone()))
         })
     }
 
@@ -295,6 +295,16 @@ impl Shop {
     pub fn affiliate_configuration(&self) -> Option<&AffiliateConfiguration> {
         self.affiliate_configuration.as_ref()
     }
+}
+
+fn append_utm_params(mut url: Url) -> Url {
+    if url.query_pairs().any(|(key, _)| key == "utm_source") {
+        return url;
+    }
+    url.query_pairs_mut()
+        .append_pair("utm_source", "aura_historia")
+        .append_pair("utm_medium", "referral");
+    url
 }
 
 fn replace_if_changed<T: PartialEq>(target: &mut T, value: T) -> ChangeOutcome {

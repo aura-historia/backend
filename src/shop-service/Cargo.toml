@@ -5,14 +5,19 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-common = { workspace = true }
+application = { workspace = true }
+domain-primitives = { workspace = true }
 geo = { workspace = true }
+isocountry = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 openssl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde-email = { workspace = true }
 shop-core = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
+user-core = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true, features = ["serde"] }
@@ -26,4 +31,4 @@ tokio = { workspace = true, features = ["macros", "rt"] }
 
 [features]
 default = []
-test-data = ["fake", "shop-core/test-data", "common/test-data", "geo/test-data"]
+test-data = ["fake", "shop-core/test-data", "geo/test-data"]

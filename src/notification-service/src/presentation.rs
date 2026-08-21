@@ -1,4 +1,4 @@
-use common::language::domain::Language;
+use localization::Language;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NotificationPresentationPreferences {

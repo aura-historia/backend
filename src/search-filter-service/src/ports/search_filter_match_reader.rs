@@ -1,13 +1,13 @@
 use crate::ports::PersistedSearchFilterMatch;
-use common::enhanced_match_reason::EnhancedMatchReason;
-use common::event_id::EventId;
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::product_id::ProductId;
-use common::sort::SortOrder;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use application::pagination::{Cursor, CursoredResult};
+use domain_primitives::event_id::EventId;
+use domain_primitives::sort::SortOrder;
+use product_core::product_id::ProductId;
+use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterMatchView {

@@ -5,8 +5,15 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
+domain-primitives = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 product-core = { workspace = true }
+search-filter-core = { workspace = true }
 serde = { workspace = true }
+shop-core = { workspace = true }
+shop-partner-core = { workspace = true }
+user-core = { workspace = true }
 
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }

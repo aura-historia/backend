@@ -2,12 +2,12 @@ use crate::ports::{
     UserDetailsView, UserRepository, UserRepositoryError, UserRepositoryFactory,
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
-use common::error::boxed::BoxError;
-use common::operation_context::{OperationAuthorizationError, OperationContext};
-use common::stripe_customer_id::StripeCustomerId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::error::BoxError;
+use application::operation_context::{OperationAuthorizationError, OperationContext};
+use application::transaction::{Transaction, UnitOfWork};
+use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::tier::UserTier;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApplyStripeSubscriptionTarget {
@@ -152,7 +152,7 @@ where
             .await?
             .ok_or(ApplyStripeSubscriptionError::UserNotFound)?;
 
-        let common::versioned::Versioned {
+        let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
         } = self
@@ -255,9 +255,9 @@ impl From<UserRepositoryError> for ApplyStripeSubscriptionError {
 mod tests {
     use super::*;
     use crate::ports::{UserRepository, UserStorageVersion, VersionedUser};
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::transaction::TransactionError;
-    use common::versioned::Versioned;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::transaction::TransactionError;
+    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::role::UserRole;
@@ -320,7 +320,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Transaction for FakeTx {
-        async fn commit(self) -> Result<(), common::transaction::TransactionError> {
+        async fn commit(self) -> Result<(), application::transaction::TransactionError> {
             lock(&self.0.0).commits += 1;
             Ok(())
         }

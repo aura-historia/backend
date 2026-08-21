@@ -719,7 +719,7 @@ impl<'a> ProductDynamoDbRepository for ProductDynamoDbRepositoryImpl<'a> {
             )
             .clone();
 
-        ProductKey::try_from(pk_str.trim_start_matches("product#"))
+        super::product_key::decode(pk_str.trim_start_matches("product#"))
             .map(Some)
             .map_err(SdkError::construction_failure)
     }
@@ -830,17 +830,7 @@ pub fn extract_product_key(map: HashMap<String, AttributeValue>) -> Result<Produ
     if let Some(pk_attr) = map.remove("pk") {
         let pk_res = pk_attr.as_s();
         if let Ok(pk) = pk_res {
-            if let Some((shop_id, shops_product_id)) = pk
-                .trim_start_matches("product#shop_id#")
-                .split_once("#shops_product_id#")
-            {
-                Ok(ProductKey {
-                    shop_id: shop_id.try_into().unwrap(),
-                    shops_product_id: shops_product_id.into(),
-                })
-            } else {
-                Err(format!("Parsing pk '{pk}' failed."))
-            }
+            super::product_key::decode(pk.trim_start_matches("product#"))
         } else {
             Err(format!("Extracted value for pk '{pk_attr:?}' failed."))
         }

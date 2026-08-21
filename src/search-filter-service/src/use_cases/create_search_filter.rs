@@ -5,18 +5,19 @@ use crate::ports::{
 };
 use crate::tier_policy::{active_filter_quota, validate_search_features};
 use crate::use_cases::embedding_query;
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
+use application::error::{BoxError, box_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
+use application::transaction::{Transaction, UnitOfWork};
+use search_filter_core::search_filter_state::SearchFilterState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use user_core::user_id::UserId;
 
-use common::user_search_filter_name::UserSearchFilterName;
 use embedding::{EmbeddingError, EmbeddingGenerator};
-use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
+use product_core::product_search::ProductSearch;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
+use search_filter_core::{NewSearchFilter, SearchFilter};
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
@@ -156,7 +157,7 @@ where
             user_id: command.user_id,
             name: command.name,
             notifications: command.notifications,
-            state: ResourceState::Active,
+            state: SearchFilterState::Active,
             search: command.search,
             embedding,
         });

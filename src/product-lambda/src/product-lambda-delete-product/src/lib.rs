@@ -108,21 +108,28 @@ async fn delete_watchlist_records(
     product_id: &common::product_id::ProductId,
 ) -> Result<
     (),
-    aws_sdk_dynamodb::error::SdkError<
-        aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
+    Box<
+        aws_sdk_dynamodb::error::SdkError<
+            aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
+        >,
     >,
 > {
     let records = repository
         .query_user_ids_watching_product(product_id)
         .await
         .map_err(|err| {
-            aws_sdk_dynamodb::error::SdkError::construction_failure(format!("{err:?}"))
+            Box::new(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                format!("{err:?}"),
+            ))
         })?;
     let keys = records
         .into_iter()
         .map(|record| (record.user_id, record.shop_id, record.shops_product_id));
     for batch in Batch::<_, 25>::chunked_from(keys) {
-        repository.delete_watchlist_records(batch).await?;
+        repository
+            .delete_watchlist_records(batch)
+            .await
+            .map_err(Box::new)?;
     }
     Ok(())
 }
@@ -133,21 +140,26 @@ async fn delete_search_filter_match_records(
     product_id: &common::product_id::ProductId,
 ) -> Result<
     (),
-    aws_sdk_dynamodb::error::SdkError<
-        aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
-        aws_sdk_dynamodb::config::http::HttpResponse,
+    Box<
+        aws_sdk_dynamodb::error::SdkError<
+            aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
+            aws_sdk_dynamodb::config::http::HttpResponse,
+        >,
     >,
 > {
     let keys = repository
         .query_user_search_filter_match_keys_for_product_id(product_id)
         .await
         .map_err(|err| {
-            aws_sdk_dynamodb::error::SdkError::construction_failure(format!("{err:?}"))
+            Box::new(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                format!("{err:?}"),
+            ))
         })?;
     for batch in Batch::<_, 25>::chunked_from(keys.into_iter()) {
         repository
             .delete_user_search_filter_match_records(batch)
-            .await?;
+            .await
+            .map_err(Box::new)?;
     }
     Ok(())
 }
@@ -159,21 +171,26 @@ async fn delete_product_dynamodb_records(
     shops_product_id: &common::shops_product_id::ShopsProductId,
 ) -> Result<
     (),
-    aws_sdk_dynamodb::error::SdkError<
-        aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
-        aws_sdk_dynamodb::config::http::HttpResponse,
+    Box<
+        aws_sdk_dynamodb::error::SdkError<
+            aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
+            aws_sdk_dynamodb::config::http::HttpResponse,
+        >,
     >,
 > {
     let keys = repository
         .query_product_record_and_event_record_keys(shop_id, shops_product_id)
         .await
         .map_err(|err| {
-            aws_sdk_dynamodb::error::SdkError::construction_failure(format!("{err:?}"))
+            Box::new(aws_sdk_dynamodb::error::SdkError::construction_failure(
+                format!("{err:?}"),
+            ))
         })?;
     for batch in Batch::<_, 25>::chunked_from(keys.into_iter()) {
         repository
             .delete_product_record_and_event_records(batch)
-            .await?;
+            .await
+            .map_err(Box::new)?;
     }
     Ok(())
 }

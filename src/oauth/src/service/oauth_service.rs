@@ -167,17 +167,61 @@ pub enum OAuthServiceError {
     #[error("OAuth client metadata is invalid: {0}")]
     InvalidClientMetadata(String),
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
-    SdkGetItemError(#[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>),
+    SdkGetItemError(#[source] Box<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>>),
     #[error("Encountered DynamoDB SdkError for PutItem: {0:?}")]
-    SdkPutItemError(#[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>),
+    SdkPutItemError(#[source] Box<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>>),
     #[error("Encountered DynamoDB SdkError for Query: {0:?}")]
-    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError>),
+    SdkQueryError(#[source] Box<SdkError<aws_sdk_dynamodb::operation::query::QueryError>>),
     #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
-    SdkUpdateItemError(#[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>),
+    SdkUpdateItemError(
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>>,
+    ),
     #[error("Encountered DynamoDB SdkError for DeleteItem: {0:?}")]
-    SdkDeleteItemError(#[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError>),
+    SdkDeleteItemError(
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError>>,
+    ),
     #[error("User service error: {0}")]
-    UserServiceError(#[from] UserServiceError),
+    UserServiceError(#[source] Box<UserServiceError>),
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>> for OAuthServiceError {
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError>) -> Self {
+        Self::SdkGetItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>> for OAuthServiceError {
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError>) -> Self {
+        Self::SdkPutItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::query::QueryError>> for OAuthServiceError {
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::query::QueryError>) -> Self {
+        Self::SdkQueryError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>>
+    for OAuthServiceError
+{
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError>) -> Self {
+        Self::SdkUpdateItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError>>
+    for OAuthServiceError
+{
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError>) -> Self {
+        Self::SdkDeleteItemError(Box::new(error))
+    }
+}
+
+impl From<UserServiceError> for OAuthServiceError {
+    fn from(error: UserServiceError) -> Self {
+        Self::UserServiceError(Box::new(error))
+    }
 }
 
 impl From<OAuthServiceError> for common::api::error::ApiError {
@@ -242,12 +286,12 @@ impl From<OAuthServiceError> for common::api::error::ApiError {
                 OAUTH_INVALID_CODE_VERIFIER,
                 Box::new(err),
             ),
-            OAuthServiceError::SdkGetItemError(sdk_error) => sdk_error.into(),
-            OAuthServiceError::SdkPutItemError(sdk_error) => sdk_error.into(),
-            OAuthServiceError::SdkQueryError(sdk_error) => sdk_error.into(),
-            OAuthServiceError::SdkUpdateItemError(sdk_error) => sdk_error.into(),
-            OAuthServiceError::SdkDeleteItemError(sdk_error) => sdk_error.into(),
-            OAuthServiceError::UserServiceError(user_err) => user_err.into(),
+            OAuthServiceError::SdkGetItemError(sdk_error) => (*sdk_error).into(),
+            OAuthServiceError::SdkPutItemError(sdk_error) => (*sdk_error).into(),
+            OAuthServiceError::SdkQueryError(sdk_error) => (*sdk_error).into(),
+            OAuthServiceError::SdkUpdateItemError(sdk_error) => (*sdk_error).into(),
+            OAuthServiceError::SdkDeleteItemError(sdk_error) => (*sdk_error).into(),
+            OAuthServiceError::UserServiceError(user_err) => (*user_err).into(),
         }
     }
 }

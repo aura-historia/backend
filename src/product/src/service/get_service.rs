@@ -31,20 +31,55 @@ pub enum GetProductError {
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for BatchGetItem: {0:?}")]
     SdkBatchGetItemError(
-        #[from]
-        SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
+        #[source]
+        Box<
+            SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
+        >,
     ),
 
     #[error("Encountered DynamoDB SdkError for QueryItem: {0:?}")]
-    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
+    SdkQueryError(
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>,
+    ),
 
     #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
     UnprocessedAfterMaxRetries(u32),
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>
+    for GetProductError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkGetItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>>
+    for GetProductError
+{
+    fn from(
+        error: SdkError<
+            aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
+            HttpResponse,
+        >,
+    ) -> Self {
+        Self::SdkBatchGetItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>
+    for GetProductError
+{
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>) -> Self {
+        Self::SdkQueryError(Box::new(error))
+    }
 }
 
 #[cfg(feature = "data")]
@@ -67,9 +102,9 @@ pub mod api {
                 GetProductError::MonetaryAmountOverflowError(_) => {
                     ApiError::internal_server_error(MONETARY_AMOUNT_OVERFLOW, Box::new(err))
                 }
-                GetProductError::SdkGetItemError(err) => err.into(),
-                GetProductError::SdkBatchGetItemError(err) => err.into(),
-                GetProductError::SdkQueryError(err) => err.into(),
+                GetProductError::SdkGetItemError(err) => (*err).into(),
+                GetProductError::SdkBatchGetItemError(err) => (*err).into(),
+                GetProductError::SdkQueryError(err) => (*err).into(),
                 GetProductError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }

@@ -1,5 +1,5 @@
-use common::error::boxed::BoxError;
-use common::oauth_client_id::OAuthClientId;
+use application::error::BoxError;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::client::OAuthClient;
 use std::collections::HashSet;
 use time::OffsetDateTime;

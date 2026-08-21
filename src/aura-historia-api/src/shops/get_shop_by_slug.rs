@@ -5,7 +5,7 @@ use crate::state::ShopsState;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::shop_slug_id::ShopSlugId;
+use shop_core::shop_slug_id::ShopSlugId;
 use shop_service::use_cases::queries::get_shop::GetShopRequest;
 
 pub async fn get_shop_by_slug(

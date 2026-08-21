@@ -1,9 +1,9 @@
 use common::product_id::ProductId;
-use common::resource_state::domain::ResourceState;
 use common::user_id::UserId;
 use common::versioned::Versioned;
 use sqlx::FromRow;
 use watchlist_core::WatchlistProduct;
+use watchlist_core::WatchlistState;
 use watchlist_service::ports::{
     VersionedWatchlistProduct, WatchlistProductView, WatchlistReadError, WatchlistRepositoryError,
     WatchlistStorageVersion,
@@ -59,28 +59,28 @@ impl TryFrom<WatchlistViewRow> for WatchlistProductView {
     }
 }
 
-pub(crate) fn format_state(state: ResourceState) -> &'static str {
+pub(crate) fn format_state(state: WatchlistState) -> &'static str {
     match state {
-        ResourceState::Active => "ACTIVE",
-        ResourceState::InactiveByUser => "INACTIVE_BY_USER",
-        ResourceState::InactiveByRestrictedPlan => "INACTIVE_BY_RESTRICTED_PLAN",
+        WatchlistState::Active => "ACTIVE",
+        WatchlistState::InactiveByUser => "INACTIVE_BY_USER",
+        WatchlistState::InactiveByRestrictedPlan => "INACTIVE_BY_RESTRICTED_PLAN",
     }
 }
 
-fn parse_state(value: &str) -> Option<ResourceState> {
+fn parse_state(value: &str) -> Option<WatchlistState> {
     match value {
-        "ACTIVE" => Some(ResourceState::Active),
-        "INACTIVE_BY_USER" => Some(ResourceState::InactiveByUser),
-        "INACTIVE_BY_RESTRICTED_PLAN" => Some(ResourceState::InactiveByRestrictedPlan),
+        "ACTIVE" => Some(WatchlistState::Active),
+        "INACTIVE_BY_USER" => Some(WatchlistState::InactiveByUser),
+        "INACTIVE_BY_RESTRICTED_PLAN" => Some(WatchlistState::InactiveByRestrictedPlan),
         _ => None,
     }
 }
 
-fn parse_state_repository(value: &str) -> Result<ResourceState, WatchlistRepositoryError> {
+fn parse_state_repository(value: &str) -> Result<WatchlistState, WatchlistRepositoryError> {
     parse_state(value).ok_or(WatchlistRepositoryError::InvalidPersistedState)
 }
 
-fn parse_state_read(value: &str) -> Result<ResourceState, WatchlistReadError> {
+fn parse_state_read(value: &str) -> Result<WatchlistState, WatchlistReadError> {
     parse_state(value).ok_or(WatchlistReadError::InvalidPersistedState)
 }
 
@@ -90,14 +90,14 @@ mod tests {
 
     #[test]
     fn should_format_all_states() {
-        assert_eq!("ACTIVE", format_state(ResourceState::Active));
+        assert_eq!("ACTIVE", format_state(WatchlistState::Active));
         assert_eq!(
             "INACTIVE_BY_USER",
-            format_state(ResourceState::InactiveByUser)
+            format_state(WatchlistState::InactiveByUser)
         );
         assert_eq!(
             "INACTIVE_BY_RESTRICTED_PLAN",
-            format_state(ResourceState::InactiveByRestrictedPlan)
+            format_state(WatchlistState::InactiveByRestrictedPlan)
         );
     }
 

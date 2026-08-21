@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_api::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
@@ -19,17 +20,10 @@ use billing_service::use_cases::{
     BillingPriceIds, CreateBillingCheckoutSessionHandler, CreateBillingManagementSessionHandler,
     CreateBillingPortalSessionHandler,
 };
-use common::domain::Domain;
-use common::fx_rate_id::FxRateId;
-use common::postgres::SqlxUnitOfWork;
-use common::product_id::ProductId;
-use common::shop_id::ShopId;
-use common::stripe_customer_id::StripeCustomerId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
 use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
 };
+use fxrate_core::FxRateId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{Geocoder, GeocodingError};
 use notification_postgres::{
@@ -53,6 +47,8 @@ use oauth_service::use_cases::{
     IntrospectTokenHandler, ListOAuthClientsHandler, RevokeTokenHandler,
     TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
+use platform_postgres::SqlxUnitOfWork;
+use product_core::product_id::ProductId;
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
     SqlxPartnerProductAuthorizerFactory, SqlxProductDetailsBatchReader,
@@ -60,6 +56,10 @@ use product_postgres::{
     SqlxProductEventReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
     SqlxProductUserStateReader, SqlxProductWatchlistDetailsReaderFactory,
 };
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
+use user_core::stripe_customer_id::StripeCustomerId;
+use user_core::user_id::UserId;
 
 use product_service::use_cases::{
     CreateProductHandler, DeleteProductHandler, GetProductEventsHandler, GetProductHandler,
@@ -384,7 +384,7 @@ pub async fn seed_shop() -> Shop {
     let id = ShopId::new();
     let mut shop = Shop::create(NewShop {
         id,
-        name: common::shop_name::ShopName::from(format!("API Acceptance Shop {id}").as_str()),
+        name: shop_core::shop_name::ShopName::from(format!("API Acceptance Shop {id}").as_str()),
         shop_type: ShopType::CommercialDealer,
         domains: HashSet::from([domain(format!("api-acceptance-{id}.example").as_str())]),
         shopify: None,
@@ -427,7 +427,7 @@ pub async fn product_route_slugs(product_id: ProductId) -> (String, String) {
 pub async fn seed_product() -> ProductId {
     let shop = seed_shop().await;
     let product_id = ProductId::new();
-    let product_slug_id = common::product_slug_id::ProductSlugId::from("acceptance-product");
+    let product_slug_id = product_core::product_slug_id::ProductSlugId::from("acceptance-product");
     let event_id = uuid::Uuid::new_v4();
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;

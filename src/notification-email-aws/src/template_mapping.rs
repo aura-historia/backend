@@ -1,4 +1,5 @@
-use common::{language::domain::Language, price::domain::Price};
+use localization::Language;
+use money::Price;
 use notification_core::{
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange, NotificationContent,
@@ -7,6 +8,7 @@ use notification_core::{
     presentation::present_image,
 };
 use notification_service::ports::notification_delivery_repository::NotificationDeliverySource;
+use product_core::product_state::ProductState;
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -288,11 +290,51 @@ fn price_text(price: Option<Price>) -> Option<String> {
     price.map(|price| price.format_human_readable())
 }
 
-fn state_text(
-    state: common::product_state::domain::ProductState,
-    language: Language,
-) -> &'static str {
-    state.format_human_readable(&language)
+fn state_text(state: ProductState, language: Language) -> &'static str {
+    match state {
+        ProductState::Listed => match language {
+            Language::De => "Gelistet",
+            Language::Fr => "Listé",
+            Language::Es => "Listado",
+            Language::It => "Inserito",
+            _ => "Listed",
+        },
+        ProductState::Available => match language {
+            Language::De => "Verfügbar",
+            Language::Fr => "Disponible",
+            Language::Es => "Disponible",
+            Language::It => "Disponibile",
+            _ => "Available",
+        },
+        ProductState::Reserved => match language {
+            Language::De => "Reserviert",
+            Language::Fr => "Réservé",
+            Language::Es => "Reservado",
+            Language::It => "Riservato",
+            _ => "Reserved",
+        },
+        ProductState::Sold => match language {
+            Language::De => "Verkauft",
+            Language::Fr => "Vendu",
+            Language::Es => "Vendido",
+            Language::It => "Venduto",
+            _ => "Sold",
+        },
+        ProductState::Removed => match language {
+            Language::De => "Gelöscht",
+            Language::Fr => "Supprimé",
+            Language::Es => "Eliminado",
+            Language::It => "Rimosso",
+            _ => "Removed",
+        },
+        ProductState::Unknown => match language {
+            Language::De => "Unbekannt",
+            Language::Fr => "Inconnu",
+            Language::Es => "Desconocido",
+            Language::It => "Sconosciuto",
+            _ => "Unknown",
+        },
+    }
 }
 
 #[cfg(test)]

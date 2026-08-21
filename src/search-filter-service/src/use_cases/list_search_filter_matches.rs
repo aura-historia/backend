@@ -1,10 +1,8 @@
 use crate::ports::{
     SearchFilterMatchListQuery, SearchFilterMatchReadError, SearchFilterMatchReader,
 };
-use common::currency::domain::Currency;
 use common::error::boxed::{BoxError, box_error, static_error};
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -17,6 +15,8 @@ use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
+use localization::Language;
+use money::Currency;
 
 use product_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
@@ -422,9 +422,9 @@ mod tests {
     use product_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
-    use product_core::user_state::{NotificationUserState, ProductUserState};
     use product_service::ports::ProductDetailsReadModel;
     use product_service::use_cases::ProductPricingValuation;
+    use product_service::user_state::{NotificationUserState, ProductUserState};
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;

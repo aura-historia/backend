@@ -3,14 +3,12 @@ use crate::ports::{
     ProductTranslationSourceReader, ProductTranslationWrite, ProductTranslationWriteError,
     ProductTranslationWriteOutcome, ProductTranslationWriter, ProductTranslationWriterFactory,
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    language::domain::Language,
-    operation_context::{OperationAuthorizationError, OperationContext},
-    product_id::ProductId,
-    transaction::{Transaction, UnitOfWork},
-};
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationAuthorizationError, OperationContext};
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
+use localization::Language;
+use product_core::product_id::ProductId;
 const EMBEDDED_EVENT_TYPE: &str = "ENRICHMENT_EMBEDDED";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,10 +259,8 @@ impl From<ProductTranslationWriteError> for TranslateProductEventError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        operation_context::{CorrelationId, Principal, RequestId},
-        transaction::TransactionError,
-    };
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::transaction::TransactionError;
     use indexmap::IndexMap;
     use product_core::title::Title;
     use std::sync::{Arc, Mutex};
@@ -629,8 +625,8 @@ mod tests {
 
         let result = handler(&state)
             .execute(
-                &context(common::operation_context::Principal::User(
-                    common::user_id::UserId::new(),
+                &context(application::operation_context::Principal::User(
+                    user_core::user_id::UserId::new(),
                 )),
                 command(&state),
             )

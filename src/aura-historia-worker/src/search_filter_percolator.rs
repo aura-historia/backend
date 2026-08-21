@@ -3,11 +3,9 @@ use crate::{
     cdc::{DomainJob, DomainJobPayload},
     retry::{InMemoryDeadLetterQueue, RetryConfig, run_with_retry},
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    product_id::ProductId,
-};
+use application::error::{BoxError, box_error};
+use domain_primitives::event_id::EventId;
+use product_core::product_id::ProductId;
 use search_filter_service::use_cases::{
     MatchProductEventCommand, MatchProductEventOutcome, MatchProductEventUseCase,
 };

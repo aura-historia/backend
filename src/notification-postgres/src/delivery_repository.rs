@@ -2,9 +2,8 @@ use crate::{
     delivery_mapping::channel_from_persisted,
     mapping::{NotificationRow, mapping_error},
 };
-use common::{
-    error::boxed::box_error, language::domain::Language, notification_id::NotificationId,
-};
+use common::{error::boxed::box_error, notification_id::NotificationId};
+use localization::Language;
 use notification_core::{
     notification_delivery::NotificationDeliveryTargetKey,
     notification_delivery_id::NotificationDeliveryId,

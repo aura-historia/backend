@@ -12,7 +12,7 @@ pub(super) async fn delete_notifications(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     match state

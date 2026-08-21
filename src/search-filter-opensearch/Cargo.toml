@@ -4,15 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+user-core = { workspace = true }
+domain-primitives = { workspace = true }
+application = { workspace = true }
 async-trait = { workspace = true }
-common = { workspace = true, features = ["opensearch"] }
-fxrate-core = { workspace = true }
+
 geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 opensearch = { workspace = true }
 product-core = { workspace = true }
 product-opensearch = { workspace = true }
 product-service = { workspace = true }
+platform-opensearch = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

@@ -1,4 +1,4 @@
-use common::product_state::domain::ProductState;
+use product_core::product_state::ProductState;
 use serde::{Deserialize, Serialize};
 
 #[derive(

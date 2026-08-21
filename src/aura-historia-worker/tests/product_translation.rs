@@ -2,10 +2,12 @@ use aura_historia_worker::{
     QueueConfig, WorkerRunError, WorkerRuntime, cdc::WorkerQueue,
     product_translation::consume_product_translation_queue, serve_with_runtime,
 };
-use common::{event_id::EventId, postgres::SqlxUnitOfWork, product_id::ProductId};
+use domain_primitives::event_id::EventId;
 use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
+use platform_postgres::SqlxUnitOfWork;
+use product_core::product_id::ProductId;
 use product_postgres::{SqlxProductTranslationSourceReader, SqlxProductTranslationWriterFactory};
 use product_service::use_cases::{TranslateProductEventHandler, TranslateProductEventUseCase};
 use product_translation_llm::LargeLanguageModelProductTitleTranslator;
@@ -37,7 +39,7 @@ impl LargeLanguageModel for FixedTranslationLlm {
             r#"{"titles":{"en":"Antique oak chair","fr":"Chaise ancienne en chêne","es":"Silla antigua de roble","it":"Sedia antica in rovere"}}"#,
         )
         .map_err(|source| LargeLanguageModelError::InvalidResponse {
-            source: common::error::boxed::box_error(source),
+            source: application::error::box_error(source),
         })
     }
 }

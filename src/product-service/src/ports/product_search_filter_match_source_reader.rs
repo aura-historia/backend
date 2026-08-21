@@ -1,16 +1,22 @@
-use common::{
-    event_id::EventId, language::domain::Language, localized::Localized, product_id::ProductId,
-    product_lifecycle::domain::ProductLifecycle, product_slug_id::ProductSlugId,
-    product_state::domain::ProductState, seller_slug_id::SellerSlugId, shop_id::ShopId,
-    shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
-};
+use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
 use product_core::{
     description::Description,
     product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
+    product_id::ProductId,
     product_image::ProductImage,
+    product_lifecycle::ProductLifecycle,
+    product_slug_id::ProductSlugId,
+    product_state::ProductState,
+    shops_product_id::ShopsProductId,
     title::Title,
 };
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;
@@ -87,12 +93,12 @@ pub enum ProductSearchFilterMatchSourceReadError {
     #[error("product search-filter match source query failed")]
     QueryFailed {
         #[source]
-        source: common::error::boxed::BoxError,
+        source: application::error::BoxError,
     },
     #[error("product search-filter match source persisted state is invalid")]
     InvalidPersistedState {
         #[source]
-        source: common::error::boxed::BoxError,
+        source: application::error::BoxError,
     },
 }
 

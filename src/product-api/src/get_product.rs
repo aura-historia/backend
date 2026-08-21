@@ -26,7 +26,8 @@ pub async fn handle(
 ) -> Result<ApiGatewayV2httpResponse, ApiError> {
     let user_id_opt = access_token_verifier_service
         .verify_extract_user_id(&event.payload.headers)
-        .await?;
+        .await
+        .map_err(crate::map_access_token_error)?;
     if let Some(user_id) = user_id_opt {
         tracing::Span::current().record("userId", user_id.to_string());
     }

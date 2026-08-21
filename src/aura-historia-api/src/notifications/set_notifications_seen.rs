@@ -14,7 +14,7 @@ pub(super) async fn update_notifications(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let data: UpdateNotificationsSeenData = match parse_json(&body) {
         Ok(value) => value,

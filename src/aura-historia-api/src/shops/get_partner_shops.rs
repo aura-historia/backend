@@ -11,7 +11,7 @@ use shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerSh
 pub async fn get_partner_shops(State(state): State<ShopsState>, headers: HeaderMap) -> Response {
     let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match state
         .list_user_partner_shops

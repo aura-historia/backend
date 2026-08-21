@@ -28,13 +28,19 @@ pub enum ProductPersonalizationError {
     #[error("WatchProductError: {0}")]
     WatchProductError(#[from] WatchProductError),
     #[error("UserServiceError: {0}")]
-    UserServiceError(#[from] UserServiceError),
+    UserServiceError(#[source] Box<UserServiceError>),
     #[error("NotificationError: {0}")]
     NotificationError(#[from] NotificationError),
     #[error("SearchFilterMatchError: {0}")]
     SearchFilterMatchError(String),
     #[error("UserSearchFilterError: {0}")]
     UserSearchFilterError(String),
+}
+
+impl From<UserServiceError> for ProductPersonalizationError {
+    fn from(error: UserServiceError) -> Self {
+        Self::UserServiceError(Box::new(error))
+    }
 }
 
 impl From<ProductPersonalizationError> for ApiError {

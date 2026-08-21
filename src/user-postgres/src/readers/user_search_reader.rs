@@ -1,13 +1,13 @@
 use crate::mapping::{
     UserRow, bind_role, bind_tier, countries_for_continents, sort_user_field_columns, user_columns,
 };
-use common::error::boxed::box_error;
-use common::pagination::cursor::Cursor;
-use common::postgres::SqlxTransaction;
-use common::sort::{Sort, SortOrder};
-use common::user_id::UserId;
+use application::error::box_error;
+use application::pagination::Cursor;
+use domain_primitives::sort::{Sort, SortOrder};
+use platform_postgres::SqlxTransaction;
 use sqlx::{Postgres, QueryBuilder};
 use user_core::sort_user_field::SortUserField;
+use user_core::user_id::UserId;
 use user_service::ports::{UserSearchReadError, UserSearchReader, UserSearchReaderFactory};
 use user_service::use_cases::queries::search_users::{
     SearchUsersRequest, SearchUsersResult, UserSummary,

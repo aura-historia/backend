@@ -6,11 +6,18 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true, features = ["postgres"] }
+domain-primitives = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 notification-core = { workspace = true }
 notification-email = { workspace = true }
 notification-service = { workspace = true }
 product-core = { workspace = true }
+search-filter-core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+shop-core = { workspace = true }
+shop-partner-core = { workspace = true }
+user-core = { workspace = true }
 serde_json = { workspace = true }
 serde-email = { workspace = true }
 

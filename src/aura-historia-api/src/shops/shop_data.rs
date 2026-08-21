@@ -1,14 +1,13 @@
 use crate::shops::types::{ShopPartnerStatusData, ShopTypeData};
+use crate::values::{CurrencyData, LanguageData};
+use application::operation_context::Principal;
 use axum::Json;
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
-use common::operation_context::Principal;
-use common::shop_id::ShopId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::Serialize;
 use serde_email::Email;
+use shop_core::shop_id::ShopId;
 use shop_service::use_cases::queries::get_shop::ShopDetailsView;
 use shop_service::use_cases::queries::search_shops::ShopSummary;
 use std::collections::HashSet;
@@ -19,12 +18,12 @@ use url::Url;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ShopData {
     shop_id: ShopId,
-    shop_slug_id: common::shop_slug_id::ShopSlugId,
-    name: common::shop_name::ShopName,
+    shop_slug_id: shop_core::shop_slug_id::ShopSlugId,
+    name: shop_core::shop_name::ShopName,
     shop_type: ShopTypeData,
-    domains: HashSet<common::domain::Domain>,
+    domains: HashSet<shop_core::domain::Domain>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    shopify_domain: Option<common::domain::Domain>,
+    shopify_domain: Option<shop_core::domain::Domain>,
     #[serde(skip_serializing_if = "Option::is_none")]
     shopify_currency: Option<CurrencyData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,10 +57,10 @@ pub(crate) struct ShopData {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ShopSummaryData {
     shop_id: ShopId,
-    shop_slug_id: common::shop_slug_id::ShopSlugId,
-    name: common::shop_name::ShopName,
+    shop_slug_id: shop_core::shop_slug_id::ShopSlugId,
+    name: shop_core::shop_name::ShopName,
     shop_type: ShopTypeData,
-    domains: Vec<common::domain::Domain>,
+    domains: Vec<shop_core::domain::Domain>,
     #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<Url>,
     partner_status: ShopPartnerStatusData,

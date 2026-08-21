@@ -2,8 +2,8 @@ use crate::ports::{
     SearchFilterIndex, SearchFilterIndexError, SearchFilterIndexReadError, SearchFilterIndexReader,
     SearchFilterProjectionWriteOutcome,
 };
-use common::error::boxed::{BoxError, box_error};
-use common::user_search_filter_id::UserSearchFilterId;
+use application::error::{BoxError, box_error};
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchFilterProjectionOperation {
@@ -157,14 +157,15 @@ fn index_error(error: SearchFilterIndexError) -> ProjectSearchFilterChangeError 
 mod tests {
     use super::*;
     use crate::ports::{SearchFilterIndexQuery, SearchFilterProjection, SearchFilterView};
-    use common::currency::domain::Currency;
-    use common::pagination::cursor::CursoredResult;
-    use common::resource_state::domain::ResourceState;
-    use common::user_id::UserId;
-    use common::user_search_filter_name::UserSearchFilterName;
+    use application::pagination::CursoredResult;
+    use localization::Language;
+    use money::Currency;
     use product_core::product_search::ProductSearch;
+    use search_filter_core::search_filter_state::SearchFilterState;
+    use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use std::sync::Mutex;
     use time::macros::datetime;
+    use user_core::user_id::UserId;
 
     #[derive(Default)]
     struct Source {
@@ -252,8 +253,8 @@ mod tests {
                 user_id: UserId::new(),
                 name: UserSearchFilterName::from("daily"),
                 notifications: true,
-                state: ResourceState::Active,
-                search: ProductSearch::new(common::language::domain::Language::En, Currency::Usd),
+                state: SearchFilterState::Active,
+                search: ProductSearch::new(Language::En, Currency::Usd),
                 embedding: None,
                 created: datetime!(2026-01-01 0:00 UTC),
                 updated: datetime!(2026-01-01 0:00 UTC),

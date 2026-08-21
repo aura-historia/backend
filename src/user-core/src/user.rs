@@ -1,13 +1,12 @@
 use crate::{
-    first_name::FirstName, last_name::LastName, name::Name, role::UserRole, tier::UserTier,
+    first_name::FirstName, last_name::LastName, measurement_unit::MeasurementUnit, name::Name,
+    role::UserRole, tier::UserTier,
 };
-use common::change_outcome::ChangeOutcome;
-use common::{
-    currency::domain::Currency, language::domain::Language,
-    measurement_unit::domain::MeasurementUnit, stripe_customer_id::StripeCustomerId,
-    user_id::UserId,
-};
+use crate::{stripe_customer_id::StripeCustomerId, user_id::UserId};
+use domain_primitives::change_outcome::ChangeOutcome;
 use geo::core::address::{GeoAddress, StructuredAddress};
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 
 #[derive(Debug, Clone, PartialEq)]

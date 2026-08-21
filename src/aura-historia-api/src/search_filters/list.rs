@@ -15,7 +15,7 @@ pub(super) async fn list_search_filters(
 ) -> Response {
     let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match state
         .list_owned_search_filters

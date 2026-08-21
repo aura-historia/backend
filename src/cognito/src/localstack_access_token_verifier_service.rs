@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use common::user_id::UserId;
 use jsonwebtokens::{Algorithm, AlgorithmID, Verifier};
 use serde::Deserialize;
 use serde_json::Value;
+use user_core::user_id::UserId;
 
 use crate::access_token_verifier_service::{
     AccessTokenVerifierError, AccessTokenVerifierService, extract_sub_claim,

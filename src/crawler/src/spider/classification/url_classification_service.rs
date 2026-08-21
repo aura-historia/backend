@@ -7,7 +7,9 @@ use tracing::{debug, info, warn};
 use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
 use crate::logging::llm_metrics;
 use crate::scraper::css_selector::product_schema_service::strip_markdown_json_embedding;
-use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
+use large_language_model::{
+    GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
+};
 use llm::{
     chat::{ChatMessage, ChatProvider},
     error::LLMError,

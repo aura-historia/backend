@@ -1,18 +1,19 @@
+use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_api::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, RequestMetadata, TokenAuthenticator,
     TransportPrincipal,
 };
 use aura_historia_api::state::ShopsState;
 use aura_historia_api::{app, state::AppState};
-use common::domain::Domain;
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
 use geo::{Geocoder, GeocodingError};
+use platform_postgres::SqlxUnitOfWork;
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{
     NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration, WoocommerceIntegration,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_postgres::SqlxShopRepositoryFactory;
@@ -34,6 +35,7 @@ use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
     Scope,
 };
+use user_core::user_id::UserId;
 use user_dynamodb::DynamoDbAccessTokenStore;
 use user_service::ports::AccessTokenStore;
 use user_service::use_cases::AuthenticateAccessTokenHandler;
@@ -584,8 +586,8 @@ async fn seed_shop() -> Shop {
         }),
         woocommerce: Some(WoocommerceIntegration {
             webhook_secret: Some(WoocommerceWebhookSecret::from("secret")),
-            currency: Some(common::currency::domain::Currency::Eur),
-            language: Some(common::language::domain::Language::De),
+            currency: Some(money::Currency::Eur),
+            language: Some(localization::Language::De),
         }),
         presentation: ShopPresentation {
             url: Some(url("https://api-integration-shop.example/")),

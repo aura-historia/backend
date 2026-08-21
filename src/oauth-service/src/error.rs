@@ -1,7 +1,7 @@
 use crate::ports::{
     OAuthAccessTokenGatewayError, OAuthClientRepositoryError, OAuthCodeRepositoryError,
 };
-use common::operation_context::{AuthenticationRequired, OperationAuthorizationError};
+use application::operation_context::{AuthenticationRequired, OperationAuthorizationError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthServiceError {

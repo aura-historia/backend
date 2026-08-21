@@ -1,5 +1,5 @@
+use application::error::{BoxError, box_error, static_error};
 use async_trait::async_trait;
-use common::error::boxed::{BoxError, box_error, static_error};
 use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -232,8 +232,10 @@ impl NewsletterSubscriptionWriter for ZohoNewsletterSubscriptionWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
+    use localization::Language;
+    use money::Currency;
     use url::form_urlencoded;
+    use user_core::user_id::UserId;
     use user_core::{first_name::FirstName, last_name::LastName};
     use wiremock::{
         Match, Mock, MockServer, Request, ResponseTemplate,

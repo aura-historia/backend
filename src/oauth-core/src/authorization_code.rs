@@ -1,7 +1,9 @@
-use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId, uuid_v7_newtype};
+use credential_core::oauth_client_id::OAuthClientId;
+use credential_core::scope::Scope;
+use domain_primitives::{string_newtype, uuid_v7_newtype};
 use std::collections::HashSet;
 use time::OffsetDateTime;
-use user_core::access_token::Scope;
+use user_core::user_id::UserId;
 
 uuid_v7_newtype!(OAuthAuthorizationCode);
 string_newtype!(

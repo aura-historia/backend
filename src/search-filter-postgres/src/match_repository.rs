@@ -1,8 +1,8 @@
 use crate::mapping::{MATCH_COLUMNS, MatchRow, user_search_filter_uuid};
-use common::postgres::SqlxTransaction;
-use common::product_id::ProductId;
-use common::user_search_filter_id::UserSearchFilterId;
+use platform_postgres::SqlxTransaction;
+use product_core::product_id::ProductId;
 use search_filter_core::SearchFilterProductMatch;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     PersistedSearchFilterMatch, SearchFilterMatchRepository, SearchFilterMatchRepositoryError,
     SearchFilterMatchRepositoryFactory,

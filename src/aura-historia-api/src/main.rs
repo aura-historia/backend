@@ -1,11 +1,21 @@
 use aura_historia_api::{ApiConfig, ApiConfigError, ApiRunError, run_until_shutdown};
+use platform_observability::{LogLevel, LoggingConfig, init};
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
-    common::logging::init_logging();
+    init(logging_config_from_env());
     let config = ApiConfig::from_env()?;
     run_until_shutdown(config, shutdown_signal()).await?;
     Ok(())
+}
+
+fn logging_config_from_env() -> LoggingConfig {
+    let level = std::env::var("LOG_LEVEL")
+        .ok()
+        .as_deref()
+        .and_then(LogLevel::parse)
+        .unwrap_or_default();
+    LoggingConfig::new(level)
 }
 
 async fn shutdown_signal() {

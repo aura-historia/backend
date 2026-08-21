@@ -1,7 +1,7 @@
+use application::transaction::{Transaction, UnitOfWork};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use common::postgres::SqlxUnitOfWork;
-use common::user_id::UserId;
 use lambda_runtime::{Context, LambdaEvent};
+use platform_postgres::SqlxUnitOfWork;
 use serde_email::Email;
 use serde_json::{Value, json};
 use sqlx::Row;
@@ -13,6 +13,7 @@ use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_post
 use user_core::role::UserRole;
 use user_core::tier::UserTier;
 use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
+use user_core::user_id::UserId;
 use user_postgres::{SqlxUserRepositoryFactory, SqlxUserTierEntitlementsFactory};
 use user_service::ports::{UserRepository, UserRepositoryFactory};
 use user_service::use_cases::ApplyStripeSubscriptionHandler;
@@ -74,14 +75,14 @@ async fn seed_user(pool: &sqlx::PgPool, tier: UserTier, customer: Option<&str>) 
     };
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let users = SqlxUserRepositoryFactory::new();
-    let mut transaction = match common::transaction::UnitOfWork::begin(&unit_of_work).await {
+    let mut transaction = match UnitOfWork::begin(&unit_of_work).await {
         Ok(transaction) => transaction,
         Err(error) => panic!("failed to begin test transaction: {error}"),
     };
     if let Err(error) = users.in_transaction(&mut transaction).insert(&user).await {
         panic!("failed to seed user: {error}");
     }
-    if let Err(error) = common::transaction::Transaction::commit(transaction).await {
+    if let Err(error) = Transaction::commit(transaction).await {
         panic!("failed to commit seeded user: {error}");
     }
     user_id

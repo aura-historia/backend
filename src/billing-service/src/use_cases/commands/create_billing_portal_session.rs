@@ -1,8 +1,8 @@
 use crate::ports::{
     CreateStripePortalSessionRequest, StripeBillingError, StripePortalSessionCreator,
 };
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use url::Url;
@@ -115,7 +115,7 @@ where
 
 fn authorize_billing_user(
     context: &OperationContext,
-) -> Result<common::user_id::UserId, CreateBillingPortalSessionError> {
+) -> Result<user_core::user_id::UserId, CreateBillingPortalSessionError> {
     context
         .require()
         .credential_capability(CredentialCapability::UsersRead)

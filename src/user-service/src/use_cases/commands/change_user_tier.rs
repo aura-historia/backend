@@ -6,10 +6,10 @@ use crate::ports::{
 use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
-use common::error::boxed::BoxError;
-use common::operation_context::{CredentialCapability, OperationContext};
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::error::BoxError;
+use application::operation_context::{CredentialCapability, OperationContext};
+use application::transaction::{Transaction, UnitOfWork};
+use user_core::user_id::UserId;
 use user_core::{tier::UserTier, user::User};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,7 +146,7 @@ where
             .await?
             .ok_or(ChangeUserTierError::UserNotFound)?;
 
-        let common::versioned::Versioned {
+        let domain_primitives::versioned::Versioned {
             value: mut user,
             version,
         } = self
@@ -258,7 +258,7 @@ mod tests {
     use super::{
         ChangeUserTierCommand, ChangeUserTierError, ChangeUserTierHandler, ChangeUserTierUseCase,
     };
-    use common::user_id::UserId;
+    use user_core::user_id::UserId;
 
     use crate::ports::{
         UserAdminActorView, UserAdminReader, UserAdminReaderFactory, UserDetailsView,
@@ -266,16 +266,16 @@ mod tests {
         UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
         VersionedUser,
     };
-    use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-    use common::stripe_customer_id::StripeCustomerId;
-    use common::transaction::{Transaction, TransactionError, UnitOfWork};
-    use common::versioned::Versioned;
+    use application::error::{BoxError, box_error};
+    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
+    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::collections::BTreeSet;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex, MutexGuard};
     use user_core::role::UserRole;
+    use user_core::stripe_customer_id::StripeCustomerId;
     use user_core::tier::UserTier;
     use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
 
@@ -369,7 +369,7 @@ mod tests {
     }
 
     fn user_with(
-        id: common::user_id::UserId,
+        id: user_core::user_id::UserId,
         email_value: &str,
         role: UserRole,
         tier: UserTier,
@@ -498,7 +498,7 @@ mod tests {
     impl UserRepository for FakeUserRepository {
         async fn find_by_id(
             &mut self,
-            _id: common::user_id::UserId,
+            _id: user_core::user_id::UserId,
         ) -> Result<Option<VersionedUser>, UserRepositoryError> {
             let mut state = lock(&self.state);
             state.find_by_id_calls += 1;

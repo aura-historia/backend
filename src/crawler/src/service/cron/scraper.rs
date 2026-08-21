@@ -1086,7 +1086,9 @@ mod tests {
                     Err(ScraperError::NormalizationFixExhausted {
                         url,
                         attempts: 3,
-                        last_norm_error: crate::scraper::normalization::product_normalization_service::NormalizationError::TitleEmpty,
+                        last_norm_error: Box::new(
+                            crate::scraper::normalization::product_normalization_service::NormalizationError::TitleEmpty,
+                        ),
                     })
                 })
             });

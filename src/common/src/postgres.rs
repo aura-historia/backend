@@ -1,9 +1,6 @@
-use crate::transaction::{Transaction, TransactionError, UnitOfWork};
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{PgPool, Postgres};
-use std::fmt;
 use std::num::ParseIntError;
-use std::time::Duration;
+
+pub use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 
 pub const POSTGRES_HOST_ENV: &str = "POSTGRES_HOST";
 pub const POSTGRES_PORT_ENV: &str = "POSTGRES_PORT";
@@ -14,28 +11,16 @@ pub const POSTGRES_MAX_CONNECTIONS_ENV: &str = "POSTGRES_MAX_CONNECTIONS";
 
 const DEFAULT_POSTGRES_PORT: u16 = 5432;
 const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 2;
-const DEFAULT_ACQUIRE_TIMEOUT_SECONDS: u64 = 5;
 
+// Compatibility shim. Owner: `platform-postgres`; remove when legacy consumers parse `POSTGRES_*` in their composition roots.
 #[derive(Clone, PartialEq, Eq)]
 pub struct PostgresPoolConfig {
-    host: String,
-    port: u16,
-    database: String,
-    username: String,
-    password: String,
-    max_connections: u32,
+    inner: platform_postgres::PostgresPoolConfig,
 }
 
-impl fmt::Debug for PostgresPoolConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PostgresPoolConfig")
-            .field("host", &self.host)
-            .field("port", &self.port)
-            .field("database", &self.database)
-            .field("username", &self.username)
-            .field("password", &"<redacted>")
-            .field("max_connections", &self.max_connections)
-            .finish()
+impl std::fmt::Debug for PostgresPoolConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.fmt(f)
     }
 }
 
@@ -58,60 +43,49 @@ impl PostgresPoolConfig {
             POSTGRES_MAX_CONNECTIONS_ENV,
             DEFAULT_POSTGRES_MAX_CONNECTIONS,
         )?;
-
-        if max_connections == 0 {
-            return Err(PostgresConfigError::ZeroMaxConnections);
-        }
-
-        Ok(Self {
+        let inner = platform_postgres::PostgresPoolConfig::new(
             host,
             port,
             database,
             username,
             password,
             max_connections,
-        })
+        )
+        .map_err(|_| PostgresConfigError::ZeroMaxConnections)?;
+
+        Ok(Self { inner })
     }
 
     pub fn host(&self) -> &str {
-        &self.host
+        self.inner.host()
     }
 
-    pub fn port(&self) -> u16 {
-        self.port
+    pub const fn port(&self) -> u16 {
+        self.inner.port()
     }
 
     pub fn database(&self) -> &str {
-        &self.database
+        self.inner.database()
     }
 
     pub fn username(&self) -> &str {
-        &self.username
+        self.inner.username()
     }
 
-    pub fn max_connections(&self) -> u32 {
-        self.max_connections
+    pub const fn max_connections(&self) -> u32 {
+        self.inner.max_connections()
     }
 
-    pub fn connect_options(&self) -> PgConnectOptions {
-        PgConnectOptions::new()
-            .host(&self.host)
-            .port(self.port)
-            .database(&self.database)
-            .username(&self.username)
-            .password(&self.password)
+    pub fn connect_options(&self) -> sqlx::postgres::PgConnectOptions {
+        self.inner.connect_options()
     }
 
-    pub fn pool_options(&self) -> PgPoolOptions {
-        PgPoolOptions::new()
-            .max_connections(self.max_connections)
-            .acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECONDS))
+    pub fn pool_options(&self) -> sqlx::postgres::PgPoolOptions {
+        self.inner.pool_options()
     }
 
-    pub async fn connect(&self) -> Result<PgPool, sqlx::Error> {
-        self.pool_options()
-            .connect_with(self.connect_options())
-            .await
+    pub async fn connect(&self) -> Result<sqlx::PgPool, sqlx::Error> {
+        self.inner.connect().await
     }
 }
 
@@ -129,7 +103,7 @@ pub enum PostgresConfigError {
     ZeroMaxConnections,
 }
 
-pub async fn connect_from_env() -> Result<PgPool, PostgresConnectError> {
+pub async fn connect_from_env() -> Result<sqlx::PgPool, PostgresConnectError> {
     PostgresPoolConfig::from_env()?
         .connect()
         .await
@@ -142,50 +116,6 @@ pub enum PostgresConnectError {
     Config(#[from] PostgresConfigError),
     #[error("failed to connect to Postgres")]
     Connect(#[source] sqlx::Error),
-}
-
-#[derive(Debug, Clone)]
-pub struct SqlxUnitOfWork {
-    pool: PgPool,
-}
-
-pub struct SqlxTransaction {
-    transaction: sqlx::Transaction<'static, Postgres>,
-}
-
-impl SqlxUnitOfWork {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-impl SqlxTransaction {
-    pub fn connection(&mut self) -> &mut sqlx::PgConnection {
-        &mut self.transaction
-    }
-}
-
-#[async_trait::async_trait]
-impl UnitOfWork for SqlxUnitOfWork {
-    type Tx = SqlxTransaction;
-
-    async fn begin(&self) -> Result<Self::Tx, TransactionError> {
-        self.pool
-            .begin()
-            .await
-            .map(|transaction| SqlxTransaction { transaction })
-            .map_err(|_| TransactionError::BeginFailed)
-    }
-}
-
-#[async_trait::async_trait]
-impl Transaction for SqlxTransaction {
-    async fn commit(self) -> Result<(), TransactionError> {
-        self.transaction
-            .commit()
-            .await
-            .map_err(|_| TransactionError::CommitFailed)
-    }
 }
 
 fn required_env<F>(get: &mut F, name: &'static str) -> Result<String, PostgresConfigError>

@@ -9,7 +9,6 @@ use aws_sdk_dynamodb::error::SdkError;
 use common::{batch::Batch, domain::Domain, shop_id::ShopId, shop_slug_id::ShopSlugId};
 
 #[derive(thiserror::Error, Debug)]
-#[allow(clippy::large_enum_variant)]
 pub enum GetShopError {
     #[error("Shop with identifier '{0}' not found")]
     ShopNotFound(ShopId),
@@ -22,20 +21,53 @@ pub enum GetShopError {
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for Query: {0:?}")]
-    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
+    SdkQueryError(
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>,
+    ),
 
     #[error("Encountered DynamoDB SdkError for BatchGetItem: {0:?}")]
     SdkBatchGetItemError(
-        #[from]
-        SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
+        #[source]
+        Box<
+            SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
+        >,
     ),
 
     #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
     UnprocessedAfterMaxRetries(u32),
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>
+    for GetShopError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkGetItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>> for GetShopError {
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>) -> Self {
+        Self::SdkQueryError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>>
+    for GetShopError
+{
+    fn from(
+        error: SdkError<
+            aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
+            HttpResponse,
+        >,
+    ) -> Self {
+        Self::SdkBatchGetItemError(Box::new(error))
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -73,9 +105,9 @@ pub mod api {
                 GetShopError::ShopifyDomainNotFound(_) => {
                     ApiError::not_found(SHOP_NOT_FOUND, Box::new(err))
                 }
-                GetShopError::SdkGetItemError(err) => err.into(),
-                GetShopError::SdkQueryError(err) => err.into(),
-                GetShopError::SdkBatchGetItemError(err) => err.into(),
+                GetShopError::SdkGetItemError(err) => (*err).into(),
+                GetShopError::SdkQueryError(err) => (*err).into(),
+                GetShopError::SdkBatchGetItemError(err) => (*err).into(),
                 GetShopError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }

@@ -197,7 +197,7 @@ fn billing_request(plan: &str, cycle: &str) -> serde_json::Value {
 }
 
 async fn users_read_token(
-    user_id: common::user_id::UserId,
+    user_id: user_core::user_id::UserId,
 ) -> user_core::access_token::RawAccessToken {
     seed_access_token_for(user_id, std::collections::HashSet::from([Scope::UsersRead])).await
 }

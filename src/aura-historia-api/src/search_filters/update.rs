@@ -21,7 +21,7 @@ pub(super) async fn update_search_filter(
     };
     let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let data: UpdateSearchFilterData = if body.trim().is_empty() {
         UpdateSearchFilterData::default()

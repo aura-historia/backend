@@ -1,8 +1,8 @@
 use crate::product_document::{ProductDocument, ProductDocumentSerdeField};
 use crate::product_search_reader::map_search_response;
-use common::error::boxed::box_error;
-use common::opensearch::search_response::SearchResponse;
+use application::error::box_error;
 use opensearch::{OpenSearch, SearchParts};
+use platform_opensearch::search_response::SearchResponse;
 use product_core::product_search::ProductSearch;
 use product_service::ports::{
     CompiledProductSearch, ProductSimilarProductsReadError, ProductSimilarProductsReader,
@@ -123,11 +123,10 @@ pub(crate) fn build_similar_products_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        currency::domain::Currency, fx_rate_id::FxRateId, language::domain::Language,
-        product_id::ProductId,
-    };
-    use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+    use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+    use localization::Language;
+    use money::Currency;
+    use product_core::product_id::ProductId;
     use product_service::ports::ProductPriceFilterPlan;
     use serde_json::json;
     use strum::IntoEnumIterator;

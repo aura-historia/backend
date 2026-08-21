@@ -1,6 +1,6 @@
 use crate::ports::SearchFilterView;
-use common::error::boxed::BoxError;
-use common::user_search_filter_id::UserSearchFilterId;
+use application::error::BoxError;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterProjection {

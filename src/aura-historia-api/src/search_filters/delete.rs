@@ -18,7 +18,7 @@ pub(super) async fn delete_search_filter(
     };
     let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match state
         .delete_owned_search_filter

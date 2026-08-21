@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 common = { workspace = true }
+localization = { workspace = true }
 notification-core = { workspace = true }
 
 thiserror = { workspace = true }

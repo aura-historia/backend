@@ -8,7 +8,6 @@ use common::change_outcome::ChangeOutcome;
 use common::error::boxed::{BoxError, box_error};
 
 use common::operation_context::{OperationAuthorizationError, OperationContext};
-use common::partner_shop_application_id::PartnerShopApplicationId;
 use common::transaction::{Transaction, UnitOfWork};
 use notification_core::notification::{
     NotificationContent, PartnerApplicationDecision as NotificationPartnerApplicationDecision,
@@ -22,6 +21,7 @@ pub use shop_partner_core::partner_shop_application::PartnerShopApplicationDecis
 use shop_partner_core::partner_shop_application::{
     PartnerShopApplication, PartnerShopApplicationTransitionError,
 };
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_service::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use user_service::ports::UserAdminReaderFactory;
 

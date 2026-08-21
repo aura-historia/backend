@@ -1,29 +1,22 @@
-use common::{
-    currency::domain::Currency,
-    error::boxed::{BoxError, box_error, static_error},
-    event_id::EventId,
-    language::domain::Language,
-    localized::Localized,
-    postgres::SqlxTransaction,
-    price::domain::{MonetaryAmount, Price},
-    product_id::ProductId,
-    product_lifecycle::domain::ProductLifecycle,
-    product_slug_id::ProductSlugId,
-    product_state::domain::ProductState,
-    seller_slug_id::SellerSlugId,
-    shop_id::ShopId,
-    shop_name::ShopName,
-    shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId,
-    utm::append_utm_params,
-};
+use crate::url::append_utm_params;
+use application::error::{BoxError, box_error, static_error};
+use domain_primitives::event_id::EventId;
+use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
+use platform_postgres::SqlxTransaction;
 use product_core::{
     description::Description,
     product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
+    product_id::ProductId,
     product_image::ProductImage,
+    product_lifecycle::ProductLifecycle,
+    product_slug_id::ProductSlugId,
+    product_state::ProductState,
     prohibited_content::ProhibitedContent,
+    shops_product_id::ShopsProductId,
     title::Title,
 };
 use product_service::ports::{
@@ -31,6 +24,10 @@ use product_service::ports::{
     ProductSearchFilterMatchSourceEventKind, ProductSearchFilterMatchSourceReadError,
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
 };
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use sqlx::PgConnection;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -448,7 +445,7 @@ fn sale_valuation(
 ) -> Result<Option<ProductSaleValuation>, ()> {
     match (fx_rate_id, sold_at) {
         (Some(fx_rate_id), Some(sold_at)) => Ok(Some(ProductSaleValuation {
-            fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+            fx_rate_id: FxRateId::from(fx_rate_id),
             sold_at,
         })),
         (None, None) => Ok(None),
@@ -617,7 +614,7 @@ mod tests {
         let sold_at = OffsetDateTime::UNIX_EPOCH;
         assert_eq!(
             Ok(Some(ProductSaleValuation {
-                fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+                fx_rate_id: FxRateId::from(fx_rate_id),
                 sold_at,
             })),
             sale_valuation(Some(fx_rate_id), Some(sold_at))

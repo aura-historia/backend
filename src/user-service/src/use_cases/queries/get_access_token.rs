@@ -1,14 +1,14 @@
 use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::user_id::UserId;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, Scope,
 };
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetAccessTokenRequest {
@@ -165,12 +165,12 @@ mod tests {
     use super::{
         GetAccessTokenError, GetAccessTokenHandler, GetAccessTokenRequest, GetAccessTokenUseCase,
     };
-    use common::user_id::UserId;
+    use user_core::user_id::UserId;
 
     use crate::ports::{AccessTokenStore, AccessTokenStoreError};
-    use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-    use common::patch_field::PatchField;
+    use application::error::{BoxError, box_error};
+    use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+    use application::patch_field::PatchField;
     use std::collections::HashSet;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -227,7 +227,7 @@ mod tests {
     }
 
     fn token(
-        user_id: common::user_id::UserId,
+        user_id: user_core::user_id::UserId,
         scopes: HashSet<Scope>,
         expires: Option<OffsetDateTime>,
     ) -> AccessToken {
@@ -282,7 +282,7 @@ mod tests {
     impl AccessTokenStore for FakeAccessTokenStore {
         async fn find_by_id(
             &self,
-            _user_id: &common::user_id::UserId,
+            _user_id: &user_core::user_id::UserId,
             _access_token_id: &AccessTokenId,
         ) -> Result<Option<AccessToken>, AccessTokenStoreError> {
             let mut state = lock(&self.state);
@@ -309,7 +309,7 @@ mod tests {
 
         async fn list_for_user(
             &self,
-            _user_id: &common::user_id::UserId,
+            _user_id: &user_core::user_id::UserId,
         ) -> Result<Vec<AccessToken>, AccessTokenStoreError> {
             let mut state = lock(&self.state);
             state.list_calls += 1;
@@ -344,7 +344,7 @@ mod tests {
 
         async fn delete(
             &self,
-            _user_id: &common::user_id::UserId,
+            _user_id: &user_core::user_id::UserId,
             _access_token_id: &AccessTokenId,
         ) -> Result<(), AccessTokenStoreError> {
             let mut state = lock(&self.state);

@@ -15,6 +15,7 @@ use common::query::text_query::TextQuery;
 
 use common::shop_name::ShopName;
 use common::sort::{Sort, SortOrder};
+use geo::opensearch::distance_to_opensearch_value;
 use opensearch::http::Method;
 use opensearch::http::headers::HeaderMap;
 use opensearch::http::request::JsonBody;
@@ -676,7 +677,7 @@ pub fn build_filter_clauses(
     if let Some(query) = search.geo_address_distance_query {
         filter.push(json!({
             "geo_distance": {
-                "distance": query.distance.opensearch_value(),
+                "distance": distance_to_opensearch_value(query.distance),
                 ProductDocumentSerdeField::GeoAddress.as_str(): {
                     "lat": query.lat,
                     "lon": query.lon

@@ -5,9 +5,12 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+application = { workspace = true }
 common = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 notification-service = { workspace = true }
 product-core = { workspace = true }
 product-service = { workspace = true }

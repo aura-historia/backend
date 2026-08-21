@@ -1,0 +1,21 @@
+[package]
+name = "application"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+credential-core = { workspace = true }
+domain-primitives = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+user-core = { workspace = true }
+
+fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[features]
+default = []
+test-data = ["dep:fake", "domain-primitives/test-data"]

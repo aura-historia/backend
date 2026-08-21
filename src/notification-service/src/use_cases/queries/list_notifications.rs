@@ -3,11 +3,11 @@ use crate::ports::notification_list_reader::{
 };
 use crate::presentation::NotificationPresentationPreferences;
 use common::{
-    language::domain::Language,
     notification_id::NotificationId,
     operation_context::{OperationAuthorizationError, OperationContext, Principal},
     user_id::UserId,
 };
+use localization::Language;
 use notification_core::notification::LocalizedNotificationContent;
 use time::OffsetDateTime;
 

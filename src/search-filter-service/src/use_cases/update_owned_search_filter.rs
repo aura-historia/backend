@@ -7,33 +7,29 @@ use crate::tier_policy::{
     active_filter_quota, validate_search_feature_changes, validate_search_features,
 };
 use crate::use_cases::embedding_query;
-use common::currency::domain::Currency;
-use common::distance::domain::GeoDistanceQuery;
-use common::error::boxed::{BoxError, box_error};
-use common::language::domain::Language;
-use common::operation_context::{
+use application::error::{BoxError, box_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::patch_field::PatchField;
-use common::price::domain::MonetaryAmount;
-use common::product_state::domain::ProductState;
-use common::query::any_of_query::AnyOfQuery;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
-use common::resource_state::domain::ResourceState;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use application::patch_field::PatchField;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::query::any_of_query::AnyOfQuery;
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
 use embedding::{EmbeddingError, EmbeddingGenerator};
-use geo::core::continent::Continent;
+use geo::core::{continent::Continent, distance::GeoDistanceQuery};
 use isocountry::CountryCode;
+use localization::Language;
+use money::{Currency, MonetaryAmount};
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use product_core::product_state::ProductState;
+use search_filter_core::search_filter_state::SearchFilterState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use shop_core::shop_type::ShopType;
+use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
@@ -70,7 +66,7 @@ pub struct UpdateOwnedSearchFilterCommand {
     pub search_filter_id: UserSearchFilterId,
     pub name: PatchField<UserSearchFilterName>,
     pub notifications: PatchField<bool>,
-    pub state: PatchField<ResourceState>,
+    pub state: PatchField<SearchFilterState>,
     pub search: ProductSearchPatch,
 }
 

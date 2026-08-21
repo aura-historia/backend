@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
-use common::error::boxed::BoxError;
-use common::versioned::Versioned;
-use common::{partner_shop_application_id::PartnerShopApplicationId, user_id::UserId};
+use application::error::BoxError;
+use domain_primitives::versioned::Versioned;
 use shop_partner_core::partner_shop_application::PartnerShopApplication;
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
+use user_core::user_id::UserId;
 
-common::version_newtype!(PartnerShopApplicationStorageVersion);
+domain_primitives::version_newtype!(PartnerShopApplicationStorageVersion);
 
 pub type VersionedPartnerShopApplication =
     Versioned<PartnerShopApplication, PartnerShopApplicationStorageVersion>;

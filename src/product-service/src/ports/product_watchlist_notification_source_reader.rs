@@ -1,10 +1,14 @@
-use common::{
-    error::boxed::BoxError, event_id::EventId, language::domain::Language, price::domain::Price,
-    product_id::ProductId, product_slug_id::ProductSlugId, product_state::domain::ProductState,
-    shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId,
+use application::error::BoxError;
+use domain_primitives::event_id::EventId;
+use localization::Language;
+use money::Price;
+use product_core::{
+    product_id::ProductId, product_image::ProductImage, product_slug_id::ProductSlugId,
+    product_state::ProductState, shops_product_id::ShopsProductId, title::Title,
 };
-use product_core::{product_image::ProductImage, title::Title};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 use url::Url;

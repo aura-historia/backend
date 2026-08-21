@@ -2,10 +2,10 @@ use crate::client_record::{self, OAuthClientRecord};
 use crate::client_record_update::OAuthClientRecordUpdate;
 use crate::repository::OAuthDynamoDbStore;
 
+use crate::dynamodb_update::DynamoDbUpdate;
+use application::error::box_error;
 use aws_sdk_dynamodb::types::{AttributeValue, ReturnValue};
-use common::dynamodb_update::DynamoDbUpdate;
-use common::error::boxed::box_error;
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::client::OAuthClient;
 use oauth_service::ports::{OAuthClientPatch, OAuthClientRepository, OAuthClientRepositoryError};
 

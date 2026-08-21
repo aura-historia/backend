@@ -1,15 +1,20 @@
 use crate::notification_kind::NotificationKind;
-use common::{
-    event_id::EventId, localized::Localized, notification_id::NotificationId,
-    partner_shop_application_id::PartnerShopApplicationId, price::domain::Price,
-    product_id::ProductId, product_slug_id::ProductSlugId, product_state::domain::ProductState,
-    shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId, user_id::UserId, user_search_filter_id::UserSearchFilterId,
-    user_search_filter_name::UserSearchFilterName,
+use common::notification_id::NotificationId;
+use domain_primitives::event_id::EventId;
+use localization::Localized;
+use money::Price;
+use product_core::{
+    product_id::ProductId, product_image::ProductImage, product_slug_id::ProductSlugId,
+    product_state::ProductState, shops_product_id::ShopsProductId, title::Title,
 };
-use product_core::{product_image::ProductImage, title::Title};
+use search_filter_core::{
+    user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
+};
+use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::HashMap;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Notification {
@@ -152,7 +157,7 @@ impl NotificationContent {
 
     pub fn localized(
         self,
-        preferred_languages: &[common::language::domain::Language],
+        preferred_languages: &[localization::Language],
     ) -> LocalizedNotificationContent {
         match self {
             Self::Watchlist {
@@ -197,7 +202,7 @@ pub struct ProductNotificationSnapshot {
     pub shop_slug_id: ShopSlugId,
     pub product_slug_id: ProductSlugId,
     pub shop_name: ShopName,
-    pub title: Option<HashMap<common::language::domain::Language, Title>>,
+    pub title: Option<HashMap<localization::Language, Title>>,
     pub image: Option<ProductImage>,
     pub url: Url,
     pub view_url: Url,
@@ -206,7 +211,7 @@ pub struct ProductNotificationSnapshot {
 impl ProductNotificationSnapshot {
     fn localized(
         self,
-        preferred_languages: &[common::language::domain::Language],
+        preferred_languages: &[localization::Language],
     ) -> LocalizedProductNotificationSnapshot {
         LocalizedProductNotificationSnapshot {
             shop_id: self.shop_id,
@@ -214,9 +219,9 @@ impl ProductNotificationSnapshot {
             shop_slug_id: self.shop_slug_id,
             product_slug_id: self.product_slug_id,
             shop_name: self.shop_name,
-            title: self.title.and_then(|titles| {
-                common::language::domain::Language::resolve(preferred_languages, titles)
-            }),
+            title: self
+                .title
+                .and_then(|titles| localization::Language::resolve(preferred_languages, titles)),
             image: self.image,
             url: self.url,
             view_url: self.view_url,
@@ -296,7 +301,7 @@ pub struct LocalizedProductNotificationSnapshot {
     pub shop_slug_id: ShopSlugId,
     pub product_slug_id: ProductSlugId,
     pub shop_name: ShopName,
-    pub title: Option<Localized<common::language::domain::Language, Title>>,
+    pub title: Option<Localized<localization::Language, Title>>,
     pub image: Option<ProductImage>,
     pub url: Url,
     pub view_url: Url,

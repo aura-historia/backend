@@ -1,10 +1,3 @@
-use common::{
-    api::{
-        error::ApiError,
-        error_code::{BAD_HEADER_VALUE, INTERNAL_SERVER_ERROR, INVALID_UUID},
-    },
-    user_id::UserId,
-};
 use http::{
     HeaderMap,
     header::{AUTHORIZATION, ToStrError},
@@ -12,6 +5,7 @@ use http::{
 use jsonwebtokens::Verifier;
 use jsonwebtokens_cognito::KeySet;
 use serde_json::Value;
+use user_core::user_id::UserId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AccessTokenVerifierError {
@@ -35,41 +29,6 @@ pub enum AccessTokenVerifierError {
 
     #[error("InvalidUuid for claim '{0}': '{1}'")]
     InvalidUuid(&'static str, uuid::Error),
-}
-
-impl From<AccessTokenVerifierError> for ApiError {
-    fn from(value: AccessTokenVerifierError) -> Self {
-        match value {
-            AccessTokenVerifierError::HttpHeaderValueToStrError(ref err) => {
-                let msg = err.to_string();
-                ApiError::bad_request(BAD_HEADER_VALUE, Box::new(value))
-                    .with_header_field(AUTHORIZATION.as_str())
-                    .with_detail(msg)
-            }
-            AccessTokenVerifierError::JwtCognito(_) => {
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
-            }
-            AccessTokenVerifierError::JwtError(_) => {
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
-            }
-            AccessTokenVerifierError::JwksFetchError(_) => {
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
-            }
-            AccessTokenVerifierError::ClaimIsNotString(_) => {
-                ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
-            }
-            AccessTokenVerifierError::MissingClaim(claim) => {
-                ApiError::bad_request(BAD_HEADER_VALUE, Box::new(value))
-                    .with_header_field(AUTHORIZATION.as_str())
-                    .with_detail(format!("Missing claim '{claim}'."))
-            }
-            AccessTokenVerifierError::InvalidUuid(claim, _) => {
-                ApiError::bad_request(INVALID_UUID, Box::new(value)).with_detail(format!(
-                    "String-Value for decoded claim '{claim}' is not a valid UUID."
-                ))
-            }
-        }
-    }
 }
 
 #[async_trait::async_trait]

@@ -1,6 +1,8 @@
-use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use application::error::box_error;
+use platform_postgres::SqlxTransaction;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use shop_partner_service::ports::{
     UserPartnerShopsReadError, UserPartnerShopsReader, UserPartnerShopsReaderFactory,
 };

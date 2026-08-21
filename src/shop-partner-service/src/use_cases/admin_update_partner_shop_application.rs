@@ -3,13 +3,13 @@ use crate::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,
     PartnerShopApplicationRepositoryFactory,
 };
-use common::error::boxed::BoxError;
-use common::operation_context::{OperationAuthorizationError, OperationContext};
-use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::transaction::{Transaction, UnitOfWork};
+use application::error::BoxError;
+use application::operation_context::{OperationAuthorizationError, OperationContext};
+use application::transaction::{Transaction, UnitOfWork};
 use shop_partner_core::partner_shop_application::{
     PartnerShopApplication, PartnerShopApplicationTransitionError,
 };
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use user_service::ports::UserAdminReaderFactory;
 
 #[derive(Debug, Clone, PartialEq)]

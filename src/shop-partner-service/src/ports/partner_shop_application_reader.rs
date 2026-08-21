@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
 use crate::ports::PartnerShopApplicationRepositoryError;
-use common::{
-    partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
-};
+use shop_core::shop_id::ShopId;
 use shop_partner_core::partner_shop_application::PartnerShopApplicationPayload;
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_partner_core::partner_shop_application_state::PartnerShopApplicationState;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PartnerShopApplicationView {

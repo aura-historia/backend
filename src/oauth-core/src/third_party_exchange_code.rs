@@ -1,7 +1,8 @@
-use common::uuid_v7_newtype;
+use credential_core::scope::Scope;
+use domain_primitives::uuid_v7_newtype;
 use std::collections::HashSet;
 use time::OffsetDateTime;
-use user_core::access_token::{RawAccessToken, Scope};
+use user_core::access_token::RawAccessToken;
 
 uuid_v7_newtype!(ThirdPartyExchangeCode);
 

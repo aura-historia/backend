@@ -16,11 +16,23 @@ async-trait = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["json"] }
+
 itertools = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 slug = { workspace = true }
+application = { workspace = true }
+credential-core = { workspace = true }
+domain-primitives = { workspace = true }
+fxrate-core = { workspace = true }
+geo = { workspace = true }
+platform-observability = { workspace = true }
+platform-opensearch = { workspace = true }
+product-core = { workspace = true }
+search-filter-core = { workspace = true }
+shop-core = { workspace = true }
+shop-partner-core = { workspace = true }
+user-core = { workspace = true }
 
 # Optional dependencies via feature-flags
 aws-config = { workspace = true, optional = true }
@@ -37,10 +49,12 @@ httpdate = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 opensearch = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
+platform-postgres = { workspace = true, optional = true }
 
 
 [dev-dependencies]
 rstest = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
@@ -49,7 +63,7 @@ default = []
 dynamodb = ["serde_dynamo", "aws-sdk-dynamodb"]
 event_bridge = ["aws_lambda_events/eventbridge", "aws_lambda_events/sqs", "aws_lambda_events/dynamodb", "sqs", "dynamodb"]
 opensearch = ["dep:opensearch", "serde_json", "aws-config"]
-postgres = ["dep:sqlx"]
+postgres = ["dep:sqlx", "dep:platform-postgres"]
 sqs = ["aws-sdk-sqs", "serde_json"]
 api = [
     "aws_lambda_events/apigw",
@@ -58,4 +72,4 @@ api = [
     "httpdate",
     "lambda_runtime"
 ]
-test-data = ["fake"]
+test-data = ["fake", "application/test-data", "credential-core/test-data", "domain-primitives/test-data", "fxrate-core/test-data", "geo/test-data", "product-core/test-data", "search-filter-core/test-data", "shop-core/test-data", "shop-partner-core/test-data", "user-core/test-data"]

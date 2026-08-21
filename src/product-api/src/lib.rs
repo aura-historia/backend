@@ -1,10 +1,13 @@
 use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
-use cognito::access_token_verifier_service::AccessTokenVerifierService;
+use cognito::access_token_verifier_service::{
+    AccessTokenVerifierError, AccessTokenVerifierService,
+};
 use common::api::{
     error::{ApiError, log_api_error},
     error_code::INTERNAL_SERVER_ERROR,
 };
 use embedding::EmbeddingGenerator;
+use http::header::AUTHORIZATION;
 use lambda_runtime::LambdaEvent;
 use product::service::{
     get_service::GetProductService, query_service::QueryProductService,
@@ -16,6 +19,34 @@ pub mod get_product;
 pub mod get_product_history;
 pub mod get_product_similar;
 pub mod search;
+
+pub(crate) fn map_access_token_error(value: AccessTokenVerifierError) -> ApiError {
+    match value {
+        AccessTokenVerifierError::HttpHeaderValueToStrError(ref error) => {
+            let detail = error.to_string();
+            ApiError::bad_request(common::api::error_code::BAD_HEADER_VALUE, Box::new(value))
+                .with_header_field(AUTHORIZATION.as_str())
+                .with_detail(detail)
+        }
+        AccessTokenVerifierError::JwtCognito(_)
+        | AccessTokenVerifierError::JwtError(_)
+        | AccessTokenVerifierError::JwksFetchError(_)
+        | AccessTokenVerifierError::ClaimIsNotString(_) => {
+            ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(value))
+        }
+        AccessTokenVerifierError::MissingClaim(claim) => {
+            ApiError::bad_request(common::api::error_code::BAD_HEADER_VALUE, Box::new(value))
+                .with_header_field(AUTHORIZATION.as_str())
+                .with_detail(format!("Missing claim '{claim}'."))
+        }
+        AccessTokenVerifierError::InvalidUuid(claim, _) => {
+            ApiError::bad_request(common::api::error_code::INVALID_UUID, Box::new(value))
+                .with_detail(format!(
+                    "String-Value for decoded claim '{claim}' is not a valid UUID."
+                ))
+        }
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(

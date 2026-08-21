@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 common = { workspace = true }
+large-language-model = { workspace = true, optional = true }
 geo = { workspace = true, features = ["data"] }
 isocountry = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
@@ -44,7 +45,7 @@ user = { workspace = true, features = ["full"] }
 default = []
 dynamodb = ["common/dynamodb", "product", "product/dynamodb", "shop/dynamodb", "field", "tracing", "aws-sdk-dynamodb", "serde_dynamo/aws-sdk-dynamodb+1"]
 opensearch = ["common/opensearch", "dynamodb", "product/opensearch", "shop/opensearch", "serde_json", "dep:opensearch"]
-service = ["common/dynamodb", "product", "product/opensearch", "shop", "user/service", "user/dynamodb", "embedding", "llm", "reqwest", "tracing", "serde_json"]
+service = ["common/dynamodb", "product", "product/opensearch", "shop", "user/service", "user/dynamodb", "embedding", "llm", "dep:large-language-model", "reqwest", "tracing", "serde_json"]
 data = ["product", "product/data", "shop/data"]
 test-data = ["fake", "common/test-data", "product/test-data", "shop/test-data", "user/test-data"]
 full = ["dynamodb", "opensearch", "service", "data", "test-data"]

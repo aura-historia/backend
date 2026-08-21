@@ -5,10 +5,10 @@ use crate::ports::{
 use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
-use common::error::boxed::BoxError;
-use common::operation_context::{CredentialCapability, OperationContext};
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::error::BoxError;
+use application::operation_context::{CredentialCapability, OperationContext};
+use application::transaction::{Transaction, UnitOfWork};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminGetUserRequest {

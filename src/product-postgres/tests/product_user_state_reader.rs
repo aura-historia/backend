@@ -2,11 +2,11 @@ use common::{
     event_id::EventId, notification_id::NotificationId, product_id::ProductId, user_id::UserId,
     user_search_filter_id::UserSearchFilterId,
 };
-use product_core::user_state::ProductUserState;
 use product_postgres::SqlxProductUserStateReader;
 use product_service::ports::{
     ProductUserStateLookup, ProductUserStateReadError, ProductUserStateReader,
 };
+use product_service::user_state::ProductUserState;
 
 use std::collections::HashMap;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};

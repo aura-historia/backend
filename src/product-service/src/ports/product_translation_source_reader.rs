@@ -1,7 +1,7 @@
-use common::{
-    error::boxed::BoxError, event_id::EventId, language::domain::Language, product_id::ProductId,
-};
-use product_core::title::Title;
+use application::error::BoxError;
+use domain_primitives::event_id::EventId;
+use localization::Language;
+use product_core::{product_id::ProductId, title::Title};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductTranslationSource {

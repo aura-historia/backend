@@ -10,6 +10,7 @@ on:
       - "Cargo.lock"
       - "depgraph-rules.toml"
       - "sonar-project.properties"
+      - "scripts/common-decomposition/**"
       - "src/**"
       - "migrations/**"
       - "infra/**"
@@ -22,6 +23,7 @@ on:
       - "Cargo.lock"
       - "depgraph-rules.toml"
       - "sonar-project.properties"
+      - "scripts/common-decomposition/**"
       - "src/**"
       - "migrations/**"
       - "infra/**"
@@ -71,6 +73,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Compute common baseline comparison ref
+        id: common-baseline-base
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${{ github.event.before }}" \
+               && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            echo "sha=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=HEAD^" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check common decomposition baseline
+        run: >-
+          python3 scripts/common-decomposition/check_baseline.py
+          --base-ref "${{ steps.common-baseline-base.outputs.sha }}"
+
+      - name: Test common decomposition baseline checker
+        run: python3 -m unittest discover -s scripts/common-decomposition -p 'test_*.py'
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

@@ -1,5 +1,5 @@
-use common::{error::boxed::BoxError, fx_rate_id::FxRateId};
-use fxrate_core::{FxRateSnapshot, NewFxRateSnapshot};
+use application::error::BoxError;
+use fxrate_core::{FxRateId, FxRateSnapshot, NewFxRateSnapshot};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

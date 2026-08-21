@@ -5,12 +5,11 @@ use crate::products::product_data::{
     PersonalizedProductDetailsData, personalized_product_details_data,
 };
 use crate::state::WatchlistState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
 use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
 use common::product_id::ProductId;
 use product_service::ports::ProductWatchlistDetailsCursor;
@@ -50,7 +49,7 @@ pub async fn list_watchlist(
     };
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     match state
         .list_watchlist
@@ -179,7 +178,7 @@ mod tests {
     use common::shops_product_id::ShopsProductId;
     use common::user_id::UserId;
     use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
-    use product_core::user_state::ProductUserState;
+    use product_service::user_state::ProductUserState;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::OffsetDateTime;
     use tower::ServiceExt;

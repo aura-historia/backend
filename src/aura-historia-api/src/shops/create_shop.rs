@@ -3,16 +3,15 @@ use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::shops::shop_data::shop_response;
 use crate::shops::types::ShopTypeData;
 use crate::state::ShopsState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::domain::Domain;
-use common::language::data::LanguageData;
-use common::shop_name::ShopName;
 use geo::data::address_data::StructuredAddressData;
 use serde::Deserialize;
 use serde_email::Email;
+use shop_core::domain::Domain;
+use shop_core::shop_name::ShopName;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_service::use_cases::commands::create_shop::CreateShopCommand;
 use std::collections::HashSet;
@@ -55,7 +54,7 @@ pub async fn create_shop(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let data = match parse_body(&body) {
         Ok(data) => data,

@@ -11,13 +11,18 @@ pub struct ProductImage {
 #[cfg(feature = "test-data")]
 mod faker {
     use crate::product_image::ProductImage;
-    use common::fake::url::ImageUrl;
     use fake::{Dummy, Fake, Faker, RngExt};
+    use url::Url;
 
     impl Dummy<Faker> for ProductImage {
         fn dummy_with_rng<R: RngExt + ?Sized>(config: &Faker, rng: &mut R) -> Self {
+            let url = match Url::parse("https://example.com/image.jpg") {
+                Ok(url) => url,
+                Err(error) => panic!("invalid product image test URL: {error}"),
+            };
+
             ProductImage {
-                url: config.fake_with_rng::<ImageUrl, R>(rng).into(),
+                url,
                 prohibited_content: config.fake_with_rng(rng),
             }
         }

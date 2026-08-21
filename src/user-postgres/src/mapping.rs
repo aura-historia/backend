@@ -1,20 +1,20 @@
-use common::currency::domain::Currency;
-use common::language::domain::Language;
-use common::measurement_unit::domain::MeasurementUnit;
-use common::stripe_customer_id::StripeCustomerId;
-use common::user_id::UserId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 use sqlx::FromRow;
 use time::OffsetDateTime;
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
+use user_core::measurement_unit::MeasurementUnit;
 use user_core::role::UserRole;
 use user_core::sort_user_field::SortUserField;
+use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::tier::UserTier;
 use user_core::user::{RehydratedUserState, User, UserAccount, UserPreferences, UserProfile};
+use user_core::user_id::UserId;
 use user_service::ports::{UserDetailsView, UserStorageVersion, VersionedUser};
 use user_service::use_cases::queries::find_user_by_stripe_customer_id::UserStripeLookupView;
 use user_service::use_cases::queries::search_users::UserSummary;
@@ -143,7 +143,7 @@ pub(crate) enum UserRowMappingError {
     #[error("incomplete user geo address")]
     IncompleteGeoAddress,
     #[error("invalid user version")]
-    InvalidVersion(#[from] common::version::InvalidVersionError),
+    InvalidVersion(#[from] domain_primitives::version::InvalidVersionError),
     #[error("invalid rehydrated user")]
     InvalidUser(#[from] user_core::user::RehydrateUserError),
 }
@@ -366,7 +366,7 @@ fn parse_role(value: &str) -> Result<UserRole, UserRowMappingError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::version::InvalidVersionError;
+    use domain_primitives::version::InvalidVersionError;
     use user_service::use_cases::queries::find_user_by_stripe_customer_id::UserStripeLookupView;
 
     #[test]

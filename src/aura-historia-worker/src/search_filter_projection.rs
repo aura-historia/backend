@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use common::error::boxed::{BoxError, box_error};
-use common::user_search_filter_id::UserSearchFilterId;
+use application::error::{BoxError, box_error};
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::use_cases::{
     ProjectSearchFilterChangeCommand, ProjectSearchFilterChangeUseCase,
     SearchFilterProjectionOperation,

@@ -278,6 +278,18 @@ controller           -X-> storage row/document/item
 
 Cross-entity use cases MUST have one clear owning service crate. If no existing entity service is a natural owner, create a dedicated application/service crate rather than introducing cyclic dependencies.
 
+### 3.7 Durable shared crates
+
+The workspace has narrow shared owners. They are not a replacement `common` hub:
+
+- `application` owns technology-neutral application contracts such as `OperationContext`, `UnitOfWork`, `PatchField`, pagination, personalization, and boxed application errors.
+- `domain-primitives` owns proven domain-neutral values, query/sort types, event IDs, version wrappers, and newtype machinery.
+- `credential-core` owns credential identifiers and scope vocabulary.
+- `money` and `localization` own pure currency/amount/price and language/localized values.
+- `platform-postgres`, `platform-opensearch`, and `platform-observability` own concrete SQLx transaction mechanics, generic OpenSearch protocol envelopes, and subscriber setup.
+
+Canonical core, service, adapter, runtime, and transport crates MUST import these owners directly. PostgreSQL adapters own SQLx rows and mappings; OpenSearch adapters own documents, queries, and mappings while `platform-opensearch` owns only proven generic protocol envelopes; DynamoDB adapters own item/update/batch mechanics; provider crates own wire DTOs and provider vocabulary. `large-language-model` owns LLM operation/model/tier vocabulary and invocation metrics, while `platform-observability` owns subscriber setup only. `common` remains only for legacy compatibility and MUST NOT gain new canonical consumers. The canonical runtime leaves use `platform-observability` for logging, `platform-postgres` for typed pool and transaction mechanics, `application` for operation context and transaction contracts, and bounded-context core crates for identifiers. No canonical production crate may retain a normal or development `common` edge; legacy APIs, entities, Lambdas, and explicitly dual test/composition roots may remain. A shared crate MUST stay narrow, technology-neutral where named as such, and free of bounded-context storage or transport representations.
+
 ## 4. Domain-Driven Design boundaries
 
 ### 4.1 Aggregates
@@ -411,6 +423,7 @@ Domain code SHOULD be deterministic and testable without mocks, databases, clock
 | PostgreSQL scoped repository | `SqlxRecordRepository` | `record-postgres` | private whenever the factory return type can remain opaque |
 | PostgreSQL row | `RecordRow` | `record-postgres` | private or `pub(crate)` |
 | Search document | `RecordDocument` | `record-opensearch` | private or `pub(crate)` |
+| Shared search protocol envelope | `SearchResponse<T>` | `platform-opensearch` | `pub` only after multiple production adapters prove the exact generic wire shape |
 | Key-value item | `RecordItem` | `record-dynamodb` | private or `pub(crate)` |
 | REST request DTO | `RenameRecordRequestDto` | `api` | private or `pub(crate)` |
 | REST response DTO | `RecordDetailsResponseDto` | `api` | private or `pub(crate)` |
@@ -427,7 +440,7 @@ Use the narrowest visibility that satisfies a real production crate boundary.
 - Service-owned ports MUST be `pub` because adapter crates implement them.
 - Use-case handlers and constructors MUST be `pub` only when the composition root constructs them directly.
 - Concrete adapter factories/readers MUST be `pub` only when the composition root or a black-box consumer needs them.
-- Adapter rows, mapping helpers, SQL parameter structs, concrete transaction-scoped repositories, and client response types MUST remain private or `pub(crate)`.
+- Adapter rows, mapping helpers, SQL parameter structs, concrete transaction-scoped repositories, and adapter-specific client response types MUST remain private or `pub(crate)`. A narrow platform crate MAY expose a generic protocol envelope only when multiple production adapters require the exact shape and no bounded-context storage representation escapes.
 - Fields of public adapter types MUST remain private.
 - Do not expose a public constructor for a type that consumers should obtain only through a factory.
 - Do not widen visibility solely for tests.
@@ -566,7 +579,7 @@ UpdateRecord {
 }
 ```
 
-When a public PATCH endpoint is intentionally broad, the service use case is still named `Update*`. Use a service-owned `Update*Command` with shared tri-state `common::patch_field::PatchField`: `Unchanged`, `Set(value)`, and `Clear`. The helper may live in `common`, but the command belongs in `service`, not in `core`.
+When a public PATCH endpoint is intentionally broad, the service use case is still named `Update*`. Use a service-owned `Update*Command` with shared tri-state `application::patch_field::PatchField`: `Unchanged`, `Set(value)`, and `Clear`. The helper belongs to the narrow `application` crate, but the command belongs in `service`, not in `core`.
 
 The update handler MUST translate command fields into explicit aggregate methods such as `change_title`, `replace_address`, or `replace_contact`, and track `ChangeOutcome`. Generic update MUST NOT include state-machine transitions that deserve their own use case, such as publishing, archiving, or changing aggregate status.
 
@@ -1028,7 +1041,7 @@ pub struct RecordDetailsView {
 }
 
 pub type PersonalizedRecordDetailsView =
-    common::personalized::Personalized<RecordDetailsView, RecordUserState>;
+    application::personalized::Personalized<RecordDetailsView, RecordUserState>;
 ```
 
 The API maps that wrapper to a required `item` plus optional `userState`; do not inline `user_state` into the reusable item view.
@@ -1073,7 +1086,7 @@ Key-value item        -> key-value adapter mapping
 External response     -> corresponding adapter mapping
 ```
 
-Storage and transport mapping MUST NOT be placed in `core`.
+Storage and transport mapping MUST NOT be placed in `core`. A core crate MAY own the semantic fields of a composite domain key, but labeled string encodings for storage or transport MUST live at the owning boundary and preserve their legacy format there when compatibility requires it.
 
 ### 10.1 REST mapping
 
@@ -2004,7 +2017,7 @@ PersistedProductStateInvalid
 
 They MAY wrap internal errors privately but MUST expose stable semantic variants. Do not use vague variants such as `Forbidden`, `Conflict`, `InvalidPersistedState`, or `Internal` when a narrower cause is known.
 
-When a service or port error represents an adapter/read-model failure, keep the original cause as `#[source]` with `common::error::boxed::BoxError`. Do not convert technical causes to bare unit variants.
+When a service or port error represents an adapter/read-model failure, keep the original cause as `#[source]` with `application::error::BoxError`. Do not convert technical causes to bare unit variants.
 
 ### Adapter errors
 
@@ -2019,7 +2032,7 @@ InvalidProductUrlPersisted
 ExternalResponseMissingPrice
 ```
 
-They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context. Preserve the infrastructure error as the semantic error's `#[source]`, usually boxed through `common::error::boxed::box_error`. Do not hide adapter error mapping in ad-hoc `map_*_error` helper functions; make the source operation explicit in the wrapper type.
+They MUST NOT expose SQLx, HTTP-client, or SDK error types in public variants. They MUST NOT escape to controllers directly. Use private wrapper types plus `From<..>` implementations when mapping infrastructure errors needs operation context. Preserve the infrastructure error as the semantic error's `#[source]`, usually boxed through `application::error::box_error`. Do not hide adapter error mapping in ad-hoc `map_*_error` helper functions; make the source operation explicit in the wrapper type.
 
 ### HTTP mapping
 
@@ -2708,7 +2721,7 @@ OpenSearchQuery
 PostgresPort
 ```
 
-Names SHOULD describe business intent or application capability.
+Names SHOULD describe business intent or application capability. When bounded contexts have similarly shaped lifecycle values, keep their Rust names distinct (`SearchFilterState`, `WatchlistState`) instead of using a generic compatibility alias.
 
 ---
 
@@ -2855,6 +2868,7 @@ Agents MUST read this document before implementing architecture-affecting work.
 - [ ] Add acceptance tests
 - [ ] Verify no N+1 access pattern was introduced.
 - [ ] Verify Cargo dependencies enforce core <- service <- adapters <- runtime/transport.
+- [ ] Verify canonical crates use durable shared owners directly and do not add `common` edges.
 - [ ] Verify no service/core import points toward an adapter.
 - [ ] Verify no controller accesses a repository or database client.
 - [ ] Verify logs contain no secrets or sensitive payloads.
@@ -2880,6 +2894,7 @@ Reviewers SHOULD reject changes that cannot answer these questions clearly:
 12. Are public items required by a real production crate boundary rather than only by tests?
 13. Are private/real-infrastructure implementation tests beside the code and `/tests` limited to black-box behavior?
 14. Are the important rules covered by tests?
+15. If `common` changed, does the exact shrinking-baseline guard and decomposition inventory still pass?
 
 ---
 

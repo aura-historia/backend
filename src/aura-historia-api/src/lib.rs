@@ -4,6 +4,7 @@ pub mod error;
 pub mod newsletter;
 pub mod notifications;
 pub mod oauth;
+pub(crate) mod pagination_data;
 pub mod partner_applications;
 pub mod partner_products;
 pub mod products;
@@ -12,6 +13,7 @@ pub mod shops;
 pub mod state;
 pub mod transport;
 pub mod users;
+pub(crate) mod values;
 pub mod watchlist;
 pub mod webhooks;
 
@@ -32,7 +34,6 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
-use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{EmbeddingGenerator, VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{GoogleGeocoder, GoogleGeocoderConfig};
@@ -63,6 +64,7 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+use platform_postgres::{PostgresConnectError, PostgresPoolConfig, SqlxUnitOfWork};
 
 use product_opensearch::{OpenSearchProductSearchReader, OpenSearchProductSimilarProductsReader};
 use product_postgres::{
@@ -161,6 +163,14 @@ pub const ZOHO_CLIENT_SECRET_ENV: &str = "ZOHO_CLIENT_SECRET";
 pub const ZOHO_REFRESH_TOKEN_ENV: &str = "ZOHO_REFRESH_TOKEN";
 pub const ZOHO_ACCOUNTS_URL_ENV: &str = "ZOHO_ACCOUNTS_URL";
 pub const ZOHO_CAMPAIGNS_URL_ENV: &str = "ZOHO_CAMPAIGNS_URL";
+const POSTGRES_HOST_ENV: &str = "POSTGRES_HOST";
+const POSTGRES_PORT_ENV: &str = "POSTGRES_PORT";
+const POSTGRES_DATABASE_ENV: &str = "POSTGRES_DATABASE";
+const POSTGRES_USERNAME_ENV: &str = "POSTGRES_USERNAME";
+const POSTGRES_PASSWORD_ENV: &str = "POSTGRES_PASSWORD";
+const POSTGRES_MAX_CONNECTIONS_ENV: &str = "POSTGRES_MAX_CONNECTIONS";
+const DEFAULT_POSTGRES_PORT: u16 = 5432;
+const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 2;
 const DEFAULT_API_BIND_ADDR: &str = "0.0.0.0:8080";
 const JWKS_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const JWKS_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -595,7 +605,7 @@ pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
 }
 
 async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateError> {
-    let pool = common::postgres::connect_from_env().await?;
+    let pool = postgres_pool_from_env().await?;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let get_product_events =
         GetProductEventsHandler::new(unit_of_work.clone(), SqlxProductEventReaderFactory::new());
@@ -1026,6 +1036,42 @@ async fn app_state_from_config(config: &ApiConfig) -> Result<AppState, ApiStateE
     .with_readiness(readiness))
 }
 
+async fn postgres_pool_from_env() -> Result<PgPool, ApiStateError> {
+    let host = required_postgres_env(POSTGRES_HOST_ENV)?;
+    let database = required_postgres_env(POSTGRES_DATABASE_ENV)?;
+    let username = required_postgres_env(POSTGRES_USERNAME_ENV)?;
+    let password = required_postgres_env(POSTGRES_PASSWORD_ENV)?;
+    let port = optional_postgres_env(POSTGRES_PORT_ENV, DEFAULT_POSTGRES_PORT)?;
+    let max_connections = optional_postgres_env(
+        POSTGRES_MAX_CONNECTIONS_ENV,
+        DEFAULT_POSTGRES_MAX_CONNECTIONS,
+    )?;
+    let config = PostgresPoolConfig::new(host, port, database, username, password, max_connections)
+        .map_err(|_| ApiStateError::InvalidPostgresMaxConnections)?;
+
+    Ok(config
+        .connect()
+        .await
+        .map_err(PostgresConnectError::Connect)?)
+}
+
+fn required_postgres_env(name: &'static str) -> Result<String, ApiStateError> {
+    std::env::var(name).map_err(|_| ApiStateError::MissingEnv { name })
+}
+
+fn optional_postgres_env<T>(name: &'static str, default: T) -> Result<T, ApiStateError>
+where
+    T: std::str::FromStr,
+{
+    match std::env::var(name) {
+        Ok(value) => value
+            .parse()
+            .map_err(|_| ApiStateError::InvalidPostgresInteger { name, value }),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(std::env::VarError::NotUnicode(_)) => Err(ApiStateError::MissingEnv { name }),
+    }
+}
+
 fn opensearch_client_from_env() -> Result<OpenSearch, ApiStateError> {
     let endpoint =
         std::env::var("OPENSEARCH_ENDPOINT_URL").map_err(|_| ApiStateError::MissingEnv {
@@ -1090,6 +1136,10 @@ pub enum ApiStateError {
     Postgres(#[from] PostgresConnectError),
     #[error(transparent)]
     Config(#[from] ApiConfigError),
+    #[error("invalid integer in environment variable {name}: {value}")]
+    InvalidPostgresInteger { name: &'static str, value: String },
+    #[error("POSTGRES_MAX_CONNECTIONS must be greater than zero")]
+    InvalidPostgresMaxConnections,
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
     #[error("failed to configure OpenSearch: {detail}")]
@@ -1148,13 +1198,13 @@ mod tests {
         AuthMethod, JsonWebKey, JsonWebKeySet, JwksProvider, RequestMetadata, TransportPrincipal,
     };
     use crate::state::ReadinessCheck;
+    use application::operation_context::CredentialCapability;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use common::operation_context::CredentialCapability;
-    use common::user_id::UserId;
     use http::StatusCode;
     use jsonwebtokens::{Algorithm, AlgorithmID};
     use openssl::rsa::Rsa;
     use serde_json::json;
+    use user_core::user_id::UserId;
 
     use std::collections::BTreeSet;
     use time::OffsetDateTime;
@@ -1529,7 +1579,7 @@ mod tests {
     impl shop_service::use_cases::queries::get_shop::GetShopUseCase for RejectGetShopUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_service::use_cases::queries::get_shop::GetShopRequest,
         ) -> Result<
             shop_service::use_cases::queries::get_shop::ShopDetailsView,
@@ -1545,7 +1595,7 @@ mod tests {
     impl shop_service::use_cases::queries::search_shops::SearchShopsUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_service::use_cases::queries::search_shops::SearchShopsRequest,
         ) -> Result<
             shop_service::use_cases::queries::search_shops::SearchShopsResult,
@@ -1559,7 +1609,7 @@ mod tests {
     impl shop_service::use_cases::commands::create_shop::CreateShopUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_service::use_cases::commands::create_shop::CreateShopCommand,
         ) -> Result<
             shop_service::use_cases::commands::create_shop::CreateShopResult,
@@ -1573,7 +1623,7 @@ mod tests {
     impl shop_service::use_cases::commands::update_shop::UpdateShopUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_service::use_cases::commands::update_shop::UpdateShopCommand,
         ) -> Result<
             shop_service::use_cases::commands::update_shop::UpdateShopResult,
@@ -1589,7 +1639,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsRequest,
         ) -> Result<
             shop_service::use_cases::queries::list_user_partner_shops::ListUserPartnerShopsResult,
@@ -1603,7 +1653,7 @@ mod tests {
     impl user_service::use_cases::queries::get_own_user::GetOwnUserUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::get_own_user::GetOwnUserRequest,
         ) -> Result<
             user_service::ports::UserDetailsView,
@@ -1617,7 +1667,7 @@ mod tests {
     impl user_service::use_cases::queries::admin_get_user::AdminGetUserUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::admin_get_user::AdminGetUserRequest,
         ) -> Result<
             user_service::ports::UserDetailsView,
@@ -1630,7 +1680,7 @@ mod tests {
     impl user_service::use_cases::queries::search_users::SearchUsersUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::search_users::SearchUsersRequest,
         ) -> Result<
             user_service::use_cases::queries::search_users::SearchUsersResult,
@@ -1645,7 +1695,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::update_user_profile::UpdateUserProfileCommand,
         ) -> Result<
             user_service::use_cases::commands::update_user_profile::UpdateUserProfileResult,
@@ -1659,7 +1709,7 @@ mod tests {
     impl user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::change_user_role::ChangeUserRoleCommand,
         ) -> Result<
             user_service::use_cases::commands::change_user_role::ChangeUserRoleResult,
@@ -1673,7 +1723,7 @@ mod tests {
     impl user_service::use_cases::commands::change_user_tier::ChangeUserTierUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::change_user_tier::ChangeUserTierCommand,
         ) -> Result<
             user_service::use_cases::commands::change_user_tier::ChangeUserTierResult,
@@ -1686,7 +1736,7 @@ mod tests {
     impl user_service::use_cases::commands::delete_user::DeleteUserUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::delete_user::DeleteUserCommand,
         ) -> Result<
             user_service::use_cases::commands::delete_user::DeleteUserResult,
@@ -1699,7 +1749,7 @@ mod tests {
     impl user_service::use_cases::queries::check_user_admin::CheckUserAdminUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::check_user_admin::CheckUserAdminRequest,
         ) -> Result<
             user_service::use_cases::queries::check_user_admin::CheckUserAdminResult,
@@ -1714,7 +1764,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::create_access_token::CreateAccessTokenCommand,
         ) -> Result<
             user_service::use_cases::commands::create_access_token::CreateAccessTokenResult,
@@ -1729,7 +1779,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::list_access_tokens::ListAccessTokensRequest,
         ) -> Result<
             user_service::use_cases::queries::list_access_tokens::ListAccessTokensResult,
@@ -1742,7 +1792,7 @@ mod tests {
     impl user_service::use_cases::queries::get_access_token::GetAccessTokenUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: user_service::use_cases::queries::get_access_token::GetAccessTokenRequest,
         ) -> Result<
             user_service::use_cases::queries::get_access_token::AccessTokenView,
@@ -1757,7 +1807,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::update_access_token::UpdateAccessTokenCommand,
         ) -> Result<
             user_service::use_cases::commands::update_access_token::UpdateAccessTokenResult,
@@ -1772,7 +1822,7 @@ mod tests {
     {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: user_service::use_cases::commands::delete_access_token::DeleteAccessTokenCommand,
         ) -> Result<
             user_service::use_cases::commands::delete_access_token::DeleteAccessTokenResult,
@@ -1786,7 +1836,7 @@ mod tests {
     impl watchlist_service::use_cases::ListWatchlistUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: watchlist_service::use_cases::ListWatchlistRequest,
         ) -> Result<
             watchlist_service::use_cases::ListWatchlistResult,
@@ -1799,7 +1849,7 @@ mod tests {
     impl watchlist_service::use_cases::WatchProductUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: watchlist_service::use_cases::WatchProductCommand,
         ) -> Result<
             watchlist_service::use_cases::WatchProductResult,
@@ -1812,7 +1862,7 @@ mod tests {
     impl watchlist_service::use_cases::UpdateWatchlistProductUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: watchlist_service::use_cases::UpdateWatchlistProductCommand,
         ) -> Result<
             watchlist_service::use_cases::UpdateWatchlistProductResult,
@@ -1825,7 +1875,7 @@ mod tests {
     impl watchlist_service::use_cases::UnwatchProductUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: watchlist_service::use_cases::UnwatchProductCommand,
         ) -> Result<
             watchlist_service::use_cases::UnwatchProductResult,
@@ -1839,7 +1889,7 @@ mod tests {
     impl shop_partner_service::use_cases::CreatePartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_partner_service::use_cases::CreatePartnerShopApplicationCommand,
         ) -> Result<
             shop_partner_service::use_cases::CreatePartnerShopApplicationResult,
@@ -1852,7 +1902,7 @@ mod tests {
     impl shop_partner_service::use_cases::ListPartnerShopApplicationsUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_partner_service::use_cases::ListPartnerShopApplicationsRequest,
         ) -> Result<
             shop_partner_service::use_cases::ListPartnerShopApplicationsResult,
@@ -1865,7 +1915,7 @@ mod tests {
     impl shop_partner_service::use_cases::GetPartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_partner_service::use_cases::GetPartnerShopApplicationRequest,
         ) -> Result<
             shop_partner_service::use_cases::GetPartnerShopApplicationResult,
@@ -1878,7 +1928,7 @@ mod tests {
     impl shop_partner_service::use_cases::WithdrawPartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_partner_service::use_cases::WithdrawPartnerShopApplicationCommand,
         ) -> Result<(), shop_partner_service::use_cases::WithdrawPartnerShopApplicationError>
         {
@@ -1889,7 +1939,7 @@ mod tests {
     impl shop_partner_service::use_cases::AdminListPartnerShopApplicationsUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_partner_service::use_cases::AdminListPartnerShopApplicationsRequest,
         ) -> Result<
             shop_partner_service::use_cases::AdminListPartnerShopApplicationsResult,
@@ -1902,7 +1952,7 @@ mod tests {
     impl shop_partner_service::use_cases::AdminGetPartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _request: shop_partner_service::use_cases::AdminGetPartnerShopApplicationRequest,
         ) -> Result<
             shop_partner_service::use_cases::AdminGetPartnerShopApplicationResult,
@@ -1915,7 +1965,7 @@ mod tests {
     impl shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationUseCase for UnusedUseCase {
         async fn mark_in_review(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_partner_service::use_cases::AdminMarkPartnerShopApplicationInReviewCommand,
         ) -> Result<
             shop_partner_service::use_cases::AdminUpdatePartnerShopApplicationResult,
@@ -1928,7 +1978,7 @@ mod tests {
     impl shop_partner_service::use_cases::AdminDecidePartnerShopApplicationUseCase for UnusedUseCase {
         async fn execute(
             &self,
-            _context: &common::operation_context::OperationContext,
+            _context: &application::operation_context::OperationContext,
             _command: shop_partner_service::use_cases::AdminDecidePartnerShopApplicationCommand,
         ) -> Result<
             shop_partner_service::use_cases::AdminDecidePartnerShopApplicationResult,

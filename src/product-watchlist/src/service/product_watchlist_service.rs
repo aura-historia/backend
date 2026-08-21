@@ -30,7 +30,6 @@ use tracing::info;
 use user::service::user_service::{UserService, UserServiceError};
 
 #[derive(thiserror::Error, Debug)]
-#[allow(clippy::large_enum_variant)]
 pub enum WatchProductError {
     #[error("{0}")]
     MonetaryAmountOverflowError(#[from] MonetaryAmountOverflowError),
@@ -51,31 +50,37 @@ pub enum WatchProductError {
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for BatchGetItem: {0:?}")]
     SdkBatchGetItemError(
-        #[from]
-        SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
+        #[source]
+        Box<
+            SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>,
+        >,
     ),
 
     #[error("Encountered DynamoDB SdkError for QueryItem: {0:?}")]
-    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
+    SdkQueryError(
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>,
+    ),
 
     #[error("Encountered DynamoDB SdkError for PutItem: {0:?}")]
     SdkPutItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for DeleteItem: {0:?}")]
     SdkDeleteItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+        #[source]
+        Box<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
     SdkUpdateItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
+        #[source]
+        Box<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>>,
     ),
 
     #[error("Unable to resolve unprocessed items after '{0}' retries. Failing entire operation.")]
@@ -87,7 +92,74 @@ pub enum WatchProductError {
     WatchlistEntryCountExceeded(u32, u32),
 
     #[error("UserServiceError: {0}")]
-    UserServiceError(UserServiceError),
+    UserServiceError(#[source] Box<UserServiceError>),
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>
+    for WatchProductError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkGetItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError, HttpResponse>>
+    for WatchProductError
+{
+    fn from(
+        error: SdkError<
+            aws_sdk_dynamodb::operation::batch_get_item::BatchGetItemError,
+            HttpResponse,
+        >,
+    ) -> Self {
+        Self::SdkBatchGetItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>
+    for WatchProductError
+{
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>) -> Self {
+        Self::SdkQueryError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>>
+    for WatchProductError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkPutItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>>
+    for WatchProductError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkDeleteItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>>
+    for WatchProductError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkUpdateItemError(Box::new(error))
+    }
+}
+
+impl From<UserServiceError> for WatchProductError {
+    fn from(error: UserServiceError) -> Self {
+        Self::UserServiceError(Box::new(error))
+    }
 }
 
 #[cfg(feature = "data")]
@@ -121,12 +193,12 @@ pub mod api {
                 WatchProductError::WatchlistProductNotFound(_, _, _) => {
                     ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND, Box::new(err))
                 }
-                WatchProductError::SdkGetItemError(err) => err.into(),
-                WatchProductError::SdkBatchGetItemError(err) => err.into(),
-                WatchProductError::SdkQueryError(err) => err.into(),
-                WatchProductError::SdkPutItemError(err) => err.into(),
-                WatchProductError::SdkDeleteItemError(err) => err.into(),
-                WatchProductError::SdkUpdateItemError(err) => err.into(),
+                WatchProductError::SdkGetItemError(err) => (*err).into(),
+                WatchProductError::SdkBatchGetItemError(err) => (*err).into(),
+                WatchProductError::SdkQueryError(err) => (*err).into(),
+                WatchProductError::SdkPutItemError(err) => (*err).into(),
+                WatchProductError::SdkDeleteItemError(err) => (*err).into(),
+                WatchProductError::SdkUpdateItemError(err) => (*err).into(),
                 WatchProductError::UnprocessedAfterMaxRetries(_) => {
                     ApiError::service_unavailable(UNPROCESSED_AFTER_MAX_RETRIES, Box::new(err))
                 }
@@ -256,7 +328,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
             .await
             .map_err(|e| match e {
                 UserServiceError::UserNotFound(id) => WatchProductError::UserNotFound(id),
-                other => WatchProductError::UserServiceError(other),
+                other => WatchProductError::UserServiceError(Box::new(other)),
             })?;
 
         let product_record = self
@@ -357,7 +429,7 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                 .await
                 .map_err(|e| match e {
                     UserServiceError::UserNotFound(id) => WatchProductError::UserNotFound(id),
-                    other => WatchProductError::UserServiceError(other),
+                    other => WatchProductError::UserServiceError(Box::new(other)),
                 })?;
             let limit = user.tier.watchlist_quota();
             let watchlist_count = self.count_active_watchlist_records(user_id).await?;
@@ -382,9 +454,9 @@ impl<'a> ProductWatchListService for ProductWatchListServiceImpl<'a> {
                 )
                 .await?
                 .ok_or_else(|| {
-                    WatchProductError::SdkUpdateItemError(SdkError::construction_failure(
+                    WatchProductError::SdkUpdateItemError(Box::new(SdkError::construction_failure(
                         "Failed parsing DynamoDB UpdateItem Response-Payload",
-                    ))
+                    )))
                 })?;
             info!(actor = %ctx.actor, userId = %user_id, shopId = %shop_id, shopsProductId = %shops_product_id, update = ?update, "Updated watchlist product");
 

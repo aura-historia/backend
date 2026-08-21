@@ -1,13 +1,15 @@
-use common::product_id::ProductId;
-use common::resource_state::domain::ResourceState;
-use common::user_id::UserId;
+pub use crate::watchlist_state::WatchlistState;
+use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
+
+pub mod watchlist_state;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WatchlistProduct {
     user_id: UserId,
     product_id: ProductId,
     notifications: bool,
-    state: ResourceState,
+    state: WatchlistState,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,7 +17,7 @@ pub struct NewWatchlistProduct {
     pub user_id: UserId,
     pub product_id: ProductId,
     pub notifications: bool,
-    pub state: ResourceState,
+    pub state: WatchlistState,
 }
 
 impl WatchlistProduct {
@@ -32,7 +34,7 @@ impl WatchlistProduct {
         user_id: UserId,
         product_id: ProductId,
         notifications: bool,
-        state: ResourceState,
+        state: WatchlistState,
     ) -> Self {
         Self {
             user_id,
@@ -46,7 +48,7 @@ impl WatchlistProduct {
         self.notifications = notifications;
     }
 
-    pub fn change_state(&mut self, state: ResourceState) {
+    pub fn change_state(&mut self, state: WatchlistState) {
         self.state = state;
     }
 
@@ -59,7 +61,7 @@ impl WatchlistProduct {
     pub fn notifications(&self) -> bool {
         self.notifications
     }
-    pub fn state(&self) -> ResourceState {
+    pub fn state(&self) -> WatchlistState {
         self.state
     }
 }
@@ -75,7 +77,7 @@ mod faker {
                 config.fake_with_rng(rng),
                 config.fake_with_rng(rng),
                 config.fake_with_rng(rng),
-                ResourceState::Active,
+                WatchlistState::Active,
             )
         }
     }
@@ -94,13 +96,13 @@ mod tests {
             user_id,
             product_id,
             notifications: true,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         });
 
         assert_eq!(user_id, entry.user_id());
         assert_eq!(product_id, entry.product_id());
         assert!(entry.notifications());
-        assert_eq!(ResourceState::Active, entry.state());
+        assert_eq!(WatchlistState::Active, entry.state());
     }
 
     #[test]
@@ -109,7 +111,7 @@ mod tests {
             user_id: UserId::new(),
             product_id: ProductId::new(),
             notifications: true,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         });
 
         entry.change_notifications(false);
@@ -123,11 +125,11 @@ mod tests {
             user_id: UserId::new(),
             product_id: ProductId::new(),
             notifications: true,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         });
 
-        entry.change_state(ResourceState::InactiveByUser);
+        entry.change_state(WatchlistState::InactiveByUser);
 
-        assert_eq!(ResourceState::InactiveByUser, entry.state());
+        assert_eq!(WatchlistState::InactiveByUser, entry.state());
     }
 }

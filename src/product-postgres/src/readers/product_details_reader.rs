@@ -1,39 +1,36 @@
-use common::currency::domain::Currency;
-use common::enhanced_match_reason::EnhancedMatchReason;
-use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::localized::Localized;
+use crate::url::append_utm_params;
+use application::personalized::Personalized;
 use common::notification_id::NotificationId;
-use common::personalized::Personalized;
-use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
-use common::shops_product_id::ShopsProductId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
-use common::utm::append_utm_params;
+use domain_primitives::event_id::EventId;
+use fxrate_core::FxRateId;
 use indexmap::IndexSet;
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
+use product_core::product_id::ProductId;
 use product_core::product_image::ProductImage;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
-use product_core::user_state::{
-    NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
-    WatchlistUserState,
-};
 use product_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsReadError, ProductDetailsReadModel,
     ProductDetailsReadRequest, ProductDetailsReader, ProductDetailsReaderFactory,
 };
 use product_service::use_cases::queries::get_product::ProductLookup;
+use product_service::user_state::{
+    NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
+    WatchlistUserState,
+};
+use search_filter_core::{
+    enhanced_match_reason::EnhancedMatchReason, user_search_filter_id::UserSearchFilterId,
+    user_search_filter_name::UserSearchFilterName,
+};
 use serde::Deserialize;
+use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use url::Url;

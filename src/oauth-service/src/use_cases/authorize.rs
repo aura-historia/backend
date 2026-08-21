@@ -1,15 +1,15 @@
 use crate::error::OAuthServiceError;
 use crate::ports::{AuthorizationCodeRepository, OAuthClientRepository};
 use crate::use_cases::support::{AUTHORIZATION_CODE_TTL, append_query_params, find_client};
-use common::oauth_client_id::OAuthClientId;
-use common::string_newtype;
-use common::user_id::UserId;
+use credential_core::oauth_client_id::OAuthClientId;
+use domain_primitives::string_newtype;
 use oauth_core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
 };
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 use user_core::access_token::Scope;
+use user_core::user_id::UserId;
 
 string_newtype!(OAuthState);
 

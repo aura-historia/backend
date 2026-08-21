@@ -1,5 +1,5 @@
 use crate::scope_record::ScopeRecord;
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
 };
@@ -14,7 +14,7 @@ pub struct AuthorizationCodeRecord {
     pub sk: String,
     pub code: OAuthAuthorizationCode,
     pub client_id: OAuthClientId,
-    pub user_id: common::user_id::UserId,
+    pub user_id: user_core::user_id::UserId,
     pub redirect_uri: url::Url,
     pub scopes: HashSet<ScopeRecord>,
     pub code_challenge: OAuthCodeChallenge,
@@ -72,10 +72,11 @@ impl From<AuthorizationCodeRecord> for AuthorizationCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{oauth_client_id::OAuthClientId, user_id::UserId};
+    use credential_core::oauth_client_id::OAuthClientId;
     use oauth_core::authorization_code::OAuthCodeChallenge;
     use std::collections::HashSet;
     use time::OffsetDateTime;
+    use user_core::user_id::UserId;
 
     #[test]
     fn should_round_trip_through_serde_dynamo() {

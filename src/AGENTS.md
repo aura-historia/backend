@@ -71,7 +71,7 @@
 
 ## Runtime Guidance
 
-- Init executable logging with `common::logging::init_logging()`.
+- Canonical composition roots init logging with `platform-observability`; legacy executables may use `common::logging` shim.
 - Keep logs compact & structured for CloudWatch-Analysis. Error log mean real fire. Expected failure be `warn` or lower.
 - Do not hide business rules in handler glue. Parse, auth, and map in edge crate; real rule live deeper.
 - Keep env var names, queue names, and event shapes stable and documented in nearest crate doc.
@@ -84,17 +84,23 @@
 ## Child DOX Index
 
 - `src/acceptance-tests/AGENTS.md` — `acceptance-tests` crate.
+- `src/application/AGENTS.md` — shared technology-neutral application contracts.
 - `src/aura-historia-api/AGENTS.md` — `aura-historia-api` crate.
 - `src/aura-historia-worker/AGENTS.md` — `aura-historia-worker` crate.
+- `src/billing-service/AGENTS.md` — canonical billing service/use-case crate.
 - `src/aws-tests/AGENTS.md` — `aws-tests` crate.
 - `src/ci-determinator/AGENTS.md` — `ci-determinator` crate.
 - `src/cloudwatch-log-retention-lambda/AGENTS.md` — `cloudwatch-log-retention-lambda` crate.
 - `src/cognito/AGENTS.md` — `cognito` crate.
 - `src/cognito-post-confirmation/AGENTS.md` — `cognito-post-confirmation` crate.
-- `src/common/AGENTS.md` — `common` crate.
+- `src/common/AGENTS.md` — legacy compatibility crate.
+- `src/credential-core/AGENTS.md` — credential identifiers and scope vocabulary.
+- `src/domain-primitives/AGENTS.md` — domain-neutral primitives and newtype macros.
 - `src/embedding/AGENTS.md` — reusable Vertex AI embedding adapter crate.
 - `src/image-fetcher/AGENTS.md` — reusable safe external image-fetch adapter crate.
 - `src/large-language-model/AGENTS.md` — reusable typed Vertex AI Gemini invocation adapter crate.
+- `src/localization/AGENTS.md` — pure language and localization values.
+- `src/money/AGENTS.md` — pure currency, amount, and price values.
 - `src/crawler/AGENTS.md` — `crawler` crate.
 - `src/fxrate-core/AGENTS.md` — canonical FX domain crate.
 - `src/fxrate-service/AGENTS.md` — canonical FX service/use-case crate.
@@ -123,6 +129,9 @@
 - `src/product-service/AGENTS.md` — canonical Product service crate.
 - `src/product-translation-llm/AGENTS.md` — Product title LLM adapter crate.
 - `src/product-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
+- `src/platform-observability/AGENTS.md` — typed tracing subscriber setup.
+- `src/platform-opensearch/AGENTS.md` — shared OpenSearch protocol envelopes.
+- `src/platform-postgres/AGENTS.md` — shared SQLx transaction and pool mechanics.
 - `src/product-opensearch/AGENTS.md` — canonical Product OpenSearch adapter crate.
 - `src/product-api/AGENTS.md` — `product-api` crate.
 - `src/product-api-partner/AGENTS.md` — `product-api-partner` crate.

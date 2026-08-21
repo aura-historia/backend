@@ -1,20 +1,10 @@
 use common::{
     error::boxed::{BoxError, box_error},
-    event_id::EventId,
     notification_id::NotificationId,
-    partner_shop_application_id::PartnerShopApplicationId,
-    price::{data::PriceData, domain::Price},
-    product_id::ProductId,
-    product_slug_id::ProductSlugId,
-    product_state::domain::ProductState,
-    shop_id::ShopId,
-    shop_name::ShopName,
-    shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId,
-    user_id::UserId,
-    user_search_filter_id::UserSearchFilterId,
-    user_search_filter_name::UserSearchFilterName,
+    price::data::PriceData,
 };
+use domain_primitives::event_id::EventId;
+use money::Price;
 use notification_core::{
     notification::{
         Notification, NotificationContent, NotificationWatchlistChange, PartnerApplicationDecision,
@@ -23,11 +13,21 @@ use notification_core::{
     },
     notification_kind::NotificationKind,
 };
+use product_core::{
+    product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
+    shops_product_id::ShopsProductId,
+};
 use product_core::{product_image::ProductImage, title::Title};
+use search_filter_core::{
+    user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
+};
 use serde::{Deserialize, Serialize};
+use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
 use url::Url;
+use user_core::user_id::UserId;
 
 pub(crate) const PAYLOAD_VERSION: i16 = 1;
 
@@ -193,8 +193,8 @@ impl From<&NotificationWatchlistChange> for NotificationWatchlistChangeV1 {
                 old_price,
                 new_price,
             } => Self::PriceChange {
-                old_price: old_price.map(PriceData::from),
-                new_price: new_price.map(PriceData::from),
+                old_price: old_price.map(price_data_from_price),
+                new_price: new_price.map(price_data_from_price),
             },
             NotificationWatchlistChange::StateChange {
                 old_state,
@@ -214,8 +214,8 @@ impl From<NotificationWatchlistChangeV1> for NotificationWatchlistChange {
                 old_price,
                 new_price,
             } => Self::PriceChange {
-                old_price: old_price.map(Price::from),
-                new_price: new_price.map(Price::from),
+                old_price: old_price.map(price_from_data),
+                new_price: new_price.map(price_from_data),
             },
             NotificationWatchlistChangeV1::StateChange {
                 old_state,
@@ -429,10 +429,58 @@ fn notification_kind_db_value(kind: NotificationKind) -> &'static str {
     }
 }
 
-fn parse_language(
-    value: &str,
-) -> Result<common::language::domain::Language, NotificationMappingError> {
-    use common::language::domain::Language;
+fn price_data_from_price(price: Price) -> PriceData {
+    use common::currency::data::CurrencyData;
+    let currency = match price.currency {
+        money::Currency::Eur => CurrencyData::Eur,
+        money::Currency::Gbp => CurrencyData::Gbp,
+        money::Currency::Usd => CurrencyData::Usd,
+        money::Currency::Aud => CurrencyData::Aud,
+        money::Currency::Cad => CurrencyData::Cad,
+        money::Currency::Nzd => CurrencyData::Nzd,
+        money::Currency::Cny => CurrencyData::Cny,
+        money::Currency::Brl => CurrencyData::Brl,
+        money::Currency::Pln => CurrencyData::Pln,
+        money::Currency::Try => CurrencyData::Try,
+        money::Currency::Jpy => CurrencyData::Jpy,
+        money::Currency::Czk => CurrencyData::Czk,
+        money::Currency::Rub => CurrencyData::Rub,
+        money::Currency::Aed => CurrencyData::Aed,
+        money::Currency::Sar => CurrencyData::Sar,
+        money::Currency::Hkd => CurrencyData::Hkd,
+        money::Currency::Sgd => CurrencyData::Sgd,
+        money::Currency::Chf => CurrencyData::Chf,
+    };
+    PriceData::new(currency, price.monetary_amount.into())
+}
+
+fn price_from_data(price: PriceData) -> Price {
+    use common::currency::data::CurrencyData;
+    let currency = match price.currency {
+        CurrencyData::Eur => money::Currency::Eur,
+        CurrencyData::Gbp => money::Currency::Gbp,
+        CurrencyData::Usd => money::Currency::Usd,
+        CurrencyData::Aud => money::Currency::Aud,
+        CurrencyData::Cad => money::Currency::Cad,
+        CurrencyData::Nzd => money::Currency::Nzd,
+        CurrencyData::Cny => money::Currency::Cny,
+        CurrencyData::Brl => money::Currency::Brl,
+        CurrencyData::Pln => money::Currency::Pln,
+        CurrencyData::Try => money::Currency::Try,
+        CurrencyData::Jpy => money::Currency::Jpy,
+        CurrencyData::Czk => money::Currency::Czk,
+        CurrencyData::Rub => money::Currency::Rub,
+        CurrencyData::Aed => money::Currency::Aed,
+        CurrencyData::Sar => money::Currency::Sar,
+        CurrencyData::Hkd => money::Currency::Hkd,
+        CurrencyData::Sgd => money::Currency::Sgd,
+        CurrencyData::Chf => money::Currency::Chf,
+    };
+    Price::new(money::MonetaryAmount::from(price.amount), currency)
+}
+
+fn parse_language(value: &str) -> Result<localization::Language, NotificationMappingError> {
+    use localization::Language;
     match value {
         "de" => Ok(Language::De),
         "en" => Ok(Language::En),

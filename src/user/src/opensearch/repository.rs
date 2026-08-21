@@ -11,6 +11,7 @@ use common::pagination::cursor::Cursor;
 use common::sort::{Sort, SortOrder};
 use common::user_id::UserId;
 use geo::data::continent_data::ContinentData;
+use geo::opensearch::distance_to_opensearch_value;
 use opensearch::{DeleteParts, IndexParts, SearchParts};
 use serde::ser::Error;
 use serde_json::json;
@@ -158,7 +159,7 @@ impl<'a> UserOpenSearchRepository for UserOpenSearchRepositoryImpl<'a> {
         if let Some(query) = search.geo_address_distance_query {
             filter.push(json!({
                 "geo_distance": {
-                    "distance": query.distance.opensearch_value(),
+                    "distance": distance_to_opensearch_value(query.distance),
                     UserDocumentSerdeField::GeoAddress.as_str(): {
                         "lat": query.lat,
                         "lon": query.lon

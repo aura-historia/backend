@@ -1,10 +1,11 @@
 use crate::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, user_id::UserId};
+use application::transaction::{Transaction, UnitOfWork};
+use shop_core::shop_id::ShopId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckUserPartnerShopRequest {
@@ -151,9 +152,11 @@ fn authorize_check(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, CredentialCapability, Principal, RequestId};
-    use common::transaction::{TransactionError, UnitOfWork};
+    use application::error::static_error;
+    use application::operation_context::{
+        CorrelationId, CredentialCapability, Principal, RequestId,
+    };
+    use application::transaction::{TransactionError, UnitOfWork};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
 

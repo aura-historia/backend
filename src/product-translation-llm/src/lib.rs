@@ -1,8 +1,10 @@
-use common::{error::boxed::box_error, language::domain::Language, logging::LlmOperation};
+use common::error::boxed::box_error;
 use indexmap::IndexMap;
+use large_language_model::LlmOperation;
 use large_language_model::{
     GenerationOptions, LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
+use localization::Language;
 use product_core::title::Title;
 use product_service::ports::{ProductTitleTranslationError, ProductTitleTranslator};
 use serde::Deserialize;

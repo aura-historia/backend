@@ -7,12 +7,12 @@ use crate::use_cases::PersonalizedProductSummary;
 use crate::use_cases::queries::product_summary_personalization::{
     ProductSummaryPersonalizationError, hydrate_product_summaries,
 };
-use common::currency::domain::Currency;
-use common::error::boxed::{BoxError, box_error};
-use common::language::domain::Language;
-use common::operation_context::{OperationContext, Principal};
-use common::personalized::Personalized;
-use common::transaction::{Transaction, UnitOfWork};
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationContext, Principal};
+use application::personalized::Personalized;
+use application::transaction::{Transaction, UnitOfWork};
+use localization::Language;
+use money::Currency;
 
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -200,7 +200,7 @@ where
     }
 }
 
-fn personalization_user_id(principal: &Principal) -> Option<common::user_id::UserId> {
+fn personalization_user_id(principal: &Principal) -> Option<user_core::user_id::UserId> {
     match principal {
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
         Principal::Anonymous | Principal::Service(_) | Principal::System => None,
@@ -282,8 +282,8 @@ mod tests {
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
 
+    use crate::user_state::ProductUserState;
     use product_core::title::Title;
-    use product_core::user_state::ProductUserState;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;

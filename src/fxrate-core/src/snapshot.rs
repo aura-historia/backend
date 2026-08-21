@@ -1,8 +1,5 @@
-use common::{
-    currency::domain::{Currency, HasMinorUnitExponent},
-    fx_rate_id::FxRateId,
-    price::domain::{MonetaryAmount, Price},
-};
+use crate::FxRateId;
+use money::{Currency, HasMinorUnitExponent, MonetaryAmount, Price};
 use std::collections::HashMap;
 use strum::IntoEnumIterator;
 use time::OffsetDateTime;

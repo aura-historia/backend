@@ -39,7 +39,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use common::domain::Domain;
-use common::logging::GeminiServiceTier;
 use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
     state_mapping_gemini_model, url_classification_gemini_model,
@@ -72,6 +71,7 @@ use crawler::spider::classification::url_pattern_repository::ShopUrlPatternRepos
 use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::spider_service::{SpiderServiceConfig, SpiderServiceImpl};
+use large_language_model::GeminiServiceTier;
 use shop::core::shop_type::ShopType;
 use tracing::{Instrument, error, info};
 

@@ -1,11 +1,11 @@
-use common::currency::domain::Currency;
 use common::error::boxed::BoxError;
 use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
 use common::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use common::pagination::cursor::{Cursor, CursoredResult};
+use localization::Language;
+use money::Currency;
 
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
@@ -341,9 +341,9 @@ mod tests {
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
     use product_core::title::Title;
-    use product_core::user_state::{NotificationUserState, ProductUserState};
     use product_service::ports::{PersonalizedProductDetailsReadModel, ProductDetailsReadModel};
     use product_service::use_cases::ProductPricingValuation;
+    use product_service::user_state::{NotificationUserState, ProductUserState};
 
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;

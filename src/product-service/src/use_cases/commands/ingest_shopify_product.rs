@@ -1,18 +1,18 @@
 use crate::use_cases::{
     UpsertProductCommand, UpsertProductError, UpsertProductResult, UpsertProductUseCase,
 };
-use common::domain::Domain;
-use common::localized::Localized;
-use common::operation_context::OperationContext;
-use common::price::domain::{MonetaryAmount, Price};
-use common::product_state::domain::ProductState;
-use common::shops_product_id::ShopsProductId;
+use application::operation_context::OperationContext;
 use indexmap::IndexSet;
+use localization::Localized;
+use money::{MonetaryAmount, Price};
 use product_core::description::Description;
 use product_core::product::ProductAddress;
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_service::use_cases::{GetShopError, GetShopRequest, GetShopUseCase};
 use url::Url;
@@ -182,7 +182,7 @@ where
 
 fn parse_price(
     value: Option<&str>,
-    currency: Option<common::currency::domain::Currency>,
+    currency: Option<money::Currency>,
 ) -> Result<Option<Price>, IngestShopifyProductError> {
     let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
@@ -227,10 +227,11 @@ impl From<GetShopError> for IngestShopifyProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use localization::Language;
+    use money::Currency;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
     use shop_core::shop_type::ShopType;
     use shop_service::use_cases::ShopDetailsView;
     use std::collections::HashSet;
@@ -349,9 +350,9 @@ mod tests {
                 .unwrap_or_else(|error| error.into_inner()) = Some(command);
             Ok(UpsertProductResult::Created(
                 crate::use_cases::CreateProductResult {
-                    product_id: common::product_id::ProductId::new(),
+                    product_id: product_core::product_id::ProductId::new(),
                     product_slug_id: "shopify-product".into(),
-                    event_id: common::event_id::EventId::new(),
+                    event_id: domain_primitives::event_id::EventId::new(),
                 },
             ))
         }
@@ -391,7 +392,7 @@ mod tests {
                     .unwrap_or_else(|error| panic!("invalid domain: {error}")),
             ),
             shopify_currency: Some(Currency::Usd),
-            shopify_language: Some(common::language::domain::Language::De),
+            shopify_language: Some(Language::De),
             woocommerce_currency: None,
             woocommerce_language: None,
             url: None,

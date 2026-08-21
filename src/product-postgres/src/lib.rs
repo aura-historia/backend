@@ -7,6 +7,7 @@ pub mod product_translation_source_reader;
 pub mod product_translation_writer;
 pub mod readers;
 pub mod repository;
+mod url;
 
 pub use event_store::SqlxProductEventStoreFactory;
 pub use partner_product_authorizer::SqlxPartnerProductAuthorizerFactory;

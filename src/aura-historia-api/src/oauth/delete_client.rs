@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 
 pub async fn delete_client(
     State(state): State<OAuthState>,
@@ -15,7 +15,7 @@ pub async fn delete_client(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let client_id = match OAuthClientId::try_from(raw.as_str()) {
         Ok(value) => value,

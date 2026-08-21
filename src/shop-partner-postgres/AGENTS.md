@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Depends on `shop-partner-core`, `shop-partner-service`, `shop-service`, and shared Postgres UoW; it does not depend on the concrete `shop-postgres` adapter.
+- Depends on `shop-partner-core`, `shop-partner-service`, `shop-service`, `domain-primitives` versioning, and shared `platform-postgres` UoW; it does not depend on the concrete `shop-postgres` adapter.
 - Exports public SQLx factories only.
 - Keeps SQL rows, mapping, repositories, and readers private.
 - Partner-shop application repository writes use `RETURNING` and expose only storage-neutral persisted state.

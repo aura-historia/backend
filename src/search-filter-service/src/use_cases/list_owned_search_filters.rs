@@ -1,9 +1,9 @@
 use crate::ports::{SearchFilterReadError, SearchFilterReader, SearchFilterView};
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
+use application::error::{BoxError, box_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::user_id::UserId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListOwnedSearchFiltersRequest {

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+application = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
 aws-config = { workspace = true }
@@ -12,6 +13,8 @@ aws-sdk-dynamodb = { workspace = true }
 billing-service = { workspace = true }
 billing-stripe = { workspace = true }
 common = { workspace = true, features = ["api", "postgres"] }
+credential-core = { workspace = true }
+domain-primitives = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }
 geo = { workspace = true, features = ["data"] }
@@ -23,8 +26,12 @@ oauth-core = { workspace = true }
 oauth-dynamodb = { workspace = true }
 oauth-service = { workspace = true }
 opensearch = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 notification-core = { workspace = true }
 notification-postgres = { workspace = true }
 notification-service = { workspace = true }
@@ -44,6 +51,7 @@ product-core = { workspace = true }
 product-opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
+search-filter-core = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
 thiserror = { workspace = true }

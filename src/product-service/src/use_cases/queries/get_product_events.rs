@@ -1,13 +1,15 @@
 use crate::ports::{ProductEventReadError, ProductEventReader, ProductEventReaderFactory};
-use common::event_id::EventId;
-use common::operation_context::OperationContext;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shop_slug_id::ShopSlugId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::{language::domain::Language, localized::Localized};
+use application::operation_context::OperationContext;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
+use localization::Language;
+use localization::Localized;
+use product_core::product_id::ProductId;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
+use shop_core::shop_slug_id::ShopSlugId;
+
 use indexmap::IndexSet;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_image::ProductImage;

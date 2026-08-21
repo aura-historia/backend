@@ -1,5 +1,6 @@
-use common::user_search_filter_id::UserSearchFilterId;
-use common::{error::boxed::BoxError, product_id::ProductId};
+use application::error::BoxError;
+use product_core::product_id::ProductId;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::{SearchFilter, SearchFilterProductMatch};
 use time::OffsetDateTime;
 
@@ -110,7 +111,7 @@ pub trait SearchFilterMatchRepositoryFactory<Tx>: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::error::boxed::static_error;
+    use application::error::static_error;
     use std::error::Error;
 
     #[test]

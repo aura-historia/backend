@@ -3,15 +3,15 @@ use crate::ports::{
     SearchFilterMatchRepositoryFactory, SearchFilterMatchView, SearchFilterRepository,
     SearchFilterRepositoryError, SearchFilterRepositoryFactory,
 };
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
+use application::error::{BoxError, box_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::patch_field::PatchField;
-use common::product_id::ProductId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
+use application::patch_field::PatchField;
+use application::transaction::{Transaction, UnitOfWork};
+use product_core::product_id::ProductId;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateSearchFilterMatchFeedbackCommand {

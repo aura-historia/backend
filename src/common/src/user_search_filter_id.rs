@@ -1,10 +1,5 @@
-crate::uuid_v7_newtype!(UserSearchFilterId);
-
-impl From<UserSearchFilterId> for uuid::Uuid {
-    fn from(id: UserSearchFilterId) -> Self {
-        id.0
-    }
-}
+// Legacy shim. Owner: search-filter-core. Remove after legacy common consumers migrate.
+pub type UserSearchFilterId = search_filter_core::user_search_filter_id::UserSearchFilterId;
 
 #[cfg(feature = "api")]
 pub mod api {

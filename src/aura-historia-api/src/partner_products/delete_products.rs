@@ -6,7 +6,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
 
 pub async fn delete_products(
     State(state): State<PartnerProductsState>,
@@ -20,7 +20,7 @@ pub async fn delete_products(
     };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let products: Vec<DeleteProductData> = match parse_partner_product_batch(&body) {
         Ok(products) => products,
@@ -74,14 +74,13 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use application::operation_context::{CredentialCapability, OperationContext};
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};
-    use common::event_id::EventId;
-    use common::operation_context::{CredentialCapability, OperationContext};
-    use common::product_id::{ProductId, ProductKey};
+    use domain_primitives::event_id::EventId;
+    use product_core::product_id::{ProductId, ProductKey};
 
-    use common::user_id::UserId;
     use product_service::use_cases::{
         CreateProductCommand, CreateProductError, CreateProductResult, CreateProductUseCase,
         DeleteProductError, DeleteProductResult, DeleteProductUseCase, UpdateProductCommand,
@@ -92,6 +91,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use tower::ServiceExt;
+    use user_core::user_id::UserId;
 
     mockall::mock! { CreateUseCase {} #[async_trait::async_trait] impl CreateProductUseCase for CreateUseCase { async fn execute(&self, context: &OperationContext, command: CreateProductCommand) -> Result<CreateProductResult, CreateProductError>; } }
     mockall::mock! { UpdateUseCase {} #[async_trait::async_trait] impl UpdateProductUseCase for UpdateUseCase { async fn execute(&self, context: &OperationContext, product_id: ProductId, command: UpdateProductCommand) -> Result<UpdateProductResult, UpdateProductError>; async fn execute_by_key(&self, context: &OperationContext, product_key: ProductKey, command: UpdateProductCommand) -> Result<UpdateProductResult, UpdateProductError>; } }

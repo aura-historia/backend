@@ -3,25 +3,25 @@ use crate::ports::{
     WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
 };
 use crate::tier_policy::active_watchlist_quota;
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
+use application::error::{BoxError, box_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::product_id::ProductId;
-use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
 use watchlist_core::WatchlistProduct;
+use watchlist_core::watchlist_state::WatchlistState;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateWatchlistProductCommand {
     pub user_id: UserId,
     pub product_id: ProductId,
     pub notifications: Option<bool>,
-    pub state: Option<ResourceState>,
+    pub state: Option<WatchlistState>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,7 +124,7 @@ where
         let mut entry = loaded.value;
 
         let reactivating =
-            matches!(command.state, Some(ResourceState::Active)) && !entry.state().is_active();
+            matches!(command.state, Some(WatchlistState::Active)) && !entry.state().is_active();
         if reactivating {
             let tier = self
                 .tier_entitlements
@@ -262,7 +262,7 @@ mod tests {
 
     use super::*;
 
-    use common::error::boxed::static_error;
+    use application::error::static_error;
 
     use crate::ports::{
         VersionedWatchlistProduct, WatchlistProductView, WatchlistQuotaReadError,
@@ -270,11 +270,10 @@ mod tests {
         WatchlistReaderFactory, WatchlistRepository, WatchlistRepositoryError,
         WatchlistRepositoryFactory, WatchlistStorageVersion,
     };
-    use common::operation_context::{
+    use application::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
     };
-    use common::resource_state::domain::ResourceState;
-    use common::transaction::{Transaction, TransactionError, UnitOfWork};
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
@@ -282,6 +281,7 @@ mod tests {
     use user_service::ports::{
         UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
     };
+    use watchlist_core::watchlist_state::WatchlistState;
     use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
     #[derive(Clone, Default)]
@@ -640,7 +640,7 @@ mod tests {
             user_id,
             product_id,
             notifications,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         })
     }
 
