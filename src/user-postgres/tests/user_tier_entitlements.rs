@@ -123,6 +123,14 @@ async fn should_reconcile_legacy_newest_first_quotas() {
         20,
         count_state(&pool, "product_watchlist", user_id, "ACTIVE").await
     );
+    assert_eq!(
+        2,
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await
+    );
+    assert_eq!(
+        1,
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[20]).await
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -370,6 +378,21 @@ async fn state_for_watchlist_entry(
         .fetch_one(pool)
         .await
         .unwrap_or_else(|error| panic!("failed to read watchlist state: {error:?}"))
+}
+
+async fn version_for_watchlist_entry(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: uuid::Uuid,
+) -> i64 {
+    sqlx::query_scalar(
+        "SELECT version FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(product_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read watchlist version: {error:?}"))
 }
 
 async fn count_state(pool: &sqlx::PgPool, table: &str, user_id: UserId, state: &str) -> i64 {

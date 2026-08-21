@@ -253,6 +253,7 @@ CREATE TABLE product_watchlist (
     state text NOT NULL,
     active_since timestamptz,
     notifications_enabled_since timestamptz,
+    version bigint NOT NULL DEFAULT 1,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, product_id),
@@ -260,7 +261,9 @@ CREATE TABLE product_watchlist (
     CONSTRAINT product_watchlist_active_since_check
         CHECK ((state = 'ACTIVE') = (active_since IS NOT NULL)),
     CONSTRAINT product_watchlist_notifications_enabled_since_check
-        CHECK (notifications = (notifications_enabled_since IS NOT NULL))
+        CHECK (notifications = (notifications_enabled_since IS NOT NULL)),
+    CONSTRAINT product_watchlist_version_positive
+        CHECK (version >= 1)
 );
 
 CREATE INDEX product_watchlist_user_created_idx ON product_watchlist (user_id, created DESC);

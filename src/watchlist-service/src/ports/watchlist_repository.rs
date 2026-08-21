@@ -1,9 +1,16 @@
 use common::product_id::ProductId;
 use common::user_id::UserId;
+use common::versioned::Versioned;
 use watchlist_core::WatchlistProduct;
+
+common::version_newtype!(WatchlistStorageVersion);
+
+pub type VersionedWatchlistProduct = Versioned<WatchlistProduct, WatchlistStorageVersion>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WatchlistRepositoryError {
+    #[error("concurrent watchlist entry update")]
+    ConcurrencyConflict,
     #[error("watchlist entry already exists")]
     AlreadyExists,
     #[error("watchlist entry lookup failed")]
@@ -24,22 +31,24 @@ pub trait WatchlistRepository: Send {
         &mut self,
         user_id: UserId,
         product_id: ProductId,
-    ) -> Result<Option<WatchlistProduct>, WatchlistRepositoryError>;
+    ) -> Result<Option<VersionedWatchlistProduct>, WatchlistRepositoryError>;
 
     async fn insert(
         &mut self,
         entry: &WatchlistProduct,
-    ) -> Result<WatchlistProduct, WatchlistRepositoryError>;
+    ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError>;
 
     async fn update(
         &mut self,
         entry: &WatchlistProduct,
-    ) -> Result<WatchlistProduct, WatchlistRepositoryError>;
+        expected_version: WatchlistStorageVersion,
+    ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError>;
 
     async fn delete(
         &mut self,
         user_id: UserId,
         product_id: ProductId,
+        expected_version: WatchlistStorageVersion,
     ) -> Result<(), WatchlistRepositoryError>;
 }
 

@@ -37,6 +37,8 @@ pub enum UpdateWatchlistProductError {
     Forbidden,
     #[error("watchlist entry not found")]
     NotFound,
+    #[error("watchlist entry changed concurrently")]
+    ConcurrencyConflict,
     #[error("user not found")]
     UserNotFound,
     #[error("watchlist quota exceeded: {active_count}/{quota} active entries are already in use")]
@@ -109,12 +111,14 @@ where
             .begin()
             .await
             .map_err(|_| UpdateWatchlistProductError::BeginTransactionFailed)?;
-        let mut entry = self
+        let loaded = self
             .watchlist
             .in_transaction(&mut tx)
             .find_by_user_and_product(command.user_id, command.product_id)
             .await?
             .ok_or(UpdateWatchlistProductError::NotFound)?;
+        let expected_version = loaded.version;
+        let mut entry = loaded.value;
 
         let reactivating =
             matches!(command.state, Some(ResourceState::Active)) && !entry.state().is_active();
@@ -158,8 +162,9 @@ where
             entry = self
                 .watchlist
                 .in_transaction(&mut tx)
-                .update(&entry)
-                .await?;
+                .update(&entry, expected_version)
+                .await?
+                .into_value();
         }
 
         tx.commit()
@@ -219,6 +224,7 @@ fn watchlist_quota_read_error(error: WatchlistQuotaReadError) -> UpdateWatchlist
 impl From<WatchlistRepositoryError> for UpdateWatchlistProductError {
     fn from(value: WatchlistRepositoryError) -> Self {
         match value {
+            WatchlistRepositoryError::ConcurrencyConflict => Self::ConcurrencyConflict,
             WatchlistRepositoryError::InvalidPersistedState => Self::InvalidPersistedState,
             WatchlistRepositoryError::LookupFailed
             | WatchlistRepositoryError::InsertFailed
@@ -238,9 +244,10 @@ mod tests {
     use common::error::boxed::static_error;
 
     use crate::ports::{
-        WatchlistProductView, WatchlistQuotaReadError, WatchlistQuotaReader,
-        WatchlistQuotaReaderFactory, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
-        WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
+        VersionedWatchlistProduct, WatchlistProductView, WatchlistQuotaReadError,
+        WatchlistQuotaReader, WatchlistQuotaReaderFactory, WatchlistReadError, WatchlistReader,
+        WatchlistReaderFactory, WatchlistRepository, WatchlistRepositoryError,
+        WatchlistRepositoryFactory, WatchlistStorageVersion,
     };
     use common::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
@@ -284,7 +291,7 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct SharedState {
-        entries: Arc<Mutex<Vec<WatchlistProduct>>>,
+        entries: Arc<Mutex<Vec<VersionedWatchlistProduct>>>,
         committed: Arc<Mutex<bool>>,
         updated: Arc<Mutex<usize>>,
         deleted: Arc<Mutex<usize>>,
@@ -303,7 +310,10 @@ mod tests {
 
         fn push(&self, entry: WatchlistProduct) {
             if let Ok(mut entries) = self.entries.lock() {
-                entries.push(entry);
+                entries.push(VersionedWatchlistProduct::new(
+                    entry,
+                    WatchlistStorageVersion::INITIAL,
+                ));
             }
         }
 
@@ -412,7 +422,9 @@ mod tests {
                 .map(|entries| {
                     entries
                         .iter()
-                        .filter(|entry| entry.user_id() == user_id && entry.state().is_active())
+                        .filter(|entry| {
+                            entry.value.user_id() == user_id && entry.value.state().is_active()
+                        })
                         .count()
                 })
         }
@@ -424,7 +436,7 @@ mod tests {
             &mut self,
             user_id: UserId,
             product_id: ProductId,
-        ) -> Result<Option<WatchlistProduct>, WatchlistRepositoryError> {
+        ) -> Result<Option<VersionedWatchlistProduct>, WatchlistRepositoryError> {
             self.state
                 .entries
                 .lock()
@@ -433,7 +445,8 @@ mod tests {
                     entries
                         .iter()
                         .find(|entry| {
-                            entry.user_id() == user_id && entry.product_id() == product_id
+                            entry.value.user_id() == user_id
+                                && entry.value.product_id() == product_id
                         })
                         .cloned()
                 })
@@ -442,54 +455,73 @@ mod tests {
         async fn insert(
             &mut self,
             entry: &WatchlistProduct,
-        ) -> Result<WatchlistProduct, WatchlistRepositoryError> {
+        ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
             let mut entries = self
                 .state
                 .entries
                 .lock()
                 .map_err(|_| WatchlistRepositoryError::InsertFailed)?;
             if entries.iter().any(|existing| {
-                existing.user_id() == entry.user_id() && existing.product_id() == entry.product_id()
+                existing.value.user_id() == entry.user_id()
+                    && existing.value.product_id() == entry.product_id()
             }) {
                 return Err(WatchlistRepositoryError::AlreadyExists);
             }
-            entries.push(entry.clone());
-            Ok(entry.clone())
+            let persisted =
+                VersionedWatchlistProduct::new(entry.clone(), WatchlistStorageVersion::INITIAL);
+            entries.push(persisted.clone());
+            Ok(persisted)
         }
 
         async fn update(
             &mut self,
             entry: &WatchlistProduct,
-        ) -> Result<WatchlistProduct, WatchlistRepositoryError> {
+            expected_version: WatchlistStorageVersion,
+        ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
             let mut entries = self
                 .state
                 .entries
                 .lock()
                 .map_err(|_| WatchlistRepositoryError::UpdateFailed)?;
             let Some(existing) = entries.iter_mut().find(|existing| {
-                existing.user_id() == entry.user_id() && existing.product_id() == entry.product_id()
+                existing.value.user_id() == entry.user_id()
+                    && existing.value.product_id() == entry.product_id()
             }) else {
                 return Err(WatchlistRepositoryError::UpdateFailed);
             };
-            *existing = entry.clone();
+            if existing.version != expected_version {
+                return Err(WatchlistRepositoryError::ConcurrencyConflict);
+            }
+            let persisted = VersionedWatchlistProduct::new(entry.clone(), expected_version.next());
+            *existing = persisted.clone();
             self.state
                 .updated
                 .lock()
                 .map(|mut updated| *updated += 1)
                 .map_err(|_| WatchlistRepositoryError::UpdateFailed)?;
-            Ok(entry.clone())
+            Ok(persisted)
         }
 
         async fn delete(
             &mut self,
             user_id: UserId,
             product_id: ProductId,
+            expected_version: WatchlistStorageVersion,
         ) -> Result<(), WatchlistRepositoryError> {
-            self.state
+            let mut entries = self
+                .state
                 .entries
                 .lock()
-                .map_err(|_| WatchlistRepositoryError::DeleteFailed)?
-                .retain(|entry| entry.user_id() != user_id || entry.product_id() != product_id);
+                .map_err(|_| WatchlistRepositoryError::DeleteFailed)?;
+            let Some(index) = entries.iter().position(|entry| {
+                entry.value.user_id() == user_id && entry.value.product_id() == product_id
+            }) else {
+                return Err(WatchlistRepositoryError::ConcurrencyConflict);
+            };
+            if entries[index].version != expected_version {
+                return Err(WatchlistRepositoryError::ConcurrencyConflict);
+            }
+            entries.remove(index);
             self.state
                 .deleted
                 .lock()
@@ -511,12 +543,12 @@ mod tests {
                 .map(|entries| {
                     entries
                         .iter()
-                        .filter(|entry| entry.user_id() == user_id)
+                        .filter(|entry| entry.value.user_id() == user_id)
                         .map(|entry| WatchlistProductView {
-                            user_id: entry.user_id(),
-                            product_id: entry.product_id(),
-                            notifications: entry.notifications(),
-                            state: entry.state(),
+                            user_id: entry.value.user_id(),
+                            product_id: entry.value.product_id(),
+                            notifications: entry.value.notifications(),
+                            state: entry.value.state(),
                             created: OffsetDateTime::UNIX_EPOCH,
                             updated: OffsetDateTime::UNIX_EPOCH,
                         })
@@ -535,8 +567,8 @@ mod tests {
                 .map(|entries| {
                     entries
                         .iter()
-                        .filter(|entry| entry.product_id() == product_id)
-                        .map(WatchlistProduct::user_id)
+                        .filter(|entry| entry.value.product_id() == product_id)
+                        .map(|entry| entry.value.user_id())
                         .collect()
                 })
         }

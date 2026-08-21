@@ -1517,6 +1517,9 @@ impl From<UpdateWatchlistProductError> for ApiError {
             }
             UpdateWatchlistProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 .with_detail("Watchlist entry was not found."),
+            UpdateWatchlistProductError::ConcurrencyConflict => {
+                ApiError::conflict(CONFLICT).with_detail("Watchlist entry was changed concurrently.")
+            }
             UpdateWatchlistProductError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
@@ -1554,6 +1557,8 @@ impl From<UnwatchProductError> for ApiError {
             }
             UnwatchProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 .with_detail("Watchlist entry was not found."),
+            UnwatchProductError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
+                .with_detail("Watchlist entry was changed concurrently."),
             UnwatchProductError::TemporarilyUnavailable
             | UnwatchProductError::BeginTransactionFailed
             | UnwatchProductError::CommitTransactionFailed => {

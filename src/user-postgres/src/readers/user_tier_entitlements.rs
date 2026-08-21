@@ -27,6 +27,7 @@ SET state = ranked.target_state,
         WHEN ranked.target_state = 'ACTIVE' THEN now()
         ELSE NULL
     END,
+    version = entry.version + 1,
     updated = now()
 FROM ranked
 WHERE entry.user_id = $1

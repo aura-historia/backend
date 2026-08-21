@@ -5235,6 +5235,17 @@ paths:
                 status: 404
                 title: "Not Found"
                 error: "WATCHLIST_ENTRY_NOT_FOUND"
+        "409":
+          description: Watchlist entry was changed concurrently
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: "Conflict"
+                error: "CONFLICT"
+                detail: "Watchlist entry was changed concurrently."
         "500":
           description: Internal server error
           content:
@@ -5430,6 +5441,17 @@ paths:
                 title: "Unprocessable Content"
                 error: "WATCHLIST_QUOTA_EXCEEDED"
                 detail: "Exceeded the maximum amount of watchlist entries. There are already 20/20 active watchlist entries occupied."
+        "409":
+          description: Watchlist entry was changed concurrently
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: "Conflict"
+                error: "CONFLICT"
+                detail: "Watchlist entry was changed concurrently."
         "500":
           description: Internal server error
           content:

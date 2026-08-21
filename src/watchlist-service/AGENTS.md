@@ -11,7 +11,7 @@
 - Depends on `watchlist-core`, Product and FX read contracts, and common ports.
 - Write use cases own transactions.
 - Persistence hidden behind repository factory.
-- Repository writes return persisted watchlist state.
+- Repository writes return persisted watchlist state with a service-owned storage version; updates and deletes enforce optimistic concurrency.
 - List uses transaction-scoped Product watchlist-details and FX snapshot readers for one PostgreSQL cursor page. Product details return canonical `ProductUserState`, including notification state, directly. Service applies the Product pricing presentation policy: one latest FX snapshot for all current valuations and one batch lookup for sale valuation snapshots. Missing or invalid FX data fails explicitly.
 - Watchlist pagination uses `created DESC, product_id ASC`; the cursor contains both values so tied creation times cannot skip or duplicate products.
 - Product views are public `common::personalized::Personalized` Product-service contracts. Watchlist owns orchestration, authorization, canonical user-state retention, and hidden-product redaction.
