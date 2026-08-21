@@ -9,17 +9,17 @@ Run it with:
 python3 scripts/common-decomposition/check_baseline.py
 ```
 
-The reviewed initial baseline lists 70 normal direct consumers, 12 development edges,
-and all declared forwarding to `common/*` features. It must match Cargo exactly and may
-only shrink. CI pins the final baseline committed by this decomposition for bootstrap,
-then compares later baselines with their base revision; a consumer, feature, forwarded
-feature, or public module cannot be added by changing the baseline.
+The machine baseline must match Cargo exactly and may only shrink. CI pins the committed
+baseline for bootstrap, then compares later baselines with their base revision; a
+consumer, feature, forwarded feature, or public module cannot be added by changing the
+baseline.
 
-Before Iteration 3, 31 documented canonical direct consumers still remained, plus the
-dual-purpose `notification-dynamodb` consumer. Iteration 3 removes `common` from the ten
-canonical service crates. The current state is 21 canonical direct consumers, plus
-`notification-dynamodb`; decomposition is not complete while those remaining adapters,
-runtimes, and legacy/dual consumers still exist.
+Iterations 3–5 removed `common` from the ten canonical services, seven canonical
+PostgreSQL adapters, and the remaining canonical integrations. The current baseline has
+44 normal direct consumers, 12 development edges, 10 forwarded feature records (30
+forwarded entries), 7 declared `common` features, and 56 public top-level modules.
+Only six canonical runtime/leaf consumers remain; all listed canonical adapters are
+now `common`-free. Legacy entity/API/Lambda paths remain unchanged.
 
 ## Direct consumers
 
@@ -36,23 +36,17 @@ Current machine-checked normal direct consumers:
 | `acceptance-tests` | dual | `opensearch` |
 | `aura-historia-parent` | dual | — |
 | `aws-tests-common` | legacy | `opensearch` |
-| `billing-stripe` | canonical | — |
 | `cloudwatch-log-retention-lambda` | canonical | — |
 | `cognito` | canonical | `api` |
 | `cognito-post-confirmation` | canonical | `postgres` |
 | `crawler` | legacy | — |
-| `fxrate-fxratesapi` | canonical | — |
 | `fxrate-lambda` | canonical | `postgres` |
-| `fxrate-postgres` | canonical | — |
-| `large-language-model` | canonical | — |
 | `newsletter-api` | legacy | `api` |
 | `notification` | legacy | — |
 | `notification-api` | legacy | `api` |
-| `notification-dynamodb` | dual | `dynamodb` |
 | `notification-send` | legacy | `dynamodb`, `event_bridge` |
 | `oauth` | legacy | `api` |
 | `oauth-api` | legacy | `api` |
-| `oauth-dynamodb` | canonical | `dynamodb` |
 | `partner-shop-application` | legacy | — |
 | `partner-shop-application-api` | legacy | `api` |
 | `partner-shop-application-lambda` | legacy | — |
@@ -63,40 +57,33 @@ Current machine-checked normal direct consumers:
 | `product-lambda-ingest-partner-products` | legacy | `api`, `opensearch`, `sqs` |
 | `product-lambda-materialize-opensearch` | legacy | `api`, `dynamodb`, `event_bridge`, `opensearch` |
 | `product-lambda-update-notify-user` | legacy | `dynamodb`, `event_bridge` |
-| `product-opensearch` | canonical | `opensearch` |
 | `product-personalization` | legacy | `api` |
-| `product-postgres` | canonical | — |
+
 | `product-watchlist` | legacy | — |
 | `product-watchlist-api` | legacy | `api`, `opensearch` |
 | `search-filter` | legacy | — |
 | `search-filter-api` | legacy | `api`, `opensearch` |
 | `search-filter-lambda-opensearch-sync` | legacy | `api`, `dynamodb`, `event_bridge`, `opensearch` |
 | `search-filter-lambda-percolate-product` | legacy | `api`, `dynamodb`, `event_bridge`, `opensearch` |
-| `search-filter-opensearch` | canonical | `opensearch` |
 | `search-filter-periodic-match` | legacy | `api`, `dynamodb`, `opensearch` |
-| `search-filter-postgres` | canonical | — |
+
 | `shop` | legacy | — |
 | `shop-api` | legacy | `api`, `opensearch` |
 | `shop-lambda-opensearch-index` | legacy | `api`, `dynamodb`, `event_bridge`, `opensearch` |
-| `shop-partner-postgres` | canonical | — |
-| `shop-postgres` | canonical | — |
 | `shopify-lambda` | canonical | `postgres` |
 | `stripe-api` | legacy | `api` |
 | `stripe-lambda` | canonical | `postgres` |
 | `test-api` | dual | — |
 | `user` | legacy | — |
 | `user-api` | legacy | `api`, `opensearch` |
-| `user-dynamodb` | canonical | `dynamodb` |
 | `user-lambda-index-opensearch` | legacy | `api`, `dynamodb`, `event_bridge`, `opensearch` |
 | `user-lambda-tier-update` | legacy | `dynamodb`, `event_bridge` |
-| `user-postgres` | canonical | — |
-| `user-zoho` | canonical | — |
-| `watchlist-postgres` | canonical | — |
 | `webhook-api` | legacy | `api`, `opensearch` |
 
-Current direct-consumer counts: **21 canonical**, **35 legacy**, **4 dual**.
+Current direct-consumer counts: **6 canonical**, **35 legacy**, **3 dual**.
 
 The development-only direct edges are listed in `scripts/common-decomposition/baseline.json` and are also exact-checked by CI.
+
 ## Export inventory
 
 `common` has 56 public top-level modules. Direct dependency alone does not prove a
@@ -125,7 +112,7 @@ module. “Shim” means a temporary `common` re-export only after the new owner
 | `has_key` | capability trait | cores | legacy | — | proven neutral trait | `domain-primitives` | needs-owner-decision | no | usage review |
 | `language` | localization value + forms | cores/adapters | APIs | — | localization | `localization` | split | domain only | forms local |
 | `localized` | generic localization | cores | legacy | — | localization | `localization` | move | yes | canonical imports moved |
-| `logging` | logging + LLM vocabulary | runtimes/LLM | Lambdas | — | runtime and LLM adapter | split | legacy init only | roots and LLM moved |
+| `logging` | logging + LLM vocabulary | legacy runtimes | Lambdas | — | runtime setup; LLM adapter | split | legacy init only | roots and LLM moved |
 | `measurement_unit` | preference value + forms | user | legacy user | — | user or neutral preference | needs-owner-decision | needs-owner-decision | no | owner decided |
 | `mergeable` | capability trait | cores | legacy | — | proven neutral trait | `domain-primitives` | needs-owner-decision | no | usage review |
 | `oauth_client_id` | typed ID | OAuth | old OAuth | — | credential vocabulary | `credential-core` | move | yes | OAuth canonical moved |
@@ -204,3 +191,26 @@ public identifiers from the semantic owner cores.
 `common` re-exports the moved IDs, name, and match reason for legacy code. Each shim is
 acyclic because its new owner does not depend on `common`; remove it only after legacy callers
 have migrated. The four canonical core crates are removed from the direct-consumer baseline.
+
+## Follow-up Iteration 4 — canonical PostgreSQL adapter cutover
+
+The seven canonical PostgreSQL adapters now use `platform-postgres` for SQLx transaction
+mechanics and direct service/core owners for IDs, values, query contracts, and errors:
+`fxrate-postgres`, `product-postgres`, `search-filter-postgres`, `shop-partner-postgres`,
+`shop-postgres`, `user-postgres`, and `watchlist-postgres`. Rows, SQL parameters, persisted
+strings, and mapping helpers remain private to each adapter. Their `common` dependencies
+and baseline entries are gone.
+
+## Follow-up Iteration 5 — canonical integration cutover
+
+The canonical Stripe, FxRatesApi, OpenSearch, DynamoDB, Zoho, OAuth, and notification
+adapters now own their provider/storage mechanics locally. OpenSearch documents remain private;
+`platform-opensearch` owns the proven generic search-response envelope. DynamoDB update/batch
+helpers do not escape their adapters. `notification-dynamodb`
+is canonical-only and `common`-free; no legacy notification dependency was removed.
+
+LLM-specific operation, provider/model, service-tier, metrics, and invocation logging
+vocabulary now lives in `large-language-model`; `platform-observability` remains subscriber
+setup only. Crawler callers use the LLM crate directly. The remaining direct `common`
+consumers are legacy paths, three dual composition/test roots, and six canonical runtime
+leaves tracked in the table above.

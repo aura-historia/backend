@@ -1,7 +1,7 @@
 use crate::client_record::{self, OAuthClientRecord};
 use crate::repository::OAuthDynamoDbStore;
+use application::error::box_error;
 use aws_sdk_dynamodb::types::AttributeValue;
-use common::error::boxed::box_error;
 use oauth_core::client::OAuthClient;
 use oauth_service::ports::{OAuthClientReader, OAuthClientRepositoryError};
 

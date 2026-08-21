@@ -1,11 +1,11 @@
+use ::application::pagination::Cursor;
 use ::application::transaction::{Transaction, UnitOfWork};
-use ::common::pagination::cursor::Cursor;
-use ::common::query::range_query::RangeQuery;
-use ::common::query::text_query::TextQuery;
-use ::common::sort::{Sort, SortOrder};
-use ::common::stripe_customer_id::StripeCustomerId;
-use ::common::user_id::UserId;
+use ::domain_primitives::query::range_query::RangeQuery;
+use ::domain_primitives::query::text_query::TextQuery;
+use ::domain_primitives::sort::{Sort, SortOrder};
 use ::platform_postgres::SqlxUnitOfWork;
+use ::user_core::stripe_customer_id::StripeCustomerId;
+use ::user_core::user_id::UserId;
 use geo::core::{address::StructuredAddress, continent::Continent};
 use isocountry::CountryCode;
 use localization::Language;

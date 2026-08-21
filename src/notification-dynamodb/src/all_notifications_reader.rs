@@ -2,12 +2,13 @@ use crate::{
     notification_record::{NotificationRecord, mk_pk},
     reader_common::{SK_LOWER_BOUND, SK_UPPER_BOUND, deserialize_records},
 };
+use application::error::box_error;
 use aws_sdk_dynamodb::{Client, types::AttributeValue};
-use common::{error::boxed::box_error, user_id::UserId};
 use notification_core::notification::Notification;
 use notification_service::ports::all_notifications_reader::{
     AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
 };
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone)]
 pub struct DynamoDbAllNotificationsReader<'a> {

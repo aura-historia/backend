@@ -34,7 +34,6 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::sync::Arc;
 
-use common::logging::GeminiServiceTier;
 use crawler::google_llm::{
     GeminiRateLimitConfig, GeminiRateLimiter, gemini_flex_enabled, google_llm_builder,
     url_classification_gemini_model,
@@ -50,6 +49,7 @@ use crawler::spider::classification::url_pattern_service::UrlPatternServiceImpl;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
+use large_language_model::GeminiServiceTier;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use thiserror::Error;

@@ -9,6 +9,7 @@ mod product_search_reader;
 mod product_similar_products_reader;
 mod product_state_document;
 mod prohibited_content_document;
+
 mod shop_type_document;
 
 pub use percolation_document::{ProductPercolationDocumentError, product_percolation_document};

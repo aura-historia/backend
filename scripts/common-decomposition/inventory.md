@@ -82,16 +82,40 @@
 
 The credential vocabulary now has no cycle through `common`: `application` owns the operation contract, while `credential-core` owns scope and credential identifiers. Legacy shims remain for old callers.
 
-## Current status — Iteration 3 canonical service cutover
+## Shared OpenSearch protocol boundary
 
-The ten canonical service crates no longer have a normal or development `common` dependency and no longer import `common::*`: `billing-service`, `fxrate-service`, `notification-service`, `oauth-service`, `product-service`, `search-filter-service`, `shop-partner-service`, `shop-service`, `user-service`, and `watchlist-service`.
+`platform-opensearch` owns the proven generic `search_response` wire envelope used by
+`product-opensearch` and `search-filter-opensearch`. It contains no bounded-context
+search document: each adapter keeps its document type private and supplies it as `T`.
+`common::opensearch::search_response` is an acyclic legacy re-export. No other
+OpenSearch client, response, query, or document helper moved without separate sharing proof.
 
-The machine baseline is current after this cutover: 60 normal direct consumers, 12 development edges, 13 forwarded-package feature records (33 forwarded feature entries), seven declared `common` features, and 56 public top-level modules. The remaining canonical direct consumers are the 21 adapters/runtimes listed in `docs/common-decomposition.md`, plus dual-purpose `notification-dynamodb`; legacy entity/API/Lambda paths remain unchanged.
+## Current status — follow-up Iterations 4 and 5 complete
 
-Validation completed for this slice:
+The ten canonical service crates, seven canonical PostgreSQL adapters, and listed canonical
+integrations no longer have a normal or development `common` dependency or import
+`common::*`. The cutover covers `billing-stripe`, `fxrate-fxratesapi`,
+`large-language-model`, `notification-dynamodb`, `oauth-dynamodb`, `product-opensearch`,
+`product-postgres`, `search-filter-opensearch`, `search-filter-postgres`,
+`shop-partner-postgres`, `shop-postgres`, `user-dynamodb`, `user-postgres`, `user-zoho`,
+`watchlist-postgres`, and `fxrate-postgres`.
 
-- `cargo check -p billing-service -p fxrate-service -p notification-service -p oauth-service -p product-service -p search-filter-service -p shop-partner-service -p shop-service -p user-service -p watchlist-service --all-targets --all-features` — passed.
-- `cargo depgraph-check check` — passed.
-- `python3 scripts/common-decomposition/check_baseline.py` — passed.
-- `python3 -m unittest discover -s scripts/common-decomposition -p 'test_*.py'` — passed, including negative and bootstrap tests.
-- Broader workspace tests and Clippy remain pending.
+PostgreSQL adapters own SQL rows, parameters, and mappings. OpenSearch adapters own documents,
+queries, and mappings; `platform-opensearch` owns only the generic search-response envelope.
+DynamoDB adapters own update, batch, and record mechanics.
+`large-language-model` owns LLM vocabulary and invocation metrics/logging; the
+observability platform owns subscriber setup only. Legacy `common` APIs, entities, APIs,
+Lambdas, and tests remain.
+
+The current machine baseline has 44 normal direct consumers, 12 development edges, 10
+forwarded-package feature records (30 forwarded feature entries), seven declared `common`
+features, and 56 public top-level modules. Six canonical runtime/leaf consumers remain:
+`cloudwatch-log-retention-lambda`, `cognito`, `cognito-post-confirmation`, `fxrate-lambda`,
+`shopify-lambda`, and `stripe-lambda`.
+
+Validation for this slice:
+
+- Targeted Iteration 4 and 5 package checks passed with `--all-targets --all-features`.
+- All listed adapter tests passed, including configured Postgres, DynamoDB, and OpenSearch tests.
+- `cargo depgraph-check check`, `check_baseline.py`, and baseline unit tests passed.
+- `cargo check --workspace`, CI Clippy, and `cargo fmt --all -- --check` passed.

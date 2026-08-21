@@ -1,4 +1,6 @@
+use crate::batch::Batch;
 use crate::notification_record::{mk_pk, mk_sk};
+use application::error::box_error;
 use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
@@ -8,11 +10,12 @@ use aws_sdk_dynamodb::{
     },
     types::{AttributeValue, DeleteRequest, WriteRequest},
 };
-use common::{batch::Batch, error::boxed::box_error, event_id::EventId, user_id::UserId};
+use domain_primitives::event_id::EventId;
 use notification_service::ports::notification_deleter::{
     NotificationDeleteError, NotificationDeleter,
 };
 use std::collections::HashMap;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone)]
 pub struct DynamoDbNotificationDeleter<'a> {

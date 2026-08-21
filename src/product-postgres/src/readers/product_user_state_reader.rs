@@ -1,9 +1,4 @@
-use common::{
-    enhanced_match_reason::EnhancedMatchReason,
-    error::boxed::{box_error, static_error},
-    user_search_filter_id::UserSearchFilterId,
-    user_search_filter_name::UserSearchFilterName,
-};
+use application::error::{box_error, static_error};
 use product_core::product_id::ProductId;
 use product_service::ports::{
     ProductUserStateLookup, ProductUserStateReadError, ProductUserStateReader,
@@ -11,6 +6,9 @@ use product_service::ports::{
 use product_service::user_state::{
     ProductUserState, ProhibitedContentUserState, SearchFilterUserState, WatchlistUserState,
 };
+use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use sqlx::PgPool;
 use std::collections::HashMap;
 

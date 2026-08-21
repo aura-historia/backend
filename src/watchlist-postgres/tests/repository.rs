@@ -1,8 +1,8 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
 use platform_postgres::SqlxUnitOfWork;
 use product_core::product_id::ProductId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use user_core::user_id::UserId;
 use watchlist_core::ResourceState;
 use watchlist_core::WatchlistProduct;
 use watchlist_postgres::{

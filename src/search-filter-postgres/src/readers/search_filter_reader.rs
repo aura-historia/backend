@@ -1,8 +1,8 @@
 use crate::mapping::{FILTER_COLUMNS, FilterRow, user_search_filter_uuid};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{SearchFilterReadError, SearchFilterReader, SearchFilterView};
 use sqlx::PgPool;
+use user_core::user_id::UserId;
 
 #[derive(Clone)]
 pub struct SqlxSearchFilterReader {

@@ -1,4 +1,4 @@
-use common::error::boxed::box_error;
+use application::error::box_error;
 use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxTransaction;

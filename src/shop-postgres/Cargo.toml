@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application = { workspace = true }
+user-core = { workspace = true }
+domain-primitives = { workspace = true }
 async-trait = { workspace = true }
-common = { workspace = true }
 platform-postgres = { workspace = true }
 geo = { workspace = true }
 isocountry = { workspace = true }
@@ -24,7 +26,6 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-application = { workspace = true }
 rstest = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }

@@ -1,12 +1,14 @@
 mod support;
 
-use common::{event_id::EventId, pagination::cursor::Cursor, user_id::UserId};
+use application::pagination::Cursor;
+use domain_primitives::event_id::EventId;
 use notification_service::ports::{
     list_notifications_reader::ListNotificationsReader,
     notification_repository::NotificationRepository,
 };
 use product_core::product_id::ProductId;
 use test_api::*;
+use user_core::user_id::UserId;
 
 #[aura_integration_test(services = [DynamoDB()])]
 fn should_list_and_count_notifications_for_user() {

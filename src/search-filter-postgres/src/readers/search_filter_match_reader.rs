@@ -1,7 +1,7 @@
 use super::SqlxSearchFilterReader;
 use crate::mapping::{MATCH_COLUMNS, MatchRow, user_search_filter_uuid};
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::sort::SortOrder;
+use application::pagination::{Cursor, CursoredResult};
+use domain_primitives::sort::SortOrder;
 use search_filter_service::ports::{
     SearchFilterMatchCursor, SearchFilterMatchListItem, SearchFilterMatchListQuery,
     SearchFilterMatchReadError, SearchFilterMatchReader,

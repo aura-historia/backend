@@ -1,10 +1,10 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::{partner_shop_application_id::PartnerShopApplicationId, user_id::UserId};
 use platform_postgres::SqlxUnitOfWork;
 use shop_core::shop_id::ShopId;
 use shop_partner_core::partner_shop_application::{
     NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
 };
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_partner_core::partner_shop_application_state::PartnerShopApplicationState;
 use shop_partner_postgres::SqlxPartnerShopApplicationRepositoryFactory;
 use shop_partner_service::ports::{
@@ -12,6 +12,7 @@ use shop_partner_service::ports::{
     PartnerShopApplicationRepositoryFactory, PartnerShopApplicationStorageVersion,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 

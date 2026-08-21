@@ -1,8 +1,8 @@
 use crate::notification_record::NotificationRecord;
 use aws_sdk_dynamodb::types::AttributeValue;
-use common::user_id::UserId;
 use std::collections::HashMap;
 use tracing::error;
+use user_core::user_id::UserId;
 
 pub(crate) const SK_LOWER_BOUND: &str = "user#notification#origin_event_id#";
 pub(crate) const SK_UPPER_BOUND: &str = "user#notification#origin_event_id#\u{ffff}";

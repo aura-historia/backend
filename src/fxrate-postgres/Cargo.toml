@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application = { workspace = true }
 async-trait = { workspace = true }
-common = { workspace = true }
 platform-postgres = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
@@ -17,7 +17,6 @@ time = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-application = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt"] }

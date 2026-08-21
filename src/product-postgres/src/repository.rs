@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use common::error::boxed::box_error;
-use common::event_id::EventId;
+use application::error::box_error;
+use domain_primitives::event_id::EventId;
 use domain_primitives::versioned::Versioned;
 use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
@@ -750,7 +750,7 @@ impl From<ProductUpdateSqlxError> for ProductRepositoryError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::event_id::EventId;
+    use domain_primitives::event_id::EventId;
     use serde_json::json;
 
     #[test]

@@ -2,15 +2,16 @@ use crate::{
     notification_record::{NotificationRecord, mk_pk, mk_sk},
     reader_common::{SK_LOWER_BOUND, SK_UPPER_BOUND, deserialize_records},
 };
+use application::error::box_error;
+use application::pagination::Cursor;
 use aws_sdk_dynamodb::{Client, types::AttributeValue};
-use common::{
-    error::boxed::box_error, event_id::EventId, pagination::cursor::Cursor, user_id::UserId,
-};
+use domain_primitives::event_id::EventId;
 use notification_core::notification::Notification;
 use notification_service::ports::list_notifications_reader::{
     ListNotificationsReadError, ListNotificationsReader, NotificationListReadItem,
 };
 use std::collections::HashMap;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone)]
 pub struct DynamoDbListNotificationsReader<'a> {

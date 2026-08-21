@@ -1,6 +1,6 @@
 mod support;
 
-use common::{event_id::EventId, user_id::UserId};
+use domain_primitives::event_id::EventId;
 use notification_core::notification_type::NotificationType;
 use notification_service::ports::{
     NotificationWriteOutcome, NotificationWriter, all_notifications_reader::AllNotificationsReader,
@@ -8,6 +8,7 @@ use notification_service::ports::{
 };
 use product_core::product_id::ProductId;
 use test_api::*;
+use user_core::user_id::UserId;
 
 #[aura_integration_test(services = [DynamoDB()])]
 fn should_insert_find_and_update_notification() {

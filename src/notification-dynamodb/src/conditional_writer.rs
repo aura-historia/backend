@@ -1,5 +1,5 @@
+use application::error::box_error;
 use aws_sdk_dynamodb::{Client, error::SdkError, operation::put_item::PutItemError};
-use common::error::boxed::box_error;
 use notification_core::notification::Notification;
 use notification_service::ports::{
     NotificationWriteError, NotificationWriteOutcome, NotificationWriter,

@@ -1,7 +1,7 @@
 use crate::mapping::{ShopSummaryRow, countries_for_continents, shop_summary_columns};
-use common::error::boxed::box_error;
-use common::pagination::cursor::Cursor;
-use common::sort::{Sort, SortOrder};
+use application::error::box_error;
+use application::pagination::Cursor;
+use domain_primitives::sort::{Sort, SortOrder};
 use platform_postgres::SqlxTransaction;
 use shop_core::shop_id::ShopId;
 use shop_core::sort_shop_field::SortShopField;

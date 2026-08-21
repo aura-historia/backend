@@ -1,5 +1,5 @@
 use crate::mapping::user_search_filter_uuid;
-use common::error::boxed::box_error;
+use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use search_filter_core::SearchFilterProductMatch;
 use search_filter_service::ports::{

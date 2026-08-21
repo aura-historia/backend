@@ -1,5 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use domain_primitives::versioned::Versioned;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
@@ -164,7 +164,7 @@ async fn should_round_trip_immutable_sale_valuation_in_postgres() {
     let transition = product.mark_sold(valuation);
     assert!(matches!(
         transition,
-        Ok(common::change_outcome::ChangeOutcome::Changed)
+        Ok(domain_primitives::change_outcome::ChangeOutcome::Changed)
     ));
     let current_event_id = match product.pending_events().last() {
         Some(event) => event.event_id,

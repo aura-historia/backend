@@ -1,11 +1,12 @@
 use application::error::{BoxError, box_error};
-pub use common::logging::LlmOperation;
-use common::logging::{
-    GeminiServiceTier, LlmInvocationMetrics, LlmModel, LlmProvider, log_llm_invocation,
-};
+mod llm_logging;
 use futures::{StreamExt, stream};
 use google_cloud_auth::credentials::AccessTokenCredentials;
 use image_fetcher::{FetchedImage, ImageFetcher};
+pub use llm_logging::{
+    GeminiServiceTier, LlmInvocationMetrics, LlmModel, LlmOperation, LlmProvider,
+    log_llm_invocation,
+};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     collections::{HashMap, HashSet},

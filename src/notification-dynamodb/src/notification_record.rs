@@ -1,15 +1,10 @@
+use crate::missing_field::MissingPersistenceField;
 use crate::{
     currency_record::CurrencyRecord, language_record::LanguageRecord,
     notification_reason_record::NotificationReasonRecord,
     notification_type_record::NotificationTypeRecord, price_record::PriceRecord,
 };
-use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
-use common::{
-    error::missing_field::MissingPersistenceField, event_id::EventId, shop_id::ShopId,
-    shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId,
-};
+use domain_primitives::event_id::EventId;
 use field::field;
 use localization::Language;
 use money::{Currency, MonetaryAmount, Price};
@@ -28,6 +23,11 @@ use product_core::{
     product_state::ProductState, prohibited_content::ProhibitedContent,
     shops_product_id::ShopsProductId, title::Title,
 };
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
+use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
+use user_core::user_id::UserId;
 
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
@@ -1119,7 +1119,7 @@ mod product_state_record_tests {
 #[cfg(test)]
 mod key_tests {
     use super::*;
-    use common::event_id::EventId;
+    use domain_primitives::event_id::EventId;
     use product_core::product_id::ProductId;
 
     #[test]

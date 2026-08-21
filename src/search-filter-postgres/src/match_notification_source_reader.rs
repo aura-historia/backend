@@ -1,15 +1,15 @@
-use common::{
-    error::boxed::box_error, event_id::EventId, user_id::UserId,
-    user_search_filter_id::UserSearchFilterId,
-};
+use application::error::box_error;
+use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxTransaction;
 use product_core::product_id::ProductId;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     SearchFilterMatchNotificationSource, SearchFilterMatchNotificationSourceReadError,
     SearchFilterMatchNotificationSourceReader, SearchFilterMatchNotificationSourceReaderFactory,
 };
 use sqlx::FromRow;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 use crate::mapping::{name, user_search_filter_uuid};
 

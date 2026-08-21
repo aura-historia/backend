@@ -1,5 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxUnitOfWork;
 use product_core::product_id::ProductId;
 use product_postgres::SqlxProductCurrentRevisionGuardFactory;

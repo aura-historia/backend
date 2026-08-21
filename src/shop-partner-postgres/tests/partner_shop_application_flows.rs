@@ -1,8 +1,7 @@
+use application::error::static_error;
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use application::transaction::{Transaction, UnitOfWork};
 use async_trait::async_trait;
-use common::error::boxed::static_error;
-use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-use common::{partner_shop_application_id::PartnerShopApplicationId, user_id::UserId};
 use notification_service::use_cases::commands::create_notification::{
     CreateNotificationCommand, CreateNotificationError, CreateNotificationResult,
     CreateNotificationUseCase,
@@ -10,6 +9,8 @@ use notification_service::use_cases::commands::create_notification::{
 use platform_postgres::SqlxUnitOfWork;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
+use user_core::user_id::UserId;
 
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};

@@ -1,6 +1,5 @@
-use common::{
-    error::missing_field::MissingPersistenceField, oauth_client_id::OAuthClientId, user_id::UserId,
-};
+use crate::missing_field::MissingPersistenceField;
+use credential_core::oauth_client_id::OAuthClientId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;
@@ -9,6 +8,7 @@ use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenOrigin, HashedRawAccessToken,
     RehydratedAccessTokenState, Scope,
 };
+use user_core::user_id::UserId;
 
 #[cfg_attr(feature = "test-data", derive(::fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

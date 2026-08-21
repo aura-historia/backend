@@ -1,12 +1,13 @@
 mod support;
 
-use common::{event_id::EventId, user_id::UserId};
+use domain_primitives::event_id::EventId;
 use notification_service::ports::{
     all_notifications_reader::AllNotificationsReader,
     notification_repository::NotificationRepository,
 };
 use product_core::product_id::ProductId;
 use test_api::*;
+use user_core::user_id::UserId;
 
 #[aura_integration_test(services = [DynamoDB()])]
 fn should_list_all_notifications_for_user() {

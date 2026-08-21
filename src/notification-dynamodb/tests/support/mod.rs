@@ -1,9 +1,6 @@
 #![allow(dead_code)]
 
-use common::{
-    event_id::EventId, partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId,
-    shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId,
-};
+use domain_primitives::event_id::EventId;
 use notification_core::notification::{
     Notification, NotificationPartnerApplicationPayload, NotificationPayload,
     NotificationWatchlistPayload,
@@ -21,8 +18,11 @@ use product_core::{
     product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
     shops_product_id::ShopsProductId,
 };
+use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use test_api::get_dynamodb_client;
 use url::Url;
+use user_core::user_id::UserId;
 
 pub async fn repository() -> NotificationDynamoDbRepository<'static> {
     NotificationDynamoDbRepository::new(get_dynamodb_client().await, "table_1")

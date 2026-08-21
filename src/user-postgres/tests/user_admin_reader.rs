@@ -1,6 +1,6 @@
 use ::application::transaction::{Transaction, UnitOfWork};
-use ::common::user_id::UserId;
 use ::platform_postgres::SqlxUnitOfWork;
+use ::user_core::user_id::UserId;
 use geo::core::{address::StructuredAddress, continent::Continent};
 use isocountry::CountryCode;
 use localization::Language;

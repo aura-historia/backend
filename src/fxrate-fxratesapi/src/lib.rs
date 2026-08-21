@@ -1,4 +1,4 @@
-use common::error::boxed::{box_error, static_error};
+use application::error::{box_error, static_error};
 use money::Currency;
 
 use fxrate_service::ports::{

@@ -69,7 +69,7 @@ class CommonDecompositionCheckerTests(unittest.TestCase):
 
     def test_removing_dependency_and_shrinking_baseline_passes(self) -> None:
         current = copy.deepcopy(self.baseline)
-        del current["direct_dependencies"]["normal"]["billing-stripe"]
+        del current["direct_dependencies"]["normal"]["crawler"]
         current["common_public_modules"].remove("batch")
 
         with self.run_against_base(current, self.baseline):

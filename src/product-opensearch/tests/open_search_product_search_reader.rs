@@ -1,6 +1,6 @@
-use common::event_id::EventId;
-use common::pagination::cursor::Cursor;
-use common::query::range_query::RangeQuery;
+use application::pagination::Cursor;
+use domain_primitives::event_id::EventId;
+use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
 use money::Currency;
 use money::MonetaryAmount;

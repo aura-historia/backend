@@ -1,5 +1,3 @@
-use common::stripe_customer_id::StripeCustomerId;
-use common::user_id::UserId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
@@ -13,8 +11,10 @@ use user_core::last_name::LastName;
 use user_core::measurement_unit::MeasurementUnit;
 use user_core::role::UserRole;
 use user_core::sort_user_field::SortUserField;
+use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::tier::UserTier;
 use user_core::user::{RehydratedUserState, User, UserAccount, UserPreferences, UserProfile};
+use user_core::user_id::UserId;
 use user_service::ports::{UserDetailsView, UserStorageVersion, VersionedUser};
 use user_service::use_cases::queries::find_user_by_stripe_customer_id::UserStripeLookupView;
 use user_service::use_cases::queries::search_users::UserSummary;

@@ -341,6 +341,7 @@ dependencies = [
  "partner-shop-application-api",
  "partner-shop-application-lambda",
  "platform-observability",
+ "platform-opensearch",
  "platform-postgres",
  "product",
  "product-api",
@@ -1414,15 +1415,16 @@ dependencies = [
 name = "billing-stripe"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "billing-service",
- "common",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
  "url",
+ "user-core",
 ]
 
 [[package]]
@@ -1844,6 +1846,7 @@ dependencies = [
  "lambda_runtime",
  "opensearch",
  "platform-observability",
+ "platform-opensearch",
  "platform-postgres",
  "product-core",
  "rstest",
@@ -2025,6 +2028,7 @@ dependencies = [
  "futures",
  "imagesize",
  "kuchiki",
+ "large-language-model",
  "libc",
  "lingua",
  "llm",
@@ -3095,8 +3099,8 @@ dependencies = [
 name = "fxrate-fxratesapi"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
  "fxrate-core",
  "fxrate-service",
  "money",
@@ -3137,7 +3141,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "fxrate-core",
  "fxrate-service",
  "money",
@@ -4353,7 +4356,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "futures",
  "google-cloud-auth",
  "image-fetcher",
@@ -4362,6 +4364,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "tracing",
  "url",
 ]
 
@@ -5009,9 +5012,10 @@ dependencies = [
 name = "notification-dynamodb"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws-sdk-dynamodb",
- "common",
+ "domain-primitives",
  "fake",
  "field",
  "localization",
@@ -5023,17 +5027,21 @@ dependencies = [
  "product",
  "product-core",
  "rstest",
+ "search-filter-core",
  "serde",
  "serde_dynamo",
  "serde_fields",
  "serde_json",
  "serial_test",
+ "shop-core",
+ "shop-partner-core",
  "test-api",
  "thiserror 2.0.20",
  "time",
  "tokio",
  "tracing",
  "url",
+ "user-core",
 ]
 
 [[package]]
@@ -5262,9 +5270,10 @@ dependencies = [
 name = "oauth-dynamodb"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws-sdk-dynamodb",
- "common",
+ "credential-core",
  "fake",
  "oauth-core",
  "oauth-dynamodb",
@@ -5939,6 +5948,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "platform-opensearch"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "platform-postgres"
 version = "0.1.0"
 dependencies = [
@@ -6327,8 +6345,9 @@ dependencies = [
 name = "product-opensearch"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "fxrate-core",
  "geo",
  "indexmap 2.14.0",
@@ -6336,6 +6355,7 @@ dependencies = [
  "localization",
  "money",
  "opensearch",
+ "platform-opensearch",
  "product-core",
  "product-service",
  "rstest",
@@ -6383,7 +6403,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "domain-primitives",
  "fxrate-core",
  "geo",
@@ -6395,6 +6414,7 @@ dependencies = [
  "product-core",
  "product-service",
  "rstest",
+ "search-filter-core",
  "serde",
  "serde_json",
  "serial_test",
@@ -6406,6 +6426,7 @@ dependencies = [
  "time",
  "tokio",
  "url",
+ "user-core",
  "uuid",
 ]
 
@@ -7332,6 +7353,7 @@ dependencies = [
  "field",
  "geo",
  "isocountry",
+ "large-language-model",
  "llm",
  "mockall",
  "opensearch",
@@ -7478,14 +7500,16 @@ dependencies = [
 name = "search-filter-opensearch"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "geo",
  "indexmap 2.14.0",
  "isocountry",
  "localization",
  "money",
  "opensearch",
+ "platform-opensearch",
  "product-core",
  "product-opensearch",
  "product-service",
@@ -7501,6 +7525,7 @@ dependencies = [
  "time",
  "tokio",
  "url",
+ "user-core",
 ]
 
 [[package]]
@@ -7535,7 +7560,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "fxrate-core",
  "geo",
  "isocountry",
@@ -7554,6 +7579,7 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "tokio",
+ "user-core",
  "uuid",
 ]
 
@@ -8157,7 +8183,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "domain-primitives",
  "geo",
  "isocountry",
@@ -8217,7 +8242,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "geo",
  "isocountry",
  "localization",
@@ -8237,6 +8262,7 @@ dependencies = [
  "time",
  "tokio",
  "url",
+ "user-core",
  "uuid",
 ]
 
@@ -9866,9 +9892,10 @@ dependencies = [
 name = "user-dynamodb"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws-sdk-dynamodb",
- "common",
+ "credential-core",
  "fake",
  "rstest",
  "serde",
@@ -9941,7 +9968,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "domain-primitives",
  "geo",
  "isocountry",
@@ -9987,8 +10013,8 @@ dependencies = [
 name = "user-zoho"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
  "localization",
  "money",
  "reqwest 0.12.28",
@@ -10202,7 +10228,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "platform-postgres",
  "product-core",
  "product-service",
@@ -10213,6 +10238,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "user-core",
  "uuid",
  "watchlist-core",
  "watchlist-service",

@@ -1,7 +1,7 @@
 use crate::mapping::{parse_optional_currency, parse_optional_language};
-use common::error::boxed::box_error;
-use common::user_id::UserId;
+use application::error::box_error;
 use sqlx::FromRow;
+use user_core::user_id::UserId;
 use user_core::{first_name::FirstName, last_name::LastName};
 use user_service::ports::{NewsletterProfile, NewsletterProfileReadError, NewsletterProfileReader};
 

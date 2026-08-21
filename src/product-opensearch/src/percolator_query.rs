@@ -1,6 +1,6 @@
 use crate::product_document::ProductDocumentSerdeField;
 use crate::product_search_reader::build_common_filter_clauses;
-use common::query::text_query::TextQuery;
+use domain_primitives::query::text_query::TextQuery;
 use localization::Language;
 use money::Currency;
 use product_core::product_search::ProductSearch;
@@ -121,7 +121,7 @@ fn build_text_match_clause(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::query::range_query::RangeQuery;
+    use domain_primitives::query::range_query::RangeQuery;
     use money::MonetaryAmount;
 
     #[test]

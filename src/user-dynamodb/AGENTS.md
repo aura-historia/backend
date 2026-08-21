@@ -7,9 +7,9 @@
 
 ## Core Design
 
-- Depends on `user-service`, `user-core`, `common`, and AWS SDK.
+- Depends on `user-service`, `user-core`, `credential-core`, `application`, and AWS SDK.
 - Implements `user-service` ports.
-- Owns access-token DynamoDB record shape and mapping, including canonical scope records.
+- Owns access-token DynamoDB record shape, update expressions, and mapping, including canonical scope records.
 - Storage records stay inside adapter boundary and never escape service ports.
 
 ## Ownership

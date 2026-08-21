@@ -1,10 +1,14 @@
-use common::query::any_of_query::AnyOfQuery;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
-use common::resource_state::document::ResourceStateDocument;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use domain_primitives::query::any_of_query::AnyOfQuery;
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum ResourceStateDocument {
+    #[default]
+    Active,
+    InactiveByUser,
+    InactiveByRestrictedPlan,
+}
 use geo::{
     core::distance::{Distance, DistanceUnit, GeoDistanceQuery},
     data::continent_data::ContinentData,
@@ -18,6 +22,8 @@ use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
 use product_core::product_state::ProductState;
 use product_opensearch::build_percolator_query;
 use search_filter_core::ResourceState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_service::ports::{SearchFilterProjection, SearchFilterView};
 use serde::ser::Error as _;
 use serde::{Deserialize, Serialize};
@@ -26,6 +32,7 @@ use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id:
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use user_core::user_id::UserId;
 
 const PRODUCT_SEARCH_FIELDS: [&str; 24] = [
     "language",
@@ -716,7 +723,7 @@ fn product_search_from_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::query::range_query::RangeQuery;
+    use domain_primitives::query::range_query::RangeQuery;
     use geo::core::distance::{Distance, DistanceUnit, GeoDistanceQuery};
     use localization::Language;
     use money::Currency;

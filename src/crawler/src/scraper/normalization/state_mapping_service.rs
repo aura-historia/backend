@@ -2,8 +2,10 @@ use crate::google_llm::{GeminiRateLimiter, run_with_gemini_rate_limiter};
 use crate::logging::llm_metrics;
 use crate::scraper::normalization::state::{ProductStateMappingRecord, StateMappingType};
 use crate::scraper::normalization::state_mapping_repository::ProductStateMappingRepository;
-use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation};
 use common::product_state::domain::ProductState;
+use large_language_model::{
+    GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
+};
 use llm::{
     chat::{ChatMessage, ChatProvider},
     error::LLMError,

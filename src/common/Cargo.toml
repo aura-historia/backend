@@ -27,6 +27,7 @@ domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 geo = { workspace = true }
 platform-observability = { workspace = true }
+platform-opensearch = { workspace = true }
 product-core = { workspace = true }
 search-filter-core = { workspace = true }
 shop-core = { workspace = true }

@@ -1,8 +1,9 @@
-use common::{error::boxed::box_error, user_id::UserId};
+use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use search_filter_service::ports::{
     SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
 };
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Default)]
 pub struct SqlxSearchFilterQuotaReaderFactory;

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "purpose": "Final compatibility baseline after canonical service cutover. Exact current Cargo/features/public modules; tracked sets may only shrink.",
+  "purpose": "Compatibility baseline after canonical service, PostgreSQL adapter, and integration cutovers. Exact current Cargo/features/public modules; tracked sets may only shrink.",
   "common_features": [
     "api",
     "dynamodb",
@@ -128,11 +128,6 @@
         "test-data"
       ]
     },
-    "notification-dynamodb": {
-      "test-data": [
-        "test-data"
-      ]
-    },
     "search-filter": {
       "dynamodb": [
         "dynamodb"
@@ -179,16 +174,6 @@
         "test-data"
       ]
     },
-    "oauth-dynamodb": {
-      "test-data": [
-        "test-data"
-      ]
-    },
-    "user-dynamodb": {
-      "test-data": [
-        "test-data"
-      ]
-    },
     "crawler": {
       "test-data": [
         "test-data"
@@ -211,21 +196,6 @@
       "cognito": [
         "api"
       ],
-      "fxrate-postgres": [],
-      "large-language-model": [],
-      "notification-dynamodb": [
-        "dynamodb"
-      ],
-      "product-opensearch": [
-        "opensearch"
-      ],
-      "product-postgres": [],
-      "search-filter-opensearch": [
-        "opensearch"
-      ],
-      "search-filter-postgres": [],
-      "user-postgres": [],
-      "watchlist-postgres": [],
       "search-filter": [],
       "product-watchlist": [],
       "partner-shop-application": [],
@@ -251,16 +221,6 @@
         "api",
         "opensearch"
       ],
-      "billing-stripe": [],
-      "oauth-dynamodb": [
-        "dynamodb"
-      ],
-      "shop-partner-postgres": [],
-      "shop-postgres": [],
-      "user-dynamodb": [
-        "dynamodb"
-      ],
-      "user-zoho": [],
       "cloudwatch-log-retention-lambda": [],
       "cognito-post-confirmation": [
         "postgres"
@@ -277,7 +237,6 @@
         "event_bridge",
         "opensearch"
       ],
-      "fxrate-fxratesapi": [],
       "product-api": [
         "api",
         "opensearch"

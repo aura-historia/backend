@@ -1,5 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use localization::Language;
 use localization::Localized;
 use platform_postgres::SqlxUnitOfWork;

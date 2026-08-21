@@ -1,8 +1,6 @@
-use common::{
-    error::boxed::{BoxError, box_error, static_error},
-    event_id::EventId,
-    utm::append_utm_params,
-};
+use crate::url::append_utm_params;
+use application::error::{BoxError, box_error, static_error};
+use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;

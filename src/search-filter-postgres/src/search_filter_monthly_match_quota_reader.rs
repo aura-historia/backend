@@ -1,10 +1,12 @@
-use common::{error::boxed::box_error, event_id::EventId, user_id::UserId};
+use application::error::box_error;
+use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxTransaction;
 use search_filter_service::ports::{
     SearchFilterMonthlyMatchQuotaReadError, SearchFilterMonthlyMatchQuotaReader,
     SearchFilterMonthlyMatchQuotaReaderFactory,
 };
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Default)]
 pub struct SqlxSearchFilterMonthlyMatchQuotaReaderFactory;

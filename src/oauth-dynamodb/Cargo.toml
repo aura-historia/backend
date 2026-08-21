@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+credential-core = { workspace = true }
+application = { workspace = true }
 async-trait = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
-common = { workspace = true, features = ["dynamodb"] }
 oauth-core = { workspace = true }
 oauth-service = { workspace = true }
 serde = { workspace = true }
@@ -31,4 +32,4 @@ tokio = { workspace = true, features = ["macros"] }
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "oauth-core/test-data", "oauth-service/test-data", "user-core/test-data"]
+test-data = ["fake", "oauth-core/test-data", "oauth-service/test-data", "user-core/test-data"]

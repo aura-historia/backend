@@ -14,7 +14,7 @@
 - Persists every ProductSearch field and rejects incomplete or unknown persisted search payloads.
 - Percolates complete deterministic result sets through a PIT with a bounded page size, stable `userSearchFilterId` sort, exact totals, and defensive ID deduplication; it fails instead of truncating or accepting partial results.
 - Uses the shared application cursor default (currently 21) when a search-filter index query omits a cursor, never OpenSearch's implicit page size.
-- Keeps OpenSearch document types private.
+- Keeps OpenSearch documents private; generic response envelopes come from `platform-opensearch`. Percolation completeness rules stay in this adapter.
 
 ## Ownership
 

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+large-language-model = { workspace = true }
 common = { workspace = true }
 product = { workspace = true, features = ["dynamodb", "service", "data"] }
 shop = { workspace = true, features = ["opensearch", "service"] }

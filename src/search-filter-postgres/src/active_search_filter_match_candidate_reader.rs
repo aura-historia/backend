@@ -1,12 +1,14 @@
 use crate::mapping::{name, user_search_filter_uuid};
-use common::{error::boxed::box_error, user_id::UserId, user_search_filter_id::UserSearchFilterId};
+use application::error::box_error;
 use platform_postgres::SqlxTransaction;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     ActiveSearchFilterMatchCandidate, ActiveSearchFilterMatchCandidateReadError,
     ActiveSearchFilterMatchCandidateReader, ActiveSearchFilterMatchCandidateReaderFactory,
     SearchFilterMatchCandidate,
 };
 use sqlx::FromRow;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Default)]
 pub struct SqlxActiveSearchFilterMatchCandidateReaderFactory;

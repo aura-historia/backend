@@ -1,9 +1,6 @@
-use common::event_id::EventId;
-use common::pagination::cursor::Cursor;
-use common::query::text_query::TextQuery;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use application::pagination::Cursor;
+use domain_primitives::event_id::EventId;
+use domain_primitives::query::text_query::TextQuery;
 use indexmap::IndexSet;
 use localization::Language;
 use money::Currency;
@@ -17,12 +14,15 @@ use product_service::ports::{
     ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
 };
 use search_filter_core::ResourceState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_service::ports::{
     SearchFilterIndex, SearchFilterIndexQuery, SearchFilterProjection,
     SearchFilterProjectionWriteOutcome, SearchFilterView,
 };
 use std::collections::HashMap;
+use user_core::user_id::UserId;
 
 use test_api::{
     IntegrationTestService, OpenSearch, aura_integration_test, get_opensearch_client, refresh_index,

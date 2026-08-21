@@ -1,10 +1,13 @@
 pub mod all_notifications_reader;
+mod batch;
 pub mod batch_writer;
 pub mod conditional_writer;
 pub(crate) mod currency_record;
 pub mod deleter;
+mod dynamodb_update;
 pub(crate) mod language_record;
 pub mod list_notifications_reader;
+mod missing_field;
 pub mod notification_reason_record;
 pub(crate) mod notification_record;
 pub mod notification_record_update;

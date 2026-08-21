@@ -1,4 +1,4 @@
-use common::error::boxed::box_error;
+use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use product_core::product_id::ProductId;
 use product_service::ports::{

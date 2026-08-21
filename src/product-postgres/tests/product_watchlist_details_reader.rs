@@ -1,6 +1,5 @@
+use application::pagination::{Cursor, CursoredResult};
 use application::transaction::{Transaction, UnitOfWork};
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::user_id::UserId;
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
@@ -29,6 +28,7 @@ use shop_core::shop_name::ShopName;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 

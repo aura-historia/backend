@@ -3,14 +3,14 @@ use crate::product_document::{ProductDocument, ProductDocumentSerdeField};
 use crate::product_lifecycle_document::ProductLifecycleDocument;
 use crate::product_state_document::ProductStateDocument;
 use crate::shop_type_document::ShopTypeDocument;
-use common::opensearch::search_response::{SearchHit, SearchResponse};
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::query::any_of_query::AnyOfQuery;
-use common::query::text_query::TextQuery;
-use common::sort::{Sort, SortOrder};
+use application::pagination::{Cursor, CursoredResult};
+use domain_primitives::query::any_of_query::AnyOfQuery;
+use domain_primitives::query::text_query::TextQuery;
+use domain_primitives::sort::{Sort, SortOrder};
 use geo::opensearch::distance_to_opensearch_value;
 use localization::{Language, Localized};
 use money::Currency;
+use platform_opensearch::search_response::{SearchHit, SearchResponse};
 use shop_core::shop_name::ShopName;
 
 use money::Price;
@@ -845,14 +845,14 @@ mod tests {
     use crate::product_document::{
         CurrencyDocument, LanguageDocument, SalePricesDocument, SourcePriceDocument, TextDocument,
     };
-    use common::{
-        event_id::EventId, product_id::ProductId, product_slug_id::ProductSlugId,
-        shops_product_id::ShopsProductId,
-    };
+    use domain_primitives::event_id::EventId;
     use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use geo::core::distance::{Distance, DistanceUnit, GeoDistanceQuery};
     use indexmap::IndexSet;
     use money::MonetaryAmount;
+    use product_core::{
+        product_id::ProductId, product_slug_id::ProductSlugId, shops_product_id::ShopsProductId,
+    };
     use shop_core::shop_id::ShopId;
     use shop_core::shop_slug_id::ShopSlugId;
     use strum::IntoEnumIterator;
@@ -865,7 +865,7 @@ mod tests {
     ) -> Result<ProductPriceFilterPlan, Box<dyn std::error::Error>> {
         price_filter_range(
             target_currency,
-            display_amount.map(|amount| common::query::range_query::RangeQuery {
+            display_amount.map(|amount| domain_primitives::query::range_query::RangeQuery {
                 min: Some(MonetaryAmount::from(amount)),
                 max: Some(MonetaryAmount::from(amount)),
             }),
@@ -874,7 +874,7 @@ mod tests {
 
     fn price_filter_range(
         target_currency: Currency,
-        display_range: Option<common::query::range_query::RangeQuery<MonetaryAmount>>,
+        display_range: Option<domain_primitives::query::range_query::RangeQuery<MonetaryAmount>>,
     ) -> Result<ProductPriceFilterPlan, Box<dyn std::error::Error>> {
         let snapshot = NewFxRateSnapshot::capture_eur(
             FxRateId::new(),
@@ -1020,7 +1020,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let max_only = build_product_index_price_clause(&price_filter_range(
             Currency::Usd,
-            Some(common::query::range_query::RangeQuery {
+            Some(domain_primitives::query::range_query::RangeQuery {
                 min: None,
                 max: Some(MonetaryAmount::from(110_u64)),
             }),
@@ -1028,7 +1028,7 @@ mod tests {
         .ok_or("missing max-only clause")?;
         let min_only = build_product_index_price_clause(&price_filter_range(
             Currency::Usd,
-            Some(common::query::range_query::RangeQuery {
+            Some(domain_primitives::query::range_query::RangeQuery {
                 min: Some(MonetaryAmount::from(110_u64)),
                 max: None,
             }),
@@ -1060,7 +1060,7 @@ mod tests {
     fn should_use_distinct_price_clauses_for_search_and_percolation()
     -> Result<(), Box<dyn std::error::Error>> {
         let search = ProductSearch::new(Language::En, Currency::Usd).with_price_query(
-            common::query::range_query::RangeQuery {
+            domain_primitives::query::range_query::RangeQuery {
                 min: Some(MonetaryAmount::from(110_u64)),
                 max: None,
             },

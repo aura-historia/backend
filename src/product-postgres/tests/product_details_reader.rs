@@ -1,6 +1,4 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
 use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
@@ -25,12 +23,14 @@ use product_service::ports::{
     ProductRepository, ProductRepositoryFactory,
 };
 use product_service::use_cases::queries::get_product::ProductLookup;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -766,7 +766,7 @@ async fn insert_search_filter_match(
     user_id: UserId,
     filter_id: UserSearchFilterId,
     product_id: ProductId,
-    origin_event_id: common::event_id::EventId,
+    origin_event_id: domain_primitives::event_id::EventId,
     name: &str,
     reason: Option<&str>,
     feedback: Option<bool>,
@@ -799,7 +799,7 @@ async fn insert_search_filter_match(
 async fn event_id_for_product(
     pool: &sqlx::PgPool,
     product_id: ProductId,
-) -> common::event_id::EventId {
+) -> domain_primitives::event_id::EventId {
     let result =
         sqlx::query_scalar::<_, uuid::Uuid>("SELECT event_id FROM products WHERE product_id = $1")
             .bind(uuid::Uuid::from(product_id))
@@ -807,7 +807,7 @@ async fn event_id_for_product(
             .await;
 
     match result {
-        Ok(event_id) => common::event_id::EventId::from(event_id),
+        Ok(event_id) => domain_primitives::event_id::EventId::from(event_id),
         Err(error) => panic!("failed to read product event ID: {error}"),
     }
 }

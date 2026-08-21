@@ -1,14 +1,14 @@
 use crate::document::{SearchFilterDocument, state_to_document};
-use common::error::boxed::box_error;
-use common::opensearch::search_response::SearchResponse;
-use common::pagination::cursor::{Cursor, CursoredResult};
+use application::error::box_error;
+use application::pagination::{Cursor, CursoredResult};
+use platform_opensearch::search_response::SearchResponse;
 
-use common::user_search_filter_id::UserSearchFilterId;
 use opensearch::{
     DeleteParts, IndexParts, OpenSearch, SearchParts,
     http::{Method, StatusCode, headers::HeaderMap, request::JsonBody},
     params::VersionType,
 };
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     SearchFilterIndex, SearchFilterIndexError, SearchFilterIndexQuery, SearchFilterProjection,
     SearchFilterProjectionWriteOutcome, SearchFilterView,
@@ -366,7 +366,7 @@ impl SearchFilterIndex for OpenSearchSearchFilterIndex {
 
 fn projection_write_outcome(
     response: opensearch::http::response::Response,
-    error: impl FnOnce(common::error::boxed::BoxError) -> SearchFilterIndexError,
+    error: impl FnOnce(application::error::BoxError) -> SearchFilterIndexError,
 ) -> Result<SearchFilterProjectionWriteOutcome, SearchFilterIndexError> {
     if response.status_code() == StatusCode::CONFLICT {
         return Ok(SearchFilterProjectionWriteOutcome::Stale);

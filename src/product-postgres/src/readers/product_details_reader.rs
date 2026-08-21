@@ -1,9 +1,6 @@
-use common::enhanced_match_reason::EnhancedMatchReason;
-use common::event_id::EventId;
-use common::personalized::Personalized;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
-use common::utm::append_utm_params;
+use crate::url::append_utm_params;
+use application::personalized::Personalized;
+use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use localization::Language;
@@ -28,6 +25,9 @@ use product_service::use_cases::queries::get_product::ProductLookup;
 use product_service::user_state::{
     ProductUserState, ProhibitedContentUserState, SearchFilterUserState, WatchlistUserState,
 };
+use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use serde::Deserialize;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;

@@ -3,7 +3,7 @@ use crate::mapping::{
     bind_language, bind_lifecycle, bind_partner_status, bind_shop_type, shop_columns,
     version_to_i64,
 };
-use common::error::boxed::box_error;
+use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use shop_core::shop::Shop;
 use shop_core::shop_id::ShopId;

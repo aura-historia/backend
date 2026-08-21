@@ -1,4 +1,4 @@
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use localization::Language;
 use localization::Localized;

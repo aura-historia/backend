@@ -9,7 +9,7 @@ use crate::{
     product_state_document::ProductStateDocument,
     shop_type_document::ShopTypeDocument,
 };
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use indexmap::IndexSet;
 use isocountry::CountryCode;
@@ -428,7 +428,8 @@ fn translated_title(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{event_id::EventId, query::range_query::RangeQuery};
+    use domain_primitives::event_id::EventId;
+    use domain_primitives::query::range_query::RangeQuery;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };

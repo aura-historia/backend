@@ -1,4 +1,4 @@
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxTransaction;
 use product_service::ports::{
     ProductTranslationWrite, ProductTranslationWriteError, ProductTranslationWriteOutcome,
@@ -124,7 +124,7 @@ impl ProductTranslationWriter for SqlxProductTranslationWriter<'_> {
         .map_err(ProductTranslationWriteSqlxError)?;
         if update.rows_affected() != 1 {
             return Err(ProductTranslationWriteError::WriteFailed {
-                source: common::error::boxed::static_error(
+                source: application::error::static_error(
                     "locked product translation source revision changed unexpectedly",
                 ),
             });
@@ -143,7 +143,7 @@ async fn duplicate_translation_exists(
     }
     let expected_count = i64::try_from(write.titles.len()).map_err(|_| {
         ProductTranslationWriteError::WriteFailed {
-            source: common::error::boxed::static_error(
+            source: application::error::static_error(
                 "product translation count exceeds PostgreSQL range",
             ),
         }
@@ -178,7 +178,7 @@ async fn duplicate_translation_exists(
 impl From<ProductTranslationWriteSqlxError> for ProductTranslationWriteError {
     fn from(source: ProductTranslationWriteSqlxError) -> Self {
         Self::WriteFailed {
-            source: common::error::boxed::box_error(source),
+            source: application::error::box_error(source),
         }
     }
 }

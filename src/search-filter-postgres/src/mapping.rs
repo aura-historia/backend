@@ -1,16 +1,16 @@
-use common::error::boxed::box_error;
-use common::event_id::EventId;
-use common::query::any_of_query::AnyOfQuery;
-use common::query::range_query::RangeQuery;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use application::error::box_error;
+use domain_primitives::event_id::EventId;
+use domain_primitives::query::any_of_query::AnyOfQuery;
+use domain_primitives::query::range_query::RangeQuery;
 use fxrate_core::FxRateId;
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_state::ProductState;
 use search_filter_core::ResourceState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use user_core::user_id::UserId;
 
 use geo::{
     core::distance::{Distance, DistanceUnit, GeoDistanceQuery},
@@ -402,7 +402,7 @@ impl From<DistanceUnitJson> for DistanceUnit {
 struct ProductSearchJson {
     language: LanguageJson,
     currency: CurrencyJson,
-    product_query: Vec<common::query::text_query::TextQuery<1>>,
+    product_query: Vec<domain_primitives::query::text_query::TextQuery<1>>,
     enhanced_search_description: Option<String>,
     exclude_product_id_query: HashSet<ProductId>,
     shop_name_query: HashSet<ShopName>,

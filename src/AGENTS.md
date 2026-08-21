@@ -128,6 +128,7 @@
 - `src/product-service/AGENTS.md` — canonical Product service crate.
 - `src/product-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
 - `src/platform-observability/AGENTS.md` — typed tracing subscriber setup.
+- `src/platform-opensearch/AGENTS.md` — shared OpenSearch protocol envelopes.
 - `src/platform-postgres/AGENTS.md` — shared SQLx transaction and pool mechanics.
 - `src/product-opensearch/AGENTS.md` — canonical Product OpenSearch adapter crate.
 - `src/product-api/AGENTS.md` — `product-api` crate.

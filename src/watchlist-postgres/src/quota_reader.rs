@@ -1,5 +1,6 @@
-use common::{error::boxed::box_error, user_id::UserId};
+use application::error::box_error;
 use platform_postgres::SqlxTransaction;
+use user_core::user_id::UserId;
 use watchlist_service::ports::{
     WatchlistQuotaReadError, WatchlistQuotaReader, WatchlistQuotaReaderFactory,
 };

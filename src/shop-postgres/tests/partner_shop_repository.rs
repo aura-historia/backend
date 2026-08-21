@@ -1,5 +1,4 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
 use platform_postgres::SqlxUnitOfWork;
 use shop_core::affiliate_configuration::AffiliateConfiguration;
 use shop_core::domain::Domain;
@@ -19,6 +18,7 @@ use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerS
 use std::collections::HashSet;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use url::Url;
+use user_core::user_id::UserId;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_report_missing_user_when_granting_partner_shop() {

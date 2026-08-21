@@ -1,7 +1,9 @@
 use crate::core::user_search_filter::EnhancedSearchDescription;
+use common::enhanced_match_reason::EnhancedMatchReason;
 use common::language::domain::Language;
-use common::logging::{GeminiServiceTier, LlmModel, LlmOperation, LlmProvider};
-use common::{enhanced_match_reason::EnhancedMatchReason, logging::log_llm_invocation};
+use large_language_model::{
+    GeminiServiceTier, LlmModel, LlmOperation, LlmProvider, log_llm_invocation,
+};
 use llm::{
     backends::google::{GooglePlatform, GoogleServiceTier},
     chat::{ChatMessage, ImageMime},
@@ -226,16 +228,16 @@ fn parse_image_mime_from_content_type(content_type: &str) -> Option<ImageMime> {
 
 fn llm_metrics(
     usage: Option<llm::chat::Usage>,
-    service_tier: Option<common::logging::GeminiServiceTier>,
-) -> common::logging::LlmInvocationMetrics {
+    service_tier: Option<large_language_model::GeminiServiceTier>,
+) -> large_language_model::LlmInvocationMetrics {
     let Some(usage) = usage else {
-        return common::logging::LlmInvocationMetrics {
+        return large_language_model::LlmInvocationMetrics {
             service_tier,
             ..Default::default()
         };
     };
 
-    common::logging::LlmInvocationMetrics {
+    large_language_model::LlmInvocationMetrics {
         service_tier,
         prompt_tokens: Some(usage.prompt_tokens),
         completion_tokens: Some(usage.completion_tokens),

@@ -2,7 +2,7 @@ use crate::product_image_document::ProductImageDocument;
 use crate::product_lifecycle_document::ProductLifecycleDocument;
 use crate::product_state_document::ProductStateDocument;
 use crate::shop_type_document::ShopTypeDocument;
-use common::event_id::EventId;
+use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use isocountry::CountryCode;

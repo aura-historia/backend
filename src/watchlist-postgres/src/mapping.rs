@@ -1,6 +1,6 @@
-use common::user_id::UserId;
 use product_core::product_id::ProductId;
 use sqlx::FromRow;
+use user_core::user_id::UserId;
 use watchlist_core::ResourceState;
 use watchlist_core::WatchlistProduct;
 use watchlist_service::ports::{

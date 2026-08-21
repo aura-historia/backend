@@ -421,6 +421,17 @@ fn contact_from_row(row: &ShopRow) -> Result<ShopContact, ShopRowMappingError> {
     })
 }
 
+fn append_utm_params(mut url: Url) -> Url {
+    if url.query_pairs().any(|(key, _)| key == "utm_source") {
+        return url;
+    }
+
+    url.query_pairs_mut()
+        .append_pair("utm_source", "aura_historia")
+        .append_pair("utm_medium", "referral");
+    url
+}
+
 fn derive_view_url(
     url: Option<&Url>,
     affiliate_configuration: Option<&AffiliateConfiguration>,
@@ -428,7 +439,7 @@ fn derive_view_url(
     url.map(|url| {
         affiliate_configuration
             .map(|configuration| configuration.build_url(url))
-            .unwrap_or_else(|| common::utm::append_utm_params(url.clone()))
+            .unwrap_or_else(|| append_utm_params(url.clone()))
     })
 }
 

@@ -1,8 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::event_id::EventId;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use localization::Language;
 use money::Currency;
@@ -10,6 +7,8 @@ use platform_postgres::SqlxUnitOfWork;
 use product_core::product_id::ProductId;
 use product_core::{product::ProductPriceValuationBasis, product_search::ProductSearch};
 use search_filter_core::ResourceState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::{
     NewSearchFilter, PriceMatchValuation, SearchFilter, SearchFilterProductMatch,
 };
@@ -23,6 +22,7 @@ use search_filter_service::ports::{
     SearchFilterRepository, SearchFilterRepositoryFactory,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 

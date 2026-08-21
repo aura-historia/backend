@@ -1,9 +1,9 @@
 use application::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
 use platform_postgres::SqlxUnitOfWork;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use user_core::tier::UserTier;
+use user_core::user_id::UserId;
 use user_postgres::SqlxUserTierEntitlementsFactory;
 use user_service::ports::{UserTierEntitlements, UserTierEntitlementsFactory};
 

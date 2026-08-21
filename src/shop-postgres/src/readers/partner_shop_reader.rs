@@ -1,11 +1,11 @@
 use crate::mapping::ShopSummaryRow;
-use common::error::boxed::box_error;
-use common::user_id::UserId;
+use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use shop_service::ports::{PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory};
 use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
 use shop_service::use_cases::queries::search_shops::ShopSummary;
 use sqlx::PgConnection;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxPartnerShopReaderFactory;

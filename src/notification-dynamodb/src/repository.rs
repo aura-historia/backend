@@ -1,22 +1,23 @@
+use crate::dynamodb_update::DynamoDbUpdate;
 use crate::{
     notification_record::{NotificationRecord, mk_pk, mk_sk},
     notification_record_update::NotificationRecordUpdate,
 };
+use application::error::box_error;
 use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
     operation::{get_item::GetItemError, put_item::PutItemError, update_item::UpdateItemError},
     types::{AttributeValue, ReturnValue},
 };
-use common::{
-    dynamodb_update::DynamoDbUpdate, error::boxed::box_error, event_id::EventId, user_id::UserId,
-};
+use domain_primitives::event_id::EventId;
 use notification_core::notification::Notification;
 use notification_service::ports::notification_repository::{
     NotificationRepository, NotificationRepositoryError,
 };
 use time::OffsetDateTime;
 use tracing::error;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone)]
 pub struct NotificationDynamoDbRepository<'a> {
@@ -175,7 +176,7 @@ impl NotificationRepository for NotificationDynamoDbRepository<'_> {
                 source: box_error(source),
             })?
             .ok_or_else(|| NotificationRepositoryError::OperationFailed {
-                source: common::error::boxed::static_error("notification update returned no state"),
+                source: application::error::static_error("notification update returned no state"),
             })?;
 
         Notification::try_from(record).map_err(|source| {

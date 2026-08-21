@@ -1,11 +1,11 @@
-use common::error::boxed::box_error;
-use common::user_id::UserId;
+use application::error::box_error;
 use platform_postgres::SqlxTransaction;
 use shop_core::shop_id::ShopId;
 use shop_service::ports::{
     PartnerShopRepository, PartnerShopRepositoryError, PartnerShopRepositoryFactory,
 };
 use sqlx::PgConnection;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxPartnerShopRepositoryFactory;

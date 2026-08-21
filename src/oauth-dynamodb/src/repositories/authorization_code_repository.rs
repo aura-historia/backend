@@ -1,8 +1,8 @@
 use crate::authorization_code_record::{self, AuthorizationCodeRecord};
 use crate::repository::OAuthDynamoDbStore;
 
+use application::error::box_error;
 use aws_sdk_dynamodb::types::AttributeValue;
-use common::error::boxed::box_error;
 use oauth_core::authorization_code::{AuthorizationCode, OAuthAuthorizationCode};
 use oauth_service::ports::{AuthorizationCodeRepository, OAuthCodeRepositoryError};
 

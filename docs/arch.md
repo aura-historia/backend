@@ -286,9 +286,9 @@ The workspace has narrow shared owners. They are not a replacement `common` hub:
 - `domain-primitives` owns proven domain-neutral values, query/sort types, event IDs, version wrappers, and newtype machinery.
 - `credential-core` owns credential identifiers and scope vocabulary.
 - `money` and `localization` own pure currency/amount/price and language/localized values.
-- `platform-postgres` and `platform-observability` own concrete SQLx transaction mechanics and subscriber setup.
+- `platform-postgres`, `platform-opensearch`, and `platform-observability` own concrete SQLx transaction mechanics, generic OpenSearch protocol envelopes, and subscriber setup.
 
-Canonical core, service, adapter, runtime, and transport crates MUST import these owners directly. `common` remains only for legacy compatibility and MUST NOT gain new canonical consumers. A shared crate MUST stay narrow, technology-neutral where named as such, and free of bounded-context storage or transport representations.
+Canonical core, service, adapter, runtime, and transport crates MUST import these owners directly. PostgreSQL adapters own SQLx rows and mappings; OpenSearch adapters own documents, queries, and mappings while `platform-opensearch` owns only proven generic protocol envelopes; DynamoDB adapters own item/update/batch mechanics; provider crates own wire DTOs and provider vocabulary. `large-language-model` owns LLM operation/model/tier vocabulary and invocation metrics, while `platform-observability` owns subscriber setup only. `common` remains only for legacy compatibility and MUST NOT gain new canonical consumers. A shared crate MUST stay narrow, technology-neutral where named as such, and free of bounded-context storage or transport representations.
 
 ## 4. Domain-Driven Design boundaries
 
@@ -423,6 +423,7 @@ Domain code SHOULD be deterministic and testable without mocks, databases, clock
 | PostgreSQL scoped repository | `SqlxRecordRepository` | `record-postgres` | private whenever the factory return type can remain opaque |
 | PostgreSQL row | `RecordRow` | `record-postgres` | private or `pub(crate)` |
 | Search document | `RecordDocument` | `record-opensearch` | private or `pub(crate)` |
+| Shared search protocol envelope | `SearchResponse<T>` | `platform-opensearch` | `pub` only after multiple production adapters prove the exact generic wire shape |
 | Key-value item | `RecordItem` | `record-dynamodb` | private or `pub(crate)` |
 | REST request DTO | `RenameRecordRequestDto` | `api` | private or `pub(crate)` |
 | REST response DTO | `RecordDetailsResponseDto` | `api` | private or `pub(crate)` |
@@ -439,7 +440,7 @@ Use the narrowest visibility that satisfies a real production crate boundary.
 - Service-owned ports MUST be `pub` because adapter crates implement them.
 - Use-case handlers and constructors MUST be `pub` only when the composition root constructs them directly.
 - Concrete adapter factories/readers MUST be `pub` only when the composition root or a black-box consumer needs them.
-- Adapter rows, mapping helpers, SQL parameter structs, concrete transaction-scoped repositories, and client response types MUST remain private or `pub(crate)`.
+- Adapter rows, mapping helpers, SQL parameter structs, concrete transaction-scoped repositories, and adapter-specific client response types MUST remain private or `pub(crate)`. A narrow platform crate MAY expose a generic protocol envelope only when multiple production adapters require the exact shape and no bounded-context storage representation escapes.
 - Fields of public adapter types MUST remain private.
 - Do not expose a public constructor for a type that consumers should obtain only through a factory.
 - Do not widen visibility solely for tests.

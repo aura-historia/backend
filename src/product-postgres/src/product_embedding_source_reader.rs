@@ -1,7 +1,5 @@
-use common::{
-    error::boxed::{box_error, static_error},
-    event_id::EventId,
-};
+use application::error::{box_error, static_error};
+use domain_primitives::event_id::EventId;
 use localization::Language;
 use localization::Localized;
 use product_core::{description::Description, product_id::ProductId, title::Title};
@@ -43,7 +41,7 @@ struct ProductEmbeddingSourceQueryError(#[source] sqlx::Error);
 #[error("product embedding source row is invalid")]
 struct ProductEmbeddingSourceMappingError {
     #[source]
-    source: common::error::boxed::BoxError,
+    source: application::error::BoxError,
 }
 
 impl SqlxProductEmbeddingSourceReader {
