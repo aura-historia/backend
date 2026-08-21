@@ -1,4 +1,6 @@
 use common::postgres::SqlxUnitOfWork;
+use common::product_id::ProductId;
+use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
@@ -6,6 +8,10 @@ use time::{Duration, OffsetDateTime};
 use user_core::tier::UserTier;
 use user_postgres::SqlxUserTierEntitlementsFactory;
 use user_service::ports::{UserTierEntitlements, UserTierEntitlementsFactory};
+use watchlist_postgres::SqlxWatchlistRepositoryFactory;
+use watchlist_service::ports::{
+    WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
+};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -130,6 +136,109 @@ async fn should_reconcile_legacy_newest_first_quotas() {
     assert_eq!(
         1,
         version_for_watchlist_entry(&pool, user_id, watchlist_ids[20]).await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_keep_user_deactivation_when_tier_reconciliation_runs_afterward() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let watchlist = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(&pool, "tier-reconciliation-user-wins@example.com", "FREE").await;
+    let product_ids = seed_watchlist_entries(&pool, user_id, 21, OffsetDateTime::now_utc()).await;
+    let product_id = ProductId::from(product_ids[0]);
+
+    let mut user_tx = begin(&unit).await;
+    let loaded = watchlist
+        .in_transaction(&mut user_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("user write lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    let mut deactivated = loaded.value;
+    deactivated.change_state(ResourceState::InactiveByUser);
+    watchlist
+        .in_transaction(&mut user_tx)
+        .update(&deactivated, loaded.version)
+        .await
+        .unwrap_or_else(|error| panic!("user deactivation failed: {error:?}"));
+    commit(user_tx).await;
+
+    let mut reconciliation_tx = begin(&unit).await;
+    entitlements
+        .in_transaction(&mut reconciliation_tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("tier lock failed: {error:?}"));
+    entitlements
+        .in_transaction(&mut reconciliation_tx)
+        .reconcile_for_tier(user_id, UserTier::Free)
+        .await
+        .unwrap_or_else(|error| panic!("reconciliation failed: {error:?}"));
+    commit(reconciliation_tx).await;
+
+    assert_eq!(
+        "INACTIVE_BY_USER",
+        state_for_watchlist_entry(&pool, user_id, product_ids[0]).await
+    );
+    assert_eq!(
+        2,
+        version_for_watchlist_entry(&pool, user_id, product_ids[0]).await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_stale_user_update_after_tier_reconciliation_wins() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let watchlist = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(&pool, "tier-reconciliation-wins@example.com", "FREE").await;
+    let product_ids = seed_watchlist_entries(&pool, user_id, 21, OffsetDateTime::now_utc()).await;
+    let product_id = ProductId::from(product_ids[0]);
+
+    let mut user_tx = begin(&unit).await;
+    let loaded = watchlist
+        .in_transaction(&mut user_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("user write lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    let mut stale_user_entry = loaded.value;
+    stale_user_entry.change_notifications(false);
+
+    let mut reconciliation_tx = begin(&unit).await;
+    entitlements
+        .in_transaction(&mut reconciliation_tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("tier lock failed: {error:?}"));
+    entitlements
+        .in_transaction(&mut reconciliation_tx)
+        .reconcile_for_tier(user_id, UserTier::Free)
+        .await
+        .unwrap_or_else(|error| panic!("reconciliation failed: {error:?}"));
+    commit(reconciliation_tx).await;
+
+    let stale_update = watchlist
+        .in_transaction(&mut user_tx)
+        .update(&stale_user_entry, loaded.version)
+        .await;
+    assert!(matches!(
+        stale_update,
+        Err(WatchlistRepositoryError::ConcurrencyConflict)
+    ));
+    drop(user_tx);
+
+    assert_eq!(
+        "INACTIVE_BY_RESTRICTED_PLAN",
+        state_for_watchlist_entry(&pool, user_id, product_ids[0]).await
+    );
+    assert!(notifications_for_watchlist_entry(&pool, user_id, product_ids[0]).await);
+    assert_eq!(
+        2,
+        version_for_watchlist_entry(&pool, user_id, product_ids[0]).await
     );
 }
 
@@ -389,6 +498,21 @@ async fn state_for_watchlist_entry(
         .fetch_one(pool)
         .await
         .unwrap_or_else(|error| panic!("failed to read watchlist state: {error:?}"))
+}
+
+async fn notifications_for_watchlist_entry(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: uuid::Uuid,
+) -> bool {
+    sqlx::query_scalar(
+        "SELECT notifications FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(product_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read watchlist notifications: {error:?}"))
 }
 
 async fn version_for_watchlist_entry(

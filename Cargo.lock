@@ -9627,6 +9627,8 @@ dependencies = [
  "user-core",
  "user-service",
  "uuid",
+ "watchlist-postgres",
+ "watchlist-service",
 ]
 
 [[package]]

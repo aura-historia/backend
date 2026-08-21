@@ -110,18 +110,20 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_invalid_repository_version() {
-        let row = WatchlistRepositoryRow {
-            user_id: uuid::Uuid::new_v4(),
-            product_id: uuid::Uuid::new_v4(),
-            notifications: true,
-            state: "ACTIVE".to_owned(),
-            version: 0,
-        };
+    fn should_reject_zero_or_negative_repository_version() {
+        for version in [0, -1] {
+            let row = WatchlistRepositoryRow {
+                user_id: uuid::Uuid::new_v4(),
+                product_id: uuid::Uuid::new_v4(),
+                notifications: true,
+                state: "ACTIVE".to_owned(),
+                version,
+            };
 
-        assert!(matches!(
-            VersionedWatchlistProduct::try_from(row),
-            Err(WatchlistRepositoryError::InvalidPersistedState)
-        ));
+            assert!(matches!(
+                VersionedWatchlistProduct::try_from(row),
+                Err(WatchlistRepositoryError::InvalidPersistedState)
+            ));
+        }
     }
 }

@@ -20,6 +20,8 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+watchlist-postgres = { workspace = true }
+watchlist-service = { workspace = true }
 serial_test = { workspace = true }
 test-api = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
