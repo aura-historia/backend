@@ -2894,7 +2894,6 @@ Reviewers SHOULD reject changes that cannot answer these questions clearly:
 12. Are public items required by a real production crate boundary rather than only by tests?
 13. Are private/real-infrastructure implementation tests beside the code and `/tests` limited to black-box behavior?
 14. Are the important rules covered by tests?
-15. If `common` changed, does the exact shrinking-baseline guard and decomposition inventory still pass?
 
 ---
 

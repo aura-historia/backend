@@ -7,7 +7,6 @@
 ## Core Design
 
 - Legacy compatibility for existing consumers while canonical code moves to narrow semantic owners.
-- No new production consumer, feature, or top-level module. `scripts/common-decomposition/baseline.json` is the shrinking allowlist.
 - `personalized::Personalized<Item, UserState>`, `patch_field`, `pagination` core values, and boxed errors are legacy shims to `application`; legacy API DTO forms remain local here until legacy consumers migrate.
 - As lean as possible.
 - Root modules: `actor`, `currency`, `distance`, `api`, `batch`, `change_outcome`, `domain`, `enhanced_match_reason`, `dynamodb_update`, `dynamodb_stream`, `error`, `event`, `event_id`, `fx_rate_id`, `execution_state`, `fake`, `has_key`, `language`, `localized`, `logging`, `measurement_unit`, `mergeable`, `notification_id`, `product_id`, `product_lifecycle`, `product_slug_id`, `product_state`, `oauth_client_id`, `operation_context`, `opensearch`, `pagination`, `patch_field`, `postgres`, `partner_shop_application_id`, `personalized`, `price`, `query`, `resource_state`, `seller_slug_id`, `shop_id`, `shop_name`, `shop_slug_id`, `shops_product_id`, `slug_id`, `sort`, `string_newtype`, `stripe_customer_id`, `transaction`, `user_id`, `user_search_filter_id`, `user_search_filter_name`, `utm`, `uuid_newtype`, `version`, `versioned`, `year`.
