@@ -1,2 +1,7 @@
-// Legacy shim. Owner: shop-partner-core. Remove after legacy common consumers migrate.
-pub use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
+crate::uuid_v7_newtype!(PartnerShopApplicationId);
+
+impl From<PartnerShopApplicationId> for uuid::Uuid {
+    fn from(id: PartnerShopApplicationId) -> Self {
+        id.0
+    }
+}

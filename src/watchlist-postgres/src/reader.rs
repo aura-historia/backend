@@ -1,4 +1,4 @@
-use crate::mapping::WatchlistRow;
+use crate::mapping::WatchlistViewRow;
 use platform_postgres::SqlxTransaction;
 use product_core::product_id::ProductId;
 use user_core::user_id::UserId;
@@ -25,7 +25,7 @@ impl WatchlistReader for SqlxWatchlistReader<'_> {
         &mut self,
         user_id: UserId,
     ) -> Result<Vec<WatchlistProductView>, WatchlistReadError> {
-        sqlx::query_as::<_, WatchlistRow>(
+        sqlx::query_as::<_, WatchlistViewRow>(
             "SELECT user_id, product_id, notifications, state, created, updated \
              FROM product_watchlist WHERE user_id = $1 ORDER BY created DESC",
         )
@@ -34,7 +34,7 @@ impl WatchlistReader for SqlxWatchlistReader<'_> {
         .await
         .map_err(|_| WatchlistReadError::ReadFailed)?
         .into_iter()
-        .map(WatchlistRow::into_view)
+        .map(WatchlistProductView::try_from)
         .collect()
     }
 

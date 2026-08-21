@@ -2,8 +2,7 @@ use crate::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsReadError, ProductDetailsReadRequest,
     ProductDetailsReader, ProductDetailsReaderFactory,
 };
-use crate::user_state::{NotificationUserState, ProductUserState};
-use application::error::{BoxError, box_error};
+use application::error::BoxError;
 use application::operation_context::{OperationContext, Principal};
 use application::personalized::Personalized;
 use application::transaction::{Transaction, UnitOfWork};
@@ -13,27 +12,25 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
-use localization::Language;
-use localization::Localized;
+use localization::{Language, Localized};
 use money::Currency;
-use notification_service::ports::product_notifications_reader::{
-    ProductNotificationsReadError, ProductNotificationsReader,
-};
-use product_core::description::Description;
-use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_id::ProductId;
-use product_core::product_image::ProductImage;
 use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_slug_id::ProductSlugId;
 use product_core::product_state::ProductState;
 use product_core::shops_product_id::ShopsProductId;
-use product_core::title::Title;
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
+use user_core::user_id::UserId;
+
+use crate::user_state::ProductUserState;
+use product_core::description::Description;
+use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
+use product_core::product_image::ProductImage;
+use product_core::title::Title;
 use time::OffsetDateTime;
 use url::Url;
-use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProductLookup {
@@ -198,11 +195,7 @@ pub enum GetProductError {
         #[source]
         source: FxRateSnapshotError,
     },
-    #[error("product notification read failed")]
-    ProductNotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("failed to begin get product transaction")]
     BeginTransactionFailed,
     #[error("failed to commit get product transaction")]
@@ -218,31 +211,28 @@ pub trait GetProductUseCase: Send + Sync {
     ) -> Result<PersonalizedProductDetailsView, GetProductError>;
 }
 
-pub struct GetProductHandler<U, D, F, N> {
+pub struct GetProductHandler<U, D, F> {
     unit_of_work: U,
     details_reader: D,
     fx_rates: F,
-    product_notifications: N,
 }
 
-impl<U, D, F, N> GetProductHandler<U, D, F, N> {
-    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F, product_notifications: N) -> Self {
+impl<U, D, F> GetProductHandler<U, D, F> {
+    pub fn new(unit_of_work: U, details_reader: D, fx_rates: F) -> Self {
         Self {
             unit_of_work,
             details_reader,
             fx_rates,
-            product_notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, D, F, N> GetProductUseCase for GetProductHandler<U, D, F, N>
+impl<U, D, F> GetProductUseCase for GetProductHandler<U, D, F>
 where
     U: UnitOfWork,
     D: ProductDetailsReaderFactory<U::Tx>,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    N: ProductNotificationsReader,
 {
     #[tracing::instrument(
         name = "get_product",
@@ -288,28 +278,15 @@ where
             .await
             .map_err(|_| GetProductError::CommitTransactionFailed)?;
 
-        if let Some(user_id) = user_id {
-            let user_state = details
+        if user_id.is_some()
+            && details
                 .user_state
-                .as_mut()
-                .ok_or(GetProductError::ProductDetailsReadModelInvalid)?;
-            let notification = self
-                .product_notifications
-                .list_by_product(&user_id, &details.item.product_id, Some(1), true)
-                .await
-                .map_err(product_notification_read_error)?
-                .into_iter()
-                .next()
-                .map(|notification| NotificationUserState {
-                    seen: notification.seen,
-                    origin_event_id: Some(notification.origin_event_id),
-                })
-                .unwrap_or_default();
-            user_state.notification = notification;
-
-            if user_state.search_filter.hidden {
-                redact_hidden_product(&mut details.item)?;
-            }
+                .as_ref()
+                .ok_or(GetProductError::ProductDetailsReadModelInvalid)?
+                .search_filter
+                .hidden
+        {
+            redact_hidden_product(&mut details.item)?;
         }
 
         Ok(details)
@@ -375,12 +352,6 @@ fn personalization_user_id(principal: &Principal) -> Option<UserId> {
     match principal {
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
         Principal::Anonymous | Principal::Service(_) | Principal::System => None,
-    }
-}
-
-fn product_notification_read_error(error: ProductNotificationsReadError) -> GetProductError {
-    GetProductError::ProductNotificationReadFailed {
-        source: box_error(error),
     }
 }
 
@@ -486,17 +457,17 @@ impl From<ProductPricingPresentationError> for GetProductError {
 mod tests {
     use super::*;
     use crate::ports::ProductDetailsReadModel;
-    use application::operation_context::{CorrelationId, Principal, RequestId};
-    use application::transaction::TransactionError;
+
+    use application::{
+        error::box_error,
+        operation_context::{CorrelationId, Principal, RequestId},
+        transaction::TransactionError,
+    };
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use money::{MonetaryAmount, Price};
-    use notification_core::notification::{
-        NotificationPartnerApplicationPayload, NotificationPayload,
-    };
-    use notification_core::notification_id::NotificationId;
-    use notification_service::ports::product_notifications_reader::ProductNotificationReadItem;
+
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
 
@@ -513,10 +484,7 @@ mod tests {
             Option<Result<Option<FxRateSnapshot>, FxRateSnapshotRepositoryError>>,
         fx_rate_id_requests: Vec<FxRateId>,
         latest_snapshot_count: usize,
-        notification_result:
-            Option<Result<Vec<ProductNotificationReadItem>, ProductNotificationsReadError>>,
-        notification_requests: Vec<(UserId, ProductId, Option<i32>, bool)>,
-        notification_called_after_commit: Option<bool>,
+
         commit_count: usize,
     }
 
@@ -534,11 +502,6 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeFxRateSnapshotRepositoryFactory {
-        state: SharedState,
-    }
-
-    #[derive(Clone)]
-    struct FakeProductNotificationsReader {
         state: SharedState,
     }
 
@@ -685,34 +648,12 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
-    impl ProductNotificationsReader for FakeProductNotificationsReader {
-        async fn list_by_product(
-            &self,
-            user_id: &UserId,
-            product_id: &ProductId,
-            limit: Option<i32>,
-            newest_first: bool,
-        ) -> Result<Vec<ProductNotificationReadItem>, ProductNotificationsReadError> {
-            let mut state = lock_state(&self.state);
-            state
-                .notification_requests
-                .push((*user_id, *product_id, limit, newest_first));
-            state.notification_called_after_commit = Some(state.commit_count == 1);
-            match state.notification_result.take() {
-                Some(result) => result,
-                None => Ok(Vec::new()),
-            }
-        }
-    }
-
     fn handler(
         state: &SharedState,
     ) -> GetProductHandler<
         FakeUnitOfWork,
         FakeDetailsReaderFactory,
         FakeFxRateSnapshotRepositoryFactory,
-        FakeProductNotificationsReader,
     > {
         GetProductHandler::new(
             FakeUnitOfWork {
@@ -722,9 +663,6 @@ mod tests {
                 state: Arc::clone(state),
             },
             FakeFxRateSnapshotRepositoryFactory {
-                state: Arc::clone(state),
-            },
-            FakeProductNotificationsReader {
                 state: Arc::clone(state),
             },
         )
@@ -824,29 +762,6 @@ mod tests {
         Ok(())
     }
 
-    fn notification_item(
-        user_id: UserId,
-        origin_event_id: EventId,
-        seen: bool,
-    ) -> ProductNotificationReadItem {
-        ProductNotificationReadItem {
-            user_id,
-            origin_event_id,
-            notification_id: NotificationId::new(),
-            notification_type: None,
-            notification_payload: NotificationPayload::PartnerApplication {
-                shop_name: ShopName::from("Shop"),
-                image: None,
-                partner_application_payload: NotificationPartnerApplicationPayload::Approved {
-                    partner_application_id:
-                        shop_partner_core::partner_shop_application_id::PartnerShopApplicationId::new(),
-                },
-            },
-            seen,
-            external: false,
-        }
-    }
-
     #[test]
     fn should_present_all_prices_with_half_up_conversion_and_current_valuation()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -903,7 +818,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_present_current_pricing_from_latest_snapshot_and_commit_before_enrichment()
+    async fn should_present_current_pricing_from_latest_snapshot_and_commit()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let details = factual_details()?;
@@ -924,7 +839,7 @@ mod tests {
         let state = lock_state(&state);
         assert_eq!(1, state.latest_snapshot_count);
         assert!(state.fx_rate_id_requests.is_empty());
-        assert!(state.notification_requests.is_empty());
+
         assert_eq!(
             Some(ProductDetailsReadRequest {
                 lookup: request.lookup,
@@ -974,18 +889,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_hydrate_newest_notification_after_commit_for_authenticated_user()
+    async fn should_preserve_notification_ids_from_transactional_details_reader()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let user_id = UserId::new();
         let mut details = factual_details()?;
-        details.user_state = Some(ProductUserState::default());
-        let product_id = details.item.product_id;
-        let newest_event_id = EventId::new();
+        let notification_id = notification_core::notification_id::NotificationId::new();
+        let mut user_state = ProductUserState::default();
+        user_state.notification.unseen_notification_ids = vec![notification_id];
+        details.user_state = Some(user_state);
         lock_state(&state).find_details_result = Some(Ok(Some(details)));
         prepare_current_snapshot(&state)?;
-        lock_state(&state).notification_result =
-            Some(Ok(vec![notification_item(user_id, newest_event_id, false)]));
 
         let result = handler(&state)
             .execute(
@@ -994,36 +908,30 @@ mod tests {
             )
             .await?;
 
-        let user_state = result.user_state.unwrap_or_default();
-        assert!(!user_state.notification.seen);
         assert_eq!(
-            Some(newest_event_id),
-            user_state.notification.origin_event_id
+            vec![notification_id],
+            result
+                .user_state
+                .unwrap_or_default()
+                .notification
+                .unseen_notification_ids
         );
-        let state = lock_state(&state);
-        assert_eq!(Some(true), state.notification_called_after_commit);
-        assert_eq!(
-            vec![(user_id, product_id, Some(1), true)],
-            state.notification_requests
-        );
+        assert_eq!(1, lock_state(&state).commit_count);
         Ok(())
     }
 
     #[tokio::test]
-    async fn should_redact_hidden_product_after_notification_enrichment()
+    async fn should_redact_hidden_product_from_reader_state()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
         let user_id = UserId::new();
         let mut details = factual_details()?;
         let lifecycle = details.item.lifecycle;
-        let event_id = EventId::new();
         let mut user_state = ProductUserState::default();
         user_state.search_filter.hidden = true;
         details.user_state = Some(user_state);
         lock_state(&state).find_details_result = Some(Ok(Some(details)));
         prepare_current_snapshot(&state)?;
-        lock_state(&state).notification_result =
-            Some(Ok(vec![notification_item(user_id, event_id, false)]));
 
         let result = handler(&state)
             .execute(
@@ -1068,7 +976,6 @@ mod tests {
         ));
         let state = lock_state(&state);
         assert_eq!(0, state.commit_count);
-        assert!(state.notification_requests.is_empty());
         Ok(())
     }
 

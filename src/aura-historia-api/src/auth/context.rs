@@ -6,6 +6,8 @@ use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use user_core::user_id::UserId;
 
+// Keep the axum transport error contract concrete; callers return this response directly.
+#[allow(clippy::result_large_err)]
 pub async fn protected_context(
     authenticator: &dyn crate::auth::TokenAuthenticator,
     headers: &HeaderMap,

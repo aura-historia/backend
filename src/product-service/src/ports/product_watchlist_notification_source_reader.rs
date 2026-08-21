@@ -10,11 +10,13 @@ use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
 use std::collections::HashMap;
+use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductWatchlistNotificationSource {
     pub event_id: EventId,
+    pub event_time: OffsetDateTime,
     pub product_id: ProductId,
     pub product_slug_id: ProductSlugId,
     pub shop_id: ShopId,

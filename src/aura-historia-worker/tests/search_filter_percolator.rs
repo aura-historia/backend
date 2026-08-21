@@ -1,10 +1,12 @@
-use application::transaction::{Transaction, UnitOfWork};
+use application::{
+    error::box_error,
+    transaction::{Transaction, UnitOfWork},
+};
 use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::search_filter_match_notifications::consume_search_filter_match_notification_queue;
 use aura_historia_worker::search_filter_percolator::consume_search_filter_percolator_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
-use domain_primitives::event_id::EventId;
-use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::{event_id::EventId, query::range_query::RangeQuery};
 use fxrate_core::FxRateId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use large_language_model::{
@@ -12,25 +14,25 @@ use large_language_model::{
 };
 use localization::Language;
 use money::{Currency, MonetaryAmount};
-use notification_core::notification::NotificationPayload;
-use notification_dynamodb::{
-    all_notifications_reader::DynamoDbAllNotificationsReader,
-    conditional_writer::ConditionalDynamoDbNotificationWriter,
+use notification_postgres::{
+    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
 };
-use notification_service::ports::all_notifications_reader::{
-    AllNotificationsReadItem, AllNotificationsReader,
+use notification_service::{
+    initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
+    notification_creation::NotificationCreationCoordinatorFactory,
 };
-use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
 use opensearch::GetParts;
 use platform_postgres::SqlxUnitOfWork;
-use product_core::product_search::ProductSearch;
+use product_core::{product_id::ProductId, product_search::ProductSearch};
 use product_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductSearchFilterMatchSourceReaderFactory,
 };
-use search_filter_core::search_filter_state::SearchFilterState;
-use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use search_filter_core::user_search_filter_name::UserSearchFilterName;
-use search_filter_core::{NewSearchFilter, SearchFilter};
+use search_filter_core::{
+    NewSearchFilter, SearchFilter, search_filter_state::SearchFilterState,
+    user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
+};
+use user_core::user_id::UserId;
+
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{
     SqlxActiveSearchFilterMatchCandidateReaderFactory, SqlxSearchFilterIndexReader,
@@ -50,13 +52,11 @@ use std::{
     time::{Duration, Instant},
 };
 use test_api::{
-    DynamoDB, IntegrationTestService, OpenSearch, Postgres, Sequin, aura_integration_test,
-    get_dynamodb_client, get_opensearch_client, get_postgres_client,
-    get_sequin_worker_webhook_bind_addr, refresh_index,
+    IntegrationTestService, OpenSearch, Postgres, Sequin, aura_integration_test,
+    get_opensearch_client, get_postgres_client, get_sequin_worker_webhook_bind_addr, refresh_index,
 };
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use user_core::user_id::UserId;
 use user_postgres::SqlxUserTierEntitlementsFactory;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -78,13 +78,13 @@ impl LargeLanguageModel for NonMatchingLargeLanguageModel {
     {
         serde_json::from_str(r#"{"matches":false}"#).map_err(|source| {
             LargeLanguageModelError::InvalidResponse {
-                source: application::error::box_error(source),
+                source: box_error(source),
             }
         })
     }
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_create_notifications_for_committed_product_create_and_update_events() {
     let result = committed_product_create_and_update_flow().await;
 
@@ -94,7 +94,7 @@ async fn should_create_notifications_for_committed_product_create_and_update_eve
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_match_only_active_filter_when_other_filters_are_inactive_or_do_not_match() {
     let result = active_inactive_and_no_match_flow().await;
 
@@ -114,7 +114,7 @@ async fn should_percolate_and_persist_all_active_filters_across_pages() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_suppress_notification_after_free_tier_monthly_quota() {
     let result = quota_flow().await;
 
@@ -124,7 +124,7 @@ async fn should_suppress_notification_after_free_tier_monthly_quota() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_ignore_policy_and_lifecycle_product_events_without_side_effects() {
     let result = ignored_product_events_flow().await;
 
@@ -134,7 +134,7 @@ async fn should_ignore_policy_and_lifecycle_product_events_without_side_effects(
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
 async fn should_not_process_rolled_back_product_event() {
     let result = rolled_back_product_event_flow().await;
 
@@ -144,8 +144,8 @@ async fn should_not_process_rolled_back_product_event() {
     );
 }
 
-#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), DynamoDB(), WORKER_SEQUIN])]
-async fn should_keep_one_deterministic_notification_on_product_and_match_redelivery() {
+#[aura_integration_test(services = [BUSINESS_SCHEMA, OpenSearch(), WORKER_SEQUIN])]
+async fn should_keep_one_notification_per_matching_filter_on_product_and_match_redelivery() {
     let result = redelivery_and_deterministic_selection_flow().await;
 
     assert!(
@@ -203,8 +203,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             created_product_id,
         )
         .await?;
-        let created_notifications =
-            wait_for_notifications(&worker.notifications, user_id, 1).await?;
+        let created_notifications = wait_for_notifications(&worker.pool, user_id, 1).await?;
         assert_search_filter_notification(
             &created_notifications[0],
             user_id,
@@ -238,10 +237,10 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
             created_product_id,
         )
         .await?;
-        let notifications = wait_for_notifications(&worker.notifications, user_id, 2).await?;
+        let notifications = wait_for_notifications(&worker.pool, user_id, 2).await?;
         let created_notification = notifications
             .iter()
-            .find(|notification| notification.origin_event_id == created_event_id)
+            .find(|notification| notification.origin_event_id == uuid::Uuid::from(created_event_id))
             .ok_or_else(|| std::io::Error::other("created product notification is missing"))?;
         assert_search_filter_notification(
             created_notification,
@@ -252,7 +251,7 @@ async fn committed_product_create_and_update_flow() -> Result<(), Box<dyn std::e
         )?;
         let updated_notification = notifications
             .iter()
-            .find(|notification| notification.origin_event_id == updated_event_id)
+            .find(|notification| notification.origin_event_id == uuid::Uuid::from(updated_event_id))
             .ok_or_else(|| std::io::Error::other("updated product notification is missing"))?;
         assert_search_filter_notification(
             updated_notification,
@@ -302,7 +301,7 @@ async fn active_inactive_and_no_match_flow() -> Result<(), Box<dyn std::error::E
         wait_for_match(&worker.pool, event_id, 1).await?;
         let matches = matches_for_event(&worker.pool, event_id).await?;
         assert_eq!(vec![active_filter.id()], matches);
-        let notifications = wait_for_notifications(&worker.notifications, user_id, 1).await?;
+        let notifications = wait_for_notifications(&worker.pool, user_id, 1).await?;
         assert_search_filter_notification(
             &notifications[0],
             user_id,
@@ -385,8 +384,7 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?;
         }
-        let _historical_notifications =
-            wait_for_notifications(&worker.notifications, user_id, 10).await?;
+        let _historical_notifications = wait_for_notifications(&worker.pool, user_id, 10).await?;
 
         worker
             .project_existing_filter(&filter, filter_version)
@@ -396,13 +394,8 @@ async fn quota_flow() -> Result<(), Box<dyn std::error::Error>> {
         let (_, event_id) = create_product_with_domain_event(&worker.pool, &product_query).await?;
 
         wait_for_match(&worker.pool, event_id, 1).await?;
-        assert_no_more_than_notifications(
-            &worker.notifications,
-            user_id,
-            10,
-            NO_SIDE_EFFECT_OBSERVATION,
-        )
-        .await
+        assert_no_more_than_notifications(&worker.pool, user_id, 10, NO_SIDE_EFFECT_OBSERVATION)
+            .await
     }
     .await;
 
@@ -432,13 +425,8 @@ async fn ignored_product_events_flow() -> Result<(), Box<dyn std::error::Error>>
 
         assert_no_matches_for(&worker.pool, policy_event, NO_SIDE_EFFECT_OBSERVATION).await?;
         assert_no_matches_for(&worker.pool, lifecycle_event, NO_SIDE_EFFECT_OBSERVATION).await?;
-        assert_no_more_than_notifications(
-            &worker.notifications,
-            user_id,
-            0,
-            NO_SIDE_EFFECT_OBSERVATION,
-        )
-        .await
+        assert_no_more_than_notifications(&worker.pool, user_id, 0, NO_SIDE_EFFECT_OBSERVATION)
+            .await
     }
     .await;
 
@@ -464,13 +452,8 @@ async fn rolled_back_product_event_flow() -> Result<(), Box<dyn std::error::Erro
 
         assert_event_is_not_persisted(&worker.pool, event_id).await?;
         assert_no_matches_for(&worker.pool, event_id, NO_SIDE_EFFECT_OBSERVATION).await?;
-        assert_no_more_than_notifications(
-            &worker.notifications,
-            user_id,
-            0,
-            NO_SIDE_EFFECT_OBSERVATION,
-        )
-        .await
+        assert_no_more_than_notifications(&worker.pool, user_id, 0, NO_SIDE_EFFECT_OBSERVATION)
+            .await
     }
     .await;
 
@@ -816,10 +799,6 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
             SearchFilterState::Active,
             &product_query,
         )?;
-        let selected_filter_id = [first_filter.id(), second_filter.id()]
-            .into_iter()
-            .min_by_key(ToString::to_string)
-            .ok_or_else(|| std::io::Error::other("notification candidates are missing"))?;
         worker.project_filter(&first_filter).await?;
         worker.project_filter(&second_filter).await?;
         refresh_index("user_search_filters").await;
@@ -827,14 +806,22 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
         let (product_id, event_id) =
             create_product_with_domain_event(&worker.pool, &product_query).await?;
         wait_for_match(&worker.pool, event_id, 2).await?;
-        let notifications = wait_for_notifications(&worker.notifications, user_id, 1).await?;
-        assert_search_filter_notification(
-            &notifications[0],
-            user_id,
-            selected_filter_id,
-            product_id,
-            event_id,
-        )?;
+        let notifications = wait_for_notifications(&worker.pool, user_id, 2).await?;
+        for filter_id in [first_filter.id(), second_filter.id()] {
+            let notification = notifications
+                .iter()
+                .find(|notification| {
+                    notification.user_search_filter_id == uuid::Uuid::from(filter_id)
+                })
+                .ok_or_else(|| std::io::Error::other("filter notification is missing"))?;
+            assert_search_filter_notification(
+                notification,
+                user_id,
+                filter_id,
+                product_id,
+                event_id,
+            )?;
+        }
 
         redeliver_product_event(
             &worker.server,
@@ -849,18 +836,13 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
         redeliver_search_filter_match(
             &worker.server,
             user_id,
-            selected_filter_id,
+            first_filter.id(),
             product_id,
             event_id,
         )
         .await?;
-        assert_no_more_than_notifications(
-            &worker.notifications,
-            user_id,
-            1,
-            NO_SIDE_EFFECT_OBSERVATION,
-        )
-        .await
+        assert_no_more_than_notifications(&worker.pool, user_id, 2, NO_SIDE_EFFECT_OBSERVATION)
+            .await
     }
     .await;
 
@@ -870,7 +852,6 @@ async fn redelivery_and_deterministic_selection_flow() -> Result<(), Box<dyn std
 struct FullFlowWorker {
     pool: sqlx::PgPool,
     index: OpenSearchSearchFilterIndex,
-    notifications: DynamoDbAllNotificationsReader<'static>,
     server: ScopedWorkerServer,
     _unused_receivers: aura_historia_worker::cdc::WorkerQueueReceivers,
     percolator_consumer: JoinHandle<()>,
@@ -882,7 +863,6 @@ impl FullFlowWorker {
         let pool = get_postgres_client().await;
         seed_current_fx_snapshot(&pool).await?;
         let index = OpenSearchSearchFilterIndex::new(get_opensearch_client().await.clone());
-        let dynamodb = get_dynamodb_client().await;
         let percolator_handler: Arc<dyn MatchProductEventUseCase> =
             Arc::new(MatchProductEventHandler::new(
                 SqlxUnitOfWork::new(pool.clone()),
@@ -901,10 +881,12 @@ impl FullFlowWorker {
                 SqlxProductSearchFilterMatchSourceReaderFactory::new(),
                 SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
                 SqlxUserTierEntitlementsFactory::new(),
-                CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
-                    dynamodb.clone(),
-                    "table_1",
-                )),
+                SqlxProductCurrentRevisionGuardFactory::new(),
+                NotificationCreationCoordinatorFactory::new(
+                    SqlxNotificationRepositoryFactory::new(),
+                    InitialExternalDeliveryPlanReaderFactory,
+                    SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+                ),
             ));
         let (runtime, mut receivers) = WorkerRuntime::with_all_queues(QueueConfig::new(16))?;
         let percolator_receiver = receivers
@@ -928,7 +910,6 @@ impl FullFlowWorker {
         Ok(Self {
             pool,
             index,
-            notifications: DynamoDbAllNotificationsReader::new(dynamodb, "table_1"),
             server,
             _unused_receivers: receivers,
             percolator_consumer,
@@ -1153,7 +1134,7 @@ async fn seed_user(pool: &sqlx::PgPool, tier: &str) -> Result<UserId, sqlx::Erro
 async fn create_product_with_domain_event(
     pool: &sqlx::PgPool,
     title: &str,
-) -> Result<(product_core::product_id::ProductId, EventId), sqlx::Error> {
+) -> Result<(ProductId, EventId), sqlx::Error> {
     create_product_with_event(pool, title, "PRODUCT_CREATED", "DOMAIN").await
 }
 
@@ -1162,8 +1143,8 @@ async fn create_product_with_event(
     title: &str,
     event_type: &str,
     event_group: &str,
-) -> Result<(product_core::product_id::ProductId, EventId), sqlx::Error> {
-    let product_id = product_core::product_id::ProductId::new();
+) -> Result<(ProductId, EventId), sqlx::Error> {
+    let product_id = ProductId::new();
     let product_uuid = uuid::Uuid::from(product_id);
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
@@ -1196,7 +1177,7 @@ async fn create_product_with_event(
 }
 
 struct CrossCurrencyProductEvent {
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
     event_id: EventId,
 }
 
@@ -1223,7 +1204,7 @@ async fn insert_cross_currency_product_with_event(
         state,
         sale_fx_rate_id,
     } = input;
-    let product_id = product_core::product_id::ProductId::new();
+    let product_id = ProductId::new();
     let product_uuid = uuid::Uuid::from(product_id);
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
@@ -1363,7 +1344,7 @@ async fn insert_filter(
 
 async fn insert_product_event(
     pool: &sqlx::PgPool,
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
     event_type: &str,
     event_group: &str,
 ) -> Result<EventId, sqlx::Error> {
@@ -1380,7 +1361,7 @@ async fn insert_product_event(
 
 async fn update_product_and_insert_event(
     pool: &sqlx::PgPool,
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
     title: &str,
 ) -> Result<EventId, sqlx::Error> {
     update_product_and_insert_event_with_group(
@@ -1395,7 +1376,7 @@ async fn update_product_and_insert_event(
 
 async fn update_product_and_insert_event_with_group(
     pool: &sqlx::PgPool,
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
     title: &str,
     event_type: &str,
     event_group: &str,
@@ -1425,7 +1406,7 @@ async fn create_product_with_event_then_rollback(
     pool: &sqlx::PgPool,
     title: &str,
 ) -> Result<EventId, sqlx::Error> {
-    let product_id = product_core::product_id::ProductId::new();
+    let product_id = ProductId::new();
     let product_uuid = uuid::Uuid::from(product_id);
     let event_id = EventId::new();
     let shop_id = uuid::Uuid::new_v4();
@@ -1459,7 +1440,7 @@ async fn insert_historical_search_filter_match(
     pool: &sqlx::PgPool,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query(
@@ -1484,7 +1465,7 @@ async fn product_event_type(pool: &sqlx::PgPool, event_id: EventId) -> Result<St
 
 async fn assert_product_source_price(
     pool: &sqlx::PgPool,
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
     expected_amount: i64,
     expected_currency: &str,
 ) -> Result<(), sqlx::Error> {
@@ -1591,7 +1572,7 @@ async fn assert_match_for_event(
     event_id: EventId,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (matched_user_id, matched_search_filter_id, matched_product_id): (
         uuid::Uuid,
@@ -1684,13 +1665,35 @@ async fn assert_event_is_not_persisted(
     Ok(())
 }
 
+#[derive(sqlx::FromRow)]
+struct SearchFilterNotificationRow {
+    user_id: uuid::Uuid,
+    origin_event_id: uuid::Uuid,
+    product_id: uuid::Uuid,
+    user_search_filter_id: uuid::Uuid,
+    kind: String,
+}
+
+async fn notifications_for_user(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+) -> Result<Vec<SearchFilterNotificationRow>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT user_id, origin_event_id, product_id, user_search_filter_id, kind \
+         FROM notifications WHERE user_id = $1 ORDER BY created, notification_id",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .fetch_all(pool)
+    .await
+}
+
 async fn wait_for_notifications(
-    reader: &DynamoDbAllNotificationsReader<'_>,
+    pool: &sqlx::PgPool,
     user_id: UserId,
     expected: usize,
-) -> Result<Vec<AllNotificationsReadItem>, Box<dyn std::error::Error>> {
+) -> Result<Vec<SearchFilterNotificationRow>, Box<dyn std::error::Error>> {
     for _ in 0..POLL_ATTEMPTS {
-        let notifications = reader.list_all_by_user(&user_id).await?;
+        let notifications = notifications_for_user(pool, user_id).await?;
         if notifications.len() == expected {
             return Ok(notifications);
         }
@@ -1703,14 +1706,14 @@ async fn wait_for_notifications(
 }
 
 async fn assert_no_more_than_notifications(
-    reader: &DynamoDbAllNotificationsReader<'_>,
+    pool: &sqlx::PgPool,
     user_id: UserId,
     maximum: usize,
     duration: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = Instant::now() + duration;
     loop {
-        let notifications = reader.list_all_by_user(&user_id).await?;
+        let notifications = notifications_for_user(pool, user_id).await?;
         if notifications.len() > maximum {
             return Err(std::io::Error::other(format!(
                 "user {user_id} received {} notifications; expected at most {maximum}",
@@ -1726,27 +1729,23 @@ async fn assert_no_more_than_notifications(
 }
 
 fn assert_search_filter_notification(
-    notification: &AllNotificationsReadItem,
+    notification: &SearchFilterNotificationRow,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    assert_eq!(user_id, notification.user_id);
-    assert_eq!(origin_event_id, notification.origin_event_id);
-    let NotificationPayload::SearchFilter {
-        product_id: notification_product_id,
-        search_filter_payload,
-        ..
-    } = &notification.notification_payload
-    else {
-        return Err(std::io::Error::other("expected a search-filter notification").into());
-    };
-    assert_eq!(&product_id, notification_product_id);
+    assert_eq!(uuid::Uuid::from(user_id), notification.user_id);
     assert_eq!(
-        &search_filter_id,
-        &search_filter_payload.user_search_filter_id
+        uuid::Uuid::from(origin_event_id),
+        notification.origin_event_id
     );
+    assert_eq!(uuid::Uuid::from(product_id), notification.product_id);
+    assert_eq!(
+        uuid::Uuid::parse_str(&search_filter_id.to_string())?,
+        notification.user_search_filter_id
+    );
+    assert_eq!("SEARCH_FILTER_MATCH", notification.kind);
     Ok(())
 }
 
@@ -1816,7 +1815,7 @@ async fn assert_price_filter_document(
 
 async fn redeliver_product_event(
     server: &ScopedWorkerServer,
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
     event_id: EventId,
     event_type: &str,
     event_group: &str,
@@ -1841,7 +1840,7 @@ async fn redeliver_search_filter_match(
     server: &ScopedWorkerServer,
     user_id: UserId,
     search_filter_id: UserSearchFilterId,
-    product_id: product_core::product_id::ProductId,
+    product_id: ProductId,
     origin_event_id: EventId,
 ) -> Result<(), Box<dyn std::error::Error>> {
     post_sequin_change(

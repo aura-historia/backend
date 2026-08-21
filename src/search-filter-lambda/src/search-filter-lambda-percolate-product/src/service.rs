@@ -137,6 +137,7 @@ impl<'a> ProductMatcherServiceImpl<'a> {
     /// 4. Running enhanced AI matching for filters with enhanced_search_description
     ///
     /// Returns the resolved product and a list of eligible matches.
+    #[allow(clippy::result_large_err)]
     async fn determine_eligible_matches(
         &self,
         event: ProductEvent,
@@ -301,6 +302,7 @@ impl<'a> ProductMatcherServiceImpl<'a> {
 
     /// Determines notification commands from eligible matches by filtering
     /// out users who have exceeded their monthly search-filter-match quota.
+    #[allow(clippy::result_large_err)]
     async fn determine_notification_commands(
         &self,
         eligible_matches: &[EligibleMatch],

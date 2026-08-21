@@ -31,7 +31,7 @@ use shop_core::shop_slug_id::ShopSlugId;
 
 use crate::user_state::ProductUserState;
 use indexmap::IndexSet;
-use notification_service::ports::all_notifications_reader::AllNotificationsReader;
+
 use product_core::product_image::ProductImage;
 use product_core::product_search::ProductSearch;
 use product_core::sort_product_field::SortProductField;
@@ -132,11 +132,7 @@ pub enum SearchProductsError {
         #[source]
         source: BoxError,
     },
-    #[error("product notification read failed")]
-    ProductNotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("product user state is missing")]
     ProductUserStateMissing,
     #[error("hidden product summary could not be constructed")]
@@ -155,44 +151,34 @@ pub trait SearchProductsUseCase: Send + Sync {
     ) -> Result<SearchProductsResult, SearchProductsError>;
 }
 
-pub struct SearchProductsHandler<UoW, R, F, E, U, N> {
+pub struct SearchProductsHandler<UoW, R, F, E, U> {
     unit_of_work: UoW,
     reader: R,
     fx_rates: F,
     embeddings: E,
     user_states: U,
-    notifications: N,
 }
 
-impl<UoW, R, F, E, U, N> SearchProductsHandler<UoW, R, F, E, U, N> {
-    pub fn new(
-        unit_of_work: UoW,
-        reader: R,
-        fx_rates: F,
-        embeddings: E,
-        user_states: U,
-        notifications: N,
-    ) -> Self {
+impl<UoW, R, F, E, U> SearchProductsHandler<UoW, R, F, E, U> {
+    pub fn new(unit_of_work: UoW, reader: R, fx_rates: F, embeddings: E, user_states: U) -> Self {
         Self {
             unit_of_work,
             reader,
             fx_rates,
             embeddings,
             user_states,
-            notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<UoW, R, F, E, U, N> SearchProductsUseCase for SearchProductsHandler<UoW, R, F, E, U, N>
+impl<UoW, R, F, E, U> SearchProductsUseCase for SearchProductsHandler<UoW, R, F, E, U>
 where
     UoW: UnitOfWork,
     R: ProductSearchReader,
     F: FxRateSnapshotRepositoryFactory<UoW::Tx>,
     E: EmbeddingGenerator,
     U: ProductUserStateReader,
-    N: AllNotificationsReader,
 {
     #[tracing::instrument(
         name = "search_products",
@@ -269,13 +255,7 @@ where
             total: result.total,
         };
         if let Some(user_id) = personalization_user_id(&context.principal) {
-            hydrate_product_summaries(
-                &mut result.items,
-                user_id,
-                &self.user_states,
-                &self.notifications,
-            )
-            .await?;
+            hydrate_product_summaries(&mut result.items, user_id, &self.user_states).await?;
         }
         Ok(result)
     }
@@ -398,9 +378,7 @@ impl From<ProductSummaryPersonalizationError> for SearchProductsError {
             ProductSummaryPersonalizationError::UserStateReadModelInvalid { source } => {
                 Self::ProductUserStateReadModelInvalid { source }
             }
-            ProductSummaryPersonalizationError::NotificationReadFailed { source } => {
-                Self::ProductNotificationReadFailed { source }
-            }
+
             ProductSummaryPersonalizationError::UserStateMissing { .. } => {
                 Self::ProductUserStateMissing
             }
@@ -429,11 +407,6 @@ mod tests {
     use money::MonetaryAmount;
     use user_core::user_id::UserId;
 
-    use notification_core::notification::{NotificationPayload, NotificationWatchlistPayload};
-    use notification_core::notification_id::NotificationId;
-    use notification_service::ports::all_notifications_reader::{
-        AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
-    };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
@@ -455,10 +428,7 @@ mod tests {
         used_hybrid_search: bool,
         user_states_result:
             Option<Result<HashMap<ProductId, ProductUserState>, ProductUserStateReadError>>,
-        notifications_result:
-            Option<Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError>>,
         user_state_lookups: Vec<ProductUserStateLookup>,
-        notification_requests: Vec<UserId>,
     }
 
     type SharedState = Arc<Mutex<FakeState>>;
@@ -488,11 +458,6 @@ mod tests {
 
     #[derive(Clone)]
     struct FakeUserStatesReader {
-        state: SharedState,
-    }
-
-    #[derive(Clone)]
-    struct FakeNotificationsReader {
         state: SharedState,
     }
 
@@ -681,21 +646,6 @@ mod tests {
         }
     }
 
-    #[async_trait::async_trait]
-    impl AllNotificationsReader for FakeNotificationsReader {
-        async fn list_all_by_user(
-            &self,
-            user_id: &UserId,
-        ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
-            let mut state = lock_state(&self.state);
-            state.notification_requests.push(*user_id);
-            match state.notifications_result.take() {
-                Some(result) => result,
-                None => Ok(Vec::new()),
-            }
-        }
-    }
-
     fn handler(
         state: &SharedState,
     ) -> SearchProductsHandler<
@@ -704,7 +654,6 @@ mod tests {
         FakeFxRateSnapshotRepositoryFactory,
         FakeEmbeddingGenerator,
         FakeUserStatesReader,
-        FakeNotificationsReader,
     > {
         SearchProductsHandler::new(
             FakeUnitOfWork {
@@ -718,9 +667,6 @@ mod tests {
                 state: Arc::clone(state),
             },
             FakeUserStatesReader {
-                state: Arc::clone(state),
-            },
-            FakeNotificationsReader {
                 state: Arc::clone(state),
             },
         )
@@ -740,41 +686,6 @@ mod tests {
             request_id: RequestId::new("request"),
             correlation_id: CorrelationId::new("correlation"),
         }
-    }
-
-    fn notification(
-        user_id: UserId,
-        product_id: ProductId,
-        event_id: EventId,
-        seen: bool,
-    ) -> Result<AllNotificationsReadItem, url::ParseError> {
-        let url = Url::parse("https://example.test/product")?;
-        Ok(AllNotificationsReadItem {
-            user_id,
-            origin_event_id: event_id,
-            notification_id: NotificationId::new(),
-            notification_type: None,
-            notification_payload: NotificationPayload::Watchlist {
-                product_id,
-                shop_id: ShopId::new(),
-                shops_product_id: ShopsProductId::from("product"),
-                shop_slug_id: ShopSlugId::from("shop"),
-                product_slug_id: ProductSlugId::from("product"),
-                shop_name: ShopName::from("Shop"),
-                title: None,
-                image: None,
-                url: url.clone(),
-                view_url: url,
-                watchlist_payload: NotificationWatchlistPayload::StateChange {
-                    old_state: ProductState::Listed,
-                    new_state: ProductState::Available,
-                },
-            },
-            seen,
-            external: false,
-            created: OffsetDateTime::UNIX_EPOCH,
-            updated: OffsetDateTime::UNIX_EPOCH,
-        })
     }
 
     fn search_result() -> Result<ProductSearchReadResult, url::ParseError> {
@@ -1058,24 +969,18 @@ mod tests {
         let user_id = UserId::new();
         let expected = search_result()?;
         let product_id = expected.items[0].product_id;
-        let event_id = EventId::new();
+        let notification_id = notification_core::notification_id::NotificationId::new();
         let mut user_state = ProductUserState::default();
         user_state.watchlist.watching = true;
         user_state.watchlist.notifications = true;
+        user_state.notification.unseen_notification_ids = vec![notification_id];
         lock_state(&state).search_result = Some(Ok(expected));
         lock_state(&state).user_states_result = Some(Ok(HashMap::from([(product_id, user_state)])));
-        lock_state(&state).notifications_result = Some(Ok(vec![notification(
-            user_id, product_id, event_id, false,
-        )?]));
 
         let result = handler(&state)
             .execute(&user_context(user_id), request())
             .await?;
 
-        assert_eq!(
-            Some(user_id),
-            lock_state(&state).notification_requests.first().copied()
-        );
         let state = lock_state(&state);
         assert_eq!(1, state.user_state_lookups.len());
         assert_eq!(user_id, state.user_state_lookups[0].user_id);
@@ -1086,8 +991,10 @@ mod tests {
             .as_ref()
             .ok_or("missing user state")?;
         assert!(user_state.watchlist.watching);
-        assert!(!user_state.notification.seen);
-        assert_eq!(Some(event_id), user_state.notification.origin_event_id);
+        assert_eq!(
+            vec![notification_id],
+            user_state.notification.unseen_notification_ids
+        );
         Ok(())
     }
 
@@ -1111,35 +1018,6 @@ mod tests {
         assert!(matches!(
             result,
             Err(SearchProductsError::ProductUserStateQueryFailed { .. })
-        ));
-    }
-
-    #[tokio::test]
-    async fn should_fail_when_authenticated_notification_read_fails() {
-        let state = state();
-        let user_id = UserId::new();
-        let expected = match search_result() {
-            Ok(result) => result,
-            Err(error) => panic!("failed to build product search result: {error}"),
-        };
-        let product_id = expected.items[0].product_id;
-        lock_state(&state).search_result = Some(Ok(expected));
-        lock_state(&state).user_states_result = Some(Ok(HashMap::from([(
-            product_id,
-            ProductUserState::default(),
-        )])));
-        lock_state(&state).notifications_result =
-            Some(Err(AllNotificationsReadError::OperationFailed {
-                source: box_error(std::io::Error::other("dynamodb unavailable")),
-            }));
-
-        let result = handler(&state)
-            .execute(&user_context(user_id), request())
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(SearchProductsError::ProductNotificationReadFailed { .. })
         ));
     }
 

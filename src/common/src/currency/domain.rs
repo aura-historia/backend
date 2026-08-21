@@ -1,6 +1,7 @@
 use crate::currency::data::CurrencyData;
 use crate::currency::record::CurrencyRecord;
 use crate::price::domain::{MonetaryAmount, Price};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
@@ -30,6 +31,8 @@ impl From<MinorUnitExponent> for u8 {
     strum_macros::EnumIter,
     strum_macros::Display,
     strum_macros::EnumCount,
+    Serialize,
+    Deserialize,
 )]
 pub enum Currency {
     #[default]

@@ -135,36 +135,14 @@ Records which products matched a user's saved search filter. LSI1 allows paginat
 
 ---
 
-### Notification
-
-One record per (user, origin event). LSI1 routes to either watchlist or search-filter notification lists; LSI2 allows looking up all notifications for a specific product.
-
-| Attribute | Pattern |
-|-----------|---------|
-| `pk` | `user#{user_id}` |
-| `sk` | `user#notification#origin_event_id#{origin_event_id}` |
-| `lsi1_sk` | `user#notification#watchlist#{notification_id}` |
-| `lsi1_sk` | `user#notification#search_filter#{notification_id}` |
-| `lsi2_sk` | `user#notification#product_id#{product_id}#origin_event_id#{origin_event_id}` _(sparse)_ |
-| `ttl` | Unix timestamp (7-day expiry) |
-
-**Bounds for LSI2 range queries:**
-
-| Bound | Value |
-|-------|-------|
-| Prefix | `user#notification#product_id#` |
-
----
-
-
 ## Indexes Summary
 
 ### Local Secondary Indexes
 
 | Index | PK | SK | Used by |
 |-------|----|----|---------|
-| `lsi1` | same as table PK | `lsi1_sk` | Watchlist (sort by created), Search Filter Match (sort by created), Notification (route by reason) |
-| `lsi2` | same as table PK | `lsi2_sk` | Notification (query by product), Search Filter Match (query by product) |
+| `lsi1` | same as table PK | `lsi1_sk` | Watchlist (sort by created), Search Filter Match (sort by created) |
+| `lsi2` | same as table PK | `lsi2_sk` | Search Filter Match (query by product) |
 
 ### Global Secondary Indexes
 

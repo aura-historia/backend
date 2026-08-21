@@ -137,19 +137,6 @@ function createDynamoDbRules(
   eventBus: events.EventBus,
   queues: QueueCatalog,
 ): void {
-  addDynamoDbRule(scope, eventBus, "DynamoDbNotificationSendEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          external: { BOOL: [true] },
-          sk: { S: [{ prefix: "user#notification#origin_event_id#" }] },
-        },
-      },
-    },
-    targets: ["notificationSend"],
-    queues,
-  });
 
   addDynamoDbRule(scope, eventBus, "DynamoDbProductEventRecordPercolateSearchFilterEventRule", table, {
     detail: {
@@ -164,18 +151,6 @@ function createDynamoDbRules(
     queues,
   });
 
-  addDynamoDbRule(scope, eventBus, "DynamoDbProductEventRecordUpdatedNotifyUserEventRule", table, {
-    detail: {
-      eventName: ["INSERT"],
-      dynamodb: {
-        NewImage: {
-          event_type: { S: [{ prefix: "DOMAIN_PRICE_" }, { prefix: "DOMAIN_STATE_" }] },
-        },
-      },
-    },
-    targets: ["productUpdateNotifyUser"],
-    queues,
-  });
 
   addDynamoDbRule(scope, eventBus, "DynamoDbProductMaterializeOpenSearchEventRule", table, {
     detail: {
@@ -376,12 +351,11 @@ function createSqsEventSources(functions: LambdaFunctions, queues: QueueCatalog)
   addSqsEventSource(functions.shopOpenSearchIndex, queues.shopOpenSearchIndex.queue, 1, false);
   addSqsEventSource(functions.userOpenSearchIndex, queues.userOpenSearchIndex.queue, 1, false);
   addSqsEventSource(functions.userTierUpdate, queues.userTierUpdate.queue, 1, false);
-  addSqsEventSource(functions.notificationSend, queues.notificationSend.queue, 25, true, 1);
   addSqsEventSource(functions.productMaterializeOpenSearch, queues.productMaterializeOpenSearch.queue, 2500, true, 1);
   addSqsEventSource(functions.productDeleteProduct, queues.productDeleteProduct.queue, 100, true, 1);
   addSqsEventSource(functions.productPipelineEmbedText, queues.productPipelineEmbedText.queue, 10, true, 1);
   addSqsEventSource(functions.productPipelineTranslate, queues.productPipelineTranslate.queue, 10, true, 1);
-  addSqsEventSource(functions.productUpdateNotifyUser, queues.productUpdateNotifyUser.queue, 10, true, 1);
+
   addSqsEventSource(functions.searchFilterPercolateProduct, queues.searchFilterPercolateProduct.queue, 10, true, 1);
   addSqsEventSource(functions.shopify, queues.shopify.queue, 10, true, 1);
 }
@@ -430,15 +404,7 @@ const DYNAMODB_STREAM_FILTER_PATTERNS = [
       },
     },
   }),
-  JSON.stringify({
-    eventName: ["INSERT"],
-    dynamodb: {
-      NewImage: {
-        pk: { S: [{ prefix: "user#" }] },
-        sk: { S: [{ prefix: "user#notification#origin_event_id#" }] },
-      },
-    },
-  }),
+
   JSON.stringify({
     eventName: ["INSERT", "MODIFY", "REMOVE"],
     dynamodb: {

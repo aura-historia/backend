@@ -1,13 +1,15 @@
 use crate::url::append_utm_params;
-use application::pagination::{Cursor, CursoredResult};
-use application::personalized::Personalized;
+use application::{
+    pagination::{Cursor, CursoredResult},
+    personalized::Personalized,
+};
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
-use localization::Language;
-use localization::Localized;
-use money::Currency;
-use money::{MonetaryAmount, Price};
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
+use notification_core::notification_id::NotificationId;
+use platform_postgres::SqlxTransaction;
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_id::ProductId;
@@ -24,15 +26,15 @@ use product_service::ports::{
     ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
 };
 use product_service::user_state::{
-    ProductUserState, ProhibitedContentUserState, SearchFilterUserState, WatchlistUserState,
+    NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
+    WatchlistUserState,
 };
-use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
-use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use search_filter_core::user_search_filter_name::UserSearchFilterName;
+use search_filter_core::{
+    enhanced_match_reason::EnhancedMatchReason, user_search_filter_id::UserSearchFilterId,
+    user_search_filter_name::UserSearchFilterName,
+};
 use serde::Deserialize;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
+use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use url::Url;
@@ -97,6 +99,7 @@ struct ProductDetailsRow {
     selected_match_reason: Option<String>,
     selected_match_feedback: Option<bool>,
     selected_match_month_position: Option<i64>,
+    unseen_notification_ids: Option<Vec<uuid::Uuid>>,
     watchlist_created: OffsetDateTime,
 }
 
@@ -112,12 +115,12 @@ impl SqlxProductWatchlistDetailsReaderFactory {
     }
 }
 
-impl ProductWatchlistDetailsReaderFactory<platform_postgres::SqlxTransaction>
+impl ProductWatchlistDetailsReaderFactory<SqlxTransaction>
     for SqlxProductWatchlistDetailsReaderFactory
 {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut platform_postgres::SqlxTransaction,
+        tx: &'tx mut SqlxTransaction,
     ) -> impl ProductWatchlistDetailsReader + 'tx {
         SqlxProductWatchlistDetailsReader {
             connection: tx.connection(),
@@ -198,7 +201,19 @@ impl ProductWatchlistDetailsReader for SqlxProductWatchlistDetailsReader<'_> {
 }
 
 const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
-    WITH ranked_matches AS (
+    WITH notification_states AS (
+        SELECT
+            notification.product_id,
+            array_agg(
+                notification.notification_id
+                ORDER BY notification.created DESC, notification.notification_id DESC
+            ) AS unseen_notification_ids
+        FROM notifications notification
+        WHERE notification.user_id = $2
+            AND notification.seen = false
+        GROUP BY notification.product_id
+    ),
+    ranked_matches AS (
         SELECT
             matched.user_id,
             matched.product_id,
@@ -250,6 +265,7 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
             WHEN authenticated_user.tier = 'FREE' THEN selected_match.month_position
             ELSE NULL
         END AS selected_match_month_position,
+        notification_state.unseen_notification_ids,
         watchlist.created AS watchlist_created
     FROM products p
     JOIN shops shop ON shop.shop_id = p.shop_id
@@ -261,6 +277,8 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
     LEFT JOIN ranked_matches selected_match
         ON selected_match.product_id = p.product_id
         AND selected_match.product_position = 1
+    LEFT JOIN notification_states notification_state
+        ON notification_state.product_id = p.product_id
     LEFT JOIN LATERAL (
         SELECT
             (
@@ -465,7 +483,16 @@ fn user_state(
             notifications: row.watchlist_notifications.unwrap_or(false),
         },
         prohibited_content: ProhibitedContentUserState { consent },
-        notification: Default::default(),
+        notification: NotificationUserState {
+            unseen_notification_ids: row
+                .unseen_notification_ids
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .copied()
+                .map(NotificationId::from)
+                .collect(),
+        },
         search_filter,
     }))
 }

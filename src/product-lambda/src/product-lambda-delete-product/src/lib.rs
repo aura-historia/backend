@@ -102,6 +102,7 @@ async fn delete_opensearch_product(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 async fn delete_watchlist_records(
     repository: &impl WatchlistProductDynamoDbRepository,
     product_id: &common::product_id::ProductId,
@@ -133,6 +134,7 @@ async fn delete_watchlist_records(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 async fn delete_search_filter_match_records(
     repository: &impl UserSearchFilterDynamoDbRepository,
     product_id: &common::product_id::ProductId,
@@ -162,6 +164,7 @@ async fn delete_search_filter_match_records(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 async fn delete_product_dynamodb_records(
     repository: &impl ProductDynamoDbRepository,
     shop_id: &common::shop_id::ShopId,

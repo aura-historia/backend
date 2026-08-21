@@ -6,6 +6,12 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionError, CreateBillingManagementSessionError,
     CreateBillingPortalSessionError,
 };
+use notification_service::use_cases::commands::delete_notification::DeleteNotificationError;
+use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsError;
+use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenError;
+use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenError;
+use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenError;
+use notification_service::use_cases::queries::list_notifications::ListNotificationsError;
 use oauth_service::error::OAuthServiceError;
 use product_service::use_cases::{
     CreateProductError, DeleteProductError, GetProductError, GetProductEventsError,
@@ -127,6 +133,9 @@ pub(crate) const NEWSLETTER_INTERNAL_ERROR: ApiErrorCode =
     ApiErrorCode("NEWSLETTER_INTERNAL_ERROR");
 pub(crate) const NEWSLETTER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
     ApiErrorCode("NEWSLETTER_TEMPORARILY_UNAVAILABLE");
+pub(crate) const NOTIFICATION_NOT_FOUND: ApiErrorCode = ApiErrorCode("NOTIFICATION_NOT_FOUND");
+pub(crate) const NOTIFICATION_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("NOTIFICATION_TEMPORARILY_UNAVAILABLE");
 pub(crate) const USER_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("USER_INTERNAL_ERROR");
 pub(crate) const USER_NOT_FOUND: ApiErrorCode = ApiErrorCode("USER_NOT_FOUND");
 pub(crate) const USER_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
@@ -315,6 +324,128 @@ impl From<AuthError> for ApiError {
             | AuthError::JwksFetch(_) => ApiError::unauthorized(INVALID_CREDENTIALS)
                 .with_header_field("Authorization")
                 .with_detail("Bearer token is invalid."),
+        }
+    }
+}
+
+impl From<ListNotificationsError> for ApiError {
+    fn from(error: ListNotificationsError) -> Self {
+        match error {
+            ListNotificationsError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            ListNotificationsError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListNotificationsError::ReadFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<UpdateNotificationSeenError> for ApiError {
+    fn from(error: UpdateNotificationSeenError) -> Self {
+        match error {
+            UpdateNotificationSeenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateNotificationSeenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateNotificationSeenError::NotFound => ApiError::not_found(NOTIFICATION_NOT_FOUND)
+                .with_detail("Notification was not found."),
+            UpdateNotificationSeenError::UpdateFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<UpdateNotificationsSeenError> for ApiError {
+    fn from(error: UpdateNotificationsSeenError) -> Self {
+        match error {
+            UpdateNotificationsSeenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateNotificationsSeenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateNotificationsSeenError::EmptyNotificationIds => {
+                ApiError::bad_request(BAD_BODY_VALUE)
+                    .with_detail("notificationIds must contain at least one notification UUID.")
+            }
+            UpdateNotificationsSeenError::UpdateFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<UpdateAllNotificationsSeenError> for ApiError {
+    fn from(error: UpdateAllNotificationsSeenError) -> Self {
+        match error {
+            UpdateAllNotificationsSeenError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            UpdateAllNotificationsSeenError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            UpdateAllNotificationsSeenError::UpdateFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<DeleteNotificationError> for ApiError {
+    fn from(error: DeleteNotificationError) -> Self {
+        match error {
+            DeleteNotificationError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            DeleteNotificationError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            DeleteNotificationError::NotFound => ApiError::not_found(NOTIFICATION_NOT_FOUND)
+                .with_detail("Notification was not found."),
+            DeleteNotificationError::DeleteFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
+        }
+    }
+}
+
+impl From<DeleteNotificationsError> for ApiError {
+    fn from(error: DeleteNotificationsError) -> Self {
+        match error {
+            DeleteNotificationsError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            DeleteNotificationsError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            DeleteNotificationsError::DeleteFailed(_) => {
+                ApiError::service_unavailable(NOTIFICATION_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Notifications are temporarily unavailable.")
+            }
         }
     }
 }
@@ -527,8 +658,7 @@ impl From<ListSearchFilterMatchesError> for ApiError {
             | ListSearchFilterMatchesError::SalePricingFxSnapshotMissing { .. }
             | ListSearchFilterMatchesError::PricingFxSnapshotUnavailable { .. }
             | ListSearchFilterMatchesError::BeginPricingTransactionFailed
-            | ListSearchFilterMatchesError::CommitPricingTransactionFailed
-            | ListSearchFilterMatchesError::NotificationReadFailed { .. } => {
+            | ListSearchFilterMatchesError::CommitPricingTransactionFailed => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter matches are temporarily unavailable.")
             }
@@ -820,7 +950,6 @@ impl From<GetProductError> for ApiError {
             GetProductError::ProductDetailsQueryFailed
             | GetProductError::PricingFxSnapshotMissing
             | GetProductError::PricingFxSnapshotUnavailable { .. }
-            | GetProductError::ProductNotificationReadFailed { .. }
             | GetProductError::BeginTransactionFailed
             | GetProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
@@ -869,8 +998,7 @@ impl From<GetSimilarProductsError> for ApiError {
             | GetSimilarProductsError::CommitTransactionFailed
             | GetSimilarProductsError::PricingFxSnapshotMissing
             | GetSimilarProductsError::PricingFxSnapshotUnavailable { .. }
-            | GetSimilarProductsError::ProductUserStateQueryFailed { .. }
-            | GetSimilarProductsError::ProductNotificationReadFailed { .. } => {
+            | GetSimilarProductsError::ProductUserStateQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Similar products are temporarily unavailable.")
             }
@@ -893,8 +1021,7 @@ impl From<SearchProductsError> for ApiError {
             | SearchProductsError::BeginFxRateSnapshotTransactionFailed { .. }
             | SearchProductsError::FxRateSnapshotReadFailed { .. }
             | SearchProductsError::CommitFxRateSnapshotTransactionFailed { .. }
-            | SearchProductsError::ProductUserStateQueryFailed { .. }
-            | SearchProductsError::ProductNotificationReadFailed { .. } => {
+            | SearchProductsError::ProductUserStateQueryFailed { .. } => {
                 ApiError::service_unavailable(PRODUCT_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Product search is temporarily unavailable.")
             }
@@ -1324,7 +1451,6 @@ impl From<ListWatchlistError> for ApiError {
             | ListWatchlistError::CurrentPricingFxSnapshotMissing
             | ListWatchlistError::SalePricingFxSnapshotMissing { .. }
             | ListWatchlistError::PricingFxSnapshotUnavailable { .. }
-            | ListWatchlistError::NotificationReadFailed { .. }
             | ListWatchlistError::BeginTransactionFailed
             | ListWatchlistError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
@@ -1363,7 +1489,7 @@ impl From<WatchProductError> for ApiError {
             } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
                 "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
             )),
-            WatchProductError::TemporarilyUnavailable
+            WatchProductError::TemporarilyUnavailable { .. }
             | WatchProductError::UserTierEntitlementsLockFailed { .. }
             | WatchProductError::WatchlistQuotaReadFailed { .. }
             | WatchProductError::BeginTransactionFailed
@@ -1391,6 +1517,9 @@ impl From<UpdateWatchlistProductError> for ApiError {
             }
             UpdateWatchlistProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 .with_detail("Watchlist entry was not found."),
+            UpdateWatchlistProductError::ConcurrencyConflict => {
+                ApiError::conflict(CONFLICT).with_detail("Watchlist entry was changed concurrently.")
+            }
             UpdateWatchlistProductError::UserNotFound => {
                 ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
             }
@@ -1400,7 +1529,7 @@ impl From<UpdateWatchlistProductError> for ApiError {
             } => ApiError::unprocessable_content(WATCHLIST_QUOTA_EXCEEDED).with_detail(format!(
                 "Exceeded the maximum amount of watchlist entries. There are already {active_count}/{quota} active watchlist entries occupied."
             )),
-            UpdateWatchlistProductError::TemporarilyUnavailable
+            UpdateWatchlistProductError::TemporarilyUnavailable { .. }
             | UpdateWatchlistProductError::UserTierEntitlementsLockFailed { .. }
             | UpdateWatchlistProductError::WatchlistQuotaReadFailed { .. }
             | UpdateWatchlistProductError::BeginTransactionFailed
@@ -1428,7 +1557,9 @@ impl From<UnwatchProductError> for ApiError {
             }
             UnwatchProductError::NotFound => ApiError::not_found(WATCHLIST_ENTRY_NOT_FOUND)
                 .with_detail("Watchlist entry was not found."),
-            UnwatchProductError::TemporarilyUnavailable
+            UnwatchProductError::ConcurrencyConflict => ApiError::conflict(CONFLICT)
+                .with_detail("Watchlist entry was changed concurrently."),
+            UnwatchProductError::TemporarilyUnavailable { .. }
             | UnwatchProductError::BeginTransactionFailed
             | UnwatchProductError::CommitTransactionFailed => {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
@@ -1614,7 +1745,7 @@ impl From<AdminDecidePartnerShopApplicationError> for ApiError {
                 ApiError::conflict(CONFLICT)
                     .with_detail("Partner shop application cannot be decided in its current state.")
             }
-            AdminDecidePartnerShopApplicationError::NotificationFailed { .. }
+            AdminDecidePartnerShopApplicationError::NotificationCreateFailed { .. }
             | AdminDecidePartnerShopApplicationError::TemporarilyUnavailable { .. }
             | AdminDecidePartnerShopApplicationError::BeginTransactionFailed
             | AdminDecidePartnerShopApplicationError::CommitTransactionFailed => {
@@ -1962,21 +2093,6 @@ mod tests {
     use serde_json::json;
 
     #[tokio::test]
-    async fn should_map_product_notification_read_failure_to_service_unavailable()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let response = ApiError::from(GetProductError::ProductNotificationReadFailed {
-            source: application::error::box_error(std::io::Error::other("dynamodb unavailable")),
-        })
-        .into_response();
-
-        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
-        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
-        assert_eq!(PRODUCT_TEMPORARILY_UNAVAILABLE.to_string(), body["error"]);
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn should_map_temporary_jwks_failure_to_service_unavailable()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = ApiError::from(AuthError::TemporarilyUnavailable).into_response();
@@ -1985,6 +2101,31 @@ mod tests {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
         let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
         assert_eq!(AUTH_TEMPORARILY_UNAVAILABLE.to_string(), body["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_update_watchlist_concurrency_conflict_to_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response =
+            ApiError::from(UpdateWatchlistProductError::ConcurrencyConflict).into_response();
+
+        assert_eq!(StatusCode::CONFLICT, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(CONFLICT.to_string(), body["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_unwatch_product_concurrency_conflict_to_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = ApiError::from(UnwatchProductError::ConcurrencyConflict).into_response();
+
+        assert_eq!(StatusCode::CONFLICT, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(CONFLICT.to_string(), body["error"]);
         Ok(())
     }
 

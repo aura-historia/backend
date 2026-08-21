@@ -7,6 +7,9 @@ use domain_primitives::event_id::EventId;
 
 use fxrate_core::FxRateId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
+use notification_core::{
+    notification_id::NotificationId, presentation::NotificationImagePresentation,
+};
 use product_core::product::ProductPricing;
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
@@ -102,9 +105,7 @@ struct ProhibitedContentUserStateData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NotificationUserStateData {
-    seen: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    origin_event_id: Option<EventId>,
+    unseen_notification_ids: Vec<NotificationId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -395,8 +396,7 @@ impl From<ProhibitedContentUserState> for ProhibitedContentUserStateData {
 impl From<NotificationUserState> for NotificationUserStateData {
     fn from(state: NotificationUserState) -> Self {
         Self {
-            seen: state.seen,
-            origin_event_id: state.origin_event_id,
+            unseen_notification_ids: state.unseen_notification_ids,
         }
     }
 }
@@ -449,6 +449,13 @@ impl From<ProductSummary> for ProductSummaryData {
 }
 
 impl ProductImageData {
+    pub(crate) fn from_presented(image: NotificationImagePresentation) -> Self {
+        Self {
+            url: image.url,
+            prohibited_content: image.prohibited_content.into(),
+        }
+    }
+
     pub(crate) fn from_with_consent(
         image: product_core::product_image::ProductImage,
         prohibited_content_consent: bool,

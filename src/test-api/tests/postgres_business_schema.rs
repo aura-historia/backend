@@ -125,11 +125,13 @@ async fn should_support_core_business_relations() {
 
         COMMIT;
 
-        INSERT INTO product_watchlist (user_id, product_id, state)
+        INSERT INTO product_watchlist (user_id, product_id, state, active_since, notifications_enabled_since)
         VALUES (
             '10000000-0000-0000-0000-000000000001',
             '30000000-0000-0000-0000-000000000001',
-            'ACTIVE'
+            'ACTIVE',
+            now(),
+            now()
         );
 
         INSERT INTO search_filters (

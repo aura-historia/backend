@@ -1,222 +1,247 @@
-use crate::ports::{
-    notification_deleter::{NotificationDeleteError, NotificationDeleter},
-    notification_repository::{NotificationRepository, NotificationRepositoryError},
-};
-use domain_primitives::event_id::EventId;
+use crate::ports::notification_deleter::{NotificationDeleteError, NotificationDeleter};
+use application::operation_context::{OperationAuthorizationError, OperationContext, Principal};
+use notification_core::notification_id::NotificationId;
 use user_core::user_id::UserId;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeleteNotificationCommand {
-    pub user_id: UserId,
-    pub origin_event_id: EventId,
+    pub notification_id: NotificationId,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeleteNotificationResult;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeleteNotificationError {
+    #[error("authenticated actor required")]
+    AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
     #[error("notification not found")]
     NotFound,
-    #[error("notification lookup failed")]
-    LookupFailed(#[source] NotificationRepositoryError),
-    #[error("notification delete failed")]
-    DeleteFailed(#[source] NotificationDeleteError),
+    #[error("notification deletion failed")]
+    DeleteFailed(#[from] NotificationDeleteError),
 }
 
 #[async_trait::async_trait]
 pub trait DeleteNotificationUseCase: Send + Sync {
     async fn execute(
         &self,
+        context: &OperationContext,
         command: DeleteNotificationCommand,
-    ) -> Result<(), DeleteNotificationError>;
+    ) -> Result<DeleteNotificationResult, DeleteNotificationError>;
 }
 
-pub struct DeleteNotificationHandler<R, D> {
-    repository: R,
+pub struct DeleteNotificationHandler<D> {
     deleter: D,
 }
 
-impl<R, D> DeleteNotificationHandler<R, D> {
-    pub fn new(repository: R, deleter: D) -> Self {
-        Self {
-            repository,
-            deleter,
-        }
+impl<D> DeleteNotificationHandler<D> {
+    pub fn new(deleter: D) -> Self {
+        Self { deleter }
     }
 }
 
 #[async_trait::async_trait]
-impl<R, D> DeleteNotificationUseCase for DeleteNotificationHandler<R, D>
+impl<D> DeleteNotificationUseCase for DeleteNotificationHandler<D>
 where
-    R: NotificationRepository,
     D: NotificationDeleter,
 {
+    #[tracing::instrument(
+        name = "delete_notification",
+        skip_all,
+        fields(
+            notification_id = %command.notification_id,
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
     async fn execute(
         &self,
+        context: &OperationContext,
         command: DeleteNotificationCommand,
-    ) -> Result<(), DeleteNotificationError> {
-        self.repository
-            .find_by_origin_event_id(&command.user_id, &command.origin_event_id)
-            .await
-            .map_err(DeleteNotificationError::LookupFailed)?
-            .ok_or(DeleteNotificationError::NotFound)?;
-        self.deleter
-            .delete_by_origin_event_id(&command.user_id, &command.origin_event_id)
-            .await
-            .map_err(DeleteNotificationError::DeleteFailed)
+    ) -> Result<DeleteNotificationResult, DeleteNotificationError> {
+        let user_id = notification_owner(context)?;
+        tracing::Span::current().record("actor_id", tracing::field::display(user_id));
+        let deleted = self
+            .deleter
+            .delete_one(user_id, command.notification_id)
+            .await?;
+
+        if !deleted {
+            return Err(DeleteNotificationError::NotFound);
+        }
+
+        tracing::info!(
+            event = "notification.deleted",
+            actor_type = context.principal.kind(),
+            actor_id = %user_id,
+            notification_id = %command.notification_id,
+            outcome = "success",
+        );
+        Ok(DeleteNotificationResult)
+    }
+}
+
+fn notification_owner(context: &OperationContext) -> Result<UserId, DeleteNotificationError> {
+    context
+        .require()
+        .any_user()
+        .authorize::<DeleteNotificationError>()?;
+
+    match &context.principal {
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Ok(*user_id),
+        Principal::Anonymous | Principal::Service(_) | Principal::System => {
+            Err(DeleteNotificationError::Forbidden)
+        }
+    }
+}
+
+impl From<OperationAuthorizationError> for DeleteNotificationError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use application::error::{BoxError, box_error};
-    use notification_core::notification::{
-        Notification, NotificationPartnerApplicationPayload, NotificationPayload,
+    use application::{
+        error::box_error,
+        operation_context::{CorrelationId, RequestId},
     };
-    use shop_core::shop_name::ShopName;
-    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    #[derive(Default)]
+    struct State {
+        result: bool,
+        fail: bool,
+        calls: Vec<(UserId, NotificationId)>,
+    }
 
     #[derive(Clone, Default)]
-    struct FakeGateway {
-        notification: Arc<Mutex<Option<Notification>>>,
-        deleted: Arc<Mutex<Vec<EventId>>>,
-    }
+    struct FakeDeleter(Arc<Mutex<State>>);
 
-    fn notification_for(user_id: UserId, origin_event_id: EventId) -> Notification {
-        Notification::new(
-            user_id,
-            origin_event_id,
-            NotificationPayload::PartnerApplication {
-                shop_name: ShopName::from("test shop"),
-                image: None,
-                partner_application_payload: NotificationPartnerApplicationPayload::Approved {
-                    partner_application_id: PartnerShopApplicationId::new(),
-                },
-            },
-            true,
-        )
-    }
-
-    #[async_trait::async_trait]
-    impl NotificationRepository for FakeGateway {
-        async fn insert(
-            &self,
-            notification: &Notification,
-        ) -> Result<Notification, NotificationRepositoryError> {
-            Ok(notification.clone())
-        }
-
-        async fn find_by_origin_event_id(
-            &self,
-            user_id: &UserId,
-            origin_event_id: &EventId,
-        ) -> Result<Option<Notification>, NotificationRepositoryError> {
-            Ok(self
-                .notification
-                .lock()
-                .unwrap()
-                .clone()
-                .filter(|notification| {
-                    notification.user_id() == *user_id
-                        && notification.origin_event_id() == *origin_event_id
-                }))
-        }
-
-        async fn update(
-            &self,
-            notification: &Notification,
-        ) -> Result<Notification, NotificationRepositoryError> {
-            Ok(notification.clone())
+    fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(state) => state,
+            Err(error) => error.into_inner(),
         }
     }
 
     #[async_trait::async_trait]
-    impl NotificationDeleter for FakeGateway {
-        async fn delete_by_origin_event_id(
+    impl NotificationDeleter for FakeDeleter {
+        async fn delete_one(
             &self,
-            _user_id: &UserId,
-            origin_event_id: &EventId,
-        ) -> Result<(), NotificationDeleteError> {
-            self.deleted.lock().unwrap().push(*origin_event_id);
-            Ok(())
+            user_id: UserId,
+            notification_id: NotificationId,
+        ) -> Result<bool, NotificationDeleteError> {
+            let mut state = lock(&self.0);
+            state.calls.push((user_id, notification_id));
+            if state.fail {
+                return Err(NotificationDeleteError::DeleteFailed {
+                    source: box_error(std::io::Error::other("delete failed")),
+                });
+            }
+            Ok(state.result)
         }
 
-        async fn delete_many_by_origin_event_id(
-            &self,
-            _user_id: &UserId,
-            _origin_event_ids: &[EventId],
-        ) -> Result<(), NotificationDeleteError> {
-            Ok(())
+        async fn delete_all(&self, _: UserId) -> Result<u64, NotificationDeleteError> {
+            unreachable!()
+        }
+    }
+
+    fn context(principal: Principal) -> OperationContext {
+        OperationContext {
+            principal,
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
         }
     }
 
     #[tokio::test]
-    async fn should_delete_notification_when_it_exists() {
-        let gateway = FakeGateway::default();
+    async fn should_delete_owned_notification_when_user_is_authenticated() {
         let user_id = UserId::new();
-        let origin_event_id = EventId::new();
-        *gateway.notification.lock().unwrap() = Some(notification_for(user_id, origin_event_id));
+        let notification_id = NotificationId::new();
+        let deleter = FakeDeleter::default();
+        lock(&deleter.0).result = true;
+        let handler = DeleteNotificationHandler::new(deleter.clone());
 
-        DeleteNotificationHandler::new(gateway.clone(), gateway.clone())
-            .execute(DeleteNotificationCommand {
-                user_id,
-                origin_event_id,
-            })
-            .await
-            .expect("delete should succeed");
+        let result = handler
+            .execute(
+                &context(Principal::User(user_id)),
+                DeleteNotificationCommand { notification_id },
+            )
+            .await;
 
-        assert_eq!(vec![origin_event_id], *gateway.deleted.lock().unwrap());
+        assert!(result.is_ok());
+        assert_eq!(vec![(user_id, notification_id)], lock(&deleter.0).calls);
     }
 
     #[tokio::test]
-    async fn should_return_not_found_when_delete_notification_missing() {
-        let gateway = FakeGateway::default();
+    async fn should_return_not_found_when_owned_notification_is_missing_or_not_owned() {
+        let deleter = FakeDeleter::default();
+        let handler = DeleteNotificationHandler::new(deleter.clone());
 
-        let result = DeleteNotificationHandler::new(gateway.clone(), gateway)
-            .execute(DeleteNotificationCommand {
-                user_id: UserId::new(),
-                origin_event_id: EventId::new(),
-            })
+        let result = handler
+            .execute(
+                &context(Principal::User(UserId::new())),
+                DeleteNotificationCommand {
+                    notification_id: NotificationId::new(),
+                },
+            )
             .await;
 
         assert!(matches!(result, Err(DeleteNotificationError::NotFound)));
-    }
-
-    #[derive(Clone, Default)]
-    struct FailingDeleter;
-
-    #[async_trait::async_trait]
-    impl NotificationDeleter for FailingDeleter {
-        async fn delete_by_origin_event_id(
-            &self,
-            _user_id: &UserId,
-            _origin_event_id: &EventId,
-        ) -> Result<(), NotificationDeleteError> {
-            let source: BoxError = box_error(std::io::Error::other("boom"));
-            Err(NotificationDeleteError::OperationFailed { source })
-        }
-
-        async fn delete_many_by_origin_event_id(
-            &self,
-            _user_id: &UserId,
-            _origin_event_ids: &[EventId],
-        ) -> Result<(), NotificationDeleteError> {
-            Ok(())
-        }
+        assert_eq!(1, lock(&deleter.0).calls.len());
     }
 
     #[tokio::test]
-    async fn should_fail_delete_notification_when_delete_fails() {
-        let gateway = FakeGateway::default();
-        let user_id = UserId::new();
-        let origin_event_id = EventId::new();
-        *gateway.notification.lock().unwrap() = Some(notification_for(user_id, origin_event_id));
+    async fn should_reject_anonymous_user_without_calling_deleter() {
+        let deleter = FakeDeleter::default();
+        let handler = DeleteNotificationHandler::new(deleter.clone());
 
-        let result = DeleteNotificationHandler::new(gateway, FailingDeleter)
-            .execute(DeleteNotificationCommand {
-                user_id,
-                origin_event_id,
-            })
+        let result = handler
+            .execute(
+                &context(Principal::Anonymous),
+                DeleteNotificationCommand {
+                    notification_id: NotificationId::new(),
+                },
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeleteNotificationError::AuthenticatedActorRequired)
+        ));
+        assert!(lock(&deleter.0).calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_propagate_deleter_failure() {
+        let deleter = FakeDeleter::default();
+        {
+            let mut state = lock(&deleter.0);
+            state.result = true;
+            state.fail = true;
+        }
+        let handler = DeleteNotificationHandler::new(deleter);
+
+        let result = handler
+            .execute(
+                &context(Principal::User(UserId::new())),
+                DeleteNotificationCommand {
+                    notification_id: NotificationId::new(),
+                },
+            )
             .await;
 
         assert!(matches!(

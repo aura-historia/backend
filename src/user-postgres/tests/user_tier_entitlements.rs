@@ -1,11 +1,17 @@
 use application::transaction::{Transaction, UnitOfWork};
-use platform_postgres::SqlxUnitOfWork;
+use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
+use product_core::product_id::ProductId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use user_core::tier::UserTier;
 use user_core::user_id::UserId;
 use user_postgres::SqlxUserTierEntitlementsFactory;
 use user_service::ports::{UserTierEntitlements, UserTierEntitlementsFactory};
+use watchlist_core::WatchlistState;
+use watchlist_postgres::SqlxWatchlistRepositoryFactory;
+use watchlist_service::ports::{
+    WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
+};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -123,6 +129,117 @@ async fn should_reconcile_legacy_newest_first_quotas() {
         20,
         count_state(&pool, "product_watchlist", user_id, "ACTIVE").await
     );
+    assert_eq!(
+        2,
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await
+    );
+    assert_eq!(
+        1,
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[20]).await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_keep_user_deactivation_when_tier_reconciliation_runs_afterward() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let watchlist = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(&pool, "tier-reconciliation-user-wins@example.com", "FREE").await;
+    let product_ids = seed_watchlist_entries(&pool, user_id, 21, OffsetDateTime::now_utc()).await;
+    let product_id = ProductId::from(product_ids[0]);
+
+    let mut user_tx = begin(&unit).await;
+    let loaded = watchlist
+        .in_transaction(&mut user_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("user write lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    let mut deactivated = loaded.value;
+    deactivated.change_state(WatchlistState::InactiveByUser);
+    watchlist
+        .in_transaction(&mut user_tx)
+        .update(&deactivated, loaded.version)
+        .await
+        .unwrap_or_else(|error| panic!("user deactivation failed: {error:?}"));
+    commit(user_tx).await;
+
+    let mut reconciliation_tx = begin(&unit).await;
+    entitlements
+        .in_transaction(&mut reconciliation_tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("tier lock failed: {error:?}"));
+    entitlements
+        .in_transaction(&mut reconciliation_tx)
+        .reconcile_for_tier(user_id, UserTier::Free)
+        .await
+        .unwrap_or_else(|error| panic!("reconciliation failed: {error:?}"));
+    commit(reconciliation_tx).await;
+
+    assert_eq!(
+        "INACTIVE_BY_USER",
+        state_for_watchlist_entry(&pool, user_id, product_ids[0]).await
+    );
+    assert_eq!(
+        2,
+        version_for_watchlist_entry(&pool, user_id, product_ids[0]).await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_stale_user_update_after_tier_reconciliation_wins() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let entitlements = SqlxUserTierEntitlementsFactory::new();
+    let watchlist = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(&pool, "tier-reconciliation-wins@example.com", "FREE").await;
+    let product_ids = seed_watchlist_entries(&pool, user_id, 21, OffsetDateTime::now_utc()).await;
+    let product_id = ProductId::from(product_ids[0]);
+
+    let mut user_tx = begin(&unit).await;
+    let loaded = watchlist
+        .in_transaction(&mut user_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("user write lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    let mut stale_user_entry = loaded.value;
+    stale_user_entry.change_notifications(false);
+
+    let mut reconciliation_tx = begin(&unit).await;
+    entitlements
+        .in_transaction(&mut reconciliation_tx)
+        .lock_user_tier(user_id)
+        .await
+        .unwrap_or_else(|error| panic!("tier lock failed: {error:?}"));
+    entitlements
+        .in_transaction(&mut reconciliation_tx)
+        .reconcile_for_tier(user_id, UserTier::Free)
+        .await
+        .unwrap_or_else(|error| panic!("reconciliation failed: {error:?}"));
+    commit(reconciliation_tx).await;
+
+    let stale_update = watchlist
+        .in_transaction(&mut user_tx)
+        .update(&stale_user_entry, loaded.version)
+        .await;
+    assert!(matches!(
+        stale_update,
+        Err(WatchlistRepositoryError::ConcurrencyConflict)
+    ));
+    drop(user_tx);
+
+    assert_eq!(
+        "INACTIVE_BY_RESTRICTED_PLAN",
+        state_for_watchlist_entry(&pool, user_id, product_ids[0]).await
+    );
+    assert!(notifications_for_watchlist_entry(&pool, user_id, product_ids[0]).await);
+    assert_eq!(
+        2,
+        version_for_watchlist_entry(&pool, user_id, product_ids[0]).await
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -190,7 +307,7 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     .await;
     let watchlist_ids = seed_watchlist_entries(&pool, user_id, 2, now).await;
     sqlx::query(
-        "UPDATE product_watchlist SET state = 'INACTIVE_BY_RESTRICTED_PLAN' WHERE user_id = $1 AND product_id = $2",
+        "UPDATE product_watchlist SET state = 'INACTIVE_BY_RESTRICTED_PLAN', active_since = NULL WHERE user_id = $1 AND product_id = $2",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(watchlist_ids[0])
@@ -198,13 +315,16 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     .await
     .unwrap_or_else(|error| panic!("failed to plan-restrict watchlist entry: {error:?}"));
     sqlx::query(
-        "UPDATE product_watchlist SET state = 'INACTIVE_BY_USER' WHERE user_id = $1 AND product_id = $2",
+        "UPDATE product_watchlist SET state = 'INACTIVE_BY_USER', active_since = NULL WHERE user_id = $1 AND product_id = $2",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(watchlist_ids[1])
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("failed to inactivate watchlist entry by user: {error:?}"));
+    let plan_restricted_version =
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await;
+    let user_inactive_version = version_for_watchlist_entry(&pool, user_id, watchlist_ids[1]).await;
 
     let mut tx = begin(&unit).await;
     entitlements
@@ -235,15 +355,23 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
         "INACTIVE_BY_USER",
         state_for_watchlist_entry(&pool, user_id, watchlist_ids[1]).await
     );
+    assert_eq!(
+        plan_restricted_version + 1,
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await
+    );
+    assert_eq!(
+        user_inactive_version,
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[1]).await
+    );
 }
 
-async fn begin(unit: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
+async fn begin(unit: &SqlxUnitOfWork) -> SqlxTransaction {
     unit.begin()
         .await
         .unwrap_or_else(|error| panic!("failed to begin transaction: {error:?}"))
 }
 
-async fn commit(tx: platform_postgres::SqlxTransaction) {
+async fn commit(tx: SqlxTransaction) {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("failed to commit transaction: {error:?}"));
@@ -338,7 +466,7 @@ async fn seed_watchlist_entries(
     for (index, product_id) in product_ids.iter().enumerate() {
         let created = start - Duration::seconds((count - index) as i64);
         sqlx::query(
-            "INSERT INTO product_watchlist (user_id, product_id, state, created, updated) VALUES ($1, $2, 'ACTIVE', $3, $3)",
+            "INSERT INTO product_watchlist (user_id, product_id, state, active_since, notifications_enabled_since, created, updated) VALUES ($1, $2, 'ACTIVE', $3, $3, $3, $3)",
         )
         .bind(uuid::Uuid::from(user_id))
         .bind(product_id)
@@ -370,6 +498,36 @@ async fn state_for_watchlist_entry(
         .fetch_one(pool)
         .await
         .unwrap_or_else(|error| panic!("failed to read watchlist state: {error:?}"))
+}
+
+async fn notifications_for_watchlist_entry(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: uuid::Uuid,
+) -> bool {
+    sqlx::query_scalar(
+        "SELECT notifications FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(product_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read watchlist notifications: {error:?}"))
+}
+
+async fn version_for_watchlist_entry(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: uuid::Uuid,
+) -> i64 {
+    sqlx::query_scalar(
+        "SELECT version FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(product_id)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read watchlist version: {error:?}"))
 }
 
 async fn count_state(pool: &sqlx::PgPool, table: &str, user_id: UserId, state: &str) -> i64 {

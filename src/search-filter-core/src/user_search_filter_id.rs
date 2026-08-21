@@ -31,6 +31,12 @@ impl From<Uuid> for UserSearchFilterId {
     }
 }
 
+impl From<UserSearchFilterId> for Uuid {
+    fn from(value: UserSearchFilterId) -> Self {
+        value.0
+    }
+}
+
 impl From<UserSearchFilterId> for String {
     fn from(value: UserSearchFilterId) -> Self {
         value.0.to_string()

@@ -14,7 +14,9 @@ money = { workspace = true }
 notification-service = { workspace = true }
 product-core = { workspace = true }
 product-service = { workspace = true }
-shop-core = { workspace = true }
+serde = { workspace = true }
+# Optional
+fake = { workspace = true, optional = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
@@ -23,8 +25,12 @@ user-service = { workspace = true }
 watchlist-core = { workspace = true }
 
 [dev-dependencies]
-notification-core = { workspace = true }
 serde-email = { workspace = true }
+shop-core = { workspace = true }
 strum = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 url = { workspace = true }
+
+[features]
+default = []
+test-data = ["fake", "watchlist-core/test-data"]

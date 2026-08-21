@@ -1,198 +1,232 @@
-use crate::ports::{
-    all_notifications_reader::{AllNotificationsReadError, AllNotificationsReader},
-    notification_deleter::{NotificationDeleteError, NotificationDeleter},
-};
-use domain_primitives::event_id::EventId;
+use crate::ports::notification_deleter::{NotificationDeleteError, NotificationDeleter};
+use application::operation_context::{OperationAuthorizationError, OperationContext, Principal};
 use user_core::user_id::UserId;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DeleteNotificationsCommand {
-    pub user_id: UserId,
-}
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeleteNotificationsCommand;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteNotificationsResult {
-    pub deleted: usize,
+    pub deleted_count: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeleteNotificationsError {
-    #[error("notification list failed")]
-    ReadFailed(#[source] AllNotificationsReadError),
-    #[error("notification delete failed")]
-    DeleteFailed(#[source] NotificationDeleteError),
+    #[error("authenticated actor required")]
+    AuthenticatedActorRequired,
+    #[error("operation not permitted")]
+    Forbidden,
+    #[error("notification deletion failed")]
+    DeleteFailed(#[from] NotificationDeleteError),
 }
 
 #[async_trait::async_trait]
 pub trait DeleteNotificationsUseCase: Send + Sync {
     async fn execute(
         &self,
+        context: &OperationContext,
         command: DeleteNotificationsCommand,
     ) -> Result<DeleteNotificationsResult, DeleteNotificationsError>;
 }
 
-pub struct DeleteNotificationsHandler<R, D> {
-    reader: R,
+pub struct DeleteNotificationsHandler<D> {
     deleter: D,
 }
 
-impl<R, D> DeleteNotificationsHandler<R, D> {
-    pub fn new(reader: R, deleter: D) -> Self {
-        Self { reader, deleter }
+impl<D> DeleteNotificationsHandler<D> {
+    pub fn new(deleter: D) -> Self {
+        Self { deleter }
     }
 }
 
 #[async_trait::async_trait]
-impl<R, D> DeleteNotificationsUseCase for DeleteNotificationsHandler<R, D>
+impl<D> DeleteNotificationsUseCase for DeleteNotificationsHandler<D>
 where
-    R: AllNotificationsReader,
     D: NotificationDeleter,
 {
+    #[tracing::instrument(
+        name = "delete_notifications",
+        skip_all,
+        fields(
+            principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+        )
+    )]
     async fn execute(
         &self,
-        command: DeleteNotificationsCommand,
+        context: &OperationContext,
+        _: DeleteNotificationsCommand,
     ) -> Result<DeleteNotificationsResult, DeleteNotificationsError> {
-        let items = self
-            .reader
-            .list_all_by_user(&command.user_id)
-            .await
-            .map_err(DeleteNotificationsError::ReadFailed)?;
-        let origin_event_ids = items
-            .iter()
-            .map(|item| item.origin_event_id)
-            .collect::<Vec<EventId>>();
-        self.deleter
-            .delete_many_by_origin_event_id(&command.user_id, &origin_event_ids)
-            .await
-            .map_err(DeleteNotificationsError::DeleteFailed)?;
-        Ok(DeleteNotificationsResult {
-            deleted: origin_event_ids.len(),
-        })
+        let user_id = notification_owner(context)?;
+        tracing::Span::current().record("actor_id", tracing::field::display(user_id));
+        let deleted_count = self.deleter.delete_all(user_id).await?;
+
+        tracing::info!(
+            event = "notifications.deleted",
+            actor_type = context.principal.kind(),
+            actor_id = %user_id,
+            deleted_count,
+            outcome = "success",
+        );
+        Ok(DeleteNotificationsResult { deleted_count })
+    }
+}
+
+fn notification_owner(context: &OperationContext) -> Result<UserId, DeleteNotificationsError> {
+    context
+        .require()
+        .any_user()
+        .authorize::<DeleteNotificationsError>()?;
+
+    match &context.principal {
+        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Ok(*user_id),
+        Principal::Anonymous | Principal::Service(_) | Principal::System => {
+            Err(DeleteNotificationsError::Forbidden)
+        }
+    }
+}
+
+impl From<OperationAuthorizationError> for DeleteNotificationsError {
+    fn from(error: OperationAuthorizationError) -> Self {
+        match error {
+            OperationAuthorizationError::AuthenticationRequired(_) => {
+                Self::AuthenticatedActorRequired
+            }
+            OperationAuthorizationError::Forbidden
+            | OperationAuthorizationError::InsufficientCapability { .. } => Self::Forbidden,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::all_notifications_reader::AllNotificationsReadItem;
-    use application::error::{BoxError, box_error};
-    use notification_core::{
-        notification::{NotificationPartnerApplicationPayload, NotificationPayload},
-        notification_id::NotificationId,
+    use application::{
+        error::box_error,
+        operation_context::{CorrelationId, RequestId},
     };
-    use shop_core::shop_name::ShopName;
-    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
-    use std::sync::{Arc, Mutex};
-    use time::OffsetDateTime;
+    use notification_core::notification_id::NotificationId;
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    #[derive(Default)]
+    struct State {
+        result: u64,
+        fail: bool,
+        calls: Vec<UserId>,
+    }
 
     #[derive(Clone, Default)]
-    struct FakeGateway {
-        items: Arc<Mutex<Vec<AllNotificationsReadItem>>>,
-        deleted: Arc<Mutex<Vec<EventId>>>,
-    }
+    struct FakeDeleter(Arc<Mutex<State>>);
 
-    fn item(user_id: UserId, origin_event_id: EventId) -> AllNotificationsReadItem {
-        AllNotificationsReadItem {
-            user_id,
-            origin_event_id,
-            notification_id: NotificationId::new(),
-            notification_type: None,
-            notification_payload: NotificationPayload::PartnerApplication {
-                shop_name: ShopName::from("test shop"),
-                image: None,
-                partner_application_payload: NotificationPartnerApplicationPayload::Approved {
-                    partner_application_id: PartnerShopApplicationId::new(),
-                },
-            },
-            seen: false,
-            external: true,
-            created: OffsetDateTime::now_utc(),
-            updated: OffsetDateTime::now_utc(),
+    fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(state) => state,
+            Err(error) => error.into_inner(),
         }
     }
 
     #[async_trait::async_trait]
-    impl AllNotificationsReader for FakeGateway {
-        async fn list_all_by_user(
+    impl NotificationDeleter for FakeDeleter {
+        async fn delete_one(
             &self,
-            user_id: &UserId,
-        ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
-            Ok(self
-                .items
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|item| item.user_id == *user_id)
-                .cloned()
-                .collect())
+            _: UserId,
+            _: NotificationId,
+        ) -> Result<bool, NotificationDeleteError> {
+            unreachable!()
+        }
+
+        async fn delete_all(&self, user_id: UserId) -> Result<u64, NotificationDeleteError> {
+            let mut state = lock(&self.0);
+            state.calls.push(user_id);
+            if state.fail {
+                return Err(NotificationDeleteError::DeleteFailed {
+                    source: box_error(std::io::Error::other("delete failed")),
+                });
+            }
+            Ok(state.result)
         }
     }
 
-    #[async_trait::async_trait]
-    impl NotificationDeleter for FakeGateway {
-        async fn delete_by_origin_event_id(
-            &self,
-            _user_id: &UserId,
-            _origin_event_id: &EventId,
-        ) -> Result<(), NotificationDeleteError> {
-            Ok(())
-        }
-
-        async fn delete_many_by_origin_event_id(
-            &self,
-            _user_id: &UserId,
-            origin_event_ids: &[EventId],
-        ) -> Result<(), NotificationDeleteError> {
-            self.deleted
-                .lock()
-                .unwrap()
-                .extend_from_slice(origin_event_ids);
-            Ok(())
+    fn context(principal: Principal) -> OperationContext {
+        OperationContext {
+            principal,
+            request_id: RequestId::new("request"),
+            correlation_id: CorrelationId::new("correlation"),
         }
     }
 
     #[tokio::test]
-    async fn should_delete_all_notifications_for_user() {
-        let gateway = FakeGateway::default();
+    async fn should_delete_all_notifications_for_context_owner() {
         let user_id = UserId::new();
-        let first = EventId::new();
-        let second = EventId::new();
-        *gateway.items.lock().unwrap() = vec![item(user_id, first), item(user_id, second)];
+        let deleter = FakeDeleter::default();
+        lock(&deleter.0).result = 4;
+        let handler = DeleteNotificationsHandler::new(deleter.clone());
 
-        let result = DeleteNotificationsHandler::new(gateway.clone(), gateway.clone())
-            .execute(DeleteNotificationsCommand { user_id })
-            .await
-            .expect("delete all should succeed");
-
-        assert_eq!(2, result.deleted);
-        assert_eq!(vec![first, second], *gateway.deleted.lock().unwrap());
-    }
-
-    #[derive(Clone, Default)]
-    struct FailingReader;
-
-    #[async_trait::async_trait]
-    impl AllNotificationsReader for FailingReader {
-        async fn list_all_by_user(
-            &self,
-            _user_id: &UserId,
-        ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
-            let source: BoxError = box_error(std::io::Error::other("boom"));
-            Err(AllNotificationsReadError::OperationFailed { source })
-        }
-    }
-
-    #[tokio::test]
-    async fn should_fail_delete_all_notifications_when_read_fails() {
-        let result = DeleteNotificationsHandler::new(FailingReader, FakeGateway::default())
-            .execute(DeleteNotificationsCommand {
-                user_id: UserId::new(),
-            })
+        let result = handler
+            .execute(
+                &context(Principal::User(user_id)),
+                DeleteNotificationsCommand,
+            )
             .await;
 
         assert!(matches!(
             result,
-            Err(DeleteNotificationsError::ReadFailed(_))
+            Ok(DeleteNotificationsResult { deleted_count: 4 })
+        ));
+        assert_eq!(vec![user_id], lock(&deleter.0).calls);
+    }
+
+    #[tokio::test]
+    async fn should_allow_idempotent_delete_when_no_notifications_exist() {
+        let user_id = UserId::new();
+        let deleter = FakeDeleter::default();
+        let handler = DeleteNotificationsHandler::new(deleter.clone());
+
+        let result = handler
+            .execute(
+                &context(Principal::User(user_id)),
+                DeleteNotificationsCommand,
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Ok(DeleteNotificationsResult { deleted_count: 0 })
+        ));
+        assert_eq!(vec![user_id], lock(&deleter.0).calls);
+    }
+
+    #[tokio::test]
+    async fn should_reject_system_principal_without_calling_deleter() {
+        let deleter = FakeDeleter::default();
+        let handler = DeleteNotificationsHandler::new(deleter.clone());
+
+        let result = handler
+            .execute(&context(Principal::System), DeleteNotificationsCommand)
+            .await;
+
+        assert!(matches!(result, Err(DeleteNotificationsError::Forbidden)));
+        assert!(lock(&deleter.0).calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn should_propagate_deleter_failure() {
+        let deleter = FakeDeleter::default();
+        lock(&deleter.0).fail = true;
+        let handler = DeleteNotificationsHandler::new(deleter);
+
+        let result = handler
+            .execute(
+                &context(Principal::User(UserId::new())),
+                DeleteNotificationsCommand,
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DeleteNotificationsError::DeleteFailed(_))
         ));
     }
 }

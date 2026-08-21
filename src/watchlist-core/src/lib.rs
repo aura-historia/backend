@@ -1,4 +1,4 @@
-use crate::watchlist_state::WatchlistState;
+pub use crate::watchlist_state::WatchlistState;
 use product_core::product_id::ProductId;
 use user_core::user_id::UserId;
 

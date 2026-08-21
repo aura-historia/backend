@@ -29,6 +29,7 @@ impl ScraperServiceImpl {
             schema_count = existing_schemas.len()
         )
     )]
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn append_and_reapply_with_retry(
         &self,
         shop_id: &ShopId,
@@ -111,6 +112,7 @@ impl ScraperServiceImpl {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     async fn handle_generated_page_classification(
         &self,
         shop_id: &ShopId,
@@ -149,6 +151,7 @@ impl ScraperServiceImpl {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn save_removed_page_schema(
         &self,
         shop_id: &ShopId,

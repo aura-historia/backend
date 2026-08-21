@@ -6,11 +6,10 @@
 
 ## Core Design
 
-- `main.rs` reads `LOG_LEVEL`, bootstraps typed `platform-observability` logging, config, and graceful shutdown.
-- `lib.rs` owns runtime config, typed `POSTGRES_*` parsing, axum router, health/readiness endpoints, server loop, and composition root wiring. It uses `platform-postgres` for SQLx pool and transaction mechanics.
+- `main.rs` bootstraps logging, config, and graceful shutdown.
+- `lib.rs` owns runtime config, axum router, health/readiness endpoints, server loop, and composition root wiring.
 - `state.rs` owns axum application state shared by route modules.
 - `error.rs` owns API problem JSON errors.
-- `values.rs` owns crate-private REST currency, price, language, and localized-text DTOs. It preserves legacy JSON spellings and language aliases, then maps to `money` and `localization` at the API boundary.
 - `auth/` owns bearer auth extraction, Cognito JWT verification via cached JWKS, Aura access-token auth, and mapping to `OperationContext`.
 - Auth accepts Cognito access JWTs and Aura access tokens through one interface. Cognito needs `AURA_HISTORIA_COGNITO_ISSUER`, `AURA_HISTORIA_COGNITO_JWKS_URL`, and comma-separated `AURA_HISTORIA_COGNITO_APP_CLIENT_IDS`; it fetches JWKS with bounded cache/refresh. Cognito maps to open-world first-party `Principal::User`; Aura access tokens map explicit scopes to closed-world delegated capabilities.
 - Auth extractors only authenticate. Required capability and business policy checks belong in service/use-case code, not controllers.
@@ -20,7 +19,8 @@
 - `shops/` owns shop REST controllers. Public shop list and detail routes return only `PUBLISHED` shops; partner-application approval publishes its linked shop.
 - `users/` owns account, admin user, and access-token REST controllers.
 - `newsletter/` owns public newsletter subscription REST controller. It uses optional canonical auth and a User service use case; production wiring reads Postgres user-profile fallback data and writes Zoho Campaigns subscriptions.
-- `watchlist/` owns watchlist REST controllers. Product watchlist paths now use `{productId}` only. `GET /api/v1/me/watchlist` uses Postgres-backed `application::pagination::{Cursor, CursoredResult}`; its API-local JSON cursor data keeps the tie-safe `searchAfter` form `[created RFC3339 timestamp, product UUID]`. It returns API-local `PersonalizedData<ProductDetailsData, ProductUserStateData>` entries with `no-store`. Watch creation and inactive-to-active PATCH enforce active-entry quotas: Free 20, Pro 100, Ultimate unlimited.
+- `notifications/` owns authenticated canonical notification list, seen-state update, and deletion REST controllers. It uses PostgreSQL-backed notification service use cases; list items expose a localized immutable reason-specific rendering snapshot but never origin-event or delivery/provider state. Watchlist price changes preserve event source currency and ignore user currency preferences. Product image classifications remain visible, while unsafe image URLs are omitted without the owner’s current prohibited-content consent. Notification item paths use canonical `{notificationId}` values and list pagination uses an opaque JSON `[created RFC3339 timestamp, notification UUID]` cursor.
+- `watchlist/` owns watchlist REST controllers. Product watchlist paths now use `{productId}` only. `GET /api/v1/me/watchlist` uses Postgres-backed `application` `Cursor`/`CursoredResult` pagination and API-local JSON cursor collection data; its tie-safe `searchAfter` is `[created RFC3339 timestamp, product UUID]`. It returns `PersonalizedData<ProductDetailsData, ProductUserStateData>` entries with `no-store`. Watch creation and inactive-to-active PATCH enforce active-entry quotas: Free 20, Pro 100, Ultimate unlimited.
 - `search_filters/` owns Postgres-backed saved-search filter CRUD and match-feedback REST controllers.
 - `billing/` owns authenticated Stripe checkout, portal, and management REST controllers backed by canonical User state and Stripe billing service use cases. Runtime requires `STRIPE_API_KEY`, checkout success/cancel URLs, portal return URL, and configured Pro/Ultimate monthly/yearly price IDs. Gateway deployment still targets legacy `stripe-api` until an Axum runtime ingress cutover is provisioned.
 - `products/` owns canonical product detail, search, immutable history, and similar-product REST controllers. Detail, history, and similar routes use product ID or shop/product slugs. Canonical detail, search, KNN, and watchlist Product values always serialize as `PersonalizedData` with required `item` and optional `userState`. Detail and watchlist use joined Postgres reads; search and KNN use denormalized OpenSearch fields, then service-owned batched Postgres plus DynamoDB hydration for valid user/delegated-user tokens. Image values always expose `prohibitedContent`; unsafe image URLs are omitted without effective consent. Product history uses the no-consent redaction default. Product detail, watchlist, saved-search match, and similar pricing accept a `currency` query (default `EUR`). Full detail returns source and converted display pricing; search/KNN summaries return `displayPrice` plus explicit current-or-sale valuation metadata. Sale valuation is recorded when a Product becomes `SOLD`. Anonymous Product detail cache responses use freshness directives only: no `ETag` or `Last-Modified` validator is emitted because current FX selection can change display pricing.
@@ -47,6 +47,7 @@
 ## Work Guidance
 
 - Keep runtime glue thin.
+- API implements no service port or use case. It only maps HTTP/auth transport and composes adapters from adapter crates. Transport-local auth and readiness traits are allowed.
 - Put business behavior in domain crates and services.
 - Use runtime-neutral request/auth context; no API Gateway context.
 
@@ -60,6 +61,7 @@
 - `shops/` — shop REST controllers.
 - `users/` — user account, admin, and access-token REST controllers.
 - `newsletter/` — public newsletter subscription REST controller.
+- `notifications/` — canonical notification REST controllers.
 - `watchlist/` — watchlist REST controllers.
 - `partner_applications/` — own/admin partner-shop application REST controllers.
 - `partner_products/` — synchronous partner Product batch write controllers.

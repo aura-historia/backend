@@ -6,6 +6,12 @@ This changelog is for internal communication between frontend and backend teams.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2026-08-19 - Product User-State Unseen Notification IDs
+
+### Changed
+
+- **Breaking:** Canonical Product user-state responses now replace `notification.seen` and `notification.originEventId` with required `notification.unseenNotificationIds`: unseen notification UUIDs ordered newest first, or `[]` when none exist.
+
 ## 2026-08-11 - Wire Canonical Google Geocoding
 
 ### Changed
@@ -16,11 +22,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Removed
 
+- **Breaking:** The legacy notification REST shape is replaced in `aura-historia-api`. Item paths now use canonical `{notificationId}` rather than `{eventId}`; list responses omit legacy origin-event, actor, external-delivery, and total fields. The former root `PATCH /api/v1/me/notifications` all-notifications behavior is removed.
+
 - Public Product search no longer accepts `sort=price`. `GET /api/v1/products` rejects it with `400 BAD_SORT_VALUE`; use `score`, `updated`, or `created`.
 - Product detail responses no longer emit `ETag` or `Last-Modified`. Anonymous detail display values can change when their current persisted FX snapshot changes, so they use cache freshness directives without entity validators.
 
 ### Changed
 
+- **Breaking:** Watchlist price-change notifications now preserve the event’s immutable source currency in both REST and email output. The notification list no longer accepts a currency preference, and no FX conversion is applied.
+- **Breaking:** Canonical notification list payloads now include their immutable, localized rendering snapshot. Watchlist and saved-search items include Product/shop identifiers, names, optional localized title/image, URLs, and their reason-specific change data; partner-application items include decision, shop name, and optional image. `kind` remains the top-level discriminator. Origin-event and delivery/provider provenance remain hidden. Timestamps now serialize as RFC 3339.
+- Canonical notification routes now use PostgreSQL-backed notification use cases: `GET`, selected-ID `PATCH`, and `DELETE /api/v1/me/notifications`; `PATCH /api/v1/me/notifications/all`; and item `PATCH`/`DELETE /api/v1/me/notifications/{notificationId}`. All mutations return `204`; list responses are `no-store` and paginate with an opaque JSON `[created RFC3339 timestamp, notification UUID]` `searchAfter` cursor, emitted only when another page exists.
+- Watchlist aggregate writes now use hidden PostgreSQL optimistic-concurrency versions. Stale `PATCH` and `DELETE /api/v1/me/watchlist/{productId}` requests return `409 CONFLICT` instead of overwriting or deleting newer user intent; versions are not exposed in REST payloads.
+- Notification Product image classifications remain in the REST snapshot, while unsafe image URLs are omitted unless the authenticated user’s current prohibited-content consent is enabled.
 - Product search and similar-product summaries now expose breaking `displayPrice` and `priceValuation` fields instead of ambiguous `price`. They accept or inherit the requested display currency (similar defaults to `EUR`); active summaries use one persisted pinned snapshot and sold summaries use immutable sale values. Sold Products without a main source price retain `SALE` valuation metadata but have no display price, no `salePrices`, and never match price ranges.
 - Product detail, watchlist, and saved-search match reads now accept optional `currency` (default `EUR`). Their breaking `pricing` response is `{ source, display, valuation }`: source retains seller amounts, display is converted with HalfUp rounding from a persisted FX snapshot, and valuation states `CURRENT` or `SALE` with `fxRateId`, `capturedAt`, and sale `soldAt` when applicable. Removed flat detail `price`, `priceEstimateMin`, `priceEstimateMax`, and `currency` fields. Missing, invalid, or mismatched FX data fails the whole read; no provider fallback occurs.
 - Product `pricing` and immutable Product event pricing snapshots no longer expose `fxRateId`; they contain source `price`, `priceEstimateMin`, and `priceEstimateMax` only. Product sale valuation is now a separate immutable fact captured from the latest persisted FX snapshot when a Product is created or transitions to `SOLD`. A generic Product update cannot reopen a sold Product; `SOLD` to `REMOVED` preserves the sale valuation. Missing or invalid persisted FX data rejects the sale write.
@@ -31,7 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `aura-historia-api` now serves `PUT /api/v1/newsletter-subscriptions` through the canonical User bounded context. It accepts anonymous, Cognito JWT, or Aura Historia access-token callers; valid authenticated callers retain user-profile fallback for omitted `firstName`, `lastName`, `language`, and `currency` fields. Invalid supplied bearer credentials return `401 INVALID_CREDENTIALS`; Zoho invalid-email responses return `400 INVALID_EMAIL`; temporary provider failures return `503 NEWSLETTER_TEMPORARILY_UNAVAILABLE`; unexpected provider failures return `500 NEWSLETTER_INTERNAL_ERROR`. The legacy `newsletter-api` Lambda remains during migration.
 - Partner application decisions now use the canonical PostgreSQL state machine. `APPROVE` atomically publishes and partners the shop, grants applicant membership, and completes the application. `REJECT` and applicant withdrawal discard the unused draft shop created for a new-shop application.
 - Partner application responses no longer expose Step Functions execution state, and admin review no longer accepts a task token. Decision requests accept only typed `APPROVE` or `REJECT` values; unknown values return `400`.
-- Decision notifications are emitted after commit with the application ID as their idempotent origin key, so retrying a committed decision safely retries notification delivery. This is caller-retry delivery; a durable notification outbox is not yet implemented.
+- Decision notifications are emitted after commit with the application ID as their idempotent origin key. Newly inserted notifications and their durable PostgreSQL delivery intents commit atomically; Sequin routes delivery inserts to the in-memory worker. The post-ack durability limitation remains tracked by #1558.
 - WooCommerce webhook intake now runs in `aura-historia-api` and persists synchronously through one canonical Product intake use case. Partner membership, Shop integration/signature checks, Product/events writes, and the success acknowledgment share one PostgreSQL transaction; successful requests return `204 No Content` only after that transaction commits.
 
 ## 2026-08-12 - Harden Canonical API Transport

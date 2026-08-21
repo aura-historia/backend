@@ -285,6 +285,7 @@ impl<'a> NotificationServiceImpl<'a> {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     async fn resolve_template(
         &self,
         template: MailTemplate,
@@ -322,6 +323,7 @@ impl<'a> NotificationServiceImpl<'a> {
         Ok(template_html)
     }
 
+    #[allow(clippy::result_large_err)]
     async fn send_notification_as_email(
         &self,
         notification: &Notification,

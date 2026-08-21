@@ -5,6 +5,6 @@ edition = "2024"
 
 [dependencies]
 product-lambda-materialize-opensearch = { workspace = true }
-product-lambda-update-notify-user = { workspace = true }
+
 product-lambda-ingest-partner-products = { workspace = true }
 product-lambda-delete-product = { workspace = true }

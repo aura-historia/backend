@@ -2,11 +2,11 @@ use application::error::static_error;
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use application::transaction::{Transaction, UnitOfWork};
 use async_trait::async_trait;
-use notification_service::use_cases::commands::create_notification::{
-    CreateNotificationCommand, CreateNotificationError, CreateNotificationResult,
-    CreateNotificationUseCase,
+use notification_service::ports::notification_creator::{
+    NewNotification, NotificationCreationError, NotificationCreationOutcome, NotificationCreator,
+    NotificationCreatorFactory,
 };
-use platform_postgres::SqlxUnitOfWork;
+use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use shop_core::shop_id::ShopId;
 use shop_core::shop_name::ShopName;
 use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
@@ -44,17 +44,17 @@ const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 #[derive(Clone, Copy, Default)]
 struct FakeNotificationService;
 
+struct FakeNotificationCreator;
+
 #[derive(Clone, Copy, Default)]
 struct FailingMembershipFactory;
 
 struct FailingMembershipRepository;
 
-impl UserPartnerShopMembershipRepositoryFactory<platform_postgres::SqlxTransaction>
-    for FailingMembershipFactory
-{
+impl UserPartnerShopMembershipRepositoryFactory<SqlxTransaction> for FailingMembershipFactory {
     fn in_transaction<'tx>(
         &'tx self,
-        _: &'tx mut platform_postgres::SqlxTransaction,
+        _: &'tx mut SqlxTransaction,
     ) -> impl UserPartnerShopMembershipRepository + 'tx {
         FailingMembershipRepository
     }
@@ -73,13 +73,25 @@ impl UserPartnerShopMembershipRepository for FailingMembershipRepository {
     }
 }
 
+impl NotificationCreatorFactory<SqlxTransaction> for FakeNotificationService {
+    fn in_transaction<'tx>(
+        &'tx self,
+        _: &'tx mut SqlxTransaction,
+    ) -> impl NotificationCreator + 'tx {
+        FakeNotificationCreator
+    }
+}
+
 #[async_trait]
-impl CreateNotificationUseCase for FakeNotificationService {
-    async fn execute(
-        &self,
-        _: CreateNotificationCommand,
-    ) -> Result<CreateNotificationResult, CreateNotificationError> {
-        Ok(CreateNotificationResult::AlreadyExists)
+impl NotificationCreator for FakeNotificationCreator {
+    async fn create_many(
+        &mut self,
+        notifications: &[NewNotification],
+    ) -> Result<Vec<NotificationCreationOutcome>, NotificationCreationError> {
+        Ok(notifications
+            .iter()
+            .map(|_| NotificationCreationOutcome::Duplicate)
+            .collect())
     }
 }
 

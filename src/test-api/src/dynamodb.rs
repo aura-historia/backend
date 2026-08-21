@@ -7,6 +7,7 @@ use aws_sdk_dynamodb::types::{
     AttributeDefinition, BillingMode, GlobalSecondaryIndex, KeySchemaElement, KeyType,
     LocalSecondaryIndex, Projection, ProjectionType, PutRequest, TableClass, WriteRequest,
 };
+use common::error::boxed::BoxError;
 use serde::Serialize;
 use std::collections::HashMap;
 use tokio::sync::OnceCell;
@@ -17,8 +18,6 @@ use tracing::debug;
 /// This `OnceCell` ensures that the client is only created once during the test lifecycle,
 /// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
 static DYNAMODB_CLIENT: OnceCell<Client> = OnceCell::const_new();
-
-type DynamoDbResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Returns a shared `aws_sdk_dynamodb::Client` for interacting with LocalStack.
 ///
@@ -66,7 +65,7 @@ impl IntegrationTestService for DynamoDB {
     }
 }
 
-async fn set_up_tables() -> DynamoDbResult<()> {
+async fn set_up_tables() -> Result<(), BoxError> {
     set_up_table_1()
         .await
         .expect("shouldn't fail setting up table 'products'");
@@ -76,7 +75,7 @@ async fn set_up_tables() -> DynamoDbResult<()> {
     Ok(())
 }
 
-async fn set_up_table_1() -> DynamoDbResult<()> {
+async fn set_up_table_1() -> Result<(), BoxError> {
     let client = get_dynamodb_client().await;
 
     // Check if table already exists
@@ -372,7 +371,7 @@ async fn set_up_table_1() -> DynamoDbResult<()> {
 /// This function scans the table and deletes all items in batches.
 /// Accepts a `table_name` parameter so it can be reused for any table,
 /// including those created by a CloudFormation stack with a dynamic name.
-pub(crate) async fn clear_table_data(table_name: &str) -> DynamoDbResult<()> {
+pub(crate) async fn clear_table_data(table_name: &str) -> Result<(), BoxError> {
     use aws_sdk_dynamodb::types::{AttributeValue, DeleteRequest};
 
     let client = get_dynamodb_client().await;

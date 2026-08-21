@@ -240,6 +240,8 @@ impl<'a> GetShopService for GetShopServiceImpl<'a> {
 }
 
 impl<'a> GetShopServiceImpl<'a> {
+    // Keep the legacy AWS error-by-value API stable until the shop crate is retired.
+    #[allow(clippy::result_large_err)]
     async fn find_shops_with_unprocessed(
         &self,
         shop_ids: Vec<ShopId>,

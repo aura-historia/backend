@@ -7,8 +7,8 @@
 ## Core Design
 
 - Parent crate for async product workers.
-- Child crates: `product-lambda-delete-product`, `product-lambda-ingest-partner-products`, `product-lambda-materialize-opensearch`, `product-lambda-update-notify-user`.
-- Main neighbors: `product-lambda-delete-product`, `product-lambda-ingest-partner-products`, `product-lambda-materialize-opensearch`, `product-lambda-update-notify-user`.
+- Child crates: `product-lambda-delete-product`, `product-lambda-ingest-partner-products`, `product-lambda-materialize-opensearch`.
+- Main neighbors: `product-lambda-delete-product`, `product-lambda-ingest-partner-products`, `product-lambda-materialize-opensearch`.
 - Parent crate exists to group child executables or suites and keep their map discoverable.
 
 ## Ownership
@@ -38,4 +38,3 @@
 - `src/product-lambda/src/product-lambda-delete-product/AGENTS.md` — `product-lambda-delete-product` crate.
 - `src/product-lambda/src/product-lambda-ingest-partner-products/AGENTS.md` — `product-lambda-ingest-partner-products` crate.
 - `src/product-lambda/src/product-lambda-materialize-opensearch/AGENTS.md` — `product-lambda-materialize-opensearch` crate.
-- `src/product-lambda/src/product-lambda-update-notify-user/AGENTS.md` — `product-lambda-update-notify-user` crate.

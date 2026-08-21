@@ -2,8 +2,7 @@ use crate::ports::{ProductUserStateLookup, ProductUserStateReadError, ProductUse
 use crate::use_cases::queries::search_products::PersonalizedProductSummary;
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use localization::Language;
-use localization::Localized;
+use localization::{Language, Localized};
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
 use product_core::product_slug_id::ProductSlugId;
@@ -14,12 +13,9 @@ use shop_core::shop_name::ShopName;
 use shop_core::shop_slug_id::ShopSlugId;
 use user_core::user_id::UserId;
 
-use crate::user_state::NotificationUserState;
-use notification_service::ports::all_notifications_reader::{
-    AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
-};
 use product_core::title::Title;
-use std::collections::{HashMap, HashSet};
+
+use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -35,11 +31,7 @@ pub(crate) enum ProductSummaryPersonalizationError {
         #[source]
         source: BoxError,
     },
-    #[error("product notification read failed")]
-    NotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("product user state is missing for product {product_id}")]
     UserStateMissing { product_id: ProductId },
     #[error("hidden product summary could not be constructed")]
@@ -49,15 +41,13 @@ pub(crate) enum ProductSummaryPersonalizationError {
     },
 }
 
-pub(crate) async fn hydrate_product_summaries<U, N>(
+pub(crate) async fn hydrate_product_summaries<U>(
     products: &mut [PersonalizedProductSummary],
     user_id: UserId,
     user_states: &U,
-    notifications: &N,
 ) -> Result<(), ProductSummaryPersonalizationError>
 where
     U: ProductUserStateReader,
-    N: AllNotificationsReader,
 {
     if products.is_empty() {
         return Ok(());
@@ -72,31 +62,18 @@ where
             .into_iter()
             .collect(),
     };
-    let user_states_future = async {
-        user_states
-            .find_for_user(&lookup)
-            .await
-            .map_err(ProductSummaryPersonalizationError::from)
-    };
-    let notifications_future = async {
-        notifications
-            .list_all_by_user(&user_id)
-            .await
-            .map_err(ProductSummaryPersonalizationError::from)
-    };
-    let (user_states, notifications) = tokio::try_join!(user_states_future, notifications_future)?;
-    let newest_notifications = newest_notifications_by_product(notifications);
+    let user_states = user_states
+        .find_for_user(&lookup)
+        .await
+        .map_err(ProductSummaryPersonalizationError::from)?;
 
     for product in products {
-        let mut user_state = user_states.get(&product.item.product_id).cloned().ok_or(
+        let user_state = user_states.get(&product.item.product_id).cloned().ok_or(
             ProductSummaryPersonalizationError::UserStateMissing {
                 product_id: product.item.product_id,
             },
         )?;
-        user_state.notification = newest_notifications
-            .get(&product.item.product_id)
-            .copied()
-            .unwrap_or_default();
+
         let hidden = user_state.search_filter.hidden;
         product.user_state = Some(user_state);
         if hidden {
@@ -105,31 +82,6 @@ where
     }
 
     Ok(())
-}
-
-fn newest_notifications_by_product(
-    notifications: Vec<AllNotificationsReadItem>,
-) -> HashMap<ProductId, NotificationUserState> {
-    let mut newest = HashMap::new();
-
-    for notification in notifications {
-        let Some(product_id) = notification.product_id() else {
-            continue;
-        };
-        let state = NotificationUserState {
-            seen: notification.seen,
-            origin_event_id: Some(notification.origin_event_id),
-        };
-        let replace = newest
-            .get(&product_id)
-            .and_then(|current: &NotificationUserState| current.origin_event_id)
-            .is_none_or(|current_event_id| notification.origin_event_id > current_event_id);
-        if replace {
-            newest.insert(product_id, state);
-        }
-    }
-
-    newest
 }
 
 fn redact_hidden_product_summary(
@@ -187,14 +139,6 @@ impl From<ProductUserStateReadError> for ProductSummaryPersonalizationError {
             ProductUserStateReadError::InvalidReadModel { source } => {
                 Self::UserStateReadModelInvalid { source }
             }
-        }
-    }
-}
-
-impl From<AllNotificationsReadError> for ProductSummaryPersonalizationError {
-    fn from(error: AllNotificationsReadError) -> Self {
-        Self::NotificationReadFailed {
-            source: box_error(error),
         }
     }
 }

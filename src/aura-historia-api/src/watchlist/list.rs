@@ -160,6 +160,7 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use application::error::static_error;
     use application::operation_context::OperationContext;
     use application::personalized::Personalized;
     use axum::Router;
@@ -168,6 +169,7 @@ mod tests {
     use domain_primitives::event_id::EventId;
     use fxrate_core::FxRateId;
     use localization::Language;
+    use money::Currency;
     use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
     use product_core::product_id::ProductId;
     use product_core::product_lifecycle::ProductLifecycle;
@@ -221,7 +223,9 @@ mod tests {
             _context: &OperationContext,
             _command: WatchProductCommand,
         ) -> Result<WatchProductResult, WatchProductError> {
-            Err(WatchProductError::TemporarilyUnavailable)
+            Err(WatchProductError::TemporarilyUnavailable {
+                source: static_error("unused watch product use case"),
+            })
         }
     }
 
@@ -233,7 +237,9 @@ mod tests {
             _context: &OperationContext,
             _command: UpdateWatchlistProductCommand,
         ) -> Result<UpdateWatchlistProductResult, UpdateWatchlistProductError> {
-            Err(UpdateWatchlistProductError::TemporarilyUnavailable)
+            Err(UpdateWatchlistProductError::TemporarilyUnavailable {
+                source: static_error("unused update watchlist product use case"),
+            })
         }
     }
 
@@ -245,7 +251,9 @@ mod tests {
             _context: &OperationContext,
             _command: UnwatchProductCommand,
         ) -> Result<UnwatchProductResult, UnwatchProductError> {
-            Err(UnwatchProductError::TemporarilyUnavailable)
+            Err(UnwatchProductError::TemporarilyUnavailable {
+                source: static_error("unused unwatch product use case"),
+            })
         }
     }
 
@@ -386,13 +394,16 @@ mod tests {
             product_id.to_string(),
             body["items"][0]["item"]["productId"]
         );
-        assert_eq!(true, body["items"][0]["userState"]["notification"]["seen"]);
+        assert_eq!(
+            serde_json::json!([]),
+            body["items"][0]["userState"]["notification"]["unseenNotificationIds"]
+        );
         assert!(matches!(
             lock(&requests)[0].1,
             ListWatchlistRequest {
                 user_id: actual_user_id,
                 language: Language::De,
-                currency: money::Currency::Eur,
+                currency: Currency::Eur,
                 cursor: Cursor { size: 21, search_after: None },
             } if actual_user_id == user_id
         ));

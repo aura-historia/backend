@@ -2727,7 +2727,7 @@ paths:
                       prohibitedContent:
                         consent: false
                       notification:
-                        seen: true
+                        unseenNotificationIds: []
                       searchFilter:
                         matched: true
                         hidden: false
@@ -3308,7 +3308,7 @@ paths:
                       prohibitedContent:
                         consent: false
                       notification:
-                        seen: true
+                        unseenNotificationIds: []
                       searchFilter:
                         matched: false
                         hidden: false
@@ -5235,6 +5235,17 @@ paths:
                 status: 404
                 title: "Not Found"
                 error: "WATCHLIST_ENTRY_NOT_FOUND"
+        "409":
+          description: Watchlist entry was changed concurrently
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: "Conflict"
+                error: "CONFLICT"
+                detail: "Watchlist entry was changed concurrently."
         "500":
           description: Internal server error
           content:
@@ -5358,7 +5369,7 @@ paths:
                   prohibitedContent:
                     consent: false
                   notification:
-                    seen: true
+                    unseenNotificationIds: []
         "400":
           description: Bad request - invalid parameters or body
           content:
@@ -5430,6 +5441,17 @@ paths:
                 title: "Unprocessable Content"
                 error: "WATCHLIST_QUOTA_EXCEEDED"
                 detail: "Exceeded the maximum amount of watchlist entries. There are already 20/20 active watchlist entries occupied."
+        "409":
+          description: Watchlist entry was changed concurrently
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: "Conflict"
+                error: "CONFLICT"
+                detail: "Watchlist entry was changed concurrently."
         "500":
           description: Internal server error
           content:
@@ -5445,538 +5467,291 @@ paths:
     get:
       summary: List user notifications
       description: |
-        Retrieves the authenticated user's notifications, sorted latest-first.
-        Results are paginated using search-after cursor-based pagination with an event ID cursor.
-        Requires valid Cognito JWT authentication.
-      operationId: getNotifications
-      tags:
-        - Notifications
+        Retrieves the authenticated user’s canonical notifications in newest-first order.
+        Watchlist price-change notifications preserve each event’s immutable source currency; no FX conversion
+        is applied from the user’s preferences. Product image classifications remain visible; unsafe image URLs
+        are omitted unless the authenticated user’s current prohibited-content consent is enabled.
+      operationId: listNotifications
+      tags: [Notifications]
       parameters:
-        - name: language
-          in: query
-          required: false
-          description: |
-            Preferred language for localized content.
-            Defaults to `en` when omitted.
-          schema:
-            $ref: "#/components/schemas/LanguageData"
-          example: de
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display in notification payloads.
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
+        - {
+            name: language,
+            in: query,
+            required: false,
+            schema: { $ref: "#/components/schemas/LanguageData" },
+          }
+        - {
+            name: size,
+            in: query,
+            required: false,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 21 },
+          }
         - name: searchAfter
           in: query
           required: false
-          description: |
-            Event ID cursor for pagination (UUID string).
-            Pass the `searchAfter` value from the previous response to retrieve the next page.
-          schema:
-            type: string
-            format: uuid
-          example: "550e8400-e29b-41d4-a716-446655440001"
-        - name: size
-          in: query
-          required: false
-          description: Maximum number of notifications to return per page (capped at 100).
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-          example: 21
-      security:
-        - BearerAuth: []
+          description: Opaque JSON `[created RFC3339 timestamp, notification UUID]` cursor returned by the prior page.
+          schema: { type: string }
+      security: [{ BearerAuth: [] }, { AccessTokenAuth: [] }]
       responses:
         "200":
           description: Notifications retrieved successfully.
           headers:
-            Cache-Control:
-              description: Caching directive. Always set to `no-store`.
-              schema:
-                type: string
-              example: "no-store"
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
+            Cache-Control: { schema: { type: string }, example: no-store }
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/NotificationCollectionData"
-              example:
-                items:
-                  - originEventId: "550e8400-e29b-41d4-a716-446655440001"
-                    notificationId: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
-                    payload:
-                      type: "WATCHLIST"
-                      productId: "550e8400-e29b-41d4-a716-446655440000"
-                      shopId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                      shopsProductId: "ABC123"
-                      shopSlugId: "tech-store"
-                      productSlugId: "amazing-product-fa87c4"
-                      shopName: "Tech Store"
-                      title:
-                        text: "Amazing Product"
-                        language: "en"
-                      url: "https://tech-store.example/products/amazing-product"
-                      viewUrl: "https://tech-store.example/products/amazing-product?utm_source=aura_historia&utm_medium=referral"
-                      watchlistPayload:
-                        type: "PRICE_CHANGE"
-                        oldPrice:
-                          currency: "EUR"
-                          amount: 5000
-                        newPrice:
-                          currency: "EUR"
-                          amount: 4500
-                    seen: false
-                    external: false
-                    created: "2024-01-15T08:00:00Z"
-                    updated: "2024-01-15T08:00:00Z"
-                size: 1
-                searchAfter: null
-                total: 1
+              {
+                schema:
+                  { $ref: "#/components/schemas/NotificationCollectionData" },
+              }
         "400":
-          description: Bad request – invalid query parameters.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                invalid_language:
-                  summary: Invalid language value
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_QUERY_PARAMETER_VALUE"
-                    source:
-                      field: "language"
-                      sourceType: "query"
-                    detail: "Expected any of: 'de', 'en', 'fr', 'it', 'nl', 'pl', 'es'. Got: 'invalid'"
-                invalid_search_after:
-                  summary: Invalid searchAfter UUID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "INVALID_UUID"
-                    source:
-                      field: "searchAfter"
-                      sourceType: "query"
-                    detail: "invalid character in UUID"
+          {
+            description: Bad request,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
         "401":
-          description: Unauthorized – invalid or missing JWT token.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 401
-                title: "Unauthorized"
-                error: "UNAUTHORIZED"
-        "500":
-          description: Internal server error.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+          {
+            description: Invalid or missing bearer credential,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "503":
+          {
+            description: Notifications are temporarily unavailable,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
     patch:
-      summary: Update all notifications
-      description: |
-        Updates all notifications for the authenticated user.
-        Accepts an optional `PatchNotificationData` body. If the body is omitted or empty,
-        the update command defaults to no-op field values (e.g. `seen` remains unchanged).
-        Returns the first page of the updated notifications, localized by the given `language` and `currency` query parameters.
-        Requires valid Cognito JWT authentication.
-      operationId: patchAllNotifications
-      tags:
-        - Notifications
-      parameters:
-        - name: language
-          in: query
-          required: false
-          description: |
-            Preferred language for localized content in the response.
-            Defaults to `en` when omitted.
-          schema:
-            $ref: "#/components/schemas/LanguageData"
-          example: de
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display in notification payloads of the response.
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: false
-        description: |
-          Optional patch fields to apply to all notifications.
-          If the body is omitted entirely, all fields default to their zero/null values
-          (for `seen`: no change is applied).
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PatchNotificationData"
-            examples:
-              mark_all_seen:
-                summary: Mark all notifications as seen
-                value:
-                  seen: true
-              no_body:
-                summary: No body – no-op patch
-                value: {}
-      responses:
-        "200":
-          description: Notifications updated successfully. Returns the first page of updated notifications.
-          headers:
-            Cache-Control:
-              description: Caching directive. Always set to `no-store`.
-              schema:
-                type: string
-              example: "no-store"
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NotificationCollectionData"
-              example:
-                items: []
-                size: 0
-                searchAfter: null
-                total: 0
-        "400":
-          description: Bad request – malformed request body or invalid query parameters.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 400
-                title: "Bad Request"
-                error: "BAD_BODY_VALUE"
-                detail: "Expected object. Got: string"
-        "401":
-          description: Unauthorized – invalid or missing JWT token.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 401
-                title: "Unauthorized"
-                error: "UNAUTHORIZED"
-        "500":
-          description: Internal server error.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
-    delete:
-      summary: Delete all notifications
-      description: |
-        Deletes all notifications for the authenticated user.
-        Returns 204 No Content on success.
-        Requires valid Cognito JWT authentication.
-      operationId: deleteAllNotifications
-      tags:
-        - Notifications
-      security:
-        - BearerAuth: []
-      responses:
-        "204":
-          description: All notifications deleted successfully.
-          headers:
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-        "401":
-          description: Unauthorized – invalid or missing JWT token.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 401
-                title: "Unauthorized"
-                error: "UNAUTHORIZED"
-        "500":
-          description: Internal server error.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
-
-  /api/v1/me/notifications/{eventId}:
-    patch:
-      summary: Update a single notification
-      description: |
-        Updates the fields of a single notification identified by `eventId`.
-        The request body is required and must contain at least one field.
-        Returns the updated, localized notification.
-        Requires valid Cognito JWT authentication.
-      operationId: patchNotification
-      tags:
-        - Notifications
-      parameters:
-        - name: eventId
-          in: path
-          required: true
-          description: The event ID (UUID) of the notification to update.
-          schema:
-            type: string
-            format: uuid
-          example: "550e8400-e29b-41d4-a716-446655440001"
-        - name: language
-          in: query
-          required: false
-          description: |
-            Preferred language for localized content in the response.
-            Defaults to `en` when omitted.
-          schema:
-            $ref: "#/components/schemas/LanguageData"
-          example: de
-        - name: currency
-          in: query
-          required: false
-          description: Currency for price display in notification payloads of the response.
-          schema:
-            $ref: "#/components/schemas/CurrencyData"
-          example: EUR
-      security:
-        - BearerAuth: []
+      summary: Update selected notification seen states
+      description: Updates the seen state for the explicit canonical notification IDs in the request body.
+      operationId: updateNotificationsSeen
+      tags: [Notifications]
+      security: [{ BearerAuth: [] }, { AccessTokenAuth: [] }]
       requestBody:
         required: true
-        description: Patch fields to apply to the notification.
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/PatchNotificationData"
-            example:
-              seen: true
+            {
+              schema:
+                { $ref: "#/components/schemas/UpdateNotificationsSeenData" },
+            }
       responses:
-        "200":
-          description: Notification updated successfully. Returns the updated notification.
-          headers:
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GetNotificationData"
-              example:
-                originEventId: "550e8400-e29b-41d4-a716-446655440001"
-                notificationId: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
-                payload:
-                  type: "WATCHLIST"
-                  productId: "550e8400-e29b-41d4-a716-446655440000"
-                  shopId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-                  shopsProductId: "ABC123"
-                  shopSlugId: "tech-store"
-                  productSlugId: "amazing-product-fa87c4"
-                  shopName: "Tech Store"
-                  title:
-                    text: "Amazing Product"
-                    language: "en"
-                  url: "https://tech-store.example/products/amazing-product"
-                  viewUrl: "https://tech-store.example/products/amazing-product?utm_source=aura_historia&utm_medium=referral"
-                  watchlistPayload:
-                    type: "PRICE_CHANGE"
-                    oldPrice:
-                      currency: "EUR"
-                      amount: 5000
-                    newPrice:
-                      currency: "EUR"
-                      amount: 4500
-                seen: true
-                external: false
-                created: "2024-01-15T08:00:00Z"
-                updated: "2024-01-15T09:00:00Z"
+        "204": { description: Selected notifications updated. }
         "400":
-          description: Bad request – missing or invalid path parameter or request body.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_event_id:
-                  summary: Missing eventId path parameter
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "eventId"
-                      sourceType: "path"
-                    detail: "Missing field 'eventId'."
-                invalid_event_id:
-                  summary: Invalid eventId UUID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "INVALID_UUID"
-                    source:
-                      field: "eventId"
-                      sourceType: "path"
-                    detail: "invalid character in UUID"
-                missing_body:
-                  summary: Missing request body
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Body cannot be empty"
-                invalid_body:
-                  summary: Invalid request body
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_BODY_VALUE"
-                    detail: "Expected object. Got: string"
+          {
+            description: Bad request,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
         "401":
-          description: Unauthorized – invalid or missing JWT token.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 401
-                title: "Unauthorized"
-                error: "UNAUTHORIZED"
-        "404":
-          description: Not found – no notification with the given event ID exists for this user.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 404
-                title: "Not Found"
-                error: "NOTIFICATION_NOT_FOUND"
-                detail: "Notification not found."
-        "500":
-          description: Internal server error.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+          {
+            description: Invalid or missing bearer credential,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "503":
+          {
+            description: Notifications are temporarily unavailable,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
     delete:
-      summary: Delete a single notification
-      description: |
-        Deletes the notification identified by `eventId` for the authenticated user.
-        Returns 204 No Content on success.
-        Returns 404 if no notification with the given event ID exists for this user.
-        Requires valid Cognito JWT authentication.
-      operationId: deleteNotification
-      tags:
-        - Notifications
-      parameters:
-        - name: eventId
-          in: path
-          required: true
-          description: The event ID (UUID) of the notification to delete.
-          schema:
-            type: string
-            format: uuid
-          example: "550e8400-e29b-41d4-a716-446655440001"
-      security:
-        - BearerAuth: []
+      summary: Delete all notifications
+      operationId: deleteNotifications
+      tags: [Notifications]
+      security: [{ BearerAuth: [] }, { AccessTokenAuth: [] }]
       responses:
-        "204":
-          description: Notification deleted successfully.
-          headers:
-            Access-Control-Allow-Origin:
-              description: CORS header
-              schema:
-                type: string
-              example: "*"
-        "400":
-          description: Bad request – missing or invalid path parameter.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              examples:
-                missing_event_id:
-                  summary: Missing eventId path parameter
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "BAD_PATH_PARAMETER_VALUE"
-                    source:
-                      field: "eventId"
-                      sourceType: "path"
-                    detail: "Missing field 'eventId'."
-                invalid_event_id:
-                  summary: Invalid eventId UUID
-                  value:
-                    status: 400
-                    title: "Bad Request"
-                    error: "INVALID_UUID"
-                    source:
-                      field: "eventId"
-                      sourceType: "path"
-                    detail: "invalid character in UUID"
+        "204": { description: Notifications deleted. }
         "401":
-          description: Unauthorized – invalid or missing JWT token.
-          content:
-            application/problem+json:
+          {
+            description: Invalid or missing bearer credential,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "503":
+          {
+            description: Notifications are temporarily unavailable,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+
+  /api/v1/me/notifications/all:
+    patch:
+      summary: Update all notification seen states
+      operationId: updateAllNotificationsSeen
+      tags: [Notifications]
+      security: [{ BearerAuth: [] }, { AccessTokenAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            {
               schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 401
-                title: "Unauthorized"
-                error: "UNAUTHORIZED"
+                { $ref: "#/components/schemas/UpdateNotificationSeenData" },
+            }
+      responses:
+        "204": { description: Notifications updated. }
+        "400":
+          {
+            description: Bad request,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "401":
+          {
+            description: Invalid or missing bearer credential,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "503":
+          {
+            description: Notifications are temporarily unavailable,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+
+  /api/v1/me/notifications/{notificationId}:
+    patch:
+      summary: Update one notification seen state
+      operationId: updateNotificationSeen
+      tags: [Notifications]
+      security: [{ BearerAuth: [] }, { AccessTokenAuth: [] }]
+      parameters:
+        - {
+            name: notificationId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            {
+              schema:
+                { $ref: "#/components/schemas/UpdateNotificationSeenData" },
+            }
+      responses:
+        "204": { description: Notification updated. }
+        "400":
+          {
+            description: Bad request,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "401":
+          {
+            description: Invalid or missing bearer credential,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "503":
+          {
+            description: Notifications are temporarily unavailable,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
         "404":
-          description: Not found – no notification with the given event ID exists for this user.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 404
-                title: "Not Found"
-                error: "NOTIFICATION_NOT_FOUND"
-                detail: "Notification not found."
-        "500":
-          description: Internal server error.
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: "Internal Server Error"
-                error: "INTERNAL_SERVER_ERROR"
+          {
+            description: Notification not found,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+    delete:
+      summary: Delete one notification
+      operationId: deleteNotification
+      tags: [Notifications]
+      security: [{ BearerAuth: [] }, { AccessTokenAuth: [] }]
+      parameters:
+        - {
+            name: notificationId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      responses:
+        "204": { description: Notification deleted. }
+        "400":
+          {
+            description: Bad request,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "401":
+          {
+            description: Invalid or missing bearer credential,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "503":
+          {
+            description: Notifications are temporarily unavailable,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
+        "404":
+          {
+            description: Notification not found,
+            content:
+              {
+                application/problem+json:
+                  { schema: { $ref: "#/components/schemas/ApiError" } },
+              },
+          }
 
   /api/v1/newsletter-subscriptions:
     put:
@@ -10394,26 +10169,17 @@ components:
 
     NotificationUserStateData:
       type: object
-      description: |
-        User's newest notification state for a product. The newest notification is selected from the
-        notification product index; it is not an aggregate "any unseen" flag. `seen` defaults to
-        `true` and `originEventId` is omitted when no notification exists.
+      description: Unseen notification IDs for this product, ordered newest first.
       required:
-        - seen
+        - unseenNotificationIds
       properties:
-        seen:
-          type: boolean
-          description: Whether the newest notification for this product has been seen by the user. Defaults to `true` when no notifications exist.
-          default: true
-          example: true
-        originEventId:
-          type: string
-          format: uuid
-          description: |
-            The ID of the domain event that triggered the latest notification for this product.
-            Present whenever at least one notification exists for the user on this product (seen or unseen).
-            Absent (`undefined` / omitted) when no notifications exist for this product.
-          example: "550e8400-e29b-41d4-a716-446655440001"
+        unseenNotificationIds:
+          type: array
+          description: Every unseen notification UUID for this product. Empty when none exist.
+          default: []
+          items:
+            type: string
+            format: uuid
 
     SearchFilterUserStateData:
       type: object
@@ -11194,7 +10960,7 @@ components:
           type: boolean
           nullable: true
           description: |
-            Whether to enable or disable email/push notifications for new products matching this search filter.
+            Whether to enable or disable email notifications for new products matching this search filter.
             When `true`, the user will be notified when a new product matches this filter.
             When `false`, no notifications are sent for this filter.
             Omit to leave unchanged.
@@ -13681,393 +13447,171 @@ components:
         - ADMIN
       example: "USER"
 
-    GetNotificationData:
+    NotificationData:
       type: object
-      description: A single user notification, fully localized for the requested language and currency.
-      required:
-        - originEventId
-        - notificationId
-        - payload
-        - seen
-        - external
-        - createdBy
-        - updatedBy
-        - created
-        - updated
+      required: [notificationId, kind, payload, seen, created, updated]
       properties:
-        originEventId:
+        notificationId: { type: string, format: uuid }
+        kind:
           type: string
-          format: uuid
-          description: The ID of the domain event that triggered this notification.
-          example: "550e8400-e29b-41d4-a716-446655440001"
-        notificationId:
-          type: string
-          format: uuid
-          description: Unique identifier of this notification record.
-          example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
-        payload:
-          $ref: "#/components/schemas/NotificationPayloadData"
-        seen:
-          type: boolean
-          description: Whether the user has seen this notification.
-          example: false
-        external:
-          type: boolean
-          description: Whether the notification has been sent externally to the user via a third-party medium (e.g. mail, SMS). `true` means it was sent externally; `false` means it was not.
-          example: false
-        createdBy:
-          $ref: "#/components/schemas/ActorData"
-        updatedBy:
-          $ref: "#/components/schemas/ActorData"
-        created:
-          type: string
-          format: date-time
-          description: When the notification was created (RFC3339 format).
-          example: "2024-01-15T08:00:00Z"
-        updated:
-          type: string
-          format: date-time
-          description: When the notification was last updated (RFC3339 format).
-          example: "2024-01-15T08:00:00Z"
+          enum:
+            [
+              WATCHLIST_PRICE_CHANGED,
+              WATCHLIST_STATE_CHANGED,
+              SEARCH_FILTER_MATCH,
+              PARTNER_APPLICATION_APPROVED,
+              PARTNER_APPLICATION_REJECTED,
+            ]
+        payload: { $ref: "#/components/schemas/NotificationPayloadData" }
+        seen: { type: boolean }
+        created: { type: string, format: date-time }
+        updated: { type: string, format: date-time }
 
     NotificationPayloadData:
-      description: |
-        The notification payload. The structure depends on the `type` discriminator field:
-        - `WATCHLIST`: Notification triggered by a watchlist event (price change or state change).
-        - `SEARCH_FILTER`: Notification triggered when a new product matches a user's search filter.
-        - `PARTNER_APPLICATION`: Notification triggered when a partner shop application is approved or rejected.
+      description: Reason-specific immutable snapshot. Its shape is selected by the parent `NotificationData.kind`.
       oneOf:
         - $ref: "#/components/schemas/WatchlistNotificationPayloadData"
         - $ref: "#/components/schemas/SearchFilterNotificationPayloadData"
         - $ref: "#/components/schemas/PartnerApplicationNotificationPayloadData"
-      discriminator:
-        propertyName: type
-        mapping:
-          WATCHLIST: "#/components/schemas/WatchlistNotificationPayloadData"
-          SEARCH_FILTER: "#/components/schemas/SearchFilterNotificationPayloadData"
-          PARTNER_APPLICATION: "#/components/schemas/PartnerApplicationNotificationPayloadData"
 
     WatchlistNotificationPayloadData:
       type: object
-      description: Notification payload for a watchlist event.
       required:
-        - type
-        - productId
-        - shopId
-        - shopsProductId
-        - shopSlugId
-        - productSlugId
-        - shopName
-        - title
-        - url
-        - viewUrl
-        - watchlistPayload
+        [
+          productId,
+          shopId,
+          shopsProductId,
+          shopSlugId,
+          productSlugId,
+          shopName,
+          title,
+          image,
+          url,
+          viewUrl,
+          change,
+        ]
       properties:
-        type:
-          type: string
-          enum: [WATCHLIST]
-          description: Discriminator field identifying this as a watchlist notification.
-        productId:
-          type: string
-          format: uuid
-          description: Internal product identifier.
-          example: "550e8400-e29b-41d4-a716-446655440000"
-        shopId:
-          type: string
-          format: uuid
-          description: Unique identifier of the shop.
-          example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-        shopsProductId:
-          type: string
-          description: Shop's own identifier for the product.
-          example: "ABC123"
-        shopSlugId:
-          type: string
-          description: URL-friendly slug identifier for the shop.
-          example: "tech-store"
-        productSlugId:
-          type: string
-          description: URL-friendly slug identifier for the product (6-character suffix).
-          example: "amazing-product-fa87c4"
-        shopName:
-          type: string
-          description: Display name of the shop.
-          example: "Tech Store"
+        productId: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        shopsProductId: { type: string }
+        shopSlugId: { type: string }
+        productSlugId: { type: string }
+        shopName: { type: string }
         title:
-          $ref: "#/components/schemas/LocalizedTextData"
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
+          nullable: true
         image:
-          allOf:
-            - $ref: "#/components/schemas/ProductImageData"
+          allOf: [{ $ref: "#/components/schemas/ProductImageData" }]
           nullable: true
-          description: |
-            The first image of the product at the time the notification was generated.
-            Absent when the product had no images. The URL is always included (prohibited content filtering is skipped for notifications).
-        url:
-          type: string
-          format: uri
-          description: Raw URL to the product on the shop's website.
-        viewUrl:
-          type: string
-          format: uri
-          description: Tracked or affiliate URL generated by the backend for user-facing navigation to the product.
-        watchlistPayload:
-          $ref: "#/components/schemas/WatchlistPayloadData"
+        url: { type: string, format: uri }
+        viewUrl: { type: string, format: uri }
+        change: { $ref: "#/components/schemas/WatchlistNotificationChangeData" }
 
-    WatchlistPayloadData:
-      description: |
-        The watchlist-specific sub-payload. The structure depends on the `type` discriminator field:
-        - `PRICE_CHANGE`: A price change event. Both `oldPrice` and `newPrice` are optional (absent when the price was not available in the requested currency).
-        - `STATE_CHANGE`: A product state change event. Both `oldState` and `newState` are always present.
+    WatchlistNotificationChangeData:
       oneOf:
-        - $ref: "#/components/schemas/PriceChangeWatchlistPayloadData"
-        - $ref: "#/components/schemas/StateChangeWatchlistPayloadData"
-      discriminator:
-        propertyName: type
-        mapping:
-          PRICE_CHANGE: "#/components/schemas/PriceChangeWatchlistPayloadData"
-          STATE_CHANGE: "#/components/schemas/StateChangeWatchlistPayloadData"
+        - $ref: "#/components/schemas/WatchlistNotificationPriceChangeData"
+        - $ref: "#/components/schemas/WatchlistNotificationStateChangeData"
 
-    PriceChangeWatchlistPayloadData:
+    WatchlistNotificationPriceChangeData:
       type: object
-      description: Watchlist payload for a price change notification.
-      required:
-        - type
+      required: [type, oldPrice, newPrice]
       properties:
-        type:
-          type: string
-          enum: [PRICE_CHANGE]
-          description: Discriminator field identifying this as a price-change watchlist payload.
+        type: { type: string, enum: [PRICE_CHANGE] }
         oldPrice:
-          allOf:
-            - $ref: "#/components/schemas/PriceData"
+          allOf: [{ $ref: "#/components/schemas/PriceData" }]
           nullable: true
-          description: Previous price in the requested currency. Absent when price was unavailable in that currency.
+          description: Previous event price, preserving its source currency. Null when unavailable.
         newPrice:
-          allOf:
-            - $ref: "#/components/schemas/PriceData"
+          allOf: [{ $ref: "#/components/schemas/PriceData" }]
           nullable: true
-          description: New price in the requested currency. Absent when price is unavailable in that currency.
+          description: New event price, preserving its source currency. Null when unavailable.
 
-    StateChangeWatchlistPayloadData:
+    WatchlistNotificationStateChangeData:
       type: object
-      description: Watchlist payload for a product state change notification.
-      required:
-        - type
-        - oldState
-        - newState
+      required: [type, oldState, newState]
       properties:
-        type:
-          type: string
-          enum: [STATE_CHANGE]
-          description: Discriminator field identifying this as a state-change watchlist payload.
-        oldState:
-          $ref: "#/components/schemas/ProductStateData"
-        newState:
-          $ref: "#/components/schemas/ProductStateData"
+        type: { type: string, enum: [STATE_CHANGE] }
+        oldState: { $ref: "#/components/schemas/ProductStateData" }
+        newState: { $ref: "#/components/schemas/ProductStateData" }
 
     SearchFilterNotificationPayloadData:
       type: object
-      description: Notification payload for a search filter match event. Triggered when a new or updated product matches a user's saved search filter.
       required:
-        - type
-        - productId
-        - shopId
-        - shopsProductId
-        - shopSlugId
-        - productSlugId
-        - shopName
-        - title
-        - url
-        - viewUrl
-        - searchFilterPayload
+        [
+          productId,
+          userSearchFilterId,
+          userSearchFilterName,
+          shopId,
+          shopsProductId,
+          shopSlugId,
+          productSlugId,
+          shopName,
+          title,
+          image,
+          url,
+          viewUrl,
+        ]
       properties:
-        type:
-          type: string
-          enum: [SEARCH_FILTER]
-          description: Discriminator field identifying this as a search filter notification.
-        productId:
-          type: string
-          format: uuid
-          description: Internal product identifier.
-          example: "550e8400-e29b-41d4-a716-446655440000"
-        shopId:
-          type: string
-          format: uuid
-          description: Unique identifier of the shop.
-          example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-        shopsProductId:
-          type: string
-          description: Shop's own identifier for the product.
-          example: "ABC123"
-        shopSlugId:
-          type: string
-          description: URL-friendly slug identifier for the shop.
-          example: "antique-store"
-        productSlugId:
-          type: string
-          description: URL-friendly slug identifier for the product (6-character suffix).
-          example: "baroque-clock-fa87c4"
-        shopName:
-          type: string
-          description: Display name of the shop.
-          example: "Antique Store"
+        productId: { type: string, format: uuid }
+        userSearchFilterId: { type: string, format: uuid }
+        userSearchFilterName: { type: string }
+        shopId: { type: string, format: uuid }
+        shopsProductId: { type: string }
+        shopSlugId: { type: string }
+        productSlugId: { type: string }
+        shopName: { type: string }
         title:
-          $ref: "#/components/schemas/LocalizedTextData"
-        image:
-          allOf:
-            - $ref: "#/components/schemas/ProductImageData"
+          allOf: [{ $ref: "#/components/schemas/LocalizedTextData" }]
           nullable: true
-          description: |
-            The first image of the product at the time the notification was generated.
-            Absent when the product had no images. The URL is always included (prohibited content filtering is skipped for notifications).
-        url:
-          type: string
-          format: uri
-          description: Raw URL to the product on the shop's website.
-        viewUrl:
-          type: string
-          format: uri
-          description: Tracked or affiliate URL generated by the backend for user-facing navigation to the product.
-        searchFilterPayload:
-          $ref: "#/components/schemas/SearchFilterPayloadData"
-
-    SearchFilterPayloadData:
-      type: object
-      description: Search-filter-specific sub-payload identifying which saved filter matched the product.
-      required:
-        - userSearchFilterId
-        - userSearchFilterName
-      properties:
-        userSearchFilterId:
-          type: string
-          format: uuid
-          description: Unique identifier of the user's search filter that matched the product.
-          example: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-        userSearchFilterName:
-          type: string
-          description: User-defined name of the search filter that matched the product.
-          example: "My Baroque Clock Search"
+        image:
+          allOf: [{ $ref: "#/components/schemas/ProductImageData" }]
+          nullable: true
+        url: { type: string, format: uri }
+        viewUrl: { type: string, format: uri }
 
     PartnerApplicationNotificationPayloadData:
       type: object
-      description: Notification payload for a partner shop application review update.
-      required:
-        - type
-        - shopName
-        - partnerApplicationPayload
+      required: [partnerShopApplicationId, decision, shopName, image]
       properties:
-        type:
-          type: string
-          enum: [PARTNER_APPLICATION]
-          description: Discriminator field identifying this as a partner application notification.
-        shopName:
-          type: string
-          description: Display name of the shop referenced by the partner application.
-          example: "Tech Store"
+        partnerShopApplicationId: { type: string, format: uuid }
+        decision: { type: string, enum: [APPROVED, REJECTED] }
+        shopName: { type: string }
         image:
           type: string
           format: uri
           nullable: true
-          description: |
-            Optional shop logo URL included with partner-application notifications when the related
-            application or linked existing shop has an image configured.
-            Absent when no shop logo URL is available.
-          example: "https://tech-store.example/logo.png"
-        partnerApplicationPayload:
-          $ref: "#/components/schemas/PartnerApplicationPayloadData"
 
-    PartnerApplicationPayloadData:
-      description: |
-        Partner-application-specific sub-payload. The structure depends on the `type` discriminator field:
-        - `APPROVED`: The partner application was approved.
-        - `REJECTED`: The partner application was rejected.
-      oneOf:
-        - $ref: "#/components/schemas/ApprovedPartnerApplicationPayloadData"
-        - $ref: "#/components/schemas/RejectedPartnerApplicationPayloadData"
-      discriminator:
-        propertyName: type
-        mapping:
-          APPROVED: "#/components/schemas/ApprovedPartnerApplicationPayloadData"
-          REJECTED: "#/components/schemas/RejectedPartnerApplicationPayloadData"
-
-    ApprovedPartnerApplicationPayloadData:
+    UpdateNotificationSeenData:
       type: object
-      description: Partner application payload for an approval notification.
-      required:
-        - type
-        - partnerApplicationId
+      required: [seen]
       properties:
-        type:
-          type: string
-          enum: [APPROVED]
-          description: Discriminator field identifying this as an approval payload.
-        partnerApplicationId:
-          type: string
-          format: uuid
-          description: Unique identifier of the approved partner shop application.
-          example: "550e8400-e29b-41d4-a716-446655440002"
+        seen: { type: boolean }
 
-    RejectedPartnerApplicationPayloadData:
+    UpdateNotificationsSeenData:
       type: object
-      description: Partner application payload for a rejection notification.
-      required:
-        - type
-        - partnerApplicationId
+      required: [notificationIds, seen]
       properties:
-        type:
-          type: string
-          enum: [REJECTED]
-          description: Discriminator field identifying this as a rejection payload.
-        partnerApplicationId:
-          type: string
-          format: uuid
-          description: Unique identifier of the rejected partner shop application.
-          example: "550e8400-e29b-41d4-a716-446655440002"
-
-    PatchNotificationData:
-      type: object
-      description: |
-        Patch body for updating notification fields. All fields are optional.
-        Only provided (non-null) fields are applied.
-      properties:
-        seen:
-          type: boolean
-          nullable: true
-          description: Set to `true` to mark the notification as seen, `false` to mark it unseen.
-          example: true
+        notificationIds:
+          type: array
+          minItems: 1
+          items: { type: string, format: uuid }
+        seen: { type: boolean }
 
     NotificationCollectionData:
       type: object
-      description: Cursor-paginated collection of notifications, sorted latest-first.
-      required:
-        - items
-        - size
+      required: [items, size]
       properties:
         items:
           type: array
-          items:
-            $ref: "#/components/schemas/GetNotificationData"
-          description: Notifications in the current page.
-        size:
-          type: integer
-          minimum: 0
-          description: Requested page size echoed back from the cursor payload; this does not necessarily equal `items.length`.
-          example: 21
+          items: { $ref: "#/components/schemas/NotificationData" }
+        size: { type: integer, minimum: 1, maximum: 100 }
         searchAfter:
-          type: string
-          format: uuid
+          type: array
           nullable: true
-          description: |
-            Event ID cursor for the next page (UUID string).
-            Present only when more results are available.
-            Pass this value as the `searchAfter` query parameter to retrieve the next page.
-          example: "550e8400-e29b-41d4-a716-446655440001"
-        total:
-          type: integer
-          minimum: 0
-          nullable: true
-          description: Total number of notifications for the user. May be absent in some cases.
-          example: 42
+          minItems: 2
+          maxItems: 2
+          items: { type: string }
+          description: Opaque `[created RFC3339 timestamp, notification UUID]` cursor for the next page; omitted when no further page exists.
 
     PostProductData:
       type: object

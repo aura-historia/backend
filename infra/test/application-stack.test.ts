@@ -131,7 +131,7 @@ describe("Application stacks", () => {
     expect(resourcesOfType(json, "AWS::DynamoDB::Table")).toHaveLength(1);
     expect(resourcesOfType(json, "AWS::Cognito::UserPool")).toHaveLength(1);
     expect(resourcesOfType(json, "AWS::ApiGatewayV2::Api")).toHaveLength(1);
-    expect(resourcesOfType(json, "AWS::ApiGatewayV2::Route")).toHaveLength(72);
+    expect(resourcesOfType(json, "AWS::ApiGatewayV2::Route")).toHaveLength(67);
     expect(resourcesOfType(json, "AWS::CloudFront::Distribution")).toHaveLength(0);
     expect(Object.keys(json.Parameters ?? {})).toEqual(["CommitSHA"]);
     expect(json.Outputs?.ApiGatewayEndpointUrl).toBeDefined();
@@ -144,7 +144,7 @@ describe("Application stacks", () => {
       id.includes("LocalStackPathParameterInvoke"),
     );
 
-    expect(permissions).toHaveLength(10);
+    expect(permissions).toHaveLength(9);
     for (const [, permission] of permissions) {
       expect(permission.Properties?.Principal).toBe("apigateway.amazonaws.com");
       expect(JSON.stringify(permission.Properties?.SourceArn)).toContain("/*/*/*");
@@ -158,10 +158,10 @@ describe("Application stacks", () => {
     expect(resourceCount(templates, "AWS::Cognito::UserPool")).toBe(1);
     expect(resourceCount(templates, "AWS::Cognito::UserPoolClient")).toBe(1);
     expect(resourceCount(templates, "AWS::ApiGatewayV2::Api")).toBe(1);
-    expect(resourceCount(templates, "AWS::ApiGatewayV2::Route")).toBe(72);
-    expect(resourceCount(templates, "AWS::ApiGatewayV2::Integration")).toBe(12);
-    expect(resourceCount(templates, "AWS::SQS::Queue")).toBe(26);
-    expect(resourceCount(templates, "AWS::Lambda::EventSourceMapping")).toBe(13);
+    expect(resourceCount(templates, "AWS::ApiGatewayV2::Route")).toBe(67);
+    expect(resourceCount(templates, "AWS::ApiGatewayV2::Integration")).toBe(11);
+    expect(resourceCount(templates, "AWS::SQS::Queue")).toBe(22);
+    expect(resourceCount(templates, "AWS::Lambda::EventSourceMapping")).toBe(11);
     expect(resourceCount(templates, "AWS::StepFunctions::StateMachine")).toBe(1);
     expect(resourceCount(templates, "AWS::Pipes::Pipe")).toBe(1);
 
@@ -184,7 +184,6 @@ describe("Application stacks", () => {
     expect(templates.compute.toJSON().Outputs?.CognitoUserPoolId).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.CognitoUserPoolClientPublicId).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.CognitoUserPoolClientAdminId).toBeUndefined();
-    expect(templates.data.toJSON().Outputs?.NotificationSendQueueUrl).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.StripeEventBusName).toBeDefined();
     expect(templates.compute.toJSON().Outputs?.ShopifyEventBusName).toBeDefined();
   });
@@ -300,7 +299,7 @@ describe("Application stacks", () => {
 
     expect(resourceCount(templates, "AWS::OpenSearchService::Domain")).toBe(0);
     expect(resourceCount(templates, "AWS::SNS::Topic")).toBe(1);
-    expect(resourcePropertiesCount(templates, "AWS::CloudWatch::Alarm", {})).toBe(49);
+    expect(resourcePropertiesCount(templates, "AWS::CloudWatch::Alarm", {})).toBe(45);
     templates.api.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
       DefaultRouteSettings: Match.objectLike({
         DetailedMetricsEnabled: true,
@@ -328,7 +327,6 @@ describe("Application stacks", () => {
     expect(lambdaMetricAlarmFunctionNames(templates.observability!.toJSON(), "Throttles")).toEqual(
       new Set([
         "newsletter-api-prod",
-        "notification-api-prod",
         "oauth-api-prod",
         "partner-shop-application-api-prod",
         "product-api-prod",
@@ -586,7 +584,7 @@ describe("Application stacks", () => {
 
     expect(resourcePropertiesCount(templates, "AWS::SQS::Queue", {
       RedrivePolicy: Match.anyValue(),
-    })).toBe(13);
+    })).toBe(11);
     templates.data.hasResourceProperties("AWS::SQS::Queue", {
       RedrivePolicy: Match.objectLike({
         maxReceiveCount: 5,

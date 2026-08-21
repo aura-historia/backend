@@ -84,16 +84,16 @@ pub struct DeadLetter<T> {
     pub attempts: u32,
 }
 
-pub async fn run_with_retry<T, F, Fut, E>(
+pub async fn run_with_retry<T, R, F, Fut, E>(
     job: T,
     config: RetryConfig,
     dead_letters: &InMemoryDeadLetterQueue<T>,
     mut handler: F,
-) -> Result<(), RetryError<E>>
+) -> Result<R, RetryError<E>>
 where
     T: Clone,
     F: FnMut(T) -> Fut,
-    Fut: Future<Output = Result<(), E>>,
+    Fut: Future<Output = Result<R, E>>,
     E: Display,
 {
     let max_attempts = config.max_attempts().max(1);
@@ -102,7 +102,7 @@ where
 
     loop {
         match handler(job.clone()).await {
-            Ok(()) => return Ok(()),
+            Ok(result) => return Ok(result),
             Err(error) if attempt >= max_attempts => {
                 let reason = error.to_string();
                 warn!(attempts = attempt, %reason, "job retries exhausted; moving to in-memory DLQ");

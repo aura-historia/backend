@@ -1,16 +1,17 @@
 use application::transaction::{Transaction, UnitOfWork};
-use platform_postgres::SqlxUnitOfWork;
+use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use product_core::product_id::ProductId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::{Duration, OffsetDateTime};
 use user_core::user_id::UserId;
-use watchlist_core::WatchlistProduct;
-use watchlist_core::watchlist_state::WatchlistState;
+use watchlist_core::{WatchlistProduct, WatchlistState};
 use watchlist_postgres::{
     SqlxWatchlistQuotaReaderFactory, SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory,
 };
 use watchlist_service::ports::{
     WatchlistQuotaReader, WatchlistQuotaReaderFactory, WatchlistReader, WatchlistReaderFactory,
-    WatchlistRepository, WatchlistRepositoryFactory,
+    WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
+    WatchlistStorageVersion,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -26,10 +27,12 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
     let mut entry = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
 
     let mut tx = begin(&unit).await;
-    repo.in_transaction(&mut tx)
+    let inserted = repo
+        .in_transaction(&mut tx)
         .insert(&entry)
         .await
         .unwrap_or_else(|error| panic!("insert failed: {error:?}"));
+    assert_eq!(WatchlistStorageVersion::INITIAL, inserted.version);
     commit(tx).await;
 
     let mut tx = begin(&unit).await;
@@ -37,14 +40,17 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
         .in_transaction(&mut tx)
         .find_by_user_and_product(user_id, product_id)
         .await
-        .unwrap_or_else(|error| panic!("find failed: {error:?}"));
-    assert!(matches!(loaded, Some(ref value) if value.notifications()));
+        .unwrap_or_else(|error| panic!("find failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    assert!(loaded.value.notifications());
 
     entry.change_notifications(false);
-    repo.in_transaction(&mut tx)
-        .update(&entry)
+    let updated = repo
+        .in_transaction(&mut tx)
+        .update(&entry, loaded.version)
         .await
         .unwrap_or_else(|error| panic!("update failed: {error:?}"));
+    assert_eq!(loaded.version.next(), updated.version);
     commit(tx).await;
 
     let mut tx = begin(&unit).await;
@@ -67,10 +73,106 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
 
     let mut tx = begin(&unit).await;
     repo.in_transaction(&mut tx)
-        .delete(user_id, product_id)
+        .delete(user_id, product_id, updated.version)
         .await
         .unwrap_or_else(|error| panic!("delete failed: {error:?}"));
     commit(tx).await;
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_preserve_and_reset_current_interval_timestamps() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(&pool, "watchlist-postgres-intervals@example.com").await;
+    let active_product_id = seed_product(&pool, "watchlist-postgres-interval-active").await;
+    let inactive_product_id = seed_product(&pool, "watchlist-postgres-interval-inactive").await;
+    let mut active =
+        WatchlistProduct::rehydrate(user_id, active_product_id, true, WatchlistState::Active);
+    let inactive = WatchlistProduct::rehydrate(
+        user_id,
+        inactive_product_id,
+        false,
+        WatchlistState::InactiveByUser,
+    );
+
+    let mut tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut tx)
+        .insert(&active)
+        .await
+        .unwrap_or_else(|error| panic!("insert active entry failed: {error:?}"));
+    repository
+        .in_transaction(&mut tx)
+        .insert(&inactive)
+        .await
+        .unwrap_or_else(|error| panic!("insert inactive entry failed: {error:?}"));
+    commit(tx).await;
+
+    let (initial_active_since, initial_email_since) =
+        intervals(&pool, user_id, active_product_id).await;
+    assert!(initial_active_since.is_some());
+    assert!(initial_email_since.is_some());
+
+    let old = (OffsetDateTime::now_utc() - Duration::hours(1))
+        .replace_nanosecond(0)
+        .unwrap_or_else(|error| panic!("failed to normalize baseline timestamp: {error}"));
+    sqlx::query(
+        "UPDATE product_watchlist SET active_since = $3, notifications_enabled_since = $3, created = $3, updated = $3 WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::from(active_product_id))
+    .bind(old)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to set interval baseline: {error:?}"));
+
+    let mut tx = begin(&unit).await;
+    let loaded = repository
+        .in_transaction(&mut tx)
+        .find_by_user_and_product(user_id, active_product_id)
+        .await
+        .unwrap_or_else(|error| panic!("active lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing active entry"));
+    repository
+        .in_transaction(&mut tx)
+        .update(&active, loaded.version)
+        .await
+        .unwrap_or_else(|error| panic!("active-to-active update failed: {error:?}"));
+    commit(tx).await;
+    assert_eq!(
+        (Some(old), Some(old)),
+        intervals(&pool, user_id, active_product_id).await
+    );
+
+    active.change_state(WatchlistState::InactiveByUser);
+    repository_update(&unit, &repository, &active).await;
+    assert_eq!(
+        (None, Some(old)),
+        intervals(&pool, user_id, active_product_id).await
+    );
+
+    active.change_state(WatchlistState::Active);
+    repository_update(&unit, &repository, &active).await;
+    let (reactivated_since, email_since) = intervals(&pool, user_id, active_product_id).await;
+    assert!(reactivated_since.is_some_and(|value| value > old));
+    assert_eq!(Some(old), email_since);
+
+    active.change_notifications(false);
+    repository_update(&unit, &repository, &active).await;
+    assert_eq!(
+        (reactivated_since, None),
+        intervals(&pool, user_id, active_product_id).await
+    );
+
+    active.change_notifications(true);
+    repository_update(&unit, &repository, &active).await;
+    let (active_since, reenabled_email_since) = intervals(&pool, user_id, active_product_id).await;
+    assert_eq!(
+        Some(reactivated_since.expect("active interval must remain")),
+        active_since
+    );
+    assert!(reenabled_email_since.is_some_and(|value| value > old));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
@@ -113,6 +215,190 @@ async fn should_count_only_active_watchlist_entries_in_transaction() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_report_watchlist_update_and_delete_concurrency_conflicts() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(&pool, "watchlist-postgres-conflict@example.com").await;
+    let product_id = seed_product(&pool, "watchlist-postgres-conflict-product").await;
+    let entry = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+
+    let mut tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut tx)
+        .insert(&entry)
+        .await
+        .unwrap_or_else(|error| panic!("insert failed: {error:?}"));
+    let loaded = repository
+        .in_transaction(&mut tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("find failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+
+    let mut changed = entry.clone();
+    changed.change_notifications(false);
+    let updated = repository
+        .in_transaction(&mut tx)
+        .update(&changed, loaded.version)
+        .await
+        .unwrap_or_else(|error| panic!("update failed: {error:?}"));
+    let stale_update = repository
+        .in_transaction(&mut tx)
+        .update(&entry, loaded.version)
+        .await;
+    let stale_delete = repository
+        .in_transaction(&mut tx)
+        .delete(user_id, product_id, loaded.version)
+        .await;
+
+    assert!(matches!(
+        stale_update,
+        Err(watchlist_service::ports::WatchlistRepositoryError::ConcurrencyConflict)
+    ));
+    assert!(matches!(
+        stale_delete,
+        Err(watchlist_service::ports::WatchlistRepositoryError::ConcurrencyConflict)
+    ));
+
+    repository
+        .in_transaction(&mut tx)
+        .delete(user_id, product_id, updated.version)
+        .await
+        .unwrap_or_else(|error| panic!("current delete failed: {error:?}"));
+    commit(tx).await;
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_stale_delete_and_keep_newer_watchlist_entry() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(&pool, "watchlist-postgres-stale-delete@example.com").await;
+    let product_id = seed_product(&pool, "watchlist-postgres-stale-delete-product").await;
+    let entry = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+
+    let mut insert_tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut insert_tx)
+        .insert(&entry)
+        .await
+        .unwrap_or_else(|error| panic!("insert failed: {error:?}"));
+    commit(insert_tx).await;
+
+    let mut delete_tx = begin(&unit).await;
+    let stale = repository
+        .in_transaction(&mut delete_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("delete lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+
+    let mut update_tx = begin(&unit).await;
+    let current = repository
+        .in_transaction(&mut update_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("update lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    let mut changed = current.value;
+    changed.change_notifications(false);
+    repository
+        .in_transaction(&mut update_tx)
+        .update(&changed, current.version)
+        .await
+        .unwrap_or_else(|error| panic!("newer update failed: {error:?}"));
+    commit(update_tx).await;
+
+    let stale_delete = repository
+        .in_transaction(&mut delete_tx)
+        .delete(user_id, product_id, stale.version)
+        .await;
+    assert!(matches!(
+        stale_delete,
+        Err(WatchlistRepositoryError::ConcurrencyConflict)
+    ));
+    drop(delete_tx);
+
+    let persisted = persisted_fields(&pool, user_id, product_id).await;
+    assert!(!persisted.1);
+    assert_eq!(2, persisted.5);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_reject_stale_partial_updates_without_changing_persisted_fields() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(&pool, "watchlist-postgres-stale-fields@example.com").await;
+    let product_id = seed_product(&pool, "watchlist-postgres-stale-fields-product").await;
+    let initial = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+
+    let mut insert_tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut insert_tx)
+        .insert(&initial)
+        .await
+        .unwrap_or_else(|error| panic!("insert failed: {error:?}"));
+    commit(insert_tx).await;
+
+    let mut winner_tx = begin(&unit).await;
+    let loaded_by_winner = repository
+        .in_transaction(&mut winner_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("winner lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    let mut winner = loaded_by_winner.value.clone();
+    winner.change_state(WatchlistState::InactiveByUser);
+
+    let mut stale_tx = begin(&unit).await;
+    let loaded_by_stale = repository
+        .in_transaction(&mut stale_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("stale lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    let mut stale = loaded_by_stale.value;
+    stale.change_notifications(false);
+
+    repository
+        .in_transaction(&mut winner_tx)
+        .update(&winner, loaded_by_winner.version)
+        .await
+        .unwrap_or_else(|error| panic!("winner update failed: {error:?}"));
+    commit(winner_tx).await;
+    let expected = persisted_fields(&pool, user_id, product_id).await;
+
+    let stale_result = repository
+        .in_transaction(&mut stale_tx)
+        .update(&stale, loaded_by_stale.version)
+        .await;
+    assert!(matches!(
+        stale_result,
+        Err(WatchlistRepositoryError::ConcurrencyConflict)
+    ));
+    drop(stale_tx);
+
+    assert_eq!(expected, persisted_fields(&pool, user_id, product_id).await);
+    assert_eq!("INACTIVE_BY_USER", expected.0);
+    assert!(expected.1);
+    assert_eq!(None, expected.2);
+    assert!(expected.3.is_some());
+    assert_eq!(2, expected.5);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_apply_retried_notifications_patch_after_state_patch_wins() {
+    run_partial_patch_race(true).await;
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_apply_retried_state_patch_after_notifications_patch_wins() {
+    run_partial_patch_race(false).await;
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_return_already_exists_when_watchlist_entry_exists() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -134,13 +420,197 @@ async fn should_return_already_exists_when_watchlist_entry_exists() {
     ));
 }
 
-async fn begin(unit: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
+async fn run_partial_patch_race(state_patch_wins: bool) {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(
+        &pool,
+        if state_patch_wins {
+            "watchlist-postgres-state-wins@example.com"
+        } else {
+            "watchlist-postgres-notifications-wins@example.com"
+        },
+    )
+    .await;
+    let product_id = seed_product(
+        &pool,
+        if state_patch_wins {
+            "watchlist-postgres-state-wins-product"
+        } else {
+            "watchlist-postgres-notifications-wins-product"
+        },
+    )
+    .await;
+    let initial = WatchlistProduct::rehydrate(user_id, product_id, true, WatchlistState::Active);
+
+    let mut insert_tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut insert_tx)
+        .insert(&initial)
+        .await
+        .unwrap_or_else(|error| panic!("insert failed: {error:?}"));
+    commit(insert_tx).await;
+
+    let mut state_tx = begin(&unit).await;
+    let loaded_by_state = repository
+        .in_transaction(&mut state_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("state lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    let mut state_entry = loaded_by_state.value.clone();
+    state_entry.change_state(WatchlistState::InactiveByUser);
+
+    let mut notifications_tx = begin(&unit).await;
+    let loaded_by_notifications = repository
+        .in_transaction(&mut notifications_tx)
+        .find_by_user_and_product(user_id, product_id)
+        .await
+        .unwrap_or_else(|error| panic!("notifications lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    let mut notifications_entry = loaded_by_notifications.value.clone();
+    notifications_entry.change_notifications(false);
+
+    if state_patch_wins {
+        repository
+            .in_transaction(&mut state_tx)
+            .update(&state_entry, loaded_by_state.version)
+            .await
+            .unwrap_or_else(|error| panic!("state update failed: {error:?}"));
+        commit(state_tx).await;
+        let stale = repository
+            .in_transaction(&mut notifications_tx)
+            .update(&notifications_entry, loaded_by_notifications.version)
+            .await;
+        assert!(matches!(
+            stale,
+            Err(WatchlistRepositoryError::ConcurrencyConflict)
+        ));
+        drop(notifications_tx);
+
+        let mut retry_tx = begin(&unit).await;
+        let current = repository
+            .in_transaction(&mut retry_tx)
+            .find_by_user_and_product(user_id, product_id)
+            .await
+            .unwrap_or_else(|error| panic!("retry lookup failed: {error:?}"))
+            .unwrap_or_else(|| panic!("missing watchlist entry"));
+        let mut retried = current.value;
+        retried.change_notifications(false);
+        repository
+            .in_transaction(&mut retry_tx)
+            .update(&retried, current.version)
+            .await
+            .unwrap_or_else(|error| panic!("retry update failed: {error:?}"));
+        commit(retry_tx).await;
+    } else {
+        repository
+            .in_transaction(&mut notifications_tx)
+            .update(&notifications_entry, loaded_by_notifications.version)
+            .await
+            .unwrap_or_else(|error| panic!("notifications update failed: {error:?}"));
+        commit(notifications_tx).await;
+        let stale = repository
+            .in_transaction(&mut state_tx)
+            .update(&state_entry, loaded_by_state.version)
+            .await;
+        assert!(matches!(
+            stale,
+            Err(WatchlistRepositoryError::ConcurrencyConflict)
+        ));
+        drop(state_tx);
+
+        let mut retry_tx = begin(&unit).await;
+        let current = repository
+            .in_transaction(&mut retry_tx)
+            .find_by_user_and_product(user_id, product_id)
+            .await
+            .unwrap_or_else(|error| panic!("retry lookup failed: {error:?}"))
+            .unwrap_or_else(|| panic!("missing watchlist entry"));
+        let mut retried = current.value;
+        retried.change_state(WatchlistState::InactiveByUser);
+        repository
+            .in_transaction(&mut retry_tx)
+            .update(&retried, current.version)
+            .await
+            .unwrap_or_else(|error| panic!("retry update failed: {error:?}"));
+        commit(retry_tx).await;
+    }
+
+    let persisted = persisted_fields(&pool, user_id, product_id).await;
+    assert_eq!("INACTIVE_BY_USER", persisted.0);
+    assert!(!persisted.1);
+    assert_eq!(None, persisted.2);
+    assert_eq!(None, persisted.3);
+    assert_eq!(3, persisted.5);
+}
+
+async fn persisted_fields(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: ProductId,
+) -> (
+    String,
+    bool,
+    Option<OffsetDateTime>,
+    Option<OffsetDateTime>,
+    OffsetDateTime,
+    i64,
+) {
+    sqlx::query_as(
+        "SELECT state, notifications, active_since, notifications_enabled_since, updated, version \
+         FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::from(product_id))
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read persisted watchlist fields: {error:?}"))
+}
+
+async fn repository_update(
+    unit: &SqlxUnitOfWork,
+    repository: &SqlxWatchlistRepositoryFactory,
+    entry: &WatchlistProduct,
+) {
+    let mut tx = begin(unit).await;
+    let loaded = repository
+        .in_transaction(&mut tx)
+        .find_by_user_and_product(entry.user_id(), entry.product_id())
+        .await
+        .unwrap_or_else(|error| panic!("watchlist lookup failed: {error:?}"))
+        .unwrap_or_else(|| panic!("missing watchlist entry"));
+    repository
+        .in_transaction(&mut tx)
+        .update(entry, loaded.version)
+        .await
+        .unwrap_or_else(|error| panic!("watchlist update failed: {error:?}"));
+    commit(tx).await;
+}
+
+async fn intervals(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: ProductId,
+) -> (Option<OffsetDateTime>, Option<OffsetDateTime>) {
+    sqlx::query_as(
+        "SELECT active_since, notifications_enabled_since FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::from(product_id))
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read watchlist intervals: {error:?}"))
+}
+
+async fn begin(unit: &SqlxUnitOfWork) -> SqlxTransaction {
     unit.begin()
         .await
         .unwrap_or_else(|error| panic!("begin failed: {error:?}"))
 }
 
-async fn commit(tx: platform_postgres::SqlxTransaction) {
+async fn commit(tx: SqlxTransaction) {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("commit failed: {error:?}"));

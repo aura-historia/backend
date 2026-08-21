@@ -5,6 +5,7 @@ use product_service::ports::{
     WatchlistNotificationRecipient, WatchlistNotificationRecipientReadError,
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxWatchlistNotificationRecipientReaderFactory;
@@ -38,24 +39,33 @@ impl WatchlistNotificationRecipientReaderFactory<SqlxTransaction>
 
 #[async_trait::async_trait]
 impl WatchlistNotificationRecipientReader for SqlxWatchlistNotificationRecipientReader<'_> {
-    async fn find_active_for_product(
+    async fn find_eligible_for_product_at(
         &mut self,
         product_id: ProductId,
+        event_time: OffsetDateTime,
     ) -> Result<Vec<WatchlistNotificationRecipient>, WatchlistNotificationRecipientReadError> {
         let rows = sqlx::query_as::<_, (uuid::Uuid, bool)>(
-            "SELECT user_id, notifications FROM product_watchlist WHERE product_id = $1 AND state = 'ACTIVE' ORDER BY user_id ASC",
+            "SELECT user_id, notifications AND notifications_enabled_since <= $2 AS external_delivery_requested \
+             FROM product_watchlist \
+             WHERE product_id = $1 \
+               AND state = 'ACTIVE' \
+               AND active_since <= $2 \
+             ORDER BY user_id ASC",
         )
         .bind(uuid::Uuid::from(product_id))
+        .bind(event_time)
         .fetch_all(self.tx.connection())
         .await
         .map_err(WatchlistNotificationRecipientQueryError)?;
 
         Ok(rows
             .into_iter()
-            .map(|(user_id, external)| WatchlistNotificationRecipient {
-                user_id: user_id.into(),
-                external,
-            })
+            .map(
+                |(user_id, external_delivery_requested)| WatchlistNotificationRecipient {
+                    user_id: user_id.into(),
+                    external_delivery_requested,
+                },
+            )
             .collect())
     }
 }

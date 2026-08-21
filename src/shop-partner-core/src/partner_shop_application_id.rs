@@ -31,6 +31,12 @@ impl From<Uuid> for PartnerShopApplicationId {
     }
 }
 
+impl From<PartnerShopApplicationId> for Uuid {
+    fn from(value: PartnerShopApplicationId) -> Self {
+        value.0
+    }
+}
+
 impl From<PartnerShopApplicationId> for String {
     fn from(value: PartnerShopApplicationId) -> Self {
         value.0.to_string()

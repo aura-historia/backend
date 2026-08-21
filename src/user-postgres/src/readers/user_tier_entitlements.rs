@@ -9,7 +9,16 @@ use user_service::ports::{
 };
 
 const RECONCILE_WATCHLIST_SQL: &str = r#"
-WITH ranked AS (
+WITH locked AS MATERIALIZED (
+    SELECT
+        product_id,
+        created,
+        state
+    FROM product_watchlist
+    WHERE user_id = $1
+      AND state IN ('ACTIVE', 'INACTIVE_BY_RESTRICTED_PLAN')
+    FOR UPDATE
+), ranked AS (
     SELECT
         product_id,
         CASE
@@ -17,12 +26,15 @@ WITH ranked AS (
                 THEN 'ACTIVE'
             ELSE 'INACTIVE_BY_RESTRICTED_PLAN'
         END AS target_state
-    FROM product_watchlist
-    WHERE user_id = $1
-      AND state IN ('ACTIVE', 'INACTIVE_BY_RESTRICTED_PLAN')
+    FROM locked
 )
 UPDATE product_watchlist AS entry
 SET state = ranked.target_state,
+    active_since = CASE
+        WHEN ranked.target_state = 'ACTIVE' THEN now()
+        ELSE NULL
+    END,
+    version = entry.version + 1,
     updated = now()
 FROM ranked
 WHERE entry.user_id = $1

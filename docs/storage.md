@@ -1,5 +1,25 @@
 # Storage Contracts
 
+## Notifications
+
+PostgreSQL is the sole production owner of notifications and external-delivery intent. DynamoDB stores no notification rows, and notification storage has no TTL.
+
+- `notifications` stores one immutable typed content snapshot per semantic reason. `origin_event_id` is provenance only and is absent for partner-application notifications.
+- Watchlist idempotency is `(user_id, origin_event_id, kind)`. Search-filter idempotency is `(user_id, user_search_filter_id, product_id, origin_event_id)`. Partner-application idempotency is `(user_id, partner_shop_application_id)`.
+- A single Product event may create a watchlist notification and one distinct notification for every matching search filter.
+- `notification_deliveries` owns durable external-delivery state, separate from a Notification. One Notification may have several delivery rows. Each row is unique per `(notification_id, channel, target_key)` and contains no copied notification payload or target value. The application planner selects channels and inserts requested rows in the same PostgreSQL transaction as newly inserted notifications; each channel adapter resolves its own target. EMAIL/PRIMARY is the sole production plan.
+- The generic delivery worker consumes committed `notification_deliveries` INSERT rows through one Sequin subscription, claims a lease, dispatches by channel, and finalizes that same lease. EMAIL is the only valid stored channel now; a future channel needs a core enum and schema migration plus its sender. EMAIL resolves its current target and performs S3/SES I/O after the claim transaction commits. A send/finalize crash can duplicate an external delivery, so delivery is at-least-once, not exactly-once. The bounded in-memory worker queue remains non-durable by design; its post-ack loss window is tracked by #1558.
+- Read models and REST mutations use `notification_id`; they never expose `origin_event_id`.
+- Corrupt persisted payload/version/source-shape state is an operation error. It is never silently treated as a missing notification.
+
+## Watchlist concurrency and intervals
+
+- `product_watchlist.version` is internal optimistic-concurrency metadata. Ordinary aggregate updates compare the loaded version and increment it once; a mismatch is a conflict, never not-found or a silent retry. REST never exposes it.
+- Tier reconciliation locks the user row first, then affected watchlist rows. It increments `version` for every changed row, so concurrent stale user writes fail.
+- `product_watchlist.active_since` is non-null only for `ACTIVE` rows and marks the beginning of the current active interval.
+- `product_watchlist.notifications_enabled_since` is non-null exactly when `notifications = true` and marks the beginning of the current email-enabled interval.
+- Watchlist notification readers compare both interval starts with immutable `product_events.event_time`; deactivation/reactivation and email disable/re-enable start new intervals. These fields are repository-owned persistence metadata, not REST payload fields.
+
 ## FX snapshots
 
 PostgreSQL is authoritative for canonical FX data.

@@ -1,14 +1,25 @@
+use domain_primitives::versioned::Versioned;
 use product_core::product_id::ProductId;
 use sqlx::FromRow;
 use user_core::user_id::UserId;
 use watchlist_core::WatchlistProduct;
-use watchlist_core::watchlist_state::WatchlistState;
+use watchlist_core::WatchlistState;
 use watchlist_service::ports::{
-    WatchlistProductView, WatchlistReadError, WatchlistRepositoryError,
+    VersionedWatchlistProduct, WatchlistProductView, WatchlistReadError, WatchlistRepositoryError,
+    WatchlistStorageVersion,
 };
 
 #[derive(FromRow)]
-pub(crate) struct WatchlistRow {
+pub(crate) struct WatchlistRepositoryRow {
+    pub user_id: uuid::Uuid,
+    pub product_id: uuid::Uuid,
+    pub notifications: bool,
+    pub state: String,
+    pub version: i64,
+}
+
+#[derive(FromRow)]
+pub(crate) struct WatchlistViewRow {
     pub user_id: uuid::Uuid,
     pub product_id: uuid::Uuid,
     pub notifications: bool,
@@ -17,25 +28,33 @@ pub(crate) struct WatchlistRow {
     pub updated: time::OffsetDateTime,
 }
 
-impl WatchlistRow {
-    pub(crate) fn into_domain(self) -> Result<WatchlistProduct, WatchlistRepositoryError> {
-        Ok(WatchlistProduct::rehydrate(
-            UserId::from(self.user_id),
-            ProductId::from(self.product_id),
-            self.notifications,
-            parse_state_repository(&self.state)?,
-        ))
-    }
+impl TryFrom<WatchlistRepositoryRow> for VersionedWatchlistProduct {
+    type Error = WatchlistRepositoryError;
 
-    pub(crate) fn into_view(self) -> Result<WatchlistProductView, WatchlistReadError> {
-        let state = parse_state_read(&self.state)?;
-        Ok(WatchlistProductView {
-            user_id: UserId::from(self.user_id),
-            product_id: ProductId::from(self.product_id),
-            notifications: self.notifications,
-            state,
-            created: self.created,
-            updated: self.updated,
+    fn try_from(row: WatchlistRepositoryRow) -> Result<Self, Self::Error> {
+        let version = WatchlistStorageVersion::try_from(row.version)
+            .map_err(|_| WatchlistRepositoryError::InvalidPersistedState)?;
+        let entry = WatchlistProduct::rehydrate(
+            UserId::from(row.user_id),
+            ProductId::from(row.product_id),
+            row.notifications,
+            parse_state_repository(&row.state)?,
+        );
+        Ok(Versioned::new(entry, version))
+    }
+}
+
+impl TryFrom<WatchlistViewRow> for WatchlistProductView {
+    type Error = WatchlistReadError;
+
+    fn try_from(row: WatchlistViewRow) -> Result<Self, Self::Error> {
+        Ok(Self {
+            user_id: UserId::from(row.user_id),
+            product_id: ProductId::from(row.product_id),
+            notifications: row.notifications,
+            state: parse_state_read(&row.state)?,
+            created: row.created,
+            updated: row.updated,
         })
     }
 }
@@ -88,5 +107,23 @@ mod tests {
             parse_state_repository("bad"),
             Err(WatchlistRepositoryError::InvalidPersistedState)
         ));
+    }
+
+    #[test]
+    fn should_reject_zero_or_negative_repository_version() {
+        for version in [0, -1] {
+            let row = WatchlistRepositoryRow {
+                user_id: uuid::Uuid::new_v4(),
+                product_id: uuid::Uuid::new_v4(),
+                notifications: true,
+                state: "ACTIVE".to_owned(),
+                version,
+            };
+
+            assert!(matches!(
+                VersionedWatchlistProduct::try_from(row),
+                Err(WatchlistRepositoryError::InvalidPersistedState)
+            ));
+        }
     }
 }

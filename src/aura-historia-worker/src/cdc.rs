@@ -55,7 +55,7 @@ pub enum CdcOperation {
 }
 
 impl WorkerQueue {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::ProductOpenSearch,
         Self::ProductDeleteCleanup,
         Self::WatchlistNotification,
@@ -66,6 +66,7 @@ impl WorkerQueue {
         Self::ShopOpenSearch,
         Self::SearchFilterOpenSearch,
         Self::UserTierEnforcement,
+        Self::NotificationDelivery,
     ];
 }
 
@@ -128,6 +129,7 @@ pub enum WorkerQueue {
     ShopOpenSearch,
     SearchFilterOpenSearch,
     UserTierEnforcement,
+    NotificationDelivery,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -164,6 +166,7 @@ pub enum DomainJobPayload {
     SearchFilterChanged(SearchFilterChangedJob),
     SearchFilterMatchCreated(SearchFilterMatchCreatedJob),
     UserTierChanged(UserTierChangedJob),
+    NotificationDeliveryCreated(NotificationDeliveryCreatedJob),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -207,6 +210,11 @@ pub struct SearchFilterMatchCreatedJob {
 pub struct UserTierChangedJob {
     pub user_id: String,
     pub version: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationDeliveryCreatedJob {
+    pub notification_delivery_id: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -305,6 +313,7 @@ enum CdcFanoutScope {
     ProductTranslation,
     ProductEmbedding,
     ProductOpenSearch,
+    NotificationDelivery,
 }
 
 impl CdcFanout {
@@ -361,6 +370,13 @@ impl CdcFanout {
         Self {
             registry,
             scope: CdcFanoutScope::ProductOpenSearch,
+        }
+    }
+
+    pub fn notification_delivery(registry: WorkerQueueRegistry) -> Self {
+        Self {
+            registry,
+            scope: CdcFanoutScope::NotificationDelivery,
         }
     }
 
@@ -499,6 +515,19 @@ impl CdcFanout {
                     ))
                 }
             }
+            CdcFanoutScope::NotificationDelivery => {
+                if matches!(
+                    CdcTable::from(change.table.as_str()),
+                    CdcTable::NotificationDeliveries
+                ) && change.operation == CdcOperation::Insert
+                {
+                    notification_delivery_created_job(change)
+                } else {
+                    Err(CdcRouteError::UnsupportedTableForWorker(
+                        change.table.clone(),
+                    ))
+                }
+            }
         }
     }
 }
@@ -609,6 +638,10 @@ pub fn route_change(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError>
         (CdcTable::SearchFilterMatches, _) => Ok(Vec::new()),
         (CdcTable::Users, CdcOperation::Update) => user_tier_changed_job(change),
         (CdcTable::Users, _) => Ok(Vec::new()),
+        (CdcTable::NotificationDeliveries, CdcOperation::Insert) => {
+            notification_delivery_created_job(change)
+        }
+        (CdcTable::NotificationDeliveries, _) => Ok(Vec::new()),
         (CdcTable::Unknown(table), _) => {
             warn!(%table, operation = %change.operation, "ignoring unregistered CDC table");
             Ok(Vec::new())
@@ -634,6 +667,7 @@ enum CdcTable {
     ProductWatchlist,
     UserPartnerShops,
     PartnerShopApplications,
+    NotificationDeliveries,
     Unknown(String),
 }
 
@@ -649,6 +683,7 @@ impl From<&str> for CdcTable {
             "product_watchlist" => Self::ProductWatchlist,
             "user_partner_shops" => Self::UserPartnerShops,
             "partner_shop_applications" => Self::PartnerShopApplications,
+            "notification_deliveries" => Self::NotificationDeliveries,
             other => Self::Unknown(other.to_owned()),
         }
     }
@@ -792,6 +827,20 @@ fn search_filter_match_created_job(change: &CdcChange) -> Result<Vec<DomainJob>,
             user_search_filter_id,
             product_id,
             origin_event_id,
+        }),
+    )])
+}
+
+fn notification_delivery_created_job(change: &CdcChange) -> Result<Vec<DomainJob>, CdcRouteError> {
+    let row = required_row(change)?;
+    let notification_delivery_id = required_string(row, "notification_delivery_id")?;
+
+    Ok(vec![domain_job(
+        WorkerQueue::NotificationDelivery,
+        IdempotencyKey::new(format!("notification-delivery:{notification_delivery_id}")),
+        OrderingKey::new(format!("notification-delivery:{notification_delivery_id}")),
+        DomainJobPayload::NotificationDeliveryCreated(NotificationDeliveryCreatedJob {
+            notification_delivery_id,
         }),
     )])
 }
@@ -1102,6 +1151,75 @@ mod tests {
             result,
             Err(CdcRouteError::MissingColumn("version"))
         ));
+    }
+
+    #[test]
+    fn should_route_every_notification_delivery_insert_to_delivery_queue()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let jobs = route_change(&CdcChange {
+            schema: Some("public".to_owned()),
+            table: "notification_deliveries".to_owned(),
+            operation: CdcOperation::Insert,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "notification_delivery_id": "60000000-0000-0000-0000-000000000001",
+                "channel": "EMAIL"
+            })),
+            old_record: None,
+            changed_columns: Vec::new(),
+            commit_lsn: None,
+            commit_timestamp: None,
+        })?;
+
+        assert_eq!(1, jobs.len());
+        assert_eq!(WorkerQueue::NotificationDelivery, jobs[0].target_queue);
+        assert_eq!(
+            "notification-delivery:60000000-0000-0000-0000-000000000001",
+            jobs[0].idempotency_key.as_str()
+        );
+        assert_eq!(
+            "notification-delivery:60000000-0000-0000-0000-000000000001",
+            jobs[0].ordering_key.as_str()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_enqueue_only_delivery_inserts_for_notification_delivery_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (sender, mut receiver) = in_memory_queue(QueueConfig::new(1))?;
+        let fanout = CdcFanout::notification_delivery(
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::NotificationDelivery, sender),
+        );
+        let change = CdcChange {
+            schema: Some("public".to_owned()),
+            table: "notification_deliveries".to_owned(),
+            operation: CdcOperation::Insert,
+            primary_key: BTreeMap::new(),
+            record: Some(serde_json::json!({
+                "notification_delivery_id": "60000000-0000-0000-0000-000000000001"
+            })),
+            old_record: None,
+            changed_columns: Vec::new(),
+            commit_lsn: None,
+            commit_timestamp: None,
+        };
+
+        assert_eq!(
+            1,
+            fanout
+                .ingest_batch(&CdcBatch {
+                    delivery_id: Some("delivery-notification".to_owned()),
+                    source: Some("postgres".to_owned()),
+                    changes: vec![change],
+                })
+                .await?
+        );
+        assert_eq!(
+            Some(WorkerQueue::NotificationDelivery),
+            receiver.recv().await.map(|job| job.target_queue)
+        );
+        Ok(())
     }
 
     #[test]

@@ -38,7 +38,6 @@ const LAMBDA_BINARIES: &[&str] = &[
     "product-api",
     "product-api-partner",
     "product-watchlist-api",
-    "notification-api",
     "user-api",
     "oauth-api",
     "newsletter-api",
@@ -47,7 +46,6 @@ const LAMBDA_BINARIES: &[&str] = &[
     "shop-api",
     "webhook-api",
     "search-filter-api",
-    "notification-send",
     "product-lambda-materialize-opensearch",
     "product-lambda-ingest-partner-products",
     "product-lambda-delete-product",
@@ -56,7 +54,6 @@ const LAMBDA_BINARIES: &[&str] = &[
     "user-lambda-index-opensearch",
     "user-lambda-tier-update",
     "search-filter-lambda-opensearch-sync",
-    "product-lambda-update-notify-user",
     "search-filter-lambda-percolate-product",
     "stripe-lambda",
     "stripe-api",
@@ -167,8 +164,6 @@ impl IntegrationTestService for Cloudformation {
 
         // ── SQS ──────────────────────────────────────────────────────────────
         drain_queues(vec![
-            cfn.notification_send_queue_url.clone(),
-            cfn.notification_send_dead_letter_queue_url.clone(),
             cfn.product_materialize_opensearch_queue_url.clone(),
             cfn.product_materialize_opensearch_dead_letter_queue_url
                 .clone(),

@@ -6,9 +6,9 @@ use aura_historia_api::auth::{
     TransportPrincipal,
 };
 use aura_historia_api::state::{
-    AppState, BillingState, NewsletterState, OAuthState, PartnerApplicationsState,
-    PartnerProductsState, ProductsState, SearchFiltersState, ShopsState, UsersState,
-    WatchlistState, WebhooksState,
+    AppState, BillingState, NewsletterState, NotificationsState, OAuthState,
+    PartnerApplicationsState, PartnerProductsState, ProductsState, SearchFiltersState, ShopsState,
+    UsersState, WatchlistState, WebhooksState,
 };
 use aura_historia_api::{app, state};
 use billing_service::ports::{
@@ -26,10 +26,20 @@ use embedding::{
 use fxrate_core::FxRateId;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use geo::{Geocoder, GeocodingError};
-use notification_dynamodb::all_notifications_reader::DynamoDbAllNotificationsReader;
-use notification_dynamodb::conditional_writer::ConditionalDynamoDbNotificationWriter;
-use notification_dynamodb::product_notifications_reader::DynamoDbProductNotificationsReader;
-use notification_service::use_cases::commands::create_notification::CreateNotificationHandler;
+use notification_postgres::{
+    SqlxNotificationDeleter, SqlxNotificationDeliveryIntentRepositoryFactory,
+    SqlxNotificationListReader, SqlxNotificationRepositoryFactory, SqlxNotificationSeenWriter,
+};
+use notification_service::use_cases::commands::delete_notification::DeleteNotificationHandler;
+use notification_service::use_cases::commands::delete_notifications::DeleteNotificationsHandler;
+use notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenHandler;
+use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenHandler;
+use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenHandler;
+use notification_service::use_cases::queries::list_notifications::ListNotificationsHandler;
+use notification_service::{
+    initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
+    notification_creation::NotificationCreationCoordinatorFactory,
+};
 use oauth_dynamodb::repository::OAuthDynamoDbStore;
 use oauth_service::access_token_gateway::StoreOAuthAccessTokenGateway;
 use oauth_service::use_cases::{
@@ -261,10 +271,25 @@ pub fn assert_problem(
 }
 
 pub async fn seed_user(role: &'static str) -> UserId {
-    seed_user_with_tier(role, UserTier::Free).await
+    seed_user_with_tier_and_consent(role, UserTier::Free, false).await
+}
+
+pub async fn seed_user_with_consent(
+    role: &'static str,
+    prohibited_content_consent: bool,
+) -> UserId {
+    seed_user_with_tier_and_consent(role, UserTier::Free, prohibited_content_consent).await
 }
 
 pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
+    seed_user_with_tier_and_consent(role, tier, false).await
+}
+
+async fn seed_user_with_tier_and_consent(
+    role: &'static str,
+    tier: UserTier,
+    prohibited_content_consent: bool,
+) -> UserId {
     let user_id = UserId::new();
     let email = format!("{}@example.test", user_id);
     let tier = match tier {
@@ -275,12 +300,13 @@ pub async fn seed_user_with_tier(role: &'static str, tier: UserTier) -> UserId {
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
         r#"
-        INSERT INTO users (user_id, email, tier, role)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO users (user_id, email, prohibited_content_consent, tier, role)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(email)
+    .bind(prohibited_content_consent)
     .bind(tier)
     .bind(role)
     .execute(&pool)
@@ -307,7 +333,7 @@ pub async fn seed_inactive_watchlist_entry(user_id: UserId) -> ProductId {
 async fn seed_watchlist_entry(user_id: UserId, product_id: ProductId, state: &'static str) {
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
-        "INSERT INTO product_watchlist (user_id, product_id, notifications, state) VALUES ($1, $2, true, $3)",
+        "INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since) VALUES ($1, $2, true, $3, CASE WHEN $3 = 'ACTIVE' THEN now() ELSE NULL END, now())",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(uuid::Uuid::from(product_id))
@@ -513,7 +539,7 @@ fn url(value: &str) -> Url {
 async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let client = get_dynamodb_client().await;
     let access_token_store = DynamoDbAccessTokenStore::new(client, "table_1");
     let access_token_use_case =
@@ -531,23 +557,20 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             unit_of_work.clone(),
             SqlxProductDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            DynamoDbProductNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(GetSimilarProductsHandler::new(
             unit_of_work.clone(),
             SqlxProductEmbeddingReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
             OpenSearchProductSimilarProductsReader::new(opensearch_client.clone()),
-            SqlxProductUserStateReader::new(get_postgres_client().await),
-            DynamoDbAllNotificationsReader::new(client, "table_1"),
+            SqlxProductUserStateReader::new(pool.clone()),
         )),
         Arc::new(SearchProductsHandler::new(
             unit_of_work.clone(),
             OpenSearchProductSearchReader::new(opensearch_client.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
             search_embeddings,
-            SqlxProductUserStateReader::new(get_postgres_client().await),
-            DynamoDbAllNotificationsReader::new(client, "table_1"),
+            SqlxProductUserStateReader::new(pool.clone()),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     )
@@ -710,9 +733,8 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::new(ListSearchFilterMatchesHandler::new(
             unit_of_work.clone(),
             search_filter_reader.clone(),
-            SqlxProductDetailsBatchReader::new(get_postgres_client().await),
+            SqlxProductDetailsBatchReader::new(pool.clone()),
             SqlxFxRateSnapshotRepositoryFactory,
-            DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(UpdateSearchFilterMatchFeedbackHandler::new(
             unit_of_work.clone(),
@@ -722,12 +744,33 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
+    let notifications_state = NotificationsState::new(
+        Arc::new(ListNotificationsHandler::new(
+            SqlxNotificationListReader::new(pool.clone()),
+        )),
+        Arc::new(UpdateNotificationSeenHandler::new(
+            SqlxNotificationSeenWriter::new(pool.clone()),
+        )),
+        Arc::new(UpdateNotificationsSeenHandler::new(
+            SqlxNotificationSeenWriter::new(pool.clone()),
+        )),
+        Arc::new(UpdateAllNotificationsSeenHandler::new(
+            SqlxNotificationSeenWriter::new(pool.clone()),
+        )),
+        Arc::new(DeleteNotificationHandler::new(
+            SqlxNotificationDeleter::new(pool.clone()),
+        )),
+        Arc::new(DeleteNotificationsHandler::new(
+            SqlxNotificationDeleter::new(pool.clone()),
+        )),
+        Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    );
+
     let watchlist_state = WatchlistState::new(
         Arc::new(ListWatchlistHandler::new(
             unit_of_work.clone(),
             SqlxProductWatchlistDetailsReaderFactory::new(),
             SqlxFxRateSnapshotRepositoryFactory,
-            DynamoDbAllNotificationsReader::new(client, "table_1"),
         )),
         Arc::new(WatchProductHandler::new(
             unit_of_work.clone(),
@@ -789,10 +832,11 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
             shop_postgres::SqlxShopRepositoryFactory::new(),
             SqlxUserPartnerShopMembershipRepositoryFactory::new(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
-            CreateNotificationHandler::new(ConditionalDynamoDbNotificationWriter::new(
-                get_dynamodb_client().await.clone(),
-                "table_1",
-            )),
+            NotificationCreationCoordinatorFactory::new(
+                SqlxNotificationRepositoryFactory::new(),
+                InitialExternalDeliveryPlanReaderFactory,
+                SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+            ),
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
@@ -881,6 +925,7 @@ async fn test_state(search_embeddings: TestEmbeddingGenerator) -> AppState {
         .with_webhooks(webhooks_state)
         .with_oauth(oauth_state)
         .with_search_filters(search_filters_state)
+        .with_notifications(notifications_state)
         .with_billing(billing_state)
 }
 

@@ -5,23 +5,25 @@ on:
     branches: [prod, develop]
     paths:
       - ".github/workflows/integrate.yml"
+      - ".github/workflows/deploy.yml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "depgraph-rules.toml"
       - "sonar-project.properties"
-      - "scripts/common-decomposition/**"
       - "src/**"
+      - "migrations/**"
       - "infra/**"
       - "mjml/**"
   pull_request:
     paths:
       - ".github/workflows/integrate.yml"
+      - ".github/workflows/deploy.yml"
       - "Cargo.toml"
       - "Cargo.lock"
       - "depgraph-rules.toml"
       - "sonar-project.properties"
-      - "scripts/common-decomposition/**"
       - "src/**"
+      - "migrations/**"
       - "infra/**"
       - "opensearch/**"
       - "mjml/**"
@@ -85,14 +87,6 @@ jobs:
           else
             echo "sha=HEAD^" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Check common decomposition baseline
-        run: >-
-          python3 scripts/common-decomposition/check_baseline.py
-          --base-ref "${{ steps.common-baseline-base.outputs.sha }}"
-
-      - name: Test common decomposition baseline checker
-        run: python3 -m unittest discover -s scripts/common-decomposition -p 'test_*.py'
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -278,7 +272,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:

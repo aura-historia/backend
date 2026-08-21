@@ -1,17 +1,18 @@
 use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
-use localization::Language;
-use localization::Localized;
-use money::Currency;
-use money::{MonetaryAmount, Price};
-use platform_postgres::SqlxUnitOfWork;
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
+use notification_core::notification_id::NotificationId;
+use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use product_core::description::Description;
 use product_core::product::{NewProduct, Product, ProductAddress, ProductAuction, ProductPricing};
-use product_core::product_id::ProductId;
 use product_core::product_image::ProductImage;
-use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
+use product_core::{
+    product_id::ProductId, product_state::ProductState, shops_product_id::ShopsProductId,
+};
 use product_postgres::{
     SqlxProductDetailsReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
 };
@@ -24,9 +25,7 @@ use product_service::ports::{
 };
 use product_service::use_cases::queries::get_product::ProductLookup;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
+use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
@@ -231,6 +230,24 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
         match_created,
     )
     .await;
+    let notification_id = NotificationId::new();
+    let notification = sqlx::query(
+        r#"
+        INSERT INTO notifications (
+            notification_id, user_id, kind, origin_event_id, product_id, payload, seen
+        ) VALUES ($1, $2, 'WATCHLIST_STATE_CHANGED', $3, $4, $5, false)
+        "#,
+    )
+    .bind(uuid::Uuid::from(notification_id))
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::from(product.id()))
+    .bind(serde_json::json!({}))
+    .execute(&pool)
+    .await;
+    if let Err(error) = notification {
+        panic!("failed to seed notification: {error}");
+    }
 
     let view = find_personalized_details(&pool, details_request(product.id(), Some(user_id))).await;
     let user_state = view.user_state.unwrap_or_default();
@@ -238,8 +255,10 @@ async fn should_join_all_postgres_user_state_sections_for_authenticated_user() {
     assert!(user_state.watchlist.watching);
     assert!(!user_state.watchlist.notifications);
     assert!(user_state.prohibited_content.consent);
-    assert!(user_state.notification.seen);
-    assert_eq!(None, user_state.notification.origin_event_id);
+    assert_eq!(
+        vec![notification_id],
+        user_state.notification.unseen_notification_ids
+    );
     assert!(user_state.search_filter.matched);
     assert!(!user_state.search_filter.hidden);
     assert_eq!(
@@ -708,8 +727,8 @@ async fn insert_watchlist(
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO product_watchlist (user_id, product_id, notifications, state)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since)
+        VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN now() ELSE NULL END, CASE WHEN $3 THEN now() ELSE NULL END)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))
@@ -766,7 +785,7 @@ async fn insert_search_filter_match(
     user_id: UserId,
     filter_id: UserSearchFilterId,
     product_id: ProductId,
-    origin_event_id: domain_primitives::event_id::EventId,
+    origin_event_id: EventId,
     name: &str,
     reason: Option<&str>,
     feedback: Option<bool>,
@@ -796,10 +815,7 @@ async fn insert_search_filter_match(
     }
 }
 
-async fn event_id_for_product(
-    pool: &sqlx::PgPool,
-    product_id: ProductId,
-) -> domain_primitives::event_id::EventId {
+async fn event_id_for_product(pool: &sqlx::PgPool, product_id: ProductId) -> EventId {
     let result =
         sqlx::query_scalar::<_, uuid::Uuid>("SELECT event_id FROM products WHERE product_id = $1")
             .bind(uuid::Uuid::from(product_id))
@@ -807,7 +823,7 @@ async fn event_id_for_product(
             .await;
 
     match result {
-        Ok(event_id) => domain_primitives::event_id::EventId::from(event_id),
+        Ok(event_id) => EventId::from(event_id),
         Err(error) => panic!("failed to read product event ID: {error}"),
     }
 }
@@ -841,7 +857,7 @@ fn sample_product(
         id: ProductId::new(),
         shop_id,
         seller_id,
-        shops_product_id: product_core::shops_product_id::ShopsProductId::from(slug),
+        shops_product_id: ShopsProductId::from(slug),
         address: ProductAddress::default(),
         title,
         description,
@@ -920,14 +936,14 @@ fn url(value: &str) -> Url {
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: platform_postgres::SqlxTransaction) {
+async fn commit(tx: SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

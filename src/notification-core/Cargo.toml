@@ -8,17 +8,21 @@ domain-primitives = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 product-core = { workspace = true }
-serde = { workspace = true }
 search-filter-core = { workspace = true }
+serde = { workspace = true }
 shop-core = { workspace = true }
 shop-partner-core = { workspace = true }
-serde-email = { workspace = true }
 user-core = { workspace = true }
+
+thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v7"] }
 
 # Optional
 fake = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
 
 [features]
 default = []

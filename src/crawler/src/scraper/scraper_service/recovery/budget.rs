@@ -5,6 +5,7 @@ use common::shop_id::ShopId;
 use url::Url;
 
 impl ScraperServiceImpl {
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn consume_llm_budget_or_err(
         &self,
         shop_id: &ShopId,
@@ -16,6 +17,7 @@ impl ScraperServiceImpl {
     /// Charge `n` LLM calls against the per-shop budget.  When `n` is zero
     /// this is a no-op.  When the budget would be exceeded the function returns
     /// [`ScraperError::LlmBudgetExceeded`] without modifying the counter.
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn consume_llm_budget_n_or_err(
         &self,
         shop_id: &ShopId,

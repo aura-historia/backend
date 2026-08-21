@@ -5,17 +5,22 @@ use crate::ports::{
     SearchFilterMonthlyMatchQuotaReaderFactory,
 };
 use crate::tier_policy::monthly_match_quota;
-use application::error::{BoxError, box_error};
-use application::transaction::{Transaction, UnitOfWork};
+use application::{
+    error::{BoxError, box_error},
+    transaction::{Transaction, TransactionError, UnitOfWork},
+};
 use domain_primitives::event_id::EventId;
-use notification_core::notification::{NotificationPayload, NotificationSearchFilterPayload};
-use notification_service::use_cases::commands::create_notification::{
-    CreateNotificationCommand, CreateNotificationResult, CreateNotificationUseCase,
+use notification_core::notification::{NotificationContent, ProductNotificationSnapshot};
+use notification_service::ports::notification_creator::{
+    ExternalDeliveryRequest, NewNotification, NotificationCreationError,
+    NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
 use product_core::product_id::ProductId;
 use product_service::ports::{
-    ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
-    ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
+    ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
+    ProductCurrentRevisionGuardFactory, ProductSearchFilterMatchSource,
+    ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
+    ProductSearchFilterMatchSourceReaderFactory,
 };
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use user_core::user_id::UserId;
@@ -39,7 +44,7 @@ pub enum GenerateSearchFilterMatchNotificationResult {
     SuppressedForMissingUser,
     SuppressedForMissingMatch,
     SuppressedForStaleMatch,
-    SuppressedForNonSelectedFilter,
+
     SuppressedForMissingProduct,
     SuppressedForStaleProductEvent,
 }
@@ -74,6 +79,11 @@ pub enum GenerateSearchFilterMatchNotificationError {
     },
     #[error("product notification source does not match the requested event or product")]
     ProductSourceMismatch,
+    #[error("product current revision check failed")]
+    ProductCurrentRevisionCheckFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("user tier entitlement lock failed")]
     UserTierEntitlementsLockFailed {
         #[source]
@@ -107,22 +117,24 @@ pub trait GenerateSearchFilterMatchNotificationUseCase: Send + Sync {
     >;
 }
 
-pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, N> {
+pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N> {
     unit_of_work: U,
     matches: M,
     products: P,
     quotas: Q,
     tier_entitlements: A,
+    product_revision_guard: G,
     notifications: N,
 }
 
-impl<U, M, P, Q, A, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, N> {
+impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N> {
     pub fn new(
         unit_of_work: U,
         matches: M,
         products: P,
         quotas: Q,
         tier_entitlements: A,
+        product_revision_guard: G,
         notifications: N,
     ) -> Self {
         Self {
@@ -131,21 +143,23 @@ impl<U, M, P, Q, A, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, 
             products,
             quotas,
             tier_entitlements,
+            product_revision_guard,
             notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, M, P, Q, A, N> GenerateSearchFilterMatchNotificationUseCase
-    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, N>
+impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationUseCase
+    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N>
 where
     U: UnitOfWork,
     M: SearchFilterMatchNotificationSourceReaderFactory<U::Tx>,
     P: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
     Q: SearchFilterMonthlyMatchQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
-    N: CreateNotificationUseCase,
+    G: ProductCurrentRevisionGuardFactory<U::Tx>,
+    N: NotificationCreatorFactory<U::Tx>,
 {
     #[tracing::instrument(
         name = "generate_search_filter_match_notification",
@@ -189,10 +203,6 @@ where
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForStaleMatch);
         }
-        if !match_source.is_selected_filter {
-            tx.commit().await.map_err(commit_error)?;
-            return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForNonSelectedFilter);
-        }
 
         let product = self
             .products
@@ -207,7 +217,17 @@ where
         if product.event_id != command.origin_event_id || product.product_id != command.product_id {
             return Err(GenerateSearchFilterMatchNotificationError::ProductSourceMismatch);
         }
-        if product.current_event_id != command.origin_event_id {
+        let revision = self
+            .product_revision_guard
+            .in_transaction(&mut tx)
+            .lock_and_check(command.product_id, command.origin_event_id)
+            .await
+            .map_err(|source: ProductCurrentRevisionCheckError| {
+                GenerateSearchFilterMatchNotificationError::ProductCurrentRevisionCheckFailed {
+                    source: box_error(source),
+                }
+            })?;
+        if revision == ProductCurrentRevisionCheck::Stale {
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductEvent);
         }
@@ -232,17 +252,25 @@ where
             )
             .await
             .map_err(monthly_match_quota_error)?;
-        tx.commit().await.map_err(commit_error)?;
 
         if rank > monthly_match_quota(tier) {
+            tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedByQuota);
         }
 
-        match create_notification(&self.notifications, match_source, product).await? {
-            CreateNotificationResult::Created { .. } => {
+        let outcome = create_notification(
+            &mut self.notifications.in_transaction(&mut tx),
+            match_source,
+            product,
+        )
+        .await?;
+        tx.commit().await.map_err(commit_error)?;
+
+        match outcome {
+            NotificationCreationOutcome::Inserted { .. } => {
                 Ok(GenerateSearchFilterMatchNotificationResult::Created)
             }
-            CreateNotificationResult::AlreadyExists => {
+            NotificationCreationOutcome::Duplicate => {
                 Ok(GenerateSearchFilterMatchNotificationResult::AlreadyExists)
             }
         }
@@ -259,42 +287,53 @@ fn match_source_matches_command(
         && source.origin_event_id == command.origin_event_id
 }
 
-async fn create_notification<N>(
-    notifications: &N,
+async fn create_notification(
+    notifications: &mut impl NotificationCreator,
     match_source: SearchFilterMatchNotificationSource,
     product: ProductSearchFilterMatchSource,
-) -> Result<CreateNotificationResult, GenerateSearchFilterMatchNotificationError>
-where
-    N: CreateNotificationUseCase,
-{
-    notifications
-        .execute(CreateNotificationCommand {
-            user_id: match_source.user_id,
-            origin_event_id: match_source.origin_event_id,
-            notification_payload: NotificationPayload::SearchFilter {
+) -> Result<NotificationCreationOutcome, GenerateSearchFilterMatchNotificationError> {
+    let notification = NewNotification {
+        notification: notification_core::notification::Notification::new(
+            Default::default(),
+            match_source.user_id,
+            NotificationContent::SearchFilter {
+                origin_event_id: match_source.origin_event_id,
                 product_id: product.product_id,
-                shop_id: product.shop_id,
-                shops_product_id: product.shops_product_id,
-                shop_slug_id: product.shop_slug_id,
-                product_slug_id: product.product_slug_id,
-                shop_name: product.shop_name,
-                title: (!product.titles.is_empty()).then_some(product.titles),
-                image: product.image,
-                url: product.url,
-                view_url: product.view_url,
-                search_filter_payload: NotificationSearchFilterPayload {
-                    user_search_filter_id: match_source.search_filter_id,
-                    user_search_filter_name: match_source.search_filter_name,
+                user_search_filter_id: match_source.search_filter_id,
+                snapshot: ProductNotificationSnapshot {
+                    shop_id: product.shop_id,
+                    shops_product_id: product.shops_product_id,
+                    shop_slug_id: product.shop_slug_id,
+                    product_slug_id: product.product_slug_id,
+                    shop_name: product.shop_name,
+                    title: (!product.titles.is_empty()).then_some(product.titles),
+                    image: product.image,
+                    url: product.url,
+                    view_url: product.view_url,
                 },
+                user_search_filter_name: match_source.search_filter_name,
             },
-            external: match_source.external,
-        })
-        .await
-        .map_err(
-            |source| GenerateSearchFilterMatchNotificationError::NotificationCreateFailed {
+        ),
+        external_delivery: if match_source.external_delivery_requested {
+            ExternalDeliveryRequest::Requested
+        } else {
+            ExternalDeliveryRequest::None
+        },
+    };
+    let mut outcomes = notifications.create_many(&[notification]).await.map_err(
+        |source: NotificationCreationError| {
+            GenerateSearchFilterMatchNotificationError::NotificationCreateFailed {
                 source: box_error(source),
-            },
-        )
+            }
+        },
+    )?;
+    outcomes.pop().ok_or_else(|| {
+        GenerateSearchFilterMatchNotificationError::NotificationCreateFailed {
+            source: box_error(std::io::Error::other(
+                "notification creator returned no outcome",
+            )),
+        }
+    })
 }
 
 fn match_source_read_error(
@@ -342,9 +381,7 @@ fn monthly_match_quota_error(
     }
 }
 
-fn commit_error(
-    source: application::transaction::TransactionError,
-) -> GenerateSearchFilterMatchNotificationError {
+fn commit_error(source: TransactionError) -> GenerateSearchFilterMatchNotificationError {
     GenerateSearchFilterMatchNotificationError::CommitTransactionFailed {
         source: box_error(source),
     }
@@ -353,23 +390,22 @@ fn commit_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use application::transaction::TransactionError;
     use indexmap::IndexSet;
-    use product_core::shops_product_id::ShopsProductId;
     use product_core::{
         product::{ProductAddress, ProductAuction, ProductPricing},
         product_image::ProductImage,
         product_lifecycle::ProductLifecycle,
         product_slug_id::ProductSlugId,
         product_state::ProductState,
+        shops_product_id::ShopsProductId,
     };
     use product_service::ports::ProductSearchFilterMatchShopType;
     use product_service::ports::ProductSearchFilterMatchSourceEventKind;
     use search_filter_core::user_search_filter_name::UserSearchFilterName;
-    use shop_core::seller_slug_id::SellerSlugId;
-    use shop_core::shop_id::ShopId;
-    use shop_core::shop_name::ShopName;
-    use shop_core::shop_slug_id::ShopSlugId;
+    use shop_core::{
+        seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName,
+        shop_slug_id::ShopSlugId,
+    };
     use std::{
         error::Error,
         sync::{Arc, Mutex},
@@ -381,6 +417,7 @@ mod tests {
     #[derive(Default)]
     struct State {
         commits: usize,
+        quota_reads: usize,
         notification_commit_counts: Vec<usize>,
     }
 
@@ -469,8 +506,46 @@ mod tests {
         }
     }
 
-    struct Quotas;
-    struct QuotaReader;
+    #[derive(Clone, Copy)]
+    enum ProductRevisionCheckOutcome {
+        Current,
+        Stale,
+        Error,
+    }
+
+    struct ProductRevisionGuards(ProductRevisionCheckOutcome);
+    struct ProductRevisionGuard(ProductRevisionCheckOutcome);
+
+    #[async_trait::async_trait]
+    impl ProductCurrentRevisionGuard for ProductRevisionGuard {
+        async fn lock_and_check(
+            &mut self,
+            _product_id: ProductId,
+            _expected_event_id: EventId,
+        ) -> Result<ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError> {
+            match self.0 {
+                ProductRevisionCheckOutcome::Current => Ok(ProductCurrentRevisionCheck::Current),
+                ProductRevisionCheckOutcome::Stale => Ok(ProductCurrentRevisionCheck::Stale),
+                ProductRevisionCheckOutcome::Error => {
+                    Err(ProductCurrentRevisionCheckError::CheckFailed {
+                        source: box_error(std::io::Error::other("guard read failed")),
+                    })
+                }
+            }
+        }
+    }
+
+    impl ProductCurrentRevisionGuardFactory<TestTransaction> for ProductRevisionGuards {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TestTransaction,
+        ) -> impl ProductCurrentRevisionGuard + 'tx {
+            ProductRevisionGuard(self.0)
+        }
+    }
+
+    struct Quotas(Arc<Mutex<State>>);
+    struct QuotaReader(Arc<Mutex<State>>);
 
     #[async_trait::async_trait]
     impl SearchFilterMonthlyMatchQuotaReader for QuotaReader {
@@ -480,6 +555,9 @@ mod tests {
             _matched_at: OffsetDateTime,
             _origin_event_id: EventId,
         ) -> Result<usize, SearchFilterMonthlyMatchQuotaReadError> {
+            if let Ok(mut state) = self.0.lock() {
+                state.quota_reads += 1;
+            }
             Ok(1)
         }
     }
@@ -489,7 +567,7 @@ mod tests {
             &'tx self,
             _tx: &'tx mut TestTransaction,
         ) -> impl SearchFilterMonthlyMatchQuotaReader + 'tx {
-            QuotaReader
+            QuotaReader(Arc::clone(&self.0))
         }
     }
 
@@ -524,40 +602,58 @@ mod tests {
     }
 
     struct Notifications(Arc<Mutex<State>>);
+    struct TestNotificationCreator(Arc<Mutex<State>>);
+
+    impl NotificationCreatorFactory<TestTransaction> for Notifications {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TestTransaction,
+        ) -> impl NotificationCreator + 'tx {
+            TestNotificationCreator(Arc::clone(&self.0))
+        }
+    }
 
     #[async_trait::async_trait]
-    impl CreateNotificationUseCase for Notifications {
-        async fn execute(
-            &self,
-            command: CreateNotificationCommand,
-        ) -> Result<notification_service::use_cases::commands::create_notification::CreateNotificationResult, notification_service::use_cases::commands::create_notification::CreateNotificationError>{
+    impl NotificationCreator for TestNotificationCreator {
+        async fn create_many(
+            &mut self,
+            notifications: &[NewNotification],
+        ) -> Result<Vec<NotificationCreationOutcome>, NotificationCreationError> {
             if let Ok(mut state) = self.0.lock() {
                 let commits = state.commits;
                 state.notification_commit_counts.push(commits);
             }
-            Ok(notification_service::use_cases::commands::create_notification::CreateNotificationResult::Created {
-                notification: notification_core::notification::Notification::new(
-                    command.user_id,
-                    command.origin_event_id,
-                    command.notification_payload,
-                    command.external,
-                ),
-            })
+            Ok(notifications
+                .iter()
+                .map(|notification| NotificationCreationOutcome::Inserted {
+                    notification_id: notification.notification.notification_id(),
+                })
+                .collect())
         }
     }
 
     struct DuplicateNotifications;
+    struct DuplicateNotificationCreator;
+
+    impl NotificationCreatorFactory<TestTransaction> for DuplicateNotifications {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TestTransaction,
+        ) -> impl NotificationCreator + 'tx {
+            DuplicateNotificationCreator
+        }
+    }
 
     #[async_trait::async_trait]
-    impl CreateNotificationUseCase for DuplicateNotifications {
-        async fn execute(
-            &self,
-            _command: CreateNotificationCommand,
-        ) -> Result<
-            notification_service::use_cases::commands::create_notification::CreateNotificationResult,
-            notification_service::use_cases::commands::create_notification::CreateNotificationError,
-        >{
-            Ok(CreateNotificationResult::AlreadyExists)
+    impl NotificationCreator for DuplicateNotificationCreator {
+        async fn create_many(
+            &mut self,
+            notifications: &[NewNotification],
+        ) -> Result<Vec<NotificationCreationOutcome>, NotificationCreationError> {
+            Ok(notifications
+                .iter()
+                .map(|_| NotificationCreationOutcome::Duplicate)
+                .collect())
         }
     }
 
@@ -586,8 +682,7 @@ mod tests {
             origin_event_id,
             search_filter_name: UserSearchFilterName::from("daily"),
             matched_at: OffsetDateTime::UNIX_EPOCH,
-            external: true,
-            is_selected_filter: true,
+            external_delivery_requested: true,
         };
         let url = Url::parse("https://example.test/product")?;
         let product = ProductSearchFilterMatchSource {
@@ -628,15 +723,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_commit_selection_before_creating_notification() -> Result<(), Box<dyn Error>> {
+    async fn should_create_notification_before_committing_selection() -> Result<(), Box<dyn Error>>
+    {
         let state = Arc::new(Mutex::new(State::default()));
         let (command, match_source, product) = sources()?;
         let handler = GenerateSearchFilterMatchNotificationHandler::new(
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
             ProductSources(Some(product)),
-            Quotas,
+            Quotas(Arc::clone(&state)),
             Tiers,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
             Notifications(Arc::clone(&state)),
         );
 
@@ -648,7 +745,7 @@ mod tests {
             .lock()
             .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
         assert_eq!(1, state.commits);
-        assert_eq!(vec![1], state.notification_commit_counts);
+        assert_eq!(vec![0], state.notification_commit_counts);
         Ok(())
     }
 
@@ -660,8 +757,9 @@ mod tests {
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
             ProductSources(Some(product)),
-            Quotas,
+            Quotas(Arc::clone(&state)),
             Tiers,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
             DuplicateNotifications,
         );
 
@@ -686,8 +784,9 @@ mod tests {
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::Found(Some(match_source)),
             ProductSources(Some(product)),
-            Quotas,
+            Quotas(Arc::clone(&state)),
             Tiers,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
             Notifications(Arc::clone(&state)),
         );
 
@@ -704,6 +803,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_suppress_stale_product_event_without_reading_quota_or_creating_notification()
+    -> Result<(), Box<dyn Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (command, match_source, product) = sources()?;
+        let handler = GenerateSearchFilterMatchNotificationHandler::new(
+            TestUnitOfWork(Arc::clone(&state)),
+            MatchSources::Found(Some(match_source)),
+            ProductSources(Some(product)),
+            Quotas(Arc::clone(&state)),
+            Tiers,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Stale),
+            Notifications(Arc::clone(&state)),
+        );
+
+        assert_eq!(
+            GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductEvent,
+            handler.execute(command).await?
+        );
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(1, state.commits);
+        assert_eq!(0, state.quota_reads);
+        assert!(state.notification_commit_counts.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_typed_revision_check_failure_without_reading_quota_or_creating_notification()
+    -> Result<(), Box<dyn Error>> {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (command, match_source, product) = sources()?;
+        let handler = GenerateSearchFilterMatchNotificationHandler::new(
+            TestUnitOfWork(Arc::clone(&state)),
+            MatchSources::Found(Some(match_source)),
+            ProductSources(Some(product)),
+            Quotas(Arc::clone(&state)),
+            Tiers,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Error),
+            Notifications(Arc::clone(&state)),
+        );
+
+        let error = handler
+            .execute(command)
+            .await
+            .err()
+            .ok_or_else(|| std::io::Error::other("expected error"))?;
+        assert!(matches!(
+            &error,
+            GenerateSearchFilterMatchNotificationError::ProductCurrentRevisionCheckFailed { .. }
+        ));
+        assert!(matches!(
+            Error::source(&error)
+                .and_then(|source| { source.downcast_ref::<ProductCurrentRevisionCheckError>() }),
+            Some(ProductCurrentRevisionCheckError::CheckFailed { .. })
+        ));
+        let state = state
+            .lock()
+            .map_err(|_| std::io::Error::other("test mutex poisoned"))?;
+        assert_eq!(0, state.commits);
+        assert_eq!(0, state.quota_reads);
+        assert!(state.notification_commit_counts.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_preserve_match_source_query_failure_in_service_error_chain()
     -> Result<(), Box<dyn Error>> {
         let state = Arc::new(Mutex::new(State::default()));
@@ -712,8 +877,9 @@ mod tests {
             TestUnitOfWork(Arc::clone(&state)),
             MatchSources::QueryFailure,
             ProductSources(Some(product)),
-            Quotas,
+            Quotas(Arc::clone(&state)),
             Tiers,
+            ProductRevisionGuards(ProductRevisionCheckOutcome::Current),
             Notifications(state),
         );
 

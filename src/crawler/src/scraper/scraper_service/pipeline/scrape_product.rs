@@ -91,6 +91,7 @@ impl ScraperServiceImpl {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     async fn removed_page_schemas_for(
         &self,
         shop_id: &ShopId,
@@ -109,6 +110,7 @@ impl ScraperServiceImpl {
         Ok(schemas)
     }
 
+    #[allow(clippy::result_large_err)]
     async fn is_removed_page(&self, shop_id: &ShopId, html: &str) -> Result<bool, ScraperError> {
         Ok(self
             .removed_page_schemas_for(shop_id)

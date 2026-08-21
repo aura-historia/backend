@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+application = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
-application = { workspace = true }
 billing-service = { workspace = true }
 billing-stripe = { workspace = true }
 credential-core = { workspace = true }
@@ -22,8 +22,6 @@ google-cloud-auth = { workspace = true }
 http = { workspace = true }
 httpdate = { workspace = true }
 indexmap = { workspace = true }
-localization = { workspace = true }
-money = { workspace = true }
 oauth-core = { workspace = true }
 oauth-dynamodb = { workspace = true }
 oauth-service = { workspace = true }
@@ -32,8 +30,10 @@ platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }
-
-notification-dynamodb = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
+notification-core = { workspace = true }
+notification-postgres = { workspace = true }
 notification-service = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }

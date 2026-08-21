@@ -9,12 +9,12 @@
 
 - Depends on `notification-core` plus pure `money` and `localization` values; never depend on DynamoDB or runtime adapters.
 - Root modules:
-  - `use_cases/commands` — write use-case handlers/contracts.
-  - `use_cases/queries` — read use-case handlers/contracts and dedicated views.
-  - `ports` — one file per outbound port; port-local errors/read models live in that port file.
-- No compatibility re-export modules.
-- No noop adapter in this crate.
-- Repository writes return persisted notification state; handlers must not read after write for responses. Conditional notification writers return explicit inserted or already-exists outcomes and a dedicated write error; a deduplicated create result never contains a fabricated notification.
+  - `use_cases/commands` — creation and owner-scoped notification mutation handlers/contracts.
+  - `use_cases/queries` — list handler/contracts and dedicated views.
+  - `ports` — creator, list reader, seen writer, deleter, delivery repository, and channel sender capabilities.
+- Notification creation accepts producer-selected external-delivery requests, then the service coordinator plans channel/target intents and persists them atomically for newly inserted notifications only. IDs are generated at the application boundary and outcomes stay input-aligned. The initial planner emits EMAIL/PRIMARY only; producers never select a channel or target. Delivery claims load the persisted channel/target source by delivery ID; `NotificationDeliveryDispatcher` sends through one registered channel sender, captures one completion value, then retries only the matching terminal lease finalization with the original lease token, completion timestamp, and provider receipt/error code. Each channel sender resolves its own target outside generic service code. Duplicate channel registrations and unregistered channels are errors. Seen and delete mutations derive owner only from `OperationContext`; single missing or cross-owner rows return `NotFound`.
+- `presentation::NotificationPresentationPreferences` carries language and current prohibited-content consent. Watchlist price changes preserve immutable source-currency values; REST and email consume them without FX conversion or changing notification snapshots.
+- No compatibility re-export modules or noop adapters.
 - Keep runtime and HTTP glue outside.
 
 ## Ownership

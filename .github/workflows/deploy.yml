@@ -8,6 +8,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "src/**"
+      - "migrations/**"
       - "infra/**"
       - "mjml/**"
   workflow_dispatch:
@@ -86,7 +87,6 @@ jobs:
           - src/product-pipeline/src/product-pipeline-embed-text
           - src/product-pipeline/src/product-pipeline-translate
           - src/product-lambda/src/product-lambda-materialize-opensearch
-          - src/product-lambda/src/product-lambda-update-notify-user
           - src/product-lambda/src/product-lambda-ingest-partner-products
           - src/product-lambda/src/product-lambda-delete-product
           - src/shop-api
@@ -101,8 +101,6 @@ jobs:
           - src/partner-shop-application-lambda
           - src/cognito-post-confirmation
           - src/cloudwatch-log-retention-lambda
-          - src/notification-send
-          - src/notification-api
           - src/newsletter-api
           - src/fxrate-lambda
           - src/stripe-lambda

@@ -368,8 +368,8 @@ mod tests {
         assert_eq!(StatusCode::OK, response.status());
         assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
         assert_eq!(
-            true,
-            body_json(response).await?[0]["userState"]["notification"]["seen"]
+            serde_json::json!([]),
+            body_json(response).await?[0]["userState"]["notification"]["unseenNotificationIds"]
         );
         Ok(())
     }

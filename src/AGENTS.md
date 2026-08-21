@@ -9,7 +9,7 @@
 ## Core Design
 
 - Workspace split by job: domain libs hold rules, `*-api`/`aura-historia-api` crates speak HTTP, `aura-historia-worker` handles async CDC/queues, survivor `*-lambda` crates speak AWS event/runtime, test crates prove behavior.
-- Keep reusable logic in domain or service modules. Handler `main.rs`, route files, and Lambda bootstrap stay thin.
+- Keep reusable logic in domain or service modules. Handler `main.rs`, route files, and Lambda bootstrap stay thin. API and worker crates implement no service port or use case; they only map transport/runtime input and compose adapter crates.
 - Shared OpenSearch assets under `src/opensearch/` stay governed here unless they grow own durable boundary.
 - Crate submodule-design
   - core: domain logic and business rules
@@ -17,7 +17,7 @@
   - dynamodb: DynamoDB payloads
   - opensearch: OpenSearch payloads
   - service: service glue, orchestration, and cross-crate integration
-- DynamoDB is current source-of-truth for not-yet-migrated records. Postgres is target business truth per `docs/storage.md`. OpenSearch is re-computable read-optimized view for search and discovery.
+- DynamoDB owns only its remaining bounded contexts. PostgreSQL owns migrated business truth, including notifications and delivery state, per `docs/storage.md`. OpenSearch is re-computable read-optimized view for search and discovery.
 - Cognito is only Identity-Provider. User-Details and User-Profile are stored in DynamoDB.
 
 ## Ownership
@@ -109,12 +109,13 @@
 - `src/fxrate-lambda/AGENTS.md` — scheduled FX capture Lambda.
 - `src/geo/AGENTS.md` — `geo` crate.
 - `src/newsletter-api/AGENTS.md` — `newsletter-api` crate.
-- `src/notification/AGENTS.md` — legacy notification crate.
+- `src/notification/AGENTS.md` — legacy notification crate retained only for the untouched periodic matcher follow-up.
 - `src/notification-core/AGENTS.md` — canonical Notification domain crate.
+- `src/notification-email/AGENTS.md` — EMAIL target contract crate.
+- `src/notification-email-aws/AGENTS.md` — canonical Notification email AWS adapter crate.
 - `src/notification-service/AGENTS.md` — canonical Notification service/use-case crate.
-- `src/notification-dynamodb/AGENTS.md` — canonical Notification DynamoDB adapter crate.
-- `src/notification-api/AGENTS.md` — `notification-api` crate.
-- `src/notification-send/AGENTS.md` — `notification-send` crate.
+- `src/notification-postgres/AGENTS.md` — canonical Notification PostgreSQL adapter crate.
+
 - `src/oauth/AGENTS.md` — legacy `oauth` crate.
 - `src/oauth-api/AGENTS.md` — legacy `oauth-api` crate.
 - `src/oauth-core/AGENTS.md` — canonical OAuth domain crate.
@@ -126,6 +127,7 @@
 - `src/product/AGENTS.md` — legacy `product` crate.
 - `src/product-core/AGENTS.md` — canonical Product domain crate.
 - `src/product-service/AGENTS.md` — canonical Product service crate.
+- `src/product-translation-llm/AGENTS.md` — Product title LLM adapter crate.
 - `src/product-postgres/AGENTS.md` — canonical Product Postgres adapter crate.
 - `src/platform-observability/AGENTS.md` — typed tracing subscriber setup.
 - `src/platform-opensearch/AGENTS.md` — shared OpenSearch protocol envelopes.

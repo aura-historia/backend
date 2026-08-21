@@ -1,22 +1,23 @@
 use crate::ports::{
     SearchFilterMatchListQuery, SearchFilterMatchReadError, SearchFilterMatchReader,
 };
-use application::error::{BoxError, box_error, static_error};
-use application::operation_context::{
-    CredentialCapability, OperationAuthorizationError, OperationContext,
+use application::{
+    error::{BoxError, box_error, static_error},
+    operation_context::{CredentialCapability, OperationAuthorizationError, OperationContext},
+    pagination::{Cursor, CursoredResult},
+    transaction::{Transaction, UnitOfWork},
 };
-use application::pagination::{Cursor, CursoredResult};
-use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::sort::SortOrder;
 use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use localization::Language;
 use money::Currency;
-use notification_service::ports::all_notifications_reader::{
-    AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
-};
 use product_core::product_id::ProductId;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use user_core::user_id::UserId;
+
 use product_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
     ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
@@ -25,11 +26,8 @@ use product_service::use_cases::{
     PersonalizedProductDetailsView, ProductPricingPresentationError, present_product_details,
     redact_hidden_product,
 };
-use product_service::user_state::NotificationUserState;
-use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
-use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListSearchFilterMatchesRequest {
@@ -38,7 +36,7 @@ pub struct ListSearchFilterMatchesRequest {
     pub language: Language,
     pub currency: Currency,
     pub cursor: Option<Cursor<crate::ports::SearchFilterMatchCursor>>,
-    pub order: domain_primitives::sort::SortOrder,
+    pub order: SortOrder,
 }
 
 pub type ListSearchFilterMatchesResult =
@@ -97,11 +95,7 @@ pub enum ListSearchFilterMatchesError {
     BeginPricingTransactionFailed,
     #[error("failed to commit matched-product FX transaction")]
     CommitPricingTransactionFailed,
-    #[error("matched product notification read failed")]
-    NotificationReadFailed {
-        #[source]
-        source: BoxError,
-    },
+
     #[error("matched product could not be redacted")]
     HiddenProductRedactionFailed {
         #[source]
@@ -118,34 +112,31 @@ pub trait ListSearchFilterMatchesUseCase: Send + Sync {
     ) -> Result<ListSearchFilterMatchesResult, ListSearchFilterMatchesError>;
 }
 
-pub struct ListSearchFilterMatchesHandler<U, M, P, F, N> {
+pub struct ListSearchFilterMatchesHandler<U, M, P, F> {
     unit_of_work: U,
     matches: M,
     products: P,
     fx_rates: F,
-    notifications: N,
 }
 
-impl<U, M, P, F, N> ListSearchFilterMatchesHandler<U, M, P, F, N> {
-    pub fn new(unit_of_work: U, matches: M, products: P, fx_rates: F, notifications: N) -> Self {
+impl<U, M, P, F> ListSearchFilterMatchesHandler<U, M, P, F> {
+    pub fn new(unit_of_work: U, matches: M, products: P, fx_rates: F) -> Self {
         Self {
             unit_of_work,
             matches,
             products,
             fx_rates,
-            notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, M, P, F, N> ListSearchFilterMatchesUseCase for ListSearchFilterMatchesHandler<U, M, P, F, N>
+impl<U, M, P, F> ListSearchFilterMatchesUseCase for ListSearchFilterMatchesHandler<U, M, P, F>
 where
     U: UnitOfWork,
     M: SearchFilterMatchReader,
     P: ProductDetailsBatchReader,
     F: FxRateSnapshotRepositoryFactory<U::Tx>,
-    N: AllNotificationsReader,
 {
     #[tracing::instrument(
         name = "list_search_filter_matches",
@@ -230,23 +221,16 @@ where
             .await
             .map_err(|_| ListSearchFilterMatchesError::CommitPricingTransactionFailed)?;
 
-        let newest_notifications = newest_notifications_by_product(
-            self.notifications
-                .list_all_by_user(&request.user_id)
-                .await
-                .map_err(notification_read_error)?,
-        );
         for product in &mut products {
-            let user_state = product.user_state.as_mut().ok_or(
-                ListSearchFilterMatchesError::ProductDetailsInvalid {
+            let is_hidden = product
+                .user_state
+                .as_ref()
+                .ok_or(ListSearchFilterMatchesError::ProductDetailsInvalid {
                     source: static_error("matched product is missing user state"),
-                },
-            )?;
-            user_state.notification = newest_notifications
-                .get(&product.item.product_id)
-                .copied()
-                .unwrap_or_default();
-            if user_state.search_filter.hidden {
+                })?
+                .search_filter
+                .hidden;
+            if is_hidden {
                 redact_hidden_product(&mut product.item).map_err(|error| {
                     ListSearchFilterMatchesError::HiddenProductRedactionFailed {
                         source: box_error(error),
@@ -339,31 +323,6 @@ fn present_with_pricing_snapshot(
     )?)
 }
 
-fn newest_notifications_by_product(
-    notifications: Vec<AllNotificationsReadItem>,
-) -> HashMap<ProductId, NotificationUserState> {
-    let mut newest = HashMap::new();
-
-    for notification in notifications {
-        let Some(product_id) = notification.product_id() else {
-            continue;
-        };
-        let state = NotificationUserState {
-            seen: notification.seen,
-            origin_event_id: Some(notification.origin_event_id),
-        };
-        let replace = newest
-            .get(&product_id)
-            .and_then(|current: &NotificationUserState| current.origin_event_id)
-            .is_none_or(|current_event_id| notification.origin_event_id > current_event_id);
-        if replace {
-            newest.insert(product_id, state);
-        }
-    }
-
-    newest
-}
-
 fn authorize_owner(
     context: &OperationContext,
     user_id: UserId,
@@ -390,12 +349,6 @@ fn product_details_read_error(error: ProductDetailsBatchReadError) -> ListSearch
         ProductDetailsBatchReadError::InvalidReadModel { source } => {
             ListSearchFilterMatchesError::ProductDetailsInvalid { source }
         }
-    }
-}
-
-fn notification_read_error(error: AllNotificationsReadError) -> ListSearchFilterMatchesError {
-    ListSearchFilterMatchesError::NotificationReadFailed {
-        source: box_error(error),
     }
 }
 
@@ -449,25 +402,28 @@ mod tests {
     use crate::ports::{
         SearchFilterMatchCursor, SearchFilterMatchListItem, SearchFilterMatchReadError,
     };
-    use application::operation_context::{CorrelationId, Principal, RequestId};
-    use application::personalized::Personalized;
-    use application::transaction::TransactionError;
+    use application::{
+        operation_context::{CorrelationId, Principal, RequestId},
+        personalized::Personalized,
+        transaction::TransactionError,
+    };
     use domain_primitives::event_id::EventId;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use product_core::{
+        product_lifecycle::ProductLifecycle, product_slug_id::ProductSlugId,
+        product_state::ProductState, shops_product_id::ShopsProductId,
+    };
+    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+
     use product_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
-    use product_core::product_lifecycle::ProductLifecycle;
-    use product_core::product_slug_id::ProductSlugId;
-    use product_core::product_state::ProductState;
-    use product_core::shops_product_id::ShopsProductId;
     use product_service::ports::ProductDetailsReadModel;
     use product_service::use_cases::ProductPricingValuation;
-    use product_service::user_state::ProductUserState;
-    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+    use product_service::user_state::{NotificationUserState, ProductUserState};
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
@@ -476,8 +432,7 @@ mod tests {
     #[derive(Default)]
     struct State {
         product_requests: Vec<ProductDetailsBatchReadRequest>,
-        notification_requests: usize,
-        notification_after_commit: bool,
+
         begin_count: usize,
         commit_count: usize,
         latest_snapshot_requests: usize,
@@ -540,21 +495,6 @@ mod tests {
         > {
             lock(&self.state).product_requests.push(request.clone());
             Ok(self.products.clone())
-        }
-    }
-
-    struct NotificationsReader(SharedState);
-
-    #[async_trait::async_trait]
-    impl AllNotificationsReader for NotificationsReader {
-        async fn list_all_by_user(
-            &self,
-            _user_id: &UserId,
-        ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
-            let mut state = lock(&self.0);
-            state.notification_requests += 1;
-            state.notification_after_commit = state.commit_count == 1;
-            Ok(Vec::new())
         }
     }
 
@@ -704,7 +644,7 @@ mod tests {
             language: Language::En,
             currency: Currency::Usd,
             cursor: None,
-            order: domain_primitives::sort::SortOrder::Asc,
+            order: SortOrder::Asc,
         }
     }
 
@@ -717,7 +657,6 @@ mod tests {
         MatchesReader,
         ProductsReader,
         FxRateSnapshotFactoryFake,
-        NotificationsReader,
     > {
         ListSearchFilterMatchesHandler::new(
             UnitOfWorkFake(Arc::clone(state)),
@@ -727,7 +666,6 @@ mod tests {
                 products,
             },
             FxRateSnapshotFactoryFake(Arc::clone(state)),
-            NotificationsReader(Arc::clone(state)),
         )
     }
 
@@ -739,7 +677,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_batch_fx_snapshot_reads_present_products_and_enrich_notifications_after_commit()
+    async fn should_batch_fx_snapshot_reads_present_products_and_retain_canonical_user_state()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
         let current_product_id = ProductId::new();
@@ -747,7 +685,14 @@ mod tests {
         let second_sale_product_id = ProductId::new();
         let current_snapshot = snapshot(FxRateId::new())?;
         let sale_snapshot = snapshot(FxRateId::new())?;
-        let current = product(current_product_id)?;
+        let expected_user_state = ProductUserState {
+            notification: NotificationUserState {
+                unseen_notification_ids: vec![Default::default()],
+            },
+            ..Default::default()
+        };
+        let mut current = product(current_product_id)?;
+        current.user_state = Some(expected_user_state.clone());
         let mut first_sale = product(first_sale_product_id)?;
         first_sale.item.sale_valuation = Some(ProductSaleValuation {
             fx_rate_id: sale_snapshot.id(),
@@ -796,6 +741,10 @@ mod tests {
             result.items[0].item.pricing.valuation,
             ProductPricingValuation::Current { fx_rate_id, .. } if fx_rate_id == current_snapshot.id()
         ));
+        assert_eq!(
+            Some(&expected_user_state),
+            result.items[0].user_state.as_ref()
+        );
         assert!(result.items[1..].iter().all(|item| matches!(
             item.item.pricing.valuation,
             ProductPricingValuation::Sale { fx_rate_id, .. } if fx_rate_id == sale_snapshot.id()
@@ -811,8 +760,6 @@ mod tests {
             HashSet::from([sale_snapshot.id()]),
             state.sale_snapshot_requests[0].iter().copied().collect()
         );
-        assert_eq!(1, state.notification_requests);
-        assert!(state.notification_after_commit);
         Ok(())
     }
 
@@ -850,7 +797,6 @@ mod tests {
         );
         assert_eq!(0, state.find_by_id_requests);
         assert_eq!(0, state.commit_count);
-        assert_eq!(0, state.notification_requests);
         Ok(())
     }
 }

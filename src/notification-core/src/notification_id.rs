@@ -31,6 +31,12 @@ impl From<Uuid> for NotificationId {
     }
 }
 
+impl From<NotificationId> for Uuid {
+    fn from(value: NotificationId) -> Self {
+        value.0
+    }
+}
+
 impl From<NotificationId> for String {
     fn from(value: NotificationId) -> Self {
         value.0.to_string()

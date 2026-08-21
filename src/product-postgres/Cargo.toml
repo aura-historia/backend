@@ -16,6 +16,7 @@ indexmap = { workspace = true }
 isocountry = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
+notification-core = { workspace = true }
 product-core = { workspace = true }
 product-service = { workspace = true }
 shop-core = { workspace = true }

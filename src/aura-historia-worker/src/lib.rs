@@ -1,4 +1,5 @@
 pub mod cdc;
+pub mod notification_delivery;
 pub mod product_embedding;
 pub mod product_opensearch;
 pub mod product_translation;
@@ -25,13 +26,17 @@ use crate::cdc::{
 pub const WORKER_HEALTH_BIND_ADDR_ENV: &str = "AURA_HISTORIA_WORKER_HEALTH_BIND_ADDR";
 pub const WORKER_SCOPE_ENV: &str = "AURA_HISTORIA_WORKER_SCOPE";
 pub const WORKER_STAGE_ENV: &str = "STAGE";
-pub const DYNAMODB_TABLE_NAME_ENV: &str = "DYNAMODB_TABLE_NAME";
 pub const OPENSEARCH_ENDPOINT_URL_ENV: &str = "OPENSEARCH_ENDPOINT_URL";
 pub const OPENSEARCH_USERNAME_ENV: &str = "OPENSEARCH_USERNAME";
 pub const OPENSEARCH_PASSWORD_ENV: &str = "OPENSEARCH_PASSWORD";
 pub const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 pub const VERTEX_AI_LOCATION_ENV: &str = "VERTEX_AI_LOCATION";
 pub const VERTEX_AI_MODEL_ENV: &str = "VERTEX_AI_MODEL";
+pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
+pub const NOTIFICATION_EMAIL_FROM_ENV: &str = "NOTIFICATION_EMAIL_FROM";
+pub const NOTIFICATION_EMAIL_REPLY_TO_ENV: &str = "NOTIFICATION_EMAIL_REPLY_TO";
+pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
+
 const POSTGRES_HOST_ENV: &str = "POSTGRES_HOST";
 const POSTGRES_PORT_ENV: &str = "POSTGRES_PORT";
 const POSTGRES_DATABASE_ENV: &str = "POSTGRES_DATABASE";
@@ -59,6 +64,7 @@ pub enum WorkerScope {
     ProductTranslation,
     ProductEmbedding,
     ProductOpenSearch,
+    NotificationDelivery,
 }
 
 impl WorkerScope {
@@ -87,6 +93,7 @@ impl WorkerScope {
             "product-translation" => Ok(Self::ProductTranslation),
             "product-embedding" => Ok(Self::ProductEmbedding),
             "product-opensearch" => Ok(Self::ProductOpenSearch),
+            "notification-delivery" => Ok(Self::NotificationDelivery),
             _ => Err(WorkerStartupConfigError::InvalidScope { value }),
         }
     }
@@ -100,6 +107,7 @@ impl WorkerScope {
             Self::ProductTranslation => WorkerQueue::ProductTranslate,
             Self::ProductEmbedding => WorkerQueue::ProductEmbed,
             Self::ProductOpenSearch => WorkerQueue::ProductOpenSearch,
+            Self::NotificationDelivery => WorkerQueue::NotificationDelivery,
         }
     }
 }
@@ -166,17 +174,6 @@ impl WorkerOpenSearchConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkerDynamoDbConfig {
-    table_name: String,
-}
-
-impl WorkerDynamoDbConfig {
-    pub fn table_name(&self) -> &str {
-        &self.table_name
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerVertexAiConfig {
     project_id: String,
     location: String,
@@ -197,13 +194,49 @@ impl WorkerVertexAiConfig {
     }
 }
 
+pub struct WorkerEmailDeliveryConfig {
+    template_bucket: String,
+    from_email_address: String,
+    reply_to_email_address: String,
+    stage: String,
+    commit_sha: String,
+}
+
+impl WorkerEmailDeliveryConfig {
+    pub fn template_bucket(&self) -> &str {
+        &self.template_bucket
+    }
+    pub fn from_email_address(&self) -> &str {
+        &self.from_email_address
+    }
+    pub fn reply_to_email_address(&self) -> &str {
+        &self.reply_to_email_address
+    }
+    pub fn stage(&self) -> &str {
+        &self.stage
+    }
+    pub fn commit_sha(&self) -> &str {
+        &self.commit_sha
+    }
+}
+
+pub struct WorkerNotificationDeliveryConfig {
+    email: Option<WorkerEmailDeliveryConfig>,
+}
+
+impl WorkerNotificationDeliveryConfig {
+    pub fn email(&self) -> Option<&WorkerEmailDeliveryConfig> {
+        self.email.as_ref()
+    }
+}
+
 pub struct WorkerStartupConfig {
     worker: WorkerConfig,
     scope: WorkerScope,
     postgres: PostgresPoolConfig,
     opensearch: Option<WorkerOpenSearchConfig>,
-    dynamodb: Option<WorkerDynamoDbConfig>,
     vertex_ai: Option<WorkerVertexAiConfig>,
+    notification_delivery: Option<WorkerNotificationDeliveryConfig>,
 }
 
 impl WorkerStartupConfig {
@@ -219,7 +252,7 @@ impl WorkerStartupConfig {
         let scope = WorkerScope::from_getter(&mut get)?;
         let worker = WorkerConfig::from_getter(&mut get)?;
         let postgres = postgres_config(&mut get)?;
-        let (opensearch, dynamodb, vertex_ai) = match scope {
+        let (opensearch, vertex_ai, notification_delivery) = match scope {
             WorkerScope::SearchFilterProjection | WorkerScope::ProductOpenSearch => (
                 Some(opensearch_config(&mut get, stage.as_deref())?),
                 None,
@@ -227,38 +260,52 @@ impl WorkerStartupConfig {
             ),
             WorkerScope::SearchFilterPercolator => (
                 Some(opensearch_config(&mut get, stage.as_deref())?),
-                None,
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
                     model: Some(required_env(&mut get, VERTEX_AI_MODEL_ENV)?),
                 }),
+                None,
             ),
             WorkerScope::ProductTranslation => (
                 None,
-                None,
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
                     model: Some(required_env(&mut get, VERTEX_AI_MODEL_ENV)?),
                 }),
+                None,
             ),
             WorkerScope::ProductEmbedding => (
-                None,
                 None,
                 Some(WorkerVertexAiConfig {
                     project_id: required_env(&mut get, VERTEX_AI_PROJECT_ID_ENV)?,
                     location: required_env(&mut get, VERTEX_AI_LOCATION_ENV)?,
                     model: None,
                 }),
-            ),
-            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => (
                 None,
-                Some(WorkerDynamoDbConfig {
-                    table_name: required_env(&mut get, DYNAMODB_TABLE_NAME_ENV)?,
+            ),
+            WorkerScope::NotificationDelivery => (
+                None,
+                None,
+                Some(WorkerNotificationDeliveryConfig {
+                    email: Some(WorkerEmailDeliveryConfig {
+                        template_bucket: required_env(&mut get, S3_BUCKET_NAME_TEMPLATES_ENV)?,
+                        from_email_address: required_env(&mut get, NOTIFICATION_EMAIL_FROM_ENV)?,
+                        reply_to_email_address: required_env(
+                            &mut get,
+                            NOTIFICATION_EMAIL_REPLY_TO_ENV,
+                        )?,
+                        stage: stage.ok_or(WorkerStartupConfigError::MissingEnv {
+                            name: WORKER_STAGE_ENV,
+                        })?,
+                        commit_sha: required_env(&mut get, COMMIT_SHA_ENV)?,
+                    }),
                 }),
-                None,
             ),
+            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
+                (None, None, None)
+            }
         };
 
         Ok(Self {
@@ -266,8 +313,8 @@ impl WorkerStartupConfig {
             scope,
             postgres,
             opensearch,
-            dynamodb,
             vertex_ai,
+            notification_delivery,
         })
     }
 
@@ -287,23 +334,23 @@ impl WorkerStartupConfig {
         self.opensearch.as_ref()
     }
 
-    pub fn dynamodb(&self) -> Option<&WorkerDynamoDbConfig> {
-        self.dynamodb.as_ref()
-    }
-
     pub fn vertex_ai(&self) -> Option<&WorkerVertexAiConfig> {
         self.vertex_ai.as_ref()
     }
+
+    pub fn notification_delivery(&self) -> Option<&WorkerNotificationDeliveryConfig> {
+        self.notification_delivery.as_ref()
+    }
 }
 
-fn postgres_config<F>(get: &mut F) -> Result<PostgresPoolConfig, WorkerStartupConfigError>
+fn postgres_config<F>(get: &mut F) -> Result<PostgresPoolConfig, WorkerPostgresConfigError>
 where
     F: FnMut(&'static str) -> Option<String>,
 {
-    let host = required_env(get, POSTGRES_HOST_ENV)?;
-    let database = required_env(get, POSTGRES_DATABASE_ENV)?;
-    let username = required_env(get, POSTGRES_USERNAME_ENV)?;
-    let password = required_env(get, POSTGRES_PASSWORD_ENV)?;
+    let host = required_postgres_env(get, POSTGRES_HOST_ENV)?;
+    let database = required_postgres_env(get, POSTGRES_DATABASE_ENV)?;
+    let username = required_postgres_env(get, POSTGRES_USERNAME_ENV)?;
+    let password = required_postgres_env(get, POSTGRES_PASSWORD_ENV)?;
     let port = optional_postgres_env(get, POSTGRES_PORT_ENV, DEFAULT_POSTGRES_PORT)?;
     let max_connections = optional_postgres_env(
         get,
@@ -311,29 +358,42 @@ where
         DEFAULT_POSTGRES_MAX_CONNECTIONS,
     )?;
 
-    PostgresPoolConfig::new(host, port, database, username, password, max_connections)
-        .map_err(WorkerStartupConfigError::PostgresConfig)
+    PostgresPoolConfig::new(host, port, database, username, password, max_connections).map_err(
+        |error| match error {
+            PostgresPoolConfigError::ZeroMaxConnections => {
+                WorkerPostgresConfigError::ZeroMaxConnections
+            }
+        },
+    )
+}
+
+fn required_postgres_env<F>(
+    get: &mut F,
+    name: &'static str,
+) -> Result<String, WorkerPostgresConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    get(name).ok_or(WorkerPostgresConfigError::MissingEnv { name })
 }
 
 fn optional_postgres_env<F, T>(
     get: &mut F,
     name: &'static str,
     default: T,
-) -> Result<T, WorkerStartupConfigError>
+) -> Result<T, WorkerPostgresConfigError>
 where
     F: FnMut(&'static str) -> Option<String>,
     T: std::str::FromStr<Err = ParseIntError>,
 {
     match get(name) {
-        Some(value) => {
-            value
-                .parse::<T>()
-                .map_err(|source| WorkerStartupConfigError::InvalidPostgresInteger {
-                    name,
-                    value,
-                    source,
-                })
-        }
+        Some(value) => value
+            .parse()
+            .map_err(|source| WorkerPostgresConfigError::InvalidInteger {
+                name,
+                value,
+                source,
+            }),
         None => Ok(default),
     }
 }
@@ -378,17 +438,25 @@ where
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum WorkerStartupConfigError {
-    #[error(transparent)]
-    Worker(#[from] WorkerConfigError),
-    #[error(transparent)]
-    PostgresConfig(#[from] PostgresPoolConfigError),
+pub enum WorkerPostgresConfigError {
+    #[error("missing required environment variable {name}")]
+    MissingEnv { name: &'static str },
     #[error("invalid integer in environment variable {name}: {value}")]
-    InvalidPostgresInteger {
+    InvalidInteger {
         name: &'static str,
         value: String,
         source: ParseIntError,
     },
+    #[error("POSTGRES_MAX_CONNECTIONS must be greater than zero")]
+    ZeroMaxConnections,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum WorkerStartupConfigError {
+    #[error(transparent)]
+    Worker(#[from] WorkerConfigError),
+    #[error(transparent)]
+    Postgres(#[from] WorkerPostgresConfigError),
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
     #[error("invalid worker scope {value}")]
@@ -572,6 +640,20 @@ impl WorkerRuntime {
         ))
     }
 
+    pub fn with_notification_delivery_queue(
+        config: QueueConfig,
+    ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
+        let (sender, receiver) = in_memory_queue(config)?;
+        let registry =
+            WorkerQueueRegistry::new().with_queue(WorkerQueue::NotificationDelivery, sender);
+        let mut receivers = WorkerQueueReceivers::new();
+        receivers.insert(WorkerQueue::NotificationDelivery, receiver);
+        Ok((
+            Self::new(CdcFanout::notification_delivery(registry)),
+            receivers,
+        ))
+    }
+
     pub fn with_search_filter_projection_queue(
         config: QueueConfig,
     ) -> Result<(Self, WorkerQueueReceivers), QueueConfigError> {
@@ -620,6 +702,9 @@ impl WorkerRuntimeComposition {
             }
             WorkerScope::ProductEmbedding => WorkerRuntime::with_product_embedding_queue(config)?,
             WorkerScope::ProductOpenSearch => WorkerRuntime::with_product_opensearch_queue(config)?,
+            WorkerScope::NotificationDelivery => {
+                WorkerRuntime::with_notification_delivery_queue(config)?
+            }
         };
         let consumer_queue = scope.consumer_queue();
         let receiver =
@@ -869,8 +954,18 @@ mod tests {
                 values.insert(OPENSEARCH_USERNAME_ENV, "worker".to_owned());
                 values.insert(OPENSEARCH_PASSWORD_ENV, "not-a-real-secret".to_owned());
             }
-            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {
-                values.insert(DYNAMODB_TABLE_NAME_ENV, "notifications".to_owned());
+            WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification => {}
+            WorkerScope::NotificationDelivery => {
+                values.insert(S3_BUCKET_NAME_TEMPLATES_ENV, "templates".to_owned());
+                values.insert(
+                    NOTIFICATION_EMAIL_FROM_ENV,
+                    "no-reply@example.test".to_owned(),
+                );
+                values.insert(
+                    NOTIFICATION_EMAIL_REPLY_TO_ENV,
+                    "contact@example.test".to_owned(),
+                );
+                values.insert(COMMIT_SHA_ENV, "test-commit".to_owned());
             }
             WorkerScope::ProductTranslation => {}
             WorkerScope::ProductEmbedding => {}
@@ -997,6 +1092,11 @@ mod tests {
         "product-embedding",
         WorkerQueue::ProductEmbed
     )]
+    #[case(
+        WorkerScope::NotificationDelivery,
+        "notification-delivery",
+        WorkerQueue::NotificationDelivery
+    )]
     fn should_validate_only_dependencies_for_selected_scope(
         #[case] scope: WorkerScope,
         #[case] scope_name: &str,
@@ -1015,13 +1115,6 @@ mod tests {
                 WorkerScope::SearchFilterProjection | WorkerScope::SearchFilterPercolator
             ),
             config.opensearch().is_some()
-        );
-        assert_eq!(
-            matches!(
-                scope,
-                WorkerScope::SearchFilterMatchNotification | WorkerScope::WatchlistNotification
-            ),
-            config.dynamodb().is_some()
         );
         assert_eq!(
             matches!(
@@ -1084,6 +1177,11 @@ mod tests {
         WorkerScope::ProductEmbedding,
         WorkerQueue::ProductEmbed,
         r#"{"changes":[{"table":"product_events","operation":"insert","record":{"event_id":"30000000-0000-0000-0000-000000000001","product_id":"40000000-0000-0000-0000-000000000001","event_type":"DOMAIN_CREATED","event_group":"DOMAIN"}}]}"#
+    )]
+    #[case(
+        WorkerScope::NotificationDelivery,
+        WorkerQueue::NotificationDelivery,
+        r#"{"changes":[{"table":"notification_deliveries","operation":"insert","record":{"notification_delivery_id":"60000000-0000-0000-0000-000000000001","notification_id":"50000000-0000-0000-0000-000000000001","channel":"EMAIL","status":"PENDING"}}]}"#
     )]
     #[tokio::test]
     async fn should_build_one_intended_cdc_route_and_consumer_for_scope(

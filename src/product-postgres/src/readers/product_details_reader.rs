@@ -3,10 +3,10 @@ use application::personalized::Personalized;
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
-use localization::Language;
-use localization::Localized;
-use money::Currency;
-use money::{MonetaryAmount, Price};
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
+use notification_core::notification_id::NotificationId;
+use platform_postgres::SqlxTransaction;
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_id::ProductId;
@@ -23,15 +23,15 @@ use product_service::ports::{
 };
 use product_service::use_cases::queries::get_product::ProductLookup;
 use product_service::user_state::{
-    ProductUserState, ProhibitedContentUserState, SearchFilterUserState, WatchlistUserState,
+    NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
+    WatchlistUserState,
 };
-use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
-use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use search_filter_core::user_search_filter_name::UserSearchFilterName;
+use search_filter_core::{
+    enhanced_match_reason::EnhancedMatchReason, user_search_filter_id::UserSearchFilterId,
+    user_search_filter_name::UserSearchFilterName,
+};
 use serde::Deserialize;
-use shop_core::shop_id::ShopId;
-use shop_core::shop_name::ShopName;
-use shop_core::shop_slug_id::ShopSlugId;
+use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use url::Url;
@@ -96,6 +96,7 @@ pub(super) struct ProductDetailsRow {
     selected_match_reason: Option<String>,
     selected_match_feedback: Option<bool>,
     selected_match_month_position: Option<i64>,
+    unseen_notification_ids: Option<Vec<uuid::Uuid>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,12 +111,10 @@ impl SqlxProductDetailsReaderFactory {
     }
 }
 
-impl ProductDetailsReaderFactory<platform_postgres::SqlxTransaction>
-    for SqlxProductDetailsReaderFactory
-{
+impl ProductDetailsReaderFactory<SqlxTransaction> for SqlxProductDetailsReaderFactory {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut platform_postgres::SqlxTransaction,
+        tx: &'tx mut SqlxTransaction,
     ) -> impl ProductDetailsReader + 'tx {
         SqlxProductDetailsReader {
             connection: tx.connection(),
@@ -134,7 +133,8 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
         let row = match &request.lookup {
             ProductLookup::ById(product_id) => {
                 sqlx::query_as::<_, ProductDetailsRow>(&format!(
-                    "{SELECT_PRODUCT_DETAILS} WHERE p.product_id = $3"
+                    "{} WHERE p.product_id = $3",
+                    product_details_select(DEFAULT_NOTIFICATION_STATES),
                 ))
                 .bind(requested_language)
                 .bind(user_id)
@@ -146,15 +146,18 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
             ProductLookup::BySlug {
                 shop_slug_id,
                 product_slug_id,
-            } => sqlx::query_as::<_, ProductDetailsRow>(&format!(
-                "{SELECT_PRODUCT_DETAILS} WHERE shop.shop_slug_id = $3 AND p.product_slug_id = $4"
-            ))
-            .bind(requested_language)
-            .bind(user_id)
-            .bind(shop_slug_id.as_ref())
-            .bind(product_slug_id.as_ref())
-            .fetch_optional(&mut *self.connection)
-            .await,
+            } => {
+                sqlx::query_as::<_, ProductDetailsRow>(&format!(
+                    "{} WHERE shop.shop_slug_id = $3 AND p.product_slug_id = $4",
+                    product_details_select(DEFAULT_NOTIFICATION_STATES),
+                ))
+                .bind(requested_language)
+                .bind(user_id)
+                .bind(shop_slug_id.as_ref())
+                .bind(product_slug_id.as_ref())
+                .fetch_optional(&mut *self.connection)
+                .await
+            }
         }
         .map_err(|_| ProductDetailsReadError::ProductDetailsQueryFailed)?;
 
@@ -164,7 +167,27 @@ impl ProductDetailsReader for SqlxProductDetailsReader<'_> {
     }
 }
 
+pub(super) const DEFAULT_NOTIFICATION_STATES: &str = r#"
+    notification_states AS (
+        SELECT
+            notification.product_id,
+            array_agg(
+                notification.notification_id
+                ORDER BY notification.created DESC, notification.notification_id DESC
+            ) AS unseen_notification_ids
+        FROM notifications notification
+        WHERE notification.user_id = $2
+            AND notification.seen = false
+        GROUP BY notification.product_id
+    )
+"#;
+
+pub(super) fn product_details_select(notification_states: &str) -> String {
+    SELECT_PRODUCT_DETAILS.replace("/* NOTIFICATION_STATES */", notification_states)
+}
+
 pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
+    WITH /* NOTIFICATION_STATES */
     SELECT
         p.product_id, p.product_slug_id, p.event_id, p.shop_id, p.seller_id, p.shops_product_id,
         shop.name AS shop_name, shop.shop_slug_id,
@@ -189,7 +212,8 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
         selected_match.user_search_filter_name AS selected_match_user_search_filter_name,
         selected_match.enhanced_match_reason AS selected_match_reason,
         selected_match.feedback AS selected_match_feedback,
-        selected_match.month_position AS selected_match_month_position
+        selected_match.month_position AS selected_match_month_position,
+        notification_state.unseen_notification_ids
     FROM products p
     JOIN shops shop ON shop.shop_id = p.shop_id
     JOIN shops seller ON seller.shop_id = p.seller_id
@@ -233,6 +257,8 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
         ORDER BY matched.created ASC, matched.user_search_filter_id ASC
         LIMIT 1
     ) AS selected_match ON TRUE
+    LEFT JOIN notification_states notification_state
+        ON notification_state.product_id = p.product_id
     LEFT JOIN LATERAL (
         SELECT
             (
@@ -437,7 +463,16 @@ fn user_state(
             notifications: row.watchlist_notifications.unwrap_or(false),
         },
         prohibited_content: ProhibitedContentUserState { consent },
-        notification: Default::default(),
+        notification: NotificationUserState {
+            unseen_notification_ids: row
+                .unseen_notification_ids
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .copied()
+                .map(NotificationId::from)
+                .collect(),
+        },
         search_filter,
     }))
 }

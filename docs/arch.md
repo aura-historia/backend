@@ -233,7 +233,7 @@ runtime/
         └── record.rs
 ```
 
-The composition root MAY depend on every crate required to assemble the process. It MUST NOT contain business behavior.
+The composition root MAY depend on every crate required to assemble the process. It MUST NOT contain business behavior. API and worker composition-root crates MUST NOT implement service-owned inbound or outbound ports, readers, repositories, writers, senders, or use cases. They map transport/runtime inputs and compose concrete adapter crates. Transport- or runtime-local traits are allowed.
 
 In `aura-historia-api`, concrete adapter wiring belongs in `lib.rs` or a dedicated wiring module. Route files MUST receive use-case trait objects through `state.rs`; they MUST NOT construct repositories, readers, SQL clients, or AWS clients. Route files authenticate and map only; protected endpoint authorization policies MUST live inside service use cases or service-owned policies, not in controllers.
 
@@ -1720,11 +1720,11 @@ PostgreSQL owns business truth for:
 * product translations;
 * product watchlists;
 * search filters;
-* search-filter matches.
+* search-filter matches;
+* notifications and notification delivery state; a Notification is separate from its one-or-more delivery rows, each uniquely identified by `(notification_id, channel, target_key)`. The application planner selects channels, each channel adapter resolves its target, and generic delivery claim/send/finalize stays outside notification producers. EMAIL is the sole production sender; notification storage has no DynamoDB rows or TTL.
 
 DynamoDB remains the operational owner for:
 
-* notifications with TTL and insert-to-send behavior;
 * access tokens;
 * OAuth clients;
 * OAuth authorization codes;
@@ -1814,7 +1814,7 @@ after acknowledgment:
 
 The system MUST NOT claim exactly-once or durable at-least-once processing.
 
-This is an explicit MVP trade-off and MUST remain documented until durable worker delivery is introduced.
+This is an explicit MVP trade-off, tracked by #1558, and MUST remain documented until durable worker delivery is introduced.
 
 ### 12.5 Idempotency and ordering
 
@@ -1851,7 +1851,7 @@ An older or equal version MUST NOT overwrite a newer projection state.
 
 Idempotency SHOULD be enforced in the target write through conditional updates, unique constraints, or version checks rather than through in-memory checks.
 
-Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. For Product events, `products.event_id` is the current revision and must equal `product_events.event_id`. Processed, duplicate, stale, missing-source, and ignored-event outcomes are operationally distinct.
+Current-state invalidation consumers that rebuild output from an authoritative row MUST compare the trigger's source revision with the row's current revision before processing. When they differ, the trigger is stale and MUST be skipped; the consumer MUST NOT evaluate current state while retaining the stale trigger ID. If a current trigger later persists an idempotent row, it MUST recheck and lock that authoritative revision in its final PostgreSQL write transaction through commit, so a stale trigger cannot claim the unique row across external work. For Product events, `products.event_id` is the current revision and must equal `product_events.event_id`; the PostgreSQL `FOR SHARE` lock remains held through notification and delivery-intent commit. Processed, duplicate, stale, missing-source, and ignored-event outcomes are operationally distinct. Watchlist generation names successful outcomes `Applied`, `SuppressedForMissingSource`, and `SuppressedForStaleProductEvent`; suppression is not a retryable error.
 
 ### 12.6 Building projections
 
@@ -2422,6 +2422,8 @@ RETURNING version
 
 No returned row MUST map to an internal concurrency-conflict error when the row was expected to exist. Do not leak the concrete version value in errors. The returned version is authoritative only for PostgreSQL internals and CDC consumers; ordinary use cases SHOULD NOT return it.
 
+A reconciliation that changes aggregates must lock its owner first, then affected aggregate rows in a stable order. Each changed row increments its version, so a stale ordinary aggregate write fails rather than restoring old state.
+
 ### Idempotency
 
 Externally retried commands SHOULD accept an idempotency key when duplicate execution would be harmful.
@@ -2892,7 +2894,6 @@ Reviewers SHOULD reject changes that cannot answer these questions clearly:
 12. Are public items required by a real production crate boundary rather than only by tests?
 13. Are private/real-infrastructure implementation tests beside the code and `/tests` limited to black-box behavior?
 14. Are the important rules covered by tests?
-15. If `common` changed, does the exact shrinking-baseline guard and decomposition inventory still pass?
 
 ---
 

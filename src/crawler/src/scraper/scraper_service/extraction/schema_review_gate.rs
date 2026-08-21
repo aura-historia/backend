@@ -20,6 +20,7 @@ pub(crate) enum GeneratedSchemaReviewOutcome {
 }
 
 impl ScraperServiceImpl {
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn handle_generated_schema_review(
         &self,
         shop_id: &ShopId,

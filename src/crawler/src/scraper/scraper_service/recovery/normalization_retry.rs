@@ -57,6 +57,7 @@ impl ScraperServiceImpl {
             schema_count = schemas.len()
         )
     )]
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn select_existing_schema_with_normalization(
         &self,
         shop_id: &ShopId,
@@ -110,6 +111,7 @@ impl ScraperServiceImpl {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     async fn normalize_applied_schema(
         &self,
         shop_id: &ShopId,
@@ -170,6 +172,7 @@ impl ScraperServiceImpl {
             schema_count = ctx.existing_schemas.len()
         )
     )]
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn normalize_with_schema_fix_retry(
         &self,
         ctx: NormalizationRetryContext<'_>,
@@ -249,6 +252,7 @@ impl ScraperServiceImpl {
             schema_count = ctx.existing_schemas.len()
         )
     )]
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn fix_normalization_with_schema_retry(
         &self,
         ctx: NormalizationRetryContext<'_>,
