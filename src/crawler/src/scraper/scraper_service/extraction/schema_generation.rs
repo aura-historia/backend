@@ -39,6 +39,7 @@ impl ScraperServiceImpl {
     /// while database uniqueness prevents duplicate pending reviews across
     /// processes.
     #[tracing::instrument(skip(self, html), fields(shop_id = %shop_id, url = %url))]
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn obtain_schemas(
         &self,
         shop_id: &ShopId,

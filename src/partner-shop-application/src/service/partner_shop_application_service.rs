@@ -532,6 +532,8 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
 }
 
 impl<'a> PartnerShopApplicationServiceImpl<'a> {
+    // Preserve the legacy AWS/Shop error API by value during this crate's migration.
+    #[allow(clippy::result_large_err)]
     async fn hydrate_record(
         &self,
         record: PartnerShopApplicationRecord,
@@ -594,6 +596,8 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
         })
     }
 
+    // Preserve the legacy AWS/Shop error API by value during this crate's migration.
+    #[allow(clippy::result_large_err)]
     async fn resume_step_function(
         &self,
         ctx: &RequestContext,

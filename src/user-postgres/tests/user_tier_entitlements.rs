@@ -190,7 +190,7 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     .await;
     let watchlist_ids = seed_watchlist_entries(&pool, user_id, 2, now).await;
     sqlx::query(
-        "UPDATE product_watchlist SET state = 'INACTIVE_BY_RESTRICTED_PLAN' WHERE user_id = $1 AND product_id = $2",
+        "UPDATE product_watchlist SET state = 'INACTIVE_BY_RESTRICTED_PLAN', active_since = NULL WHERE user_id = $1 AND product_id = $2",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(watchlist_ids[0])
@@ -198,7 +198,7 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     .await
     .unwrap_or_else(|error| panic!("failed to plan-restrict watchlist entry: {error:?}"));
     sqlx::query(
-        "UPDATE product_watchlist SET state = 'INACTIVE_BY_USER' WHERE user_id = $1 AND product_id = $2",
+        "UPDATE product_watchlist SET state = 'INACTIVE_BY_USER', active_since = NULL WHERE user_id = $1 AND product_id = $2",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(watchlist_ids[1])
@@ -338,7 +338,7 @@ async fn seed_watchlist_entries(
     for (index, product_id) in product_ids.iter().enumerate() {
         let created = start - Duration::seconds((count - index) as i64);
         sqlx::query(
-            "INSERT INTO product_watchlist (user_id, product_id, state, created, updated) VALUES ($1, $2, 'ACTIVE', $3, $3)",
+            "INSERT INTO product_watchlist (user_id, product_id, state, active_since, notifications_enabled_since, created, updated) VALUES ($1, $2, 'ACTIVE', $3, $3, $3, $3)",
         )
         .bind(uuid::Uuid::from(user_id))
         .bind(product_id)

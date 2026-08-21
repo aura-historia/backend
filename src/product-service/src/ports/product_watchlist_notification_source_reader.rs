@@ -6,11 +6,13 @@ use common::{
 };
 use product_core::{product_image::ProductImage, title::Title};
 use std::collections::HashMap;
+use time::OffsetDateTime;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductWatchlistNotificationSource {
     pub event_id: EventId,
+    pub event_time: OffsetDateTime,
     pub product_id: ProductId,
     pub product_slug_id: ProductSlugId,
     pub shop_id: ShopId,

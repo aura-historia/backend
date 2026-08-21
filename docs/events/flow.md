@@ -203,7 +203,13 @@ Enhanced search filters use the canonical Vertex AI Gemini implementation of the
 
 ## Canonical watchlist notification generator
 
-The watchlist worker scope accepts only `product_events` inserts and enqueues canonical price/state events. Its product-service use case rereads the immutable event plus current Product source and all active recipients, then inserts PostgreSQL notifications. Watchlist semantic identity is `(user_id, origin_event_id, kind)`, so a price change and state change remain distinct. Recipients with email disabled receive the in-app notification without a `notification_deliveries` row.
+The watchlist worker scope accepts only `product_events` inserts and enqueues canonical price/state events. The Product service reads the immutable source and uses persisted `product_events.event_time` as the eligibility timestamp. `product_watchlist.active_since` is the beginning of the current active interval; `notifications_enabled_since` is the beginning of the current email-enabled interval.
+
+At processing time, a recipient must still have `state = ACTIVE` and `active_since <= product_events.event_time`. Email delivery additionally requires `notifications = true` and `notifications_enabled_since <= product_events.event_time`. Thus late activation and late email enablement do not receive older events; a late email enablement can still receive the in-app notification. Deactivation and reactivation start a new active interval, and disabling and re-enabling email starts a new email interval. The current state is authoritative, so an entry inactive when processed receives neither channel.
+
+Before writing, the use case locks the Product row with `FOR SHARE` and rechecks `products.event_id = product_events.event_id`. The lock remains held through notification and delivery-intent insertion and transaction commit. Missing or stale Product-event sources are acknowledged suppression outcomes, not retryable failures. `GenerateWatchlistNotificationsResult::Applied`, `SuppressedForMissingSource`, and `SuppressedForStaleProductEvent` are successful outcomes; worker logs additionally distinguish applied work from duplicate writes.
+
+Watchlist semantic identity is `(user_id, origin_event_id, kind)`, so a price change and state change remain distinct. Recipients with email disabled or email enabled after the event receive the in-app notification without a `notification_deliveries` row.
 
 Duplicate webhook delivery is safe through the PostgreSQL semantic unique index. No currency conversion is invented: price-change payloads carry only each stored source price; rendering localizes from current user preferences.
 

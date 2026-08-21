@@ -31,9 +31,48 @@ pub async fn consume_watchlist_notification_queue(
         })
         .await;
         match result {
-            Ok(()) => {
-                info!(job_type = "watchlist_notification", %idempotency_key, %ordering_key, outcome = "applied", "watchlist notification job completed")
-            }
+            Ok(outcome) => match outcome {
+                WatchlistNotificationWorkerOutcome::Applied {
+                    recipient_count,
+                    inserted_count,
+                    already_exists_count,
+                } => info!(
+                    job_type = "watchlist_notification",
+                    %idempotency_key,
+                    %ordering_key,
+                    recipient_count,
+                    inserted_count,
+                    already_exists_count,
+                    outcome = "applied",
+                    "watchlist notification job completed"
+                ),
+                WatchlistNotificationWorkerOutcome::Duplicate {
+                    recipient_count,
+                    already_exists_count,
+                } => info!(
+                    job_type = "watchlist_notification",
+                    %idempotency_key,
+                    %ordering_key,
+                    recipient_count,
+                    already_exists_count,
+                    outcome = "duplicate",
+                    "watchlist notification job completed"
+                ),
+                WatchlistNotificationWorkerOutcome::SuppressedForMissingSource => info!(
+                    job_type = "watchlist_notification",
+                    %idempotency_key,
+                    %ordering_key,
+                    outcome = "suppressed_for_missing_source",
+                    "watchlist notification job completed"
+                ),
+                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductEvent => info!(
+                    job_type = "watchlist_notification",
+                    %idempotency_key,
+                    %ordering_key,
+                    outcome = "suppressed_for_stale_product_event",
+                    "watchlist notification job completed"
+                ),
+            },
             Err(error) => {
                 error!(job_type = "watchlist_notification", %idempotency_key, %ordering_key, error = %error, outcome = "dead_lettered_in_memory", "watchlist notification job failed")
             }
@@ -44,7 +83,7 @@ pub async fn consume_watchlist_notification_queue(
 async fn generate_watchlist_notifications(
     handler: Arc<dyn GenerateWatchlistNotificationsUseCase>,
     job: DomainJob,
-) -> Result<(), WatchlistNotificationWorkerError> {
+) -> Result<WatchlistNotificationWorkerOutcome, WatchlistNotificationWorkerError> {
     let DomainJobPayload::ProductEvent(event) = job.payload else {
         return Err(WatchlistNotificationWorkerError::UnexpectedJobPayload);
     };
@@ -64,21 +103,51 @@ async fn generate_watchlist_notifications(
             product_id,
         })
         .await
-        .map(|result| {
-            info!(
-                job_type = "watchlist_notification",
-                %event_id,
-                %product_id,
-                recipient_count = result.recipient_count,
-                inserted_count = result.inserted_count,
-                already_exists_count = result.already_exists_count,
-                outcome = "applied",
-                "watchlist notification writes completed"
-            )
+        .map(|result| match result {
+            product_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
+                recipient_count,
+                inserted_count,
+                already_exists_count,
+            } if inserted_count == 0 && already_exists_count > 0 => {
+                WatchlistNotificationWorkerOutcome::Duplicate {
+                    recipient_count,
+                    already_exists_count,
+                }
+            }
+            product_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
+                recipient_count,
+                inserted_count,
+                already_exists_count,
+            } => WatchlistNotificationWorkerOutcome::Applied {
+                recipient_count,
+                inserted_count,
+                already_exists_count,
+            },
+            product_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForMissingSource => {
+                WatchlistNotificationWorkerOutcome::SuppressedForMissingSource
+            }
+            product_service::use_cases::GenerateWatchlistNotificationsResult::SuppressedForStaleProductEvent => {
+                WatchlistNotificationWorkerOutcome::SuppressedForStaleProductEvent
+            }
         })
         .map_err(|source| WatchlistNotificationWorkerError::Generate {
             source: box_error(source),
         })
+}
+
+#[derive(Debug)]
+enum WatchlistNotificationWorkerOutcome {
+    Applied {
+        recipient_count: usize,
+        inserted_count: usize,
+        already_exists_count: usize,
+    },
+    Duplicate {
+        recipient_count: usize,
+        already_exists_count: usize,
+    },
+    SuppressedForMissingSource,
+    SuppressedForStaleProductEvent,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -131,10 +200,12 @@ mod tests {
             self.commands
                 .lock()
                 .map_err(|_| {
-                    product_service::use_cases::GenerateWatchlistNotificationsError::SourceNotFound
+                    product_service::use_cases::GenerateWatchlistNotificationsError::NotificationCreateFailed {
+                        source: box_error(std::io::Error::other("test mutex poisoned")),
+                    }
                 })?
                 .push(command);
-            Ok(GenerateWatchlistNotificationsResult {
+            Ok(GenerateWatchlistNotificationsResult::Applied {
                 recipient_count: 1,
                 inserted_count: 1,
                 already_exists_count: 0,

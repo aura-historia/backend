@@ -311,6 +311,8 @@ impl<'a> GetProductService for GetProductServiceImpl<'a> {
 }
 
 impl<'a> GetProductServiceImpl<'a> {
+    // Keep the legacy AWS error-by-value API stable until the product crate is retired.
+    #[allow(clippy::result_large_err)]
     async fn view_products_with_unprocessed(
         &self,
         items: Vec<ProductKey>,

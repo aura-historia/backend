@@ -186,6 +186,7 @@ async fn run_search_filter_match_notifications(
             SqlxProductSearchFilterMatchSourceReaderFactory::new(),
             SqlxSearchFilterMonthlyMatchQuotaReaderFactory,
             SqlxUserTierEntitlementsFactory::new(),
+            SqlxProductCurrentRevisionGuardFactory::new(),
             NotificationCreationCoordinatorFactory::new(
                 SqlxNotificationRepositoryFactory::new(),
                 InitialExternalDeliveryPlanReaderFactory,
@@ -311,6 +312,7 @@ async fn run_watchlist_notifications(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxProductWatchlistNotificationSourceReaderFactory::new(),
             SqlxWatchlistNotificationRecipientReaderFactory,
+            SqlxProductCurrentRevisionGuardFactory::new(),
             NotificationCreationCoordinatorFactory::new(
                 SqlxNotificationRepositoryFactory::new(),
                 InitialExternalDeliveryPlanReaderFactory,

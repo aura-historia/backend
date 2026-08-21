@@ -1,0 +1,198 @@
+use std::collections::HashMap;
+
+use common::{
+    postgres::SqlxUnitOfWork,
+    product_id::ProductId,
+    transaction::{Transaction, UnitOfWork},
+    user_id::UserId,
+};
+use product_service::ports::{
+    WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
+};
+use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::Duration;
+use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
+
+const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_select_watchlist_recipients_using_current_intervals_at_event_time() {
+    let pool = get_postgres_client().await;
+    let product_id = seed_product(&pool).await;
+    let event_time = time::OffsetDateTime::now_utc();
+    let before = event_time - Duration::hours(1);
+    let after = event_time + Duration::hours(1);
+    let users = [
+        ("before-email", true, "ACTIVE", Some(before), Some(before)),
+        (
+            "at-email",
+            true,
+            "ACTIVE",
+            Some(event_time),
+            Some(event_time),
+        ),
+        ("late-active", true, "ACTIVE", Some(after), Some(before)),
+        ("inactive", true, "INACTIVE_BY_USER", None, Some(before)),
+        ("in-app-only", false, "ACTIVE", Some(before), None),
+        ("late-email", true, "ACTIVE", Some(before), Some(after)),
+        ("reactivated", true, "ACTIVE", Some(after), Some(after)),
+        ("email-reenabled", true, "ACTIVE", Some(before), Some(after)),
+    ];
+
+    let mut expected = HashMap::new();
+    for (label, notifications, state, active_since, email_since) in users {
+        let user_id = seed_user(&pool, label).await;
+        expected.insert(label, user_id);
+        seed_watchlist(
+            &pool,
+            user_id,
+            product_id,
+            notifications,
+            state,
+            (active_since, email_since, before),
+        )
+        .await;
+    }
+
+    let unit = SqlxUnitOfWork::new(pool);
+    let mut tx = unit
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin failed: {error:?}"));
+    let recipients = SqlxWatchlistNotificationRecipientReaderFactory
+        .in_transaction(&mut tx)
+        .find_eligible_for_product_at(product_id, event_time)
+        .await
+        .unwrap_or_else(|error| panic!("recipient read failed: {error:?}"));
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit failed: {error:?}"));
+
+    assert_eq!(5, recipients.len());
+    let recipients_by_user = recipients
+        .into_iter()
+        .map(|recipient| (recipient.user_id, recipient.external_delivery_requested))
+        .collect::<HashMap<_, _>>();
+    assert_eq!(
+        Some(&true),
+        expected
+            .get("before-email")
+            .and_then(|id| recipients_by_user.get(id))
+    );
+    assert_eq!(
+        Some(&true),
+        expected
+            .get("at-email")
+            .and_then(|id| recipients_by_user.get(id))
+    );
+    assert_eq!(
+        Some(&false),
+        expected
+            .get("in-app-only")
+            .and_then(|id| recipients_by_user.get(id))
+    );
+    assert_eq!(
+        Some(&false),
+        expected
+            .get("late-email")
+            .and_then(|id| recipients_by_user.get(id))
+    );
+    assert_eq!(
+        Some(&false),
+        expected
+            .get("email-reenabled")
+            .and_then(|id| recipients_by_user.get(id))
+    );
+    assert!(
+        !expected
+            .get("reactivated")
+            .is_some_and(|id| recipients_by_user.contains_key(id))
+    );
+    assert!(
+        !expected
+            .get("late-active")
+            .is_some_and(|id| recipients_by_user.contains_key(id))
+    );
+    assert!(
+        !expected
+            .get("inactive")
+            .is_some_and(|id| recipients_by_user.contains_key(id))
+    );
+}
+
+async fn seed_user(pool: &sqlx::PgPool, label: &str) -> UserId {
+    let user_id = UserId::new();
+    sqlx::query(
+        "INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'ULTIMATE', 'USER')",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(format!(
+        "watchlist-recipient-{label}-{user_id}@example.test"
+    ))
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("seed user failed: {error:?}"));
+    user_id
+}
+
+async fn seed_product(pool: &sqlx::PgPool) -> ProductId {
+    let product_id = ProductId::new();
+    let product_uuid = uuid::Uuid::from(product_id);
+    let event_id = uuid::Uuid::new_v4();
+    let shop_id = uuid::Uuid::new_v4();
+    let mut tx = pool
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("seed product transaction failed: {error:?}"));
+    sqlx::query("INSERT INTO shops (shop_id, shop_slug_id, name, shop_type, partner_status, shop_domains) VALUES ($1, $2, 'Recipient shop', 'COMMERCIAL_DEALER', 'SCRAPED', '{}')")
+        .bind(shop_id)
+        .bind(format!("recipient-shop-{shop_id}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap_or_else(|error| panic!("seed shop failed: {error:?}"));
+    sqlx::query("INSERT INTO products (product_id, product_slug_id, event_id, shop_id, seller_id, shops_product_id, state, lifecycle, url) VALUES ($1, $2, $3, $4, $4, $5, 'LISTED', 'ACTIVE', 'https://example.test/product')")
+        .bind(product_uuid)
+        .bind(format!("recipient-product-{product_id}"))
+        .bind(event_id)
+        .bind(shop_id)
+        .bind(product_uuid.to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap_or_else(|error| panic!("seed product failed: {error:?}"));
+    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_CREATED', 'DOMAIN', '{}', now())")
+        .bind(event_id)
+        .bind(product_uuid)
+        .execute(&mut *tx)
+        .await
+        .unwrap_or_else(|error| panic!("seed product event failed: {error:?}"));
+    tx.commit()
+        .await
+        .unwrap_or_else(|error| panic!("seed product commit failed: {error:?}"));
+    product_id
+}
+
+async fn seed_watchlist(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: ProductId,
+    notifications: bool,
+    state: &str,
+    timestamps: (
+        Option<time::OffsetDateTime>,
+        Option<time::OffsetDateTime>,
+        time::OffsetDateTime,
+    ),
+) {
+    let (active_since, email_since, updated) = timestamps;
+    sqlx::query("INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since, created, updated) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)")
+        .bind(uuid::Uuid::from(user_id))
+        .bind(uuid::Uuid::from(product_id))
+        .bind(notifications)
+        .bind(state)
+        .bind(active_since)
+        .bind(email_since)
+        .bind(updated)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("seed watchlist failed: {error:?}"));
+}

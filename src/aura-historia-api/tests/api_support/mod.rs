@@ -333,7 +333,7 @@ pub async fn seed_inactive_watchlist_entry(user_id: UserId) -> ProductId {
 async fn seed_watchlist_entry(user_id: UserId, product_id: ProductId, state: &'static str) {
     let pool = get_postgres_client().await;
     if let Err(error) = sqlx::query(
-        "INSERT INTO product_watchlist (user_id, product_id, notifications, state) VALUES ($1, $2, true, $3)",
+        "INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since) VALUES ($1, $2, true, $3, CASE WHEN $3 = 'ACTIVE' THEN now() ELSE NULL END, now())",
     )
     .bind(uuid::Uuid::from(user_id))
     .bind(uuid::Uuid::from(product_id))

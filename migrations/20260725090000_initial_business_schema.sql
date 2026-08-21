@@ -251,15 +251,24 @@ CREATE TABLE product_watchlist (
     product_id uuid NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
     notifications boolean NOT NULL DEFAULT true,
     state text NOT NULL,
+    active_since timestamptz,
+    notifications_enabled_since timestamptz,
     created timestamptz NOT NULL DEFAULT now(),
     updated timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, product_id),
-    CONSTRAINT product_watchlist_state_check CHECK (state IN ('ACTIVE', 'INACTIVE_BY_USER', 'INACTIVE_BY_RESTRICTED_PLAN'))
+    CONSTRAINT product_watchlist_state_check CHECK (state IN ('ACTIVE', 'INACTIVE_BY_USER', 'INACTIVE_BY_RESTRICTED_PLAN')),
+    CONSTRAINT product_watchlist_active_since_check
+        CHECK ((state = 'ACTIVE') = (active_since IS NOT NULL)),
+    CONSTRAINT product_watchlist_notifications_enabled_since_check
+        CHECK (notifications = (notifications_enabled_since IS NOT NULL))
 );
 
 CREATE INDEX product_watchlist_user_created_idx ON product_watchlist (user_id, created DESC);
 CREATE INDEX product_watchlist_user_created_product_idx ON product_watchlist (user_id, created DESC, product_id ASC);
 CREATE INDEX product_watchlist_product_id_idx ON product_watchlist (product_id);
+CREATE INDEX product_watchlist_product_active_since_idx
+    ON product_watchlist (product_id, active_since, user_id)
+    WHERE state = 'ACTIVE';
 
 CREATE TABLE search_filters (
     user_search_filter_id uuid PRIMARY KEY,

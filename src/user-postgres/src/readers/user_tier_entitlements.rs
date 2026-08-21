@@ -23,6 +23,10 @@ WITH ranked AS (
 )
 UPDATE product_watchlist AS entry
 SET state = ranked.target_state,
+    active_since = CASE
+        WHEN ranked.target_state = 'ACTIVE' THEN now()
+        ELSE NULL
+    END,
     updated = now()
 FROM ranked
 WHERE entry.user_id = $1

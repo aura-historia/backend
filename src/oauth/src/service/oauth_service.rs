@@ -320,6 +320,8 @@ impl<'a> OAuthServiceImpl<'a> {
         }
     }
 
+    // Keep the legacy DynamoDB error-by-value API stable until OAuth is retired.
+    #[allow(clippy::result_large_err)]
     async fn find_client(
         &self,
         client_id: &OAuthClientId,
@@ -331,6 +333,8 @@ impl<'a> OAuthServiceImpl<'a> {
             .ok_or(OAuthServiceError::ClientNotFound)
     }
 
+    // Keep the legacy DynamoDB error-by-value API stable until OAuth is retired.
+    #[allow(clippy::result_large_err)]
     async fn authenticate_client(
         &self,
         client_id: &OAuthClientId,

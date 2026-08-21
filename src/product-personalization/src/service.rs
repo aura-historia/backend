@@ -164,6 +164,7 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     async fn resolve_notification_state(
         &self,
         user_id: &UserId,
@@ -184,6 +185,7 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     async fn get_search_filter_match_quota(
         &self,
         user_id: &UserId,
@@ -196,6 +198,7 @@ impl<'a> ProductPersonalizationServiceImpl<'a> {
         Ok(Some(quota))
     }
 
+    #[allow(clippy::result_large_err)]
     async fn count_matches_up_to(
         &self,
         user_id: &UserId,

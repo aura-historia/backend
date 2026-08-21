@@ -51,8 +51,8 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         let now = OffsetDateTime::now_utc();
         sqlx::query(
             "INSERT INTO product_watchlist \
-             (user_id, product_id, notifications, state, created, updated) \
-             VALUES ($1, $2, $3, $4, $5, $5)",
+             (user_id, product_id, notifications, state, active_since, notifications_enabled_since, created, updated) \
+             VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN $5 ELSE NULL END, CASE WHEN $3 THEN $5 ELSE NULL END, $5, $5)",
         )
         .bind(uuid::Uuid::from(entry.user_id()))
         .bind(uuid::Uuid::from(entry.product_id()))
@@ -70,7 +70,20 @@ impl WatchlistRepository for SqlxWatchlistRepository<'_> {
         entry: &WatchlistProduct,
     ) -> Result<WatchlistProduct, WatchlistRepositoryError> {
         sqlx::query(
-            "UPDATE product_watchlist SET notifications = $3, state = $4, updated = $5 \
+            "UPDATE product_watchlist SET \
+                 notifications = $3, \
+                 state = $4, \
+                 active_since = CASE \
+                     WHEN state <> 'ACTIVE' AND $4 = 'ACTIVE' THEN $5 \
+                     WHEN $4 <> 'ACTIVE' THEN NULL \
+                     ELSE active_since \
+                 END, \
+                 notifications_enabled_since = CASE \
+                     WHEN notifications = false AND $3 = true THEN $5 \
+                     WHEN $3 = false THEN NULL \
+                     ELSE notifications_enabled_since \
+                 END, \
+                 updated = $5 \
              WHERE user_id = $1 AND product_id = $2",
         )
         .bind(uuid::Uuid::from(entry.user_id()))

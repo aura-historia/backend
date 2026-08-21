@@ -10,7 +10,8 @@
 - Implements `watchlist-service` repositories for `SqlxTransaction`.
 - Implements transaction-scoped `SqlxWatchlistReaderFactory` for read models and `SqlxWatchlistQuotaReaderFactory` for tier-policy invariants.
 - Maps `product_watchlist` rows to `watchlist-core` domain or reader views.
-- Repository writes return storage-neutral persisted watchlist state.
+- Repository writes return storage-neutral persisted watchlist state. Insert and update maintain `active_since` and `notifications_enabled_since` as current-interval metadata.
+- Notification recipient reads require active interval start at or before persisted Product event time and suppress email when the current email interval started later.
 - Schema key is `(user_id, product_id)`.
 
 ## Ownership

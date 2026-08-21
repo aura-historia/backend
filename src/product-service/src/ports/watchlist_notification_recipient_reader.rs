@@ -1,4 +1,5 @@
 use common::{error::boxed::BoxError, product_id::ProductId, user_id::UserId};
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchlistNotificationRecipient {
@@ -17,9 +18,10 @@ pub enum WatchlistNotificationRecipientReadError {
 
 #[async_trait::async_trait]
 pub trait WatchlistNotificationRecipientReader: Send {
-    async fn find_active_for_product(
+    async fn find_eligible_for_product_at(
         &mut self,
         product_id: ProductId,
+        event_time: OffsetDateTime,
     ) -> Result<Vec<WatchlistNotificationRecipient>, WatchlistNotificationRecipientReadError>;
 }
 

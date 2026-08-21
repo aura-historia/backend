@@ -207,6 +207,7 @@ impl<'a> ProductWatchListServiceImpl<'a> {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     async fn count_active_watchlist_records(
         &self,
         user_id: &UserId,

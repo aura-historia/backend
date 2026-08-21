@@ -19,8 +19,10 @@ use notification_service::ports::notification_creator::{
     NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
 use product_service::ports::{
-    ProductSearchFilterMatchSource, ProductSearchFilterMatchSourceReadError,
-    ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
+    ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
+    ProductCurrentRevisionGuardFactory, ProductSearchFilterMatchSource,
+    ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
+    ProductSearchFilterMatchSourceReaderFactory,
 };
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
@@ -77,6 +79,11 @@ pub enum GenerateSearchFilterMatchNotificationError {
     },
     #[error("product notification source does not match the requested event or product")]
     ProductSourceMismatch,
+    #[error("product current revision check failed")]
+    ProductCurrentRevisionCheckFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("user tier entitlement lock failed")]
     UserTierEntitlementsLockFailed {
         #[source]
@@ -110,22 +117,24 @@ pub trait GenerateSearchFilterMatchNotificationUseCase: Send + Sync {
     >;
 }
 
-pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, N> {
+pub struct GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N> {
     unit_of_work: U,
     matches: M,
     products: P,
     quotas: Q,
     tier_entitlements: A,
+    product_revision_guard: G,
     notifications: N,
 }
 
-impl<U, M, P, Q, A, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, N> {
+impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N> {
     pub fn new(
         unit_of_work: U,
         matches: M,
         products: P,
         quotas: Q,
         tier_entitlements: A,
+        product_revision_guard: G,
         notifications: N,
     ) -> Self {
         Self {
@@ -134,20 +143,22 @@ impl<U, M, P, Q, A, N> GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, 
             products,
             quotas,
             tier_entitlements,
+            product_revision_guard,
             notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, M, P, Q, A, N> GenerateSearchFilterMatchNotificationUseCase
-    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, N>
+impl<U, M, P, Q, A, G, N> GenerateSearchFilterMatchNotificationUseCase
+    for GenerateSearchFilterMatchNotificationHandler<U, M, P, Q, A, G, N>
 where
     U: UnitOfWork,
     M: SearchFilterMatchNotificationSourceReaderFactory<U::Tx>,
     P: ProductSearchFilterMatchSourceReaderFactory<U::Tx>,
     Q: SearchFilterMonthlyMatchQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
+    G: ProductCurrentRevisionGuardFactory<U::Tx>,
     N: NotificationCreatorFactory<U::Tx>,
 {
     #[tracing::instrument(
@@ -206,7 +217,17 @@ where
         if product.event_id != command.origin_event_id || product.product_id != command.product_id {
             return Err(GenerateSearchFilterMatchNotificationError::ProductSourceMismatch);
         }
-        if product.current_event_id != command.origin_event_id {
+        let revision = self
+            .product_revision_guard
+            .in_transaction(&mut tx)
+            .lock_and_check(command.product_id, command.origin_event_id)
+            .await
+            .map_err(|source: ProductCurrentRevisionCheckError| {
+                GenerateSearchFilterMatchNotificationError::ProductCurrentRevisionCheckFailed {
+                    source: box_error(source),
+                }
+            })?;
+        if revision == ProductCurrentRevisionCheck::Stale {
             tx.commit().await.map_err(commit_error)?;
             return Ok(GenerateSearchFilterMatchNotificationResult::SuppressedForStaleProductEvent);
         }
@@ -483,6 +504,29 @@ mod tests {
         }
     }
 
+    struct ProductRevisionGuards;
+    struct ProductRevisionGuard;
+
+    #[async_trait::async_trait]
+    impl ProductCurrentRevisionGuard for ProductRevisionGuard {
+        async fn lock_and_check(
+            &mut self,
+            _product_id: ProductId,
+            _expected_event_id: EventId,
+        ) -> Result<ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError> {
+            Ok(ProductCurrentRevisionCheck::Current)
+        }
+    }
+
+    impl ProductCurrentRevisionGuardFactory<TestTransaction> for ProductRevisionGuards {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut TestTransaction,
+        ) -> impl ProductCurrentRevisionGuard + 'tx {
+            ProductRevisionGuard
+        }
+    }
+
     struct Quotas;
     struct QuotaReader;
 
@@ -669,6 +713,7 @@ mod tests {
             ProductSources(Some(product)),
             Quotas,
             Tiers,
+            ProductRevisionGuards,
             Notifications(Arc::clone(&state)),
         );
 
@@ -694,6 +739,7 @@ mod tests {
             ProductSources(Some(product)),
             Quotas,
             Tiers,
+            ProductRevisionGuards,
             DuplicateNotifications,
         );
 
@@ -720,6 +766,7 @@ mod tests {
             ProductSources(Some(product)),
             Quotas,
             Tiers,
+            ProductRevisionGuards,
             Notifications(Arc::clone(&state)),
         );
 
@@ -746,6 +793,7 @@ mod tests {
             ProductSources(Some(product)),
             Quotas,
             Tiers,
+            ProductRevisionGuards,
             Notifications(state),
         );
 

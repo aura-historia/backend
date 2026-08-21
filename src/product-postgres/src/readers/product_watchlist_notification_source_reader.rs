@@ -35,6 +35,7 @@ struct SqlxProductWatchlistNotificationSourceReader<'tx> {
 #[derive(Debug, sqlx::FromRow)]
 struct SourceRow {
     event_id: uuid::Uuid,
+    event_time: time::OffsetDateTime,
     product_id: uuid::Uuid,
     event_type: String,
     payload: serde_json::Value,
@@ -128,7 +129,7 @@ impl ProductWatchlistNotificationSourceReader for SqlxProductWatchlistNotificati
         let row = sqlx::query_as::<_, SourceRow>(
             r#"
             SELECT
-                event.event_id, event.product_id, event.event_type, event.payload,
+                event.event_id, event.event_time, event.product_id, event.event_type, event.payload,
                 product.product_slug_id, product.shop_id, product.shops_product_id,
                 shop.shop_slug_id, shop.name AS shop_name,
                 product.title_text, product.title_language, product.product_images, product.url
@@ -192,6 +193,7 @@ impl ProductWatchlistNotificationSourceReader for SqlxProductWatchlistNotificati
             .map_err(WatchlistNotificationSourceMappingError::with_source)?;
         Ok(Some(ProductWatchlistNotificationSource {
             event_id: EventId::from(row.event_id),
+            event_time: row.event_time,
             product_id: ProductId::from(row.product_id),
             product_slug_id: ProductSlugId::raw(&row.product_slug_id)
                 .map_err(WatchlistNotificationSourceMappingError::with_source)?,

@@ -4,6 +4,7 @@ use common::resource_state::domain::ResourceState;
 use common::transaction::{Transaction, UnitOfWork};
 use common::user_id::UserId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use time::{Duration, OffsetDateTime};
 use watchlist_core::WatchlistProduct;
 use watchlist_postgres::{
     SqlxWatchlistQuotaReaderFactory, SqlxWatchlistReaderFactory, SqlxWatchlistRepositoryFactory,
@@ -74,6 +75,96 @@ async fn should_insert_find_update_read_and_delete_watchlist_entry() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_preserve_and_reset_current_interval_timestamps() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let repository = SqlxWatchlistRepositoryFactory;
+    let user_id = seed_user(&pool, "watchlist-postgres-intervals@example.com").await;
+    let active_product_id = seed_product(&pool, "watchlist-postgres-interval-active").await;
+    let inactive_product_id = seed_product(&pool, "watchlist-postgres-interval-inactive").await;
+    let mut active =
+        WatchlistProduct::rehydrate(user_id, active_product_id, true, ResourceState::Active);
+    let inactive = WatchlistProduct::rehydrate(
+        user_id,
+        inactive_product_id,
+        false,
+        ResourceState::InactiveByUser,
+    );
+
+    let mut tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut tx)
+        .insert(&active)
+        .await
+        .unwrap_or_else(|error| panic!("insert active entry failed: {error:?}"));
+    repository
+        .in_transaction(&mut tx)
+        .insert(&inactive)
+        .await
+        .unwrap_or_else(|error| panic!("insert inactive entry failed: {error:?}"));
+    commit(tx).await;
+
+    let (initial_active_since, initial_email_since) =
+        intervals(&pool, user_id, active_product_id).await;
+    assert!(initial_active_since.is_some());
+    assert!(initial_email_since.is_some());
+
+    let old = (OffsetDateTime::now_utc() - Duration::hours(1))
+        .replace_nanosecond(0)
+        .unwrap_or_else(|error| panic!("failed to normalize baseline timestamp: {error}"));
+    sqlx::query(
+        "UPDATE product_watchlist SET active_since = $3, notifications_enabled_since = $3, created = $3, updated = $3 WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::from(active_product_id))
+    .bind(old)
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to set interval baseline: {error:?}"));
+
+    let mut tx = begin(&unit).await;
+    repository
+        .in_transaction(&mut tx)
+        .update(&active)
+        .await
+        .unwrap_or_else(|error| panic!("active-to-active update failed: {error:?}"));
+    commit(tx).await;
+    assert_eq!(
+        (Some(old), Some(old)),
+        intervals(&pool, user_id, active_product_id).await
+    );
+
+    active.change_state(ResourceState::InactiveByUser);
+    repository_update(&unit, &repository, &active).await;
+    assert_eq!(
+        (None, Some(old)),
+        intervals(&pool, user_id, active_product_id).await
+    );
+
+    active.change_state(ResourceState::Active);
+    repository_update(&unit, &repository, &active).await;
+    let (reactivated_since, email_since) = intervals(&pool, user_id, active_product_id).await;
+    assert!(reactivated_since.is_some_and(|value| value > old));
+    assert_eq!(Some(old), email_since);
+
+    active.change_notifications(false);
+    repository_update(&unit, &repository, &active).await;
+    assert_eq!(
+        (reactivated_since, None),
+        intervals(&pool, user_id, active_product_id).await
+    );
+
+    active.change_notifications(true);
+    repository_update(&unit, &repository, &active).await;
+    let (active_since, reenabled_email_since) = intervals(&pool, user_id, active_product_id).await;
+    assert_eq!(
+        Some(reactivated_since.expect("active interval must remain")),
+        active_since
+    );
+    assert!(reenabled_email_since.is_some_and(|value| value > old));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_count_only_active_watchlist_entries_in_transaction() {
     let pool = get_postgres_client().await;
     let unit = SqlxUnitOfWork::new(pool.clone());
@@ -132,6 +223,35 @@ async fn should_return_already_exists_when_watchlist_entry_exists() {
         second,
         Err(watchlist_service::ports::WatchlistRepositoryError::AlreadyExists)
     ));
+}
+
+async fn repository_update(
+    unit: &SqlxUnitOfWork,
+    repository: &SqlxWatchlistRepositoryFactory,
+    entry: &WatchlistProduct,
+) {
+    let mut tx = begin(unit).await;
+    repository
+        .in_transaction(&mut tx)
+        .update(entry)
+        .await
+        .unwrap_or_else(|error| panic!("watchlist update failed: {error:?}"));
+    commit(tx).await;
+}
+
+async fn intervals(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: ProductId,
+) -> (Option<OffsetDateTime>, Option<OffsetDateTime>) {
+    sqlx::query_as(
+        "SELECT active_since, notifications_enabled_since FROM product_watchlist WHERE user_id = $1 AND product_id = $2",
+    )
+    .bind(uuid::Uuid::from(user_id))
+    .bind(uuid::Uuid::from(product_id))
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to read watchlist intervals: {error:?}"))
 }
 
 async fn begin(unit: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {

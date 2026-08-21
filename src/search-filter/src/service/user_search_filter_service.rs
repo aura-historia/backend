@@ -334,6 +334,7 @@ impl<'a> UserSearchFilterServiceImpl<'a> {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     async fn count_active_user_search_filter_records(
         &self,
         user_id: &UserId,
@@ -347,6 +348,7 @@ impl<'a> UserSearchFilterServiceImpl<'a> {
             .count())
     }
 
+    #[allow(clippy::result_large_err)]
     async fn compute_embedding(
         &self,
         search: &ProductSearch,

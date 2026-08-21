@@ -353,8 +353,8 @@ async fn insert_watchlist(
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO product_watchlist (user_id, product_id, notifications, state, created)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since, created, updated)
+        VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN $5 ELSE NULL END, CASE WHEN $3 THEN $5 ELSE NULL END, $5, $5)
         "#,
     )
     .bind(uuid::Uuid::from(user_id))

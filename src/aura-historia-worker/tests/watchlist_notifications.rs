@@ -2,8 +2,9 @@ use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 
+use common::error::boxed::box_error;
 use common::event_id::EventId;
-use common::postgres::SqlxUnitOfWork;
+use common::postgres::{SqlxTransaction, SqlxUnitOfWork};
 use common::product_id::ProductId;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -16,7 +17,13 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
-use product_postgres::SqlxProductWatchlistNotificationSourceReaderFactory;
+use product_postgres::{
+    SqlxProductCurrentRevisionGuardFactory, SqlxProductWatchlistNotificationSourceReaderFactory,
+};
+use product_service::ports::{
+    ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
+    ProductCurrentRevisionGuardFactory,
+};
 use product_service::use_cases::{
     GenerateWatchlistNotificationsHandler, GenerateWatchlistNotificationsUseCase,
 };
@@ -25,7 +32,8 @@ use test_api::{
     IntegrationTestService, Postgres, Sequin, aura_integration_test, get_postgres_client,
     get_sequin_worker_webhook_bind_addr,
 };
-use tokio::sync::oneshot;
+use time::OffsetDateTime;
+use tokio::sync::{Barrier, oneshot};
 use tokio::task::JoinHandle;
 use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
 
@@ -52,6 +60,26 @@ async fn should_create_price_notifications_only_for_active_watchers() {
     assert!(
         result.is_ok(),
         "price notification acceptance test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA, WORKER_SEQUIN])]
+async fn should_not_notify_watcher_created_after_product_event() {
+    let result = no_notification_for_watcher_created_after_product_event().await;
+
+    assert!(
+        result.is_ok(),
+        "late watcher acceptance test failed: {result:?}"
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA])]
+async fn should_hold_product_revision_lock_until_watchlist_notification_commit() {
+    let result = hold_product_revision_lock_until_watchlist_notification_commit().await;
+
+    assert!(
+        result.is_ok(),
+        "watchlist revision-lock acceptance test failed: {result:?}"
     );
 }
 
@@ -143,8 +171,8 @@ async fn create_price_notifications_only_for_active_watchers()
             product_id,
             "PRODUCT_PRICE_CHANGED",
             json!({
-                "oldPricing": {"price": {"amount": 1200, "currency": "EUR"}},
-                "newPricing": {"price": {"amount": 900, "currency": "EUR"}}
+                "oldPricing": {"price": {"amount": 1200, "currency": "USD"}},
+                "newPricing": {"price": {"amount": 900, "currency": "USD"}}
             }),
         )
         .await?;
@@ -157,7 +185,7 @@ async fn create_price_notifications_only_for_active_watchers()
             uuid::Uuid::from(event_id),
             email_notifications[0].origin_event_id
         );
-        assert_price_change(&email_notifications[0], 1200, 900)?;
+        assert_price_change(&email_notifications[0], "USD", 1200, 900)?;
         assert_no_notifications_for(
             &worker.pool,
             inactive_recipient,
@@ -168,6 +196,159 @@ async fn create_price_notifications_only_for_active_watchers()
     .await;
 
     worker.finish(result).await
+}
+
+async fn no_notification_for_watcher_created_after_product_event()
+-> Result<(), Box<dyn std::error::Error>> {
+    let worker = WatchlistWorker::start().await?;
+    let result = async {
+        let user_id = seed_user(&worker.pool, "late-watcher").await?;
+        let event_id = EventId::new();
+        let event_time = OffsetDateTime::now_utc();
+        let mut transaction = worker.pool.begin().await?;
+        let product_id = seed_product(&mut transaction, event_id).await?;
+        insert_product_event_at(
+            &mut transaction,
+            event_id,
+            product_id,
+            "PRODUCT_STATE_CHANGED",
+            json!({"oldState": "Available", "newState": "Sold"}),
+            event_time,
+        )
+        .await?;
+        transaction.commit().await?;
+
+        seed_watchlist_at(
+            &worker.pool,
+            user_id,
+            product_id,
+            true,
+            "ACTIVE",
+            event_time + time::Duration::seconds(1),
+        )
+        .await?;
+        let response = reqwest::Client::new()
+            .post(format!(
+                "http://{}/cdc/sequin",
+                get_sequin_worker_webhook_bind_addr()
+            ))
+            .json(&json!({
+                "record": {
+                    "event_id": event_id.to_string(),
+                    "product_id": product_id.to_string(),
+                    "event_type": "PRODUCT_STATE_CHANGED",
+                    "event_group": "DOMAIN"
+                },
+                "action": "insert",
+                "metadata": {"table_schema": "public", "table_name": "product_events"}
+            }))
+            .send()
+            .await?;
+        assert_eq!(reqwest::StatusCode::ACCEPTED, response.status());
+        assert_no_notifications_for(&worker.pool, user_id, NO_NOTIFICATION_OBSERVATION).await
+    }
+    .await;
+
+    worker.finish(result).await
+}
+
+async fn hold_product_revision_lock_until_watchlist_notification_commit()
+-> Result<(), Box<dyn std::error::Error>> {
+    let pool = get_postgres_client().await;
+    let user_id = seed_user(&pool, "revision-lock-recipient").await?;
+    let event_id = EventId::new();
+    let event_time = OffsetDateTime::now_utc();
+    let mut transaction = pool.begin().await?;
+    let product_id = seed_product(&mut transaction, event_id).await?;
+    insert_product_event_at(
+        &mut transaction,
+        event_id,
+        product_id,
+        "PRODUCT_STATE_CHANGED",
+        json!({"oldState": "Available", "newState": "Sold"}),
+        event_time,
+    )
+    .await?;
+    transaction.commit().await?;
+    seed_watchlist_at(&pool, user_id, product_id, true, "ACTIVE", event_time).await?;
+
+    let guard_reached = Arc::new(Barrier::new(2));
+    let release_guard = Arc::new(Barrier::new(2));
+    let handler = Arc::new(GenerateWatchlistNotificationsHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxProductWatchlistNotificationSourceReaderFactory::new(),
+        SqlxWatchlistNotificationRecipientReaderFactory,
+        BlockingRevisionGuardFactory {
+            guard_reached: Arc::clone(&guard_reached),
+            release_guard: Arc::clone(&release_guard),
+        },
+        NotificationCreationCoordinatorFactory::new(
+            SqlxNotificationRepositoryFactory::new(),
+            InitialExternalDeliveryPlanReaderFactory,
+            SqlxNotificationDeliveryIntentRepositoryFactory::new(),
+        ),
+    ));
+    let generation = tokio::spawn(async move {
+        handler
+            .execute(
+                product_service::use_cases::GenerateWatchlistNotificationsCommand {
+                    event_id,
+                    product_id,
+                },
+            )
+            .await
+    });
+    guard_reached.wait().await;
+
+    let next_event_id = EventId::new();
+    let (update_started_tx, update_started_rx) = oneshot::channel();
+    let update_pool = pool.clone();
+    let mut update = tokio::spawn(async move {
+        let _ = update_started_tx.send(());
+        let mut transaction = update_pool.begin().await?;
+        sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, 'PRODUCT_STATE_CHANGED', 'DOMAIN', '{}', $3)")
+            .bind(uuid::Uuid::from(next_event_id))
+            .bind(uuid::Uuid::from(product_id))
+            .bind(event_time + time::Duration::seconds(1))
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("UPDATE products SET event_id = $1 WHERE product_id = $2")
+            .bind(uuid::Uuid::from(next_event_id))
+            .bind(uuid::Uuid::from(product_id))
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await
+    });
+    update_started_rx.await?;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut update)
+            .await
+            .is_err(),
+        "Product revision update completed before notification commit"
+    );
+
+    release_guard.wait().await;
+    let notification_result = generation.await??;
+    assert!(matches!(
+        notification_result,
+        product_service::use_cases::GenerateWatchlistNotificationsResult::Applied {
+            inserted_count: 1,
+            ..
+        }
+    ));
+    update.await??;
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications WHERE user_id = $1")
+        .bind(uuid::Uuid::from(user_id))
+        .fetch_one(&pool)
+        .await?;
+    let origin_event_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT origin_event_id FROM notifications WHERE user_id = $1 LIMIT 1")
+            .bind(uuid::Uuid::from(user_id))
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(1, count);
+    assert_eq!(uuid::Uuid::from(event_id), origin_event_id);
+    Ok(())
 }
 
 async fn preserve_one_notification_when_product_event_delivery_is_retried()
@@ -272,6 +453,59 @@ async fn not_notify_for_rolled_back_or_unrouted_product_events()
     worker.finish(result).await
 }
 
+#[derive(Clone)]
+struct BlockingRevisionGuardFactory {
+    guard_reached: Arc<Barrier>,
+    release_guard: Arc<Barrier>,
+}
+
+struct BlockingRevisionGuard<'tx> {
+    connection: &'tx mut sqlx::PgConnection,
+    guard_reached: Arc<Barrier>,
+    release_guard: Arc<Barrier>,
+}
+
+impl ProductCurrentRevisionGuardFactory<SqlxTransaction> for BlockingRevisionGuardFactory {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut SqlxTransaction,
+    ) -> impl ProductCurrentRevisionGuard + 'tx {
+        BlockingRevisionGuard {
+            connection: tx.connection(),
+            guard_reached: Arc::clone(&self.guard_reached),
+            release_guard: Arc::clone(&self.release_guard),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ProductCurrentRevisionGuard for BlockingRevisionGuard<'_> {
+    async fn lock_and_check(
+        &mut self,
+        product_id: ProductId,
+        expected_event_id: EventId,
+    ) -> Result<ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError> {
+        let current_event_id = sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT event_id FROM products WHERE product_id = $1 FOR SHARE",
+        )
+        .bind(uuid::Uuid::from(product_id))
+        .fetch_optional(&mut *self.connection)
+        .await
+        .map_err(|source| ProductCurrentRevisionCheckError::CheckFailed {
+            source: box_error(source),
+        })?;
+        let result = match current_event_id {
+            Some(current_event_id) if EventId::from(current_event_id) == expected_event_id => {
+                ProductCurrentRevisionCheck::Current
+            }
+            Some(_) | None => ProductCurrentRevisionCheck::Stale,
+        };
+        self.guard_reached.wait().await;
+        self.release_guard.wait().await;
+        Ok(result)
+    }
+}
+
 struct WatchlistWorker {
     pool: sqlx::PgPool,
     consumer: JoinHandle<()>,
@@ -287,6 +521,7 @@ impl WatchlistWorker {
                 SqlxUnitOfWork::new(pool.clone()),
                 SqlxProductWatchlistNotificationSourceReaderFactory::new(),
                 SqlxWatchlistNotificationRecipientReaderFactory,
+                SqlxProductCurrentRevisionGuardFactory::new(),
                 NotificationCreationCoordinatorFactory::new(
                     SqlxNotificationRepositoryFactory::new(),
                     InitialExternalDeliveryPlanReaderFactory,
@@ -377,7 +612,7 @@ async fn seed_watchlist(
     notifications: bool,
     state: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO product_watchlist (user_id, product_id, notifications, state) VALUES ($1, $2, $3, $4)")
+    sqlx::query("INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since) VALUES ($1, $2, $3, $4, CASE WHEN $4 = 'ACTIVE' THEN now() ELSE NULL END, CASE WHEN $3 THEN now() ELSE NULL END)")
         .bind(uuid::Uuid::from(user_id))
         .bind(uuid::Uuid::from(product_id))
         .bind(notifications)
@@ -394,12 +629,51 @@ async fn insert_product_event(
     event_type: &str,
     payload: serde_json::Value,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, 'DOMAIN', $4, now())")
+    insert_product_event_at(
+        transaction,
+        event_id,
+        product_id,
+        event_type,
+        payload,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+}
+
+async fn insert_product_event_at(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event_id: EventId,
+    product_id: ProductId,
+    event_type: &str,
+    payload: serde_json::Value,
+    event_time: OffsetDateTime,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO product_events (event_id, product_id, event_type, event_group, payload, event_time) VALUES ($1, $2, $3, 'DOMAIN', $4, $5)")
         .bind(uuid::Uuid::from(event_id))
         .bind(uuid::Uuid::from(product_id))
         .bind(event_type)
         .bind(payload)
+        .bind(event_time)
         .execute(&mut **transaction)
+        .await?;
+    Ok(())
+}
+
+async fn seed_watchlist_at(
+    pool: &sqlx::PgPool,
+    user_id: UserId,
+    product_id: ProductId,
+    notifications: bool,
+    state: &str,
+    active_since: OffsetDateTime,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO product_watchlist (user_id, product_id, notifications, state, active_since, notifications_enabled_since, created, updated) VALUES ($1, $2, $3, $4, $5, CASE WHEN $3 THEN $5 ELSE NULL END, $5, $5)")
+        .bind(uuid::Uuid::from(user_id))
+        .bind(uuid::Uuid::from(product_id))
+        .bind(notifications)
+        .bind(state)
+        .bind(active_since)
+        .execute(pool)
         .await?;
     Ok(())
 }
@@ -498,22 +772,37 @@ fn assert_state_change(
 
 fn assert_price_change(
     notification: &WatchlistNotificationRow,
+    currency: &str,
     old_amount: u64,
     new_amount: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!("WATCHLIST_PRICE_CHANGED", notification.kind);
     assert_eq!(
+        Some(currency),
+        notification
+            .payload
+            .pointer("/change/old_price/currency")
+            .and_then(serde_json::Value::as_str)
+    );
+    assert_eq!(
         Some(old_amount),
         notification
             .payload
-            .pointer("/change/old_price/Eur")
+            .pointer("/change/old_price/amount")
             .and_then(serde_json::Value::as_u64)
+    );
+    assert_eq!(
+        Some(currency),
+        notification
+            .payload
+            .pointer("/change/new_price/currency")
+            .and_then(serde_json::Value::as_str)
     );
     assert_eq!(
         Some(new_amount),
         notification
             .payload
-            .pointer("/change/new_price/Eur")
+            .pointer("/change/new_price/amount")
             .and_then(serde_json::Value::as_u64)
     );
     Ok(())

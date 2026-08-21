@@ -1,7 +1,9 @@
 use crate::ports::{
-    ProductWatchlistNotificationChange, ProductWatchlistNotificationSource,
-    ProductWatchlistNotificationSourceReader, ProductWatchlistNotificationSourceReaderFactory,
-    WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
+    ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
+    ProductCurrentRevisionGuardFactory, ProductWatchlistNotificationChange,
+    ProductWatchlistNotificationSource, ProductWatchlistNotificationSourceReader,
+    ProductWatchlistNotificationSourceReaderFactory, WatchlistNotificationRecipientReader,
+    WatchlistNotificationRecipientReaderFactory,
 };
 use common::{
     error::boxed::{BoxError, box_error},
@@ -23,16 +25,18 @@ pub struct GenerateWatchlistNotificationsCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GenerateWatchlistNotificationsResult {
-    pub recipient_count: usize,
-    pub inserted_count: usize,
-    pub already_exists_count: usize,
+pub enum GenerateWatchlistNotificationsResult {
+    Applied {
+        recipient_count: usize,
+        inserted_count: usize,
+        already_exists_count: usize,
+    },
+    SuppressedForMissingSource,
+    SuppressedForStaleProductEvent,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum GenerateWatchlistNotificationsError {
-    #[error("watchlist notification source was not found")]
-    SourceNotFound,
     #[error("failed to begin watchlist notification read transaction")]
     BeginTransactionFailed {
         #[source]
@@ -40,6 +44,11 @@ pub enum GenerateWatchlistNotificationsError {
     },
     #[error("failed to read watchlist notification source")]
     SourceReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("failed to lock and check the current Product revision")]
+    ProductCurrentRevisionCheckFailed {
         #[source]
         source: BoxError,
     },
@@ -68,31 +77,40 @@ pub trait GenerateWatchlistNotificationsUseCase: Send + Sync {
     ) -> Result<GenerateWatchlistNotificationsResult, GenerateWatchlistNotificationsError>;
 }
 
-pub struct GenerateWatchlistNotificationsHandler<U, S, R, N> {
+pub struct GenerateWatchlistNotificationsHandler<U, S, R, G, N> {
     unit_of_work: U,
     sources: S,
     recipients: R,
+    product_revision_guard: G,
     notifications: N,
 }
 
-impl<U, S, R, N> GenerateWatchlistNotificationsHandler<U, S, R, N> {
-    pub fn new(unit_of_work: U, sources: S, recipients: R, notifications: N) -> Self {
+impl<U, S, R, G, N> GenerateWatchlistNotificationsHandler<U, S, R, G, N> {
+    pub fn new(
+        unit_of_work: U,
+        sources: S,
+        recipients: R,
+        product_revision_guard: G,
+        notifications: N,
+    ) -> Self {
         Self {
             unit_of_work,
             sources,
             recipients,
+            product_revision_guard,
             notifications,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, S, R, N> GenerateWatchlistNotificationsUseCase
-    for GenerateWatchlistNotificationsHandler<U, S, R, N>
+impl<U, S, R, G, N> GenerateWatchlistNotificationsUseCase
+    for GenerateWatchlistNotificationsHandler<U, S, R, G, N>
 where
     U: UnitOfWork,
     S: ProductWatchlistNotificationSourceReaderFactory<U::Tx>,
     R: WatchlistNotificationRecipientReaderFactory<U::Tx>,
+    G: ProductCurrentRevisionGuardFactory<U::Tx>,
     N: NotificationCreatorFactory<U::Tx>,
 {
     #[tracing::instrument(name = "generate_watchlist_notifications", skip_all, fields(event_id = %command.event_id, product_id = %command.product_id))]
@@ -105,7 +123,7 @@ where
                 source: box_error(source),
             }
         })?;
-        let source = self
+        let Some(source) = self
             .sources
             .in_transaction(&mut tx)
             .find_source(command.event_id, command.product_id)
@@ -115,11 +133,38 @@ where
                     source: box_error(source),
                 },
             )?
-            .ok_or(GenerateWatchlistNotificationsError::SourceNotFound)?;
+        else {
+            tx.commit().await.map_err(|source| {
+                GenerateWatchlistNotificationsError::CommitTransactionFailed {
+                    source: box_error(source),
+                }
+            })?;
+            return Ok(GenerateWatchlistNotificationsResult::SuppressedForMissingSource);
+        };
+
+        let revision = self
+            .product_revision_guard
+            .in_transaction(&mut tx)
+            .lock_and_check(command.product_id, command.event_id)
+            .await
+            .map_err(|source: ProductCurrentRevisionCheckError| {
+                GenerateWatchlistNotificationsError::ProductCurrentRevisionCheckFailed {
+                    source: box_error(source),
+                }
+            })?;
+        if revision == ProductCurrentRevisionCheck::Stale {
+            tx.commit().await.map_err(|source| {
+                GenerateWatchlistNotificationsError::CommitTransactionFailed {
+                    source: box_error(source),
+                }
+            })?;
+            return Ok(GenerateWatchlistNotificationsResult::SuppressedForStaleProductEvent);
+        }
+
         let recipients = self
             .recipients
             .in_transaction(&mut tx)
-            .find_active_for_product(command.product_id)
+            .find_eligible_for_product_at(command.product_id, source.event_time)
             .await
             .map_err(
                 |source| GenerateWatchlistNotificationsError::RecipientReadFailed {
@@ -163,7 +208,7 @@ where
             }
         })?;
 
-        Ok(GenerateWatchlistNotificationsResult {
+        Ok(GenerateWatchlistNotificationsResult::Applied {
             recipient_count,
             inserted_count,
             already_exists_count,
