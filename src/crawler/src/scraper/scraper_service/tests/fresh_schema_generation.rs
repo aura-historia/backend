@@ -398,6 +398,104 @@ async fn should_mark_other_when_fresh_generation_classifies_not_product() {
     assert!(matches!(err, ScraperError::NotProductPage { .. }));
 }
 
+async fn should_reject_low_confidence_fresh_classification(
+    confidence: SchemaLlmEvaluationConfidence,
+    removed: bool,
+) {
+    let id = shop_id();
+    let url = product_url();
+
+    let mut fetcher = MockHtmlFetcher::new();
+    fetcher
+        .expect_fetch()
+        .once()
+        .returning(|_| Box::pin(async { Ok(fetch_result(sample_html())) }));
+
+    let mut schema_svc = MockProductSchemaService::new();
+    schema_svc
+        .expect_find_product_schema()
+        .once()
+        .returning(move |_| {
+            let s = existing_invalid_schema(id);
+            Box::pin(async move { Ok(Some(s)) })
+        });
+    schema_svc
+        .expect_generate_single_schema_for_page()
+        .once()
+        .returning(move |_| {
+            let generated = if removed {
+                GeneratedSingleSchema::Removed {
+                    schema: RemovedPageSchema {
+                        selector: CssSelector::from("#removed"),
+                        text: Some("Gone".to_string()),
+                        regex: None,
+                    },
+                    evaluation: schema_evaluation(confidence),
+                }
+            } else {
+                GeneratedSingleSchema::NotProduct {
+                    reason: "category page".to_string(),
+                    evaluation: schema_evaluation(confidence),
+                }
+            };
+            Box::pin(async move { Ok(generated) })
+        });
+    schema_svc.expect_save_product_schemas().never();
+
+    let mut removed_repo = MockRemovedPageSchemaRepository::new();
+    removed_repo
+        .expect_find_removed_page_schema()
+        .once()
+        .returning(|_| Box::pin(async { Ok(None) }));
+    removed_repo.expect_insert_removed_page_schema().never();
+    removed_repo.expect_update_removed_page_schema().never();
+
+    let mut cand_svc = MockScraperCandidateService::new();
+    expect_budget_increment(&mut cand_svc, 1);
+    cand_svc.expect_set_state().never();
+    cand_svc.expect_set_class().never();
+
+    let service = ScraperServiceImpl::new_with_schema_seed_pages(
+        Box::new(fetcher),
+        Box::new(schema_svc),
+        Box::new(MockProductNormalizationService::new()),
+        Arc::new(cand_svc),
+        1,
+        DEFAULT_MAX_LLM_CALLS_PER_SHOP,
+    )
+    .with_removed_page_schema_repository(Box::new(removed_repo));
+
+    let err = service.scrape(&id, &url, None, None).await.unwrap_err();
+    assert!(matches!(
+        err,
+        ScraperError::SchemaClassificationRejected { .. }
+    ));
+}
+
+#[tokio::test]
+async fn should_reject_medium_confidence_removed_classification_without_side_effects() {
+    should_reject_low_confidence_fresh_classification(SchemaLlmEvaluationConfidence::Medium, true)
+        .await;
+}
+
+#[tokio::test]
+async fn should_reject_low_confidence_removed_classification_without_side_effects() {
+    should_reject_low_confidence_fresh_classification(SchemaLlmEvaluationConfidence::Low, true)
+        .await;
+}
+
+#[tokio::test]
+async fn should_reject_medium_confidence_not_product_classification_without_side_effects() {
+    should_reject_low_confidence_fresh_classification(SchemaLlmEvaluationConfidence::Medium, false)
+        .await;
+}
+
+#[tokio::test]
+async fn should_reject_low_confidence_not_product_classification_without_side_effects() {
+    should_reject_low_confidence_fresh_classification(SchemaLlmEvaluationConfidence::Low, false)
+        .await;
+}
+
 #[tokio::test]
 async fn should_not_change_state_or_class_when_fresh_classification_does_not_match_html() {
     let id = shop_id();

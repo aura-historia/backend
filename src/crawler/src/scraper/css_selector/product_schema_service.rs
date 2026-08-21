@@ -1255,12 +1255,36 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_non_high_confidence_single_page_classifications() {
+    fn should_parse_non_high_confidence_single_page_classifications() {
         for confidence in ["MEDIUM", "LOW"] {
             let removed = removed_single_response_json().replace("HIGH", confidence);
             let not_product = not_product_single_response_json().replace("HIGH", confidence);
-            assert!(parse_single_schema_response(&removed).is_err());
-            assert!(parse_single_schema_response(&not_product).is_err());
+            let parsed_removed = parse_single_schema_response(&removed).unwrap();
+            let parsed_not_product = parse_single_schema_response(&not_product).unwrap();
+            assert!(matches!(
+                parsed_removed,
+                GeneratedSingleSchema::Removed { .. }
+            ));
+            assert!(matches!(
+                parsed_not_product,
+                GeneratedSingleSchema::NotProduct { .. }
+            ));
+            assert_eq!(
+                parsed_removed.evaluation().confidence,
+                match confidence {
+                    "MEDIUM" => SchemaLlmEvaluationConfidence::Medium,
+                    "LOW" => SchemaLlmEvaluationConfidence::Low,
+                    _ => unreachable!(),
+                }
+            );
+            assert_eq!(
+                parsed_not_product.evaluation().confidence,
+                match confidence {
+                    "MEDIUM" => SchemaLlmEvaluationConfidence::Medium,
+                    "LOW" => SchemaLlmEvaluationConfidence::Low,
+                    _ => unreachable!(),
+                }
+            );
         }
     }
 
