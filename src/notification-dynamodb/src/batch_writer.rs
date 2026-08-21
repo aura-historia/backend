@@ -29,7 +29,7 @@ impl<'a> DynamoDbNotificationBatchInserter<'a> {
     async fn insert_record_batch(
         &self,
         records: Batch<NotificationRecord, 25>,
-    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>> {
+    ) -> Result<BatchWriteItemOutput, Box<SdkError<BatchWriteItemError>>> {
         self.client
             .batch_write_item()
             .set_request_items(Some(HashMap::from([(
@@ -38,6 +38,7 @@ impl<'a> DynamoDbNotificationBatchInserter<'a> {
             )])))
             .send()
             .await
+            .map_err(Box::new)
     }
 }
 

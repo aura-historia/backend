@@ -16,7 +16,7 @@ pub async fn post_watchlist(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let data: PostWatchlistData = match parse_json(&body) {
         Ok(v) => v,

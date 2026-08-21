@@ -11,7 +11,7 @@ use billing_service::use_cases::CreateBillingPortalSessionCommand;
 pub(crate) async fn portal(State(state): State<BillingState>, headers: HeaderMap) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match state
         .portal

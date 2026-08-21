@@ -568,9 +568,13 @@ async fn should_append_single_schema_without_failed_schema_context() {
         err,
         ScraperError::SchemaRegenerationExhausted {
             attempts: 1,
-            last_error: ApplySchemaError::Title(ExtractionError::NoElementMatched { ref selector }),
+            ref last_error,
             ..
-        } if selector == "non-existent-title-2"
+        } if matches!(
+            last_error.as_ref(),
+            ApplySchemaError::Title(ExtractionError::NoElementMatched { selector })
+                if selector == "non-existent-title-2"
+        )
     ));
 }
 
@@ -646,9 +650,9 @@ async fn should_return_normalization_fix_exhausted_when_schema_applies_but_norm_
             err,
             ScraperError::NormalizationFixExhausted {
                 attempts: 1,
-                last_norm_error: NormalizationError::TitleEmpty,
+                ref last_norm_error,
                 ..
-            }
+            } if matches!(last_norm_error.as_ref(), NormalizationError::TitleEmpty)
         ),
         "expected NormalizationFixExhausted, got {err:?}"
     );

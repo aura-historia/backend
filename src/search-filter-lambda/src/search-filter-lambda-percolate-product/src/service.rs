@@ -34,7 +34,13 @@ pub enum ProductMatcherServiceError {
     UserSearchFilterError(#[from] UserSearchFilterError),
 
     #[error("UserServiceError: {0}")]
-    UserServiceError(#[from] UserServiceError),
+    UserServiceError(#[source] Box<UserServiceError>),
+}
+
+impl From<UserServiceError> for ProductMatcherServiceError {
+    fn from(error: UserServiceError) -> Self {
+        Self::UserServiceError(Box::new(error))
+    }
 }
 
 /// An eligible match between a search filter and a product,

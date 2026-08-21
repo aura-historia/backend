@@ -54,7 +54,7 @@ pub async fn create_shop(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let data = match parse_body(&body) {
         Ok(data) => data,

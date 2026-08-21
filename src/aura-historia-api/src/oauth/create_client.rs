@@ -89,7 +89,7 @@ pub async fn create_client(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let data: CreateOAuthClientData = match serde_json::from_str(&body) {
         Ok(value) => value,

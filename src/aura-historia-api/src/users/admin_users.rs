@@ -24,7 +24,7 @@ pub async fn search_users(
 ) -> Response {
     let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let request = SearchUsersRequest {
         search: UserSearch::default(),
@@ -59,7 +59,7 @@ pub async fn get_user(
 ) -> Response {
     let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let user_id = match parse_user_id(&raw_user_id, "userId") {
         Ok(v) => v,
@@ -83,7 +83,7 @@ pub async fn patch_admin_user(
 ) -> Response {
     let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let user_id = match parse_user_id(&raw_user_id, "userId") {
         Ok(v) => v,
@@ -177,7 +177,7 @@ pub async fn delete_admin_user(
 ) -> Response {
     let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let user_id = match parse_user_id(&raw_user_id, "userId") {
         Ok(v) => v,

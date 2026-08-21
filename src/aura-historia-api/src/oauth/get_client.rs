@@ -18,7 +18,7 @@ pub async fn get_client(
 ) -> Response {
     let (_context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let client_id = match OAuthClientId::try_from(raw.as_str()) {
         Ok(value) => value,

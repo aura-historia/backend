@@ -1,12 +1,12 @@
 use crate::IntegrationTestService;
 use crate::localstack::get_aws_config;
 use async_trait::async_trait;
+use aws_sdk_dynamodb::Client;
 use aws_sdk_dynamodb::types::ScalarAttributeType::S;
 use aws_sdk_dynamodb::types::{
     AttributeDefinition, BillingMode, GlobalSecondaryIndex, KeySchemaElement, KeyType,
     LocalSecondaryIndex, Projection, ProjectionType, PutRequest, TableClass, WriteRequest,
 };
-use aws_sdk_dynamodb::{Client, Error};
 use serde::Serialize;
 use std::collections::HashMap;
 use tokio::sync::OnceCell;
@@ -17,6 +17,8 @@ use tracing::debug;
 /// This `OnceCell` ensures that the client is only created once during the test lifecycle,
 /// using the shared [`SdkConfig`] provided by [`get_aws_config()`].
 static DYNAMODB_CLIENT: OnceCell<Client> = OnceCell::const_new();
+
+type DynamoDbResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Returns a shared `aws_sdk_dynamodb::Client` for interacting with LocalStack.
 ///
@@ -64,7 +66,7 @@ impl IntegrationTestService for DynamoDB {
     }
 }
 
-async fn set_up_tables() -> Result<(), Error> {
+async fn set_up_tables() -> DynamoDbResult<()> {
     set_up_table_1()
         .await
         .expect("shouldn't fail setting up table 'products'");
@@ -74,7 +76,7 @@ async fn set_up_tables() -> Result<(), Error> {
     Ok(())
 }
 
-async fn set_up_table_1() -> Result<(), Error> {
+async fn set_up_table_1() -> DynamoDbResult<()> {
     let client = get_dynamodb_client().await;
 
     // Check if table already exists
@@ -370,7 +372,7 @@ async fn set_up_table_1() -> Result<(), Error> {
 /// This function scans the table and deletes all items in batches.
 /// Accepts a `table_name` parameter so it can be reused for any table,
 /// including those created by a CloudFormation stack with a dynamic name.
-pub(crate) async fn clear_table_data(table_name: &str) -> Result<(), Error> {
+pub(crate) async fn clear_table_data(table_name: &str) -> DynamoDbResult<()> {
     use aws_sdk_dynamodb::types::{AttributeValue, DeleteRequest};
 
     let client = get_dynamodb_client().await;

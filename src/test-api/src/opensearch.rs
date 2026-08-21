@@ -135,7 +135,7 @@ async fn set_up_open_search(recreate_existing_domain: bool) {
 
 async fn set_up_domain(
     recreate_existing_domain: bool,
-) -> Result<CreateDomainOutput, SdkError<CreateDomainError>> {
+) -> Result<CreateDomainOutput, Box<SdkError<CreateDomainError>>> {
     let client = aws_sdk_opensearch::Client::new(get_aws_config().await);
     let custom_endpoint =
         format!("http://localhost:{LOCALSTACK_CONTAINER_PORT}/{TEST_DOMAIN_NAME}");
@@ -217,11 +217,12 @@ async fn set_up_domain(
         .access_policies(test_access_policies())
         .send()
         .await
+        .map_err(Box::new)
 }
 
 async fn wait_until_domain_deleted(
     domain: &'static str,
-) -> Result<(), SdkError<DescribeDomainError, HttpResponse>> {
+) -> Result<(), Box<SdkError<DescribeDomainError, HttpResponse>>> {
     let mut retries = 100;
     loop {
         match aws_sdk_opensearch::Client::new(get_aws_config().await)
@@ -233,7 +234,9 @@ async fn wait_until_domain_deleted(
             Ok(_) => {
                 retries -= 1;
                 if retries < 0 {
-                    return Err(SdkError::timeout_error("Domain took too long to delete"));
+                    return Err(Box::new(SdkError::timeout_error(
+                        "Domain took too long to delete",
+                    )));
                 }
                 sleep(Duration::from_millis(500)).await;
             }
@@ -244,7 +247,7 @@ async fn wait_until_domain_deleted(
 
 async fn wait_until_domain_processed(
     domain: &'static str,
-) -> Result<(), SdkError<DescribeDomainError, HttpResponse>> {
+) -> Result<(), Box<SdkError<DescribeDomainError, HttpResponse>>> {
     let mut retries = 500;
     let mut processing = true;
     while processing {
@@ -267,7 +270,9 @@ async fn wait_until_domain_processed(
                 "Domain is still being processed..."
             );
             if retries < 0 {
-                return Err(SdkError::timeout_error("Domain took too long to process"));
+                return Err(Box::new(SdkError::timeout_error(
+                    "Domain took too long to process",
+                )));
             }
             sleep(Duration::from_millis(500)).await;
         } else {

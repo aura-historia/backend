@@ -185,7 +185,7 @@ pub(crate) fn bind_country(address: Option<&StructuredAddress>) -> Option<String
 }
 
 pub(crate) fn version_to_i64(version: UserStorageVersion) -> i64 {
-    i64::try_from(version.into_inner()).map_or(i64::MAX, |value| value)
+    i64::try_from(version.into_inner()).unwrap_or(i64::MAX)
 }
 
 pub(crate) fn countries_for_continents(

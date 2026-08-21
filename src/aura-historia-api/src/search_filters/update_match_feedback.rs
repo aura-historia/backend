@@ -25,7 +25,7 @@ pub(super) async fn update_search_filter_match_feedback(
     };
     let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let data: UpdateSearchFilterMatchFeedbackData = match super::util::parse_json(&body) {
         Ok(value) => value,

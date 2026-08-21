@@ -15,7 +15,7 @@ use user_service::use_cases::queries::get_own_user::GetOwnUserRequest;
 pub async fn get_me(State(state): State<UsersState>, headers: HeaderMap) -> Response {
     let (ctx, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     match state.get_own_user.execute(&ctx, GetOwnUserRequest).await {
         Ok(view) => no_store(Json(OwnUserData::from(view)).into_response()),
@@ -30,7 +30,7 @@ pub async fn patch_me(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     patch_user(state, ctx, user_id, body).await
 }
@@ -38,7 +38,7 @@ pub async fn patch_me(
 pub async fn delete_me(State(state): State<UsersState>, headers: HeaderMap) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     match state
         .delete_user

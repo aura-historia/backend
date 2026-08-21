@@ -9,16 +9,18 @@ use user_core::user_id::UserId;
 pub async fn protected_context(
     authenticator: &dyn crate::auth::TokenAuthenticator,
     headers: &HeaderMap,
-) -> Result<(OperationContext, UserId), axum::response::Response> {
+) -> Result<(OperationContext, UserId), Box<axum::response::Response>> {
     let metadata = request_metadata(headers);
     let principal = ProtectedAuthExtractor::new(authenticator)
         .extract(headers, &metadata)
         .await
-        .map_err(|error| ApiError::from(error).into_response())?;
+        .map_err(|error| Box::new(ApiError::from(error).into_response()))?;
     let user_id = user_id(&principal).ok_or_else(|| {
-        ApiError::forbidden(FORBIDDEN)
-            .with_detail("User principal is required.")
-            .into_response()
+        Box::new(
+            ApiError::forbidden(FORBIDDEN)
+                .with_detail("User principal is required.")
+                .into_response(),
+        )
     })?;
     Ok((principal.operation_context(metadata), user_id))
 }

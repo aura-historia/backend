@@ -36,7 +36,7 @@ impl<'a> NotificationDynamoDbRepository<'a> {
     async fn insert_record(
         &self,
         record: NotificationRecord,
-    ) -> Result<(), SdkError<PutItemError>> {
+    ) -> Result<(), Box<SdkError<PutItemError>>> {
         self.client
             .put_item()
             .table_name(&self.table)
@@ -46,13 +46,14 @@ impl<'a> NotificationDynamoDbRepository<'a> {
             .send()
             .await
             .map(|_| ())
+            .map_err(Box::new)
     }
 
     async fn find_record_by_origin_event_id(
         &self,
         user_id: &UserId,
         origin_event_id: &EventId,
-    ) -> Result<Option<NotificationRecord>, SdkError<GetItemError>> {
+    ) -> Result<Option<NotificationRecord>, Box<SdkError<GetItemError>>> {
         let record = self
             .client
             .get_item()
@@ -85,7 +86,7 @@ impl<'a> NotificationDynamoDbRepository<'a> {
         user_id: &UserId,
         origin_event_id: &EventId,
         update: NotificationRecordUpdate,
-    ) -> Result<Option<NotificationRecord>, SdkError<UpdateItemError>> {
+    ) -> Result<Option<NotificationRecord>, Box<SdkError<UpdateItemError>>> {
         let update_expr = update.into_update_expr()?;
 
         self.client
@@ -117,6 +118,7 @@ impl<'a> NotificationDynamoDbRepository<'a> {
                         }
                     })
             })
+            .map_err(Box::new)
     }
 }
 

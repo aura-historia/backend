@@ -14,7 +14,7 @@ pub async fn delete_watchlist(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let product_id = match ProductId::try_from(raw_product_id.as_str()) {
         Ok(v) => v,

@@ -50,7 +50,7 @@ pub async fn list_watchlist(
     };
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     match state
         .list_watchlist

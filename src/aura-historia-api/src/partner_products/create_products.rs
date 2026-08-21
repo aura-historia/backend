@@ -20,7 +20,7 @@ pub async fn create_products(
     };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let products: Vec<CreateProductData> = match parse_partner_product_batch(&body) {
         Ok(products) => products,
