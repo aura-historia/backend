@@ -2409,6 +2409,8 @@ RETURNING version
 
 No returned row MUST map to an internal concurrency-conflict error when the row was expected to exist. Do not leak the concrete version value in errors. The returned version is authoritative only for PostgreSQL internals and CDC consumers; ordinary use cases SHOULD NOT return it.
 
+A reconciliation that changes aggregates must lock its owner first, then affected aggregate rows in a stable order. Each changed row increments its version, so a stale ordinary aggregate write fails rather than restoring old state.
+
 ### Idempotency
 
 Externally retried commands SHOULD accept an idempotency key when duplicate execution would be harmful.

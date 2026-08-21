@@ -12,11 +12,13 @@ PostgreSQL is the sole production owner of notifications and external-delivery i
 - Read models and REST mutations use `notification_id`; they never expose `origin_event_id`.
 - Corrupt persisted payload/version/source-shape state is an operation error. It is never silently treated as a missing notification.
 
-## Watchlist intervals
+## Watchlist concurrency and intervals
 
+- `product_watchlist.version` is internal optimistic-concurrency metadata. Ordinary aggregate updates compare the loaded version and increment it once; a mismatch is a conflict, never not-found or a silent retry. REST never exposes it.
+- Tier reconciliation locks the user row first, then affected watchlist rows. It increments `version` for every changed row, so concurrent stale user writes fail.
 - `product_watchlist.active_since` is non-null only for `ACTIVE` rows and marks the beginning of the current active interval.
 - `product_watchlist.notifications_enabled_since` is non-null exactly when `notifications = true` and marks the beginning of the current email-enabled interval.
-- Watchlist notification readers compare both interval starts with immutable `product_events.event_time`; deactivation/reactivation and email disable/re-enable start new intervals. These fields are persistence metadata, not REST payload fields.
+- Watchlist notification readers compare both interval starts with immutable `product_events.event_time`; deactivation/reactivation and email disable/re-enable start new intervals. These fields are repository-owned persistence metadata, not REST payload fields.
 
 ## FX snapshots
 
