@@ -1,5 +1,4 @@
-use crate::notification_kind::NotificationKind;
-use common::notification_id::NotificationId;
+use crate::{notification_id::NotificationId, notification_kind::NotificationKind};
 use domain_primitives::event_id::EventId;
 use localization::Localized;
 use money::Price;

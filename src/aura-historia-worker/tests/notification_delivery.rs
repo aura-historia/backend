@@ -8,7 +8,7 @@ use aws_sdk_s3::{
 };
 use aws_sdk_sesv2::Client as SesClient;
 
-use common::error::boxed::box_error;
+use application::error::box_error;
 use notification_email_aws::{EmailDeliveryConfig, SesNotificationChannelSender};
 use notification_postgres::SqlxEmailDeliveryTargetReader;
 use notification_postgres::SqlxNotificationDeliveryRepository;

@@ -3,7 +3,6 @@ mod api_support;
 use api_support::{
     assert_problem, json_response, seed_access_token_for, seed_user, seed_user_with_consent,
 };
-use common::user_id::UserId;
 use serde_json::Value;
 use std::collections::HashSet;
 use test_api::{
@@ -12,6 +11,7 @@ use test_api::{
 };
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use user_core::access_token::RawAccessToken;
+use user_core::user_id::UserId;
 use uuid::Uuid;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new_schema_once("migrations");

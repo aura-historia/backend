@@ -263,24 +263,22 @@ mod tests {
     use super::*;
     use crate::ports::{ProductEmbedding, ProductSimilarProductsReadError};
     use crate::use_cases::{ProductSummary, ProductSummaryPriceValuation};
-    use common::currency::domain::Currency;
-    use common::error::boxed::box_error;
-    use common::event_id::EventId;
-    use common::fx_rate_id::FxRateId;
-    use common::localized::Localized;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
-    use common::product_id::ProductId;
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
-    use common::shops_product_id::ShopsProductId;
-    use common::transaction::TransactionError;
+    use application::{
+        error::box_error,
+        operation_context::{CorrelationId, Principal, RequestId},
+        transaction::TransactionError,
+    };
+    use domain_primitives::event_id::EventId;
+    use fxrate_core::FxRateId;
     use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
+    use localization::Localized;
+    use money::{Currency, MonetaryAmount, Price};
+    use product_core::{
+        product_id::ProductId, product_lifecycle::ProductLifecycle, product_slug_id::ProductSlugId,
+        product_state::ProductState, shops_product_id::ShopsProductId,
+    };
+    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 
     use crate::user_state::ProductUserState;
     use product_core::title::Title;
@@ -538,7 +536,7 @@ mod tests {
         }
     }
 
-    fn authenticated_context(user_id: common::user_id::UserId) -> OperationContext {
+    fn authenticated_context(user_id: user_core::user_id::UserId) -> OperationContext {
         OperationContext {
             principal: Principal::User(user_id),
             request_id: RequestId::new("request"),
@@ -640,7 +638,7 @@ mod tests {
     async fn should_hydrate_ready_similar_products_for_authenticated_user()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
-        let user_id = common::user_id::UserId::new();
+        let user_id = user_core::user_id::UserId::new();
         let product_id = ProductId::new();
         let mut user_state = ProductUserState::default();
         user_state.watchlist.watching = true;

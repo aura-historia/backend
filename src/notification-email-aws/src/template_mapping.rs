@@ -340,21 +340,10 @@ fn state_text(state: ProductState, language: Language) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::product_state::domain::ProductState;
-    use common::{
-        currency::domain::Currency,
-        event_id::EventId,
-        language::domain::Language,
-        notification_id::NotificationId,
-        price::domain::{MonetaryAmount, Price},
-        product_id::ProductId,
-        product_slug_id::ProductSlugId,
-        shop_id::ShopId,
-        shop_name::ShopName,
-        shop_slug_id::ShopSlugId,
-        shops_product_id::ShopsProductId,
-        user_id::UserId,
-    };
+    use domain_primitives::event_id::EventId;
+    use localization::Language;
+    use money::{Currency, MonetaryAmount, Price};
+    use notification_core::notification_id::NotificationId;
     use notification_core::{
         notification::{
             NotificationContent, NotificationWatchlistChange, ProductNotificationSnapshot,
@@ -366,9 +355,15 @@ mod tests {
         ports::notification_delivery_repository::NotificationDeliverySource,
         presentation::NotificationPresentationPreferences,
     };
+    use product_core::{
+        product_id::ProductId, product_slug_id::ProductSlugId, product_state::ProductState,
+        shops_product_id::ShopsProductId,
+    };
     use rstest::rstest;
+    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use std::collections::HashMap;
     use url::Url;
+    use user_core::user_id::UserId;
 
     #[rstest]
     #[case(Language::De, EmailLanguage::De)]

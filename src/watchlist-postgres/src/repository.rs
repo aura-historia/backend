@@ -1,9 +1,9 @@
 use crate::mapping::{WatchlistRepositoryRow, format_state};
-use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
-use common::product_id::ProductId;
-use common::user_id::UserId;
+use application::error::box_error;
+use platform_postgres::SqlxTransaction;
+use product_core::product_id::ProductId;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 use watchlist_core::WatchlistProduct;
 use watchlist_service::ports::{
     VersionedWatchlistProduct, WatchlistRepository, WatchlistRepositoryError,

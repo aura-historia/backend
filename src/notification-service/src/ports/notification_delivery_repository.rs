@@ -1,11 +1,13 @@
 use crate::presentation::NotificationPresentationPreferences;
-use common::{error::boxed::BoxError, notification_id::NotificationId, user_id::UserId};
+use application::error::BoxError;
 use notification_core::{
     notification::NotificationContent,
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     notification_delivery_id::NotificationDeliveryId,
+    notification_id::NotificationId,
 };
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,7 +1,7 @@
-use common::product_id::ProductId;
-use common::user_id::UserId;
-use common::versioned::Versioned;
+use domain_primitives::versioned::Versioned;
+use product_core::product_id::ProductId;
 use sqlx::FromRow;
+use user_core::user_id::UserId;
 use watchlist_core::WatchlistProduct;
 use watchlist_core::WatchlistState;
 use watchlist_service::ports::{

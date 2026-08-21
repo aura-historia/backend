@@ -6,7 +6,7 @@
 
 ## Core Design
 
-- Implements Product service `ProductTitleTranslator` with a neutral LLM client.
+- Implements Product service `ProductTitleTranslator` with a neutral LLM client and direct `application` error contracts.
 - Owns prompt, response schema, and provider-error mapping.
 - No queue, CDC, runtime config, SQLx, or transport code.
 

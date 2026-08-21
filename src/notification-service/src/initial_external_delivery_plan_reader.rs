@@ -2,11 +2,11 @@ use crate::ports::external_delivery_plan_reader::{
     ExternalDeliveryPlanReadError, ExternalDeliveryPlanReader, ExternalDeliveryPlanReaderFactory,
     NotificationDeliveryPlan,
 };
-use common::user_id::UserId;
 use notification_core::{
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     notification_kind::NotificationKind,
 };
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InitialExternalDeliveryPlanReaderFactory;

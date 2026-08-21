@@ -1,23 +1,18 @@
-use common::currency::domain::Currency;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::notification_id::NotificationId;
-use common::postgres::SqlxUnitOfWork;
-use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::ProductId;
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
+use localization::{Language, Localized};
+use money::{Currency, MonetaryAmount, Price};
+use notification_core::notification_id::NotificationId;
+use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use product_core::description::Description;
 use product_core::product::{NewProduct, Product, ProductAddress, ProductAuction, ProductPricing};
 use product_core::product_image::ProductImage;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
+use product_core::{
+    product_id::ProductId, product_state::ProductState, shops_product_id::ShopsProductId,
+};
 use product_postgres::{
     SqlxProductDetailsReaderFactory, SqlxProductEventStoreFactory, SqlxProductRepositoryFactory,
 };
@@ -29,9 +24,12 @@ use product_service::ports::{
     ProductRepository, ProductRepositoryFactory,
 };
 use product_service::use_cases::queries::get_product::ProductLookup;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -787,7 +785,7 @@ async fn insert_search_filter_match(
     user_id: UserId,
     filter_id: UserSearchFilterId,
     product_id: ProductId,
-    origin_event_id: common::event_id::EventId,
+    origin_event_id: EventId,
     name: &str,
     reason: Option<&str>,
     feedback: Option<bool>,
@@ -817,10 +815,7 @@ async fn insert_search_filter_match(
     }
 }
 
-async fn event_id_for_product(
-    pool: &sqlx::PgPool,
-    product_id: ProductId,
-) -> common::event_id::EventId {
+async fn event_id_for_product(pool: &sqlx::PgPool, product_id: ProductId) -> EventId {
     let result =
         sqlx::query_scalar::<_, uuid::Uuid>("SELECT event_id FROM products WHERE product_id = $1")
             .bind(uuid::Uuid::from(product_id))
@@ -828,7 +823,7 @@ async fn event_id_for_product(
             .await;
 
     match result {
-        Ok(event_id) => common::event_id::EventId::from(event_id),
+        Ok(event_id) => EventId::from(event_id),
         Err(error) => panic!("failed to read product event ID: {error}"),
     }
 }
@@ -862,7 +857,7 @@ fn sample_product(
         id: ProductId::new(),
         shop_id,
         seller_id,
-        shops_product_id: common::shops_product_id::ShopsProductId::from(slug),
+        shops_product_id: ShopsProductId::from(slug),
         address: ProductAddress::default(),
         title,
         description,
@@ -941,14 +936,14 @@ fn url(value: &str) -> Url {
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

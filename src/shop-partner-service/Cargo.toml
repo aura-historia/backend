@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-common = { workspace = true }
 application = { workspace = true }
 domain-primitives = { workspace = true }
 geo = { workspace = true }

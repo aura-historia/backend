@@ -1,11 +1,12 @@
 use crate::url::append_utm_params;
 use application::personalized::Personalized;
-use common::notification_id::NotificationId;
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
+use notification_core::notification_id::NotificationId;
+use platform_postgres::SqlxTransaction;
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_id::ProductId;
@@ -110,12 +111,10 @@ impl SqlxProductDetailsReaderFactory {
     }
 }
 
-impl ProductDetailsReaderFactory<common::postgres::SqlxTransaction>
-    for SqlxProductDetailsReaderFactory
-{
+impl ProductDetailsReaderFactory<SqlxTransaction> for SqlxProductDetailsReaderFactory {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut common::postgres::SqlxTransaction,
+        tx: &'tx mut SqlxTransaction,
     ) -> impl ProductDetailsReader + 'tx {
         SqlxProductDetailsReader {
             connection: tx.connection(),

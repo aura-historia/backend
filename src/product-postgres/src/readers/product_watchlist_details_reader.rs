@@ -3,12 +3,13 @@ use application::{
     pagination::{Cursor, CursoredResult},
     personalized::Personalized,
 };
-use common::notification_id::NotificationId;
 use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
+use notification_core::notification_id::NotificationId;
+use platform_postgres::SqlxTransaction;
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
 use product_core::product_id::ProductId;
@@ -114,12 +115,12 @@ impl SqlxProductWatchlistDetailsReaderFactory {
     }
 }
 
-impl ProductWatchlistDetailsReaderFactory<common::postgres::SqlxTransaction>
+impl ProductWatchlistDetailsReaderFactory<SqlxTransaction>
     for SqlxProductWatchlistDetailsReaderFactory
 {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut common::postgres::SqlxTransaction,
+        tx: &'tx mut SqlxTransaction,
     ) -> impl ProductWatchlistDetailsReader + 'tx {
         SqlxProductWatchlistDetailsReader {
             connection: tx.connection(),

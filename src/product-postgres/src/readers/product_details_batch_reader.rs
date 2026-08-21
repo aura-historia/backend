@@ -1,5 +1,6 @@
 use super::product_details_reader::{ProductDetailsRow, product_details_select};
-use common::{error::boxed::box_error, product_id::ProductId};
+use application::error::box_error;
+use product_core::product_id::ProductId;
 use product_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
     ProductDetailsBatchReadRequest, ProductDetailsBatchReader,

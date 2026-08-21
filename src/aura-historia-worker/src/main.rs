@@ -15,7 +15,6 @@ use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sesv2::Client as SesClient;
 use aws_smithy_types::timeout::TimeoutConfig;
-use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
@@ -43,6 +42,8 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+use platform_observability::{LogLevel, LoggingConfig, init};
+use platform_postgres::{PostgresConnectError, SqlxUnitOfWork};
 use product_opensearch::OpenSearchProductSearchProjection;
 use product_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductEmbeddingSourceReader,
@@ -75,7 +76,13 @@ const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
-    common::logging::init_logging();
+    init(LoggingConfig::new(
+        std::env::var("LOG_LEVEL")
+            .ok()
+            .as_deref()
+            .and_then(LogLevel::parse)
+            .unwrap_or_default(),
+    ));
     let startup = WorkerStartupConfig::from_env()?;
     let scope = startup.scope();
     let worker_config = startup.worker().clone();

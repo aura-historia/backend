@@ -458,13 +458,15 @@ mod tests {
     use super::*;
     use crate::ports::ProductDetailsReadModel;
 
-    use common::error::boxed::box_error;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
-    use common::transaction::TransactionError;
+    use application::{
+        error::box_error,
+        operation_context::{CorrelationId, Principal, RequestId},
+        transaction::TransactionError,
+    };
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
+    use money::{MonetaryAmount, Price};
 
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
@@ -892,7 +894,7 @@ mod tests {
         let state = state();
         let user_id = UserId::new();
         let mut details = factual_details()?;
-        let notification_id = common::notification_id::NotificationId::new();
+        let notification_id = notification_core::notification_id::NotificationId::new();
         let mut user_state = ProductUserState::default();
         user_state.notification.unseen_notification_ids = vec![notification_id];
         details.user_state = Some(user_state);

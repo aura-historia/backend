@@ -2,14 +2,12 @@ use crate::ports::notification_list_reader::{
     NotificationListCursor, NotificationListReadError, NotificationListReader,
 };
 use crate::presentation::NotificationPresentationPreferences;
-use common::{
-    notification_id::NotificationId,
-    operation_context::{OperationAuthorizationError, OperationContext, Principal},
-    user_id::UserId,
-};
+use application::operation_context::{OperationAuthorizationError, OperationContext, Principal};
 use localization::Language;
 use notification_core::notification::LocalizedNotificationContent;
+use notification_core::notification_id::NotificationId;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListNotificationsRequest {

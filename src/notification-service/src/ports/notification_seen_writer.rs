@@ -1,4 +1,6 @@
-use common::{error::boxed::BoxError, notification_id::NotificationId, user_id::UserId};
+use application::error::BoxError;
+use notification_core::notification_id::NotificationId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum NotificationSeenWriteError {

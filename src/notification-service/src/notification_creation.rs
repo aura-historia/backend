@@ -12,8 +12,10 @@ use crate::ports::{
     },
     notification_repository::{NotificationRepository, NotificationRepositoryFactory},
 };
-use common::{error::boxed::box_error, notification_id::NotificationId};
-use notification_core::notification_delivery_id::NotificationDeliveryId;
+use application::error::box_error;
+use notification_core::{
+    notification_delivery_id::NotificationDeliveryId, notification_id::NotificationId,
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NotificationCreationCoordinatorFactory<R, P, D> {

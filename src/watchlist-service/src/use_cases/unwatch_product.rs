@@ -1,11 +1,11 @@
 use crate::ports::{WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory};
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
+use application::error::{BoxError, box_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::product_id::ProductId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnwatchProductCommand {
@@ -175,22 +175,21 @@ mod tests {
 
     use super::*;
 
-    use common::error::boxed::static_error;
+    use application::error::static_error;
 
     use crate::ports::{
         VersionedWatchlistProduct, WatchlistProductView, WatchlistReadError, WatchlistReader,
         WatchlistReaderFactory, WatchlistRepository, WatchlistRepositoryError,
         WatchlistRepositoryFactory, WatchlistStorageVersion,
     };
-    use common::operation_context::{
+    use application::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
     };
-    use common::resource_state::domain::ResourceState;
-    use common::transaction::{Transaction, TransactionError, UnitOfWork};
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
-    use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
+    use watchlist_core::{NewWatchlistProduct, WatchlistProduct, WatchlistState};
 
     #[derive(Clone, Default)]
     struct TestUnitOfWork {
@@ -484,7 +483,7 @@ mod tests {
             user_id,
             product_id,
             notifications,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         })
     }
 

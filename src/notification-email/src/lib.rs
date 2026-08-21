@@ -1,6 +1,7 @@
-use common::{error::boxed::BoxError, user_id::UserId};
+use application::error::BoxError;
 use notification_core::notification_delivery::NotificationDeliveryTargetKey;
 use serde_email::Email;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmailDeliveryTarget {

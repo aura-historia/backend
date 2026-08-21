@@ -2,12 +2,15 @@ use crate::ports::notification_creator::{
     ExternalDeliveryRequest, NewNotification, NotificationCreationError,
     NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
-use common::{
-    notification_id::NotificationId,
+use application::{
+    error::box_error,
     transaction::{Transaction, TransactionError, UnitOfWork},
-    user_id::UserId,
 };
-use notification_core::notification::{Notification, NotificationContent};
+use notification_core::{
+    notification::{Notification, NotificationContent},
+    notification_id::NotificationId,
+};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateNotificationIntent {
@@ -88,7 +91,7 @@ where
         if outcomes.len() != notifications.len() {
             return Err(CreateNotificationsError::CreateFailed(
                 NotificationCreationError::CreateFailed {
-                    source: common::error::boxed::box_error(std::io::Error::other(
+                    source: box_error(std::io::Error::other(
                         "notification creator returned incomplete outcomes",
                     )),
                 },

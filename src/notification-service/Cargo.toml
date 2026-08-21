@@ -5,9 +5,12 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-common = { workspace = true }
+application = { workspace = true }
 localization = { workspace = true }
 notification-core = { workspace = true }
+user-core = { workspace = true }
+shop-core = { workspace = true }
+shop-partner-core = { workspace = true }
 
 thiserror = { workspace = true }
 time = { workspace = true }
@@ -27,5 +30,4 @@ tokio = { workspace = true, features = ["macros"] }
 [features]
 default = []
 mock = ["mockall"]
-data = ["common/api"]
-test-data = ["fake", "common/test-data", "notification-core/test-data"]
+test-data = ["fake", "notification-core/test-data"]

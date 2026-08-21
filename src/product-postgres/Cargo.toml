@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true, features = ["postgres"] }
 application = { workspace = true }
 search-filter-core = { workspace = true }
 user-core = { workspace = true }
@@ -17,6 +16,7 @@ indexmap = { workspace = true }
 isocountry = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
+notification-core = { workspace = true }
 product-core = { workspace = true }
 product-service = { workspace = true }
 shop-core = { workspace = true }

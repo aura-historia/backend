@@ -1,10 +1,10 @@
-use common::error::boxed::BoxError;
-use common::product_id::ProductId;
-use common::user_id::UserId;
-use common::versioned::Versioned;
+use application::error::BoxError;
+use domain_primitives::versioned::Versioned;
+use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
 use watchlist_core::WatchlistProduct;
 
-common::version_newtype!(WatchlistStorageVersion);
+domain_primitives::version_newtype!(WatchlistStorageVersion);
 
 pub type VersionedWatchlistProduct = Versioned<WatchlistProduct, WatchlistStorageVersion>;
 
@@ -72,7 +72,7 @@ pub trait WatchlistRepositoryFactory<Tx>: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::error::boxed::static_error;
+    use application::error::static_error;
     use std::error::Error;
 
     #[test]

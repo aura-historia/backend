@@ -1,18 +1,16 @@
-use common::error::boxed::BoxError;
-use common::fx_rate_id::FxRateId;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::pagination::cursor::{Cursor, CursoredResult};
-use localization::Language;
-use money::Currency;
-
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
+use application::pagination::{Cursor, CursoredResult};
+use application::transaction::{Transaction, UnitOfWork};
+use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
+use localization::Language;
+use money::Currency;
+use user_core::user_id::UserId;
 
 use product_service::ports::{
     ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
@@ -316,25 +314,24 @@ impl From<ProductPricingPresentationError> for ListWatchlistError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::error::boxed::box_error;
-    use common::event_id::EventId;
-    use common::localized::Localized;
-    use common::notification_id::NotificationId;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::personalized::Personalized;
-    use common::price::domain::{MonetaryAmount, Price};
-    use common::product_id::ProductId;
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
-    use common::shops_product_id::ShopsProductId;
-    use common::transaction::TransactionError;
+    use application::error::box_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::personalized::Personalized;
+    use application::transaction::TransactionError;
+    use domain_primitives::event_id::EventId;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
+    use localization::Localized;
+    use money::{MonetaryAmount, Price};
+    use product_core::product_id::ProductId;
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_slug_id::ProductSlugId;
+    use product_core::product_state::ProductState;
+    use product_core::shops_product_id::ShopsProductId;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
 
     use product_core::description::Description;
     use product_core::product::{
@@ -674,7 +671,7 @@ mod tests {
         let user_id = UserId::new();
         let expected_user_state = ProductUserState {
             notification: NotificationUserState {
-                unseen_notification_ids: vec![NotificationId::new()],
+                unseen_notification_ids: vec![Default::default()],
             },
             ..Default::default()
         };

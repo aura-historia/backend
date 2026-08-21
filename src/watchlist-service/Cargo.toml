@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 application = { workspace = true }
-common = { workspace = true }
+domain-primitives = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
 localization = { workspace = true }
@@ -25,12 +25,12 @@ user-service = { workspace = true }
 watchlist-core = { workspace = true }
 
 [dev-dependencies]
-notification-core = { workspace = true }
 serde-email = { workspace = true }
+shop-core = { workspace = true }
 strum = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 url = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "watchlist-core/test-data"]
+test-data = ["fake", "watchlist-core/test-data"]

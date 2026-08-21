@@ -5,12 +5,12 @@ use crate::{
     },
     template_reader::TemplateReader,
 };
+use application::error::box_error;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sesv2::{
     Client as SesClient,
     types::{Body, Content, Destination, EmailContent, Message, MessageTag},
 };
-use common::error::boxed::box_error;
 use notification_core::notification_delivery::NotificationDeliveryChannel;
 use notification_email::{EmailDeliveryTargetReadError, EmailDeliveryTargetReader};
 use notification_service::ports::{

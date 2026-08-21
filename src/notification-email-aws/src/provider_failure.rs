@@ -1,4 +1,4 @@
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use notification_service::ports::notification_channel_sender::NotificationChannelSendError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +75,7 @@ pub(crate) fn provider_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::error::boxed::box_error;
+    use application::error::box_error;
     use rstest::rstest;
 
     #[rstest]

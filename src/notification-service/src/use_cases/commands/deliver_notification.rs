@@ -270,18 +270,19 @@ mod tests {
             ClaimedNotificationDelivery, NotificationDeliverySource,
         },
     };
-    use common::{
-        error::boxed::box_error, language::domain::Language, notification_id::NotificationId,
-        partner_shop_application_id::PartnerShopApplicationId, shop_name::ShopName,
-        user_id::UserId,
-    };
+    use application::error::box_error;
+    use localization::Language;
+    use notification_core::notification_id::NotificationId;
     use notification_core::{
         notification::{
             NotificationContent, PartnerApplicationDecision, PartnerApplicationNotificationSnapshot,
         },
         notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     };
+    use shop_core::shop_name::ShopName;
+    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
     use std::sync::{Arc, Mutex};
+    use user_core::user_id::UserId;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum FinalizationCall {

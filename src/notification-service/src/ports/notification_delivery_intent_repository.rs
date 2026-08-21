@@ -2,8 +2,9 @@ use crate::ports::{
     external_delivery_plan_reader::NotificationDeliveryPlan,
     notification_creator::NotificationCreationError,
 };
-use common::notification_id::NotificationId;
-use notification_core::notification_delivery_id::NotificationDeliveryId;
+use notification_core::{
+    notification_delivery_id::NotificationDeliveryId, notification_id::NotificationId,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewNotificationDeliveryIntent {

@@ -1,19 +1,20 @@
 use crate::error::{ApiError, BAD_BODY_VALUE};
 use crate::products::product_data::ProductImageData;
+use crate::values::{LocalizedTextData, PriceData};
 use axum::response::{IntoResponse, Response};
-use common::{
-    language::data::LocalizedTextData, notification_id::NotificationId, price::data::PriceData,
-    product_state::domain::ProductState,
-};
+use localization::{Language, Localized};
+use money::Price;
 use notification_core::{
     notification::{
         LocalizedNotificationContent, LocalizedNotificationWatchlistChange,
         LocalizedProductNotificationSnapshot, PartnerApplicationDecision,
     },
+    notification_id::NotificationId,
     presentation::present_image,
 };
 use notification_service::presentation::NotificationPresentationPreferences;
 use notification_service::use_cases::queries::list_notifications::ListedNotification;
+use product_core::{product_state::ProductState, title::Title};
 use serde::{Deserialize, Serialize, Serializer};
 use time::OffsetDateTime;
 use url::Url;
@@ -275,7 +276,7 @@ fn notification_product_snapshot(
         shop_slug_id: snapshot.shop_slug_id.to_string(),
         product_slug_id: snapshot.product_slug_id.to_string(),
         shop_name: snapshot.shop_name.to_string(),
-        title: snapshot.title.map(LocalizedTextData::from),
+        title: snapshot.title.map(localized_text_data),
         image: present_image(
             snapshot.image,
             presentation_preferences.prohibited_content_consent,
@@ -283,6 +284,20 @@ fn notification_product_snapshot(
         .map(ProductImageData::from_presented),
         url: snapshot.url,
         view_url: snapshot.view_url,
+    }
+}
+
+fn localized_text_data(value: Localized<Language, Title>) -> LocalizedTextData {
+    LocalizedTextData {
+        text: value.payload.into(),
+        language: value.localization.into(),
+    }
+}
+
+fn price_data(value: Price) -> PriceData {
+    PriceData {
+        currency: value.currency.into(),
+        amount: value.monetary_amount.into(),
     }
 }
 
@@ -305,8 +320,8 @@ impl From<LocalizedNotificationWatchlistChange> for WatchlistNotificationChangeD
                 old_price,
                 new_price,
             } => Self::PriceChange {
-                old_price: old_price.map(PriceData::from),
-                new_price: new_price.map(PriceData::from),
+                old_price: old_price.map(price_data),
+                new_price: new_price.map(price_data),
             },
             LocalizedNotificationWatchlistChange::StateChange {
                 old_state,

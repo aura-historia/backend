@@ -9,9 +9,10 @@ pub mod search_filter_percolator;
 pub mod search_filter_projection;
 pub mod watchlist_notifications;
 
-use common::postgres::{PostgresConfigError, PostgresPoolConfig};
+use platform_postgres::{PostgresPoolConfig, PostgresPoolConfigError};
 use std::future::Future;
 use std::net::{AddrParseError, SocketAddr};
+use std::num::ParseIntError;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -35,6 +36,15 @@ pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
 pub const NOTIFICATION_EMAIL_FROM_ENV: &str = "NOTIFICATION_EMAIL_FROM";
 pub const NOTIFICATION_EMAIL_REPLY_TO_ENV: &str = "NOTIFICATION_EMAIL_REPLY_TO";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
+
+const POSTGRES_HOST_ENV: &str = "POSTGRES_HOST";
+const POSTGRES_PORT_ENV: &str = "POSTGRES_PORT";
+const POSTGRES_DATABASE_ENV: &str = "POSTGRES_DATABASE";
+const POSTGRES_USERNAME_ENV: &str = "POSTGRES_USERNAME";
+const POSTGRES_PASSWORD_ENV: &str = "POSTGRES_PASSWORD";
+const POSTGRES_MAX_CONNECTIONS_ENV: &str = "POSTGRES_MAX_CONNECTIONS";
+const DEFAULT_POSTGRES_PORT: u16 = 5432;
+const DEFAULT_POSTGRES_MAX_CONNECTIONS: u32 = 2;
 
 const DEFAULT_WORKER_HEALTH_BIND_ADDR: &str = "0.0.0.0:8081";
 const DEFAULT_LOCAL_WORKER_SCOPE: &str = "search-filter-projection";
@@ -241,7 +251,7 @@ impl WorkerStartupConfig {
         let stage = get(WORKER_STAGE_ENV);
         let scope = WorkerScope::from_getter(&mut get)?;
         let worker = WorkerConfig::from_getter(&mut get)?;
-        let postgres = PostgresPoolConfig::from_getter(&mut get)?;
+        let postgres = postgres_config(&mut get)?;
         let (opensearch, vertex_ai, notification_delivery) = match scope {
             WorkerScope::SearchFilterProjection | WorkerScope::ProductOpenSearch => (
                 Some(opensearch_config(&mut get, stage.as_deref())?),
@@ -333,6 +343,61 @@ impl WorkerStartupConfig {
     }
 }
 
+fn postgres_config<F>(get: &mut F) -> Result<PostgresPoolConfig, WorkerPostgresConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let host = required_postgres_env(get, POSTGRES_HOST_ENV)?;
+    let database = required_postgres_env(get, POSTGRES_DATABASE_ENV)?;
+    let username = required_postgres_env(get, POSTGRES_USERNAME_ENV)?;
+    let password = required_postgres_env(get, POSTGRES_PASSWORD_ENV)?;
+    let port = optional_postgres_env(get, POSTGRES_PORT_ENV, DEFAULT_POSTGRES_PORT)?;
+    let max_connections = optional_postgres_env(
+        get,
+        POSTGRES_MAX_CONNECTIONS_ENV,
+        DEFAULT_POSTGRES_MAX_CONNECTIONS,
+    )?;
+
+    PostgresPoolConfig::new(host, port, database, username, password, max_connections).map_err(
+        |error| match error {
+            PostgresPoolConfigError::ZeroMaxConnections => {
+                WorkerPostgresConfigError::ZeroMaxConnections
+            }
+        },
+    )
+}
+
+fn required_postgres_env<F>(
+    get: &mut F,
+    name: &'static str,
+) -> Result<String, WorkerPostgresConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    get(name).ok_or(WorkerPostgresConfigError::MissingEnv { name })
+}
+
+fn optional_postgres_env<F, T>(
+    get: &mut F,
+    name: &'static str,
+    default: T,
+) -> Result<T, WorkerPostgresConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+    T: std::str::FromStr<Err = ParseIntError>,
+{
+    match get(name) {
+        Some(value) => value
+            .parse()
+            .map_err(|source| WorkerPostgresConfigError::InvalidInteger {
+                name,
+                value,
+                source,
+            }),
+        None => Ok(default),
+    }
+}
+
 fn opensearch_config<F>(
     get: &mut F,
     stage: Option<&str>,
@@ -373,11 +438,25 @@ where
 }
 
 #[derive(thiserror::Error, Debug)]
+pub enum WorkerPostgresConfigError {
+    #[error("missing required environment variable {name}")]
+    MissingEnv { name: &'static str },
+    #[error("invalid integer in environment variable {name}: {value}")]
+    InvalidInteger {
+        name: &'static str,
+        value: String,
+        source: ParseIntError,
+    },
+    #[error("POSTGRES_MAX_CONNECTIONS must be greater than zero")]
+    ZeroMaxConnections,
+}
+
+#[derive(thiserror::Error, Debug)]
 pub enum WorkerStartupConfigError {
     #[error(transparent)]
     Worker(#[from] WorkerConfigError),
     #[error(transparent)]
-    Postgres(#[from] PostgresConfigError),
+    Postgres(#[from] WorkerPostgresConfigError),
     #[error("missing required environment variable {name}")]
     MissingEnv { name: &'static str },
     #[error("invalid worker scope {value}")]
@@ -856,10 +935,10 @@ mod tests {
         env(&[
             (WORKER_STAGE_ENV, "prod"),
             (WORKER_SCOPE_ENV, scope),
-            (common::postgres::POSTGRES_HOST_ENV, "postgres"),
-            (common::postgres::POSTGRES_DATABASE_ENV, "aura_historia"),
-            (common::postgres::POSTGRES_USERNAME_ENV, "worker"),
-            (common::postgres::POSTGRES_PASSWORD_ENV, "not-a-real-secret"),
+            (POSTGRES_HOST_ENV, "postgres"),
+            (POSTGRES_DATABASE_ENV, "aura_historia"),
+            (POSTGRES_USERNAME_ENV, "worker"),
+            (POSTGRES_PASSWORD_ENV, "not-a-real-secret"),
         ])
     }
 

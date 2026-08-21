@@ -85,6 +85,7 @@ mod tests {
     use localization::{Language, Localized};
     use money::Currency;
     use money::{MonetaryAmount, Price};
+    use notification_core::notification_id::NotificationId;
     use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
     use product_core::product_lifecycle::ProductLifecycle;
     use product_core::product_slug_id::ProductSlugId;
@@ -304,7 +305,7 @@ mod tests {
     async fn should_serialize_user_state_and_disable_cache_for_authenticated_user()
     -> Result<(), Box<dyn std::error::Error>> {
         let user_id = UserId::new();
-        let notification_id = common::notification_id::NotificationId::new();
+        let notification_id = NotificationId::new();
         let search_filter_id = UserSearchFilterId::new();
         let mut view = product_details_view()?;
         let product_id = view.item.product_id;

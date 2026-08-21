@@ -7,7 +7,9 @@ use domain_primitives::event_id::EventId;
 
 use fxrate_core::FxRateId;
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
-use notification_core::presentation::NotificationImagePresentation;
+use notification_core::{
+    notification_id::NotificationId, presentation::NotificationImagePresentation,
+};
 use product_core::product::ProductPricing;
 use product_core::product_id::ProductId;
 use product_core::product_lifecycle::ProductLifecycle;
@@ -103,7 +105,7 @@ struct ProhibitedContentUserStateData {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NotificationUserStateData {
-    unseen_notification_ids: Vec<common::notification_id::NotificationId>,
+    unseen_notification_ids: Vec<NotificationId>,
 }
 
 #[derive(Debug, Serialize)]

@@ -1,8 +1,10 @@
-use common::{error::boxed::box_error, notification_id::NotificationId, user_id::UserId};
+use application::error::box_error;
+use notification_core::notification_id::NotificationId;
 use notification_service::ports::notification_deleter::{
     NotificationDeleteError, NotificationDeleter,
 };
 use sqlx::PgPool;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone)]
 pub struct SqlxNotificationDeleter {

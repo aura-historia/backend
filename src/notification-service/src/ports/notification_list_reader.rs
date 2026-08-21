@@ -1,6 +1,7 @@
-use common::{error::boxed::BoxError, notification_id::NotificationId, user_id::UserId};
-use notification_core::notification::NotificationContent;
+use application::error::BoxError;
+use notification_core::{notification::NotificationContent, notification_id::NotificationId};
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NotificationListCursor {

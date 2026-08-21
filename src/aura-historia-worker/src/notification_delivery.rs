@@ -3,7 +3,7 @@ use crate::{
     cdc::{DomainJob, DomainJobPayload},
     retry::{InMemoryDeadLetterQueue, RetryConfig, run_with_retry},
 };
-use common::error::boxed::{BoxError, box_error};
+use application::error::{BoxError, box_error};
 use notification_core::notification_delivery_id::NotificationDeliveryId;
 use notification_service::use_cases::commands::deliver_notification::{
     DeliverNotificationCommand, DeliverNotificationResult, DeliverNotificationUseCase,

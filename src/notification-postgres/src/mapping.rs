@@ -1,16 +1,13 @@
-use common::{
-    error::boxed::{BoxError, box_error},
-    notification_id::NotificationId,
-    price::data::PriceData,
-};
+use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use money::Price;
+use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
         Notification, NotificationContent, NotificationWatchlistChange, PartnerApplicationDecision,
         PartnerApplicationNotificationSnapshot, ProductNotificationSnapshot,
         RehydratedNotificationState,
     },
+    notification_id::NotificationId,
     notification_kind::NotificationKind,
 };
 use product_core::{
@@ -92,6 +89,35 @@ struct LocalizedTitleV1 {
     title: Title,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum PersistedCurrency {
+    Eur,
+    Gbp,
+    Usd,
+    Aud,
+    Cad,
+    Nzd,
+    Cny,
+    Brl,
+    Pln,
+    Try,
+    Jpy,
+    Czk,
+    Rub,
+    Aed,
+    Sar,
+    Hkd,
+    Sgd,
+    Chf,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+struct PersistedPrice {
+    currency: PersistedCurrency,
+    amount: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProductNotificationSnapshotV1 {
@@ -110,8 +136,8 @@ struct ProductNotificationSnapshotV1 {
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum NotificationWatchlistChangeV1 {
     PriceChange {
-        old_price: Option<PriceData>,
-        new_price: Option<PriceData>,
+        old_price: Option<PersistedPrice>,
+        new_price: Option<PersistedPrice>,
     },
     StateChange {
         old_state: ProductState,
@@ -429,54 +455,55 @@ fn notification_kind_db_value(kind: NotificationKind) -> &'static str {
     }
 }
 
-fn price_data_from_price(price: Price) -> PriceData {
-    use common::currency::data::CurrencyData;
+fn price_data_from_price(price: Price) -> PersistedPrice {
     let currency = match price.currency {
-        money::Currency::Eur => CurrencyData::Eur,
-        money::Currency::Gbp => CurrencyData::Gbp,
-        money::Currency::Usd => CurrencyData::Usd,
-        money::Currency::Aud => CurrencyData::Aud,
-        money::Currency::Cad => CurrencyData::Cad,
-        money::Currency::Nzd => CurrencyData::Nzd,
-        money::Currency::Cny => CurrencyData::Cny,
-        money::Currency::Brl => CurrencyData::Brl,
-        money::Currency::Pln => CurrencyData::Pln,
-        money::Currency::Try => CurrencyData::Try,
-        money::Currency::Jpy => CurrencyData::Jpy,
-        money::Currency::Czk => CurrencyData::Czk,
-        money::Currency::Rub => CurrencyData::Rub,
-        money::Currency::Aed => CurrencyData::Aed,
-        money::Currency::Sar => CurrencyData::Sar,
-        money::Currency::Hkd => CurrencyData::Hkd,
-        money::Currency::Sgd => CurrencyData::Sgd,
-        money::Currency::Chf => CurrencyData::Chf,
+        Currency::Eur => PersistedCurrency::Eur,
+        Currency::Gbp => PersistedCurrency::Gbp,
+        Currency::Usd => PersistedCurrency::Usd,
+        Currency::Aud => PersistedCurrency::Aud,
+        Currency::Cad => PersistedCurrency::Cad,
+        Currency::Nzd => PersistedCurrency::Nzd,
+        Currency::Cny => PersistedCurrency::Cny,
+        Currency::Brl => PersistedCurrency::Brl,
+        Currency::Pln => PersistedCurrency::Pln,
+        Currency::Try => PersistedCurrency::Try,
+        Currency::Jpy => PersistedCurrency::Jpy,
+        Currency::Czk => PersistedCurrency::Czk,
+        Currency::Rub => PersistedCurrency::Rub,
+        Currency::Aed => PersistedCurrency::Aed,
+        Currency::Sar => PersistedCurrency::Sar,
+        Currency::Hkd => PersistedCurrency::Hkd,
+        Currency::Sgd => PersistedCurrency::Sgd,
+        Currency::Chf => PersistedCurrency::Chf,
     };
-    PriceData::new(currency, price.monetary_amount.into())
+    PersistedPrice {
+        currency,
+        amount: price.monetary_amount.into(),
+    }
 }
 
-fn price_from_data(price: PriceData) -> Price {
-    use common::currency::data::CurrencyData;
+fn price_from_data(price: PersistedPrice) -> Price {
     let currency = match price.currency {
-        CurrencyData::Eur => money::Currency::Eur,
-        CurrencyData::Gbp => money::Currency::Gbp,
-        CurrencyData::Usd => money::Currency::Usd,
-        CurrencyData::Aud => money::Currency::Aud,
-        CurrencyData::Cad => money::Currency::Cad,
-        CurrencyData::Nzd => money::Currency::Nzd,
-        CurrencyData::Cny => money::Currency::Cny,
-        CurrencyData::Brl => money::Currency::Brl,
-        CurrencyData::Pln => money::Currency::Pln,
-        CurrencyData::Try => money::Currency::Try,
-        CurrencyData::Jpy => money::Currency::Jpy,
-        CurrencyData::Czk => money::Currency::Czk,
-        CurrencyData::Rub => money::Currency::Rub,
-        CurrencyData::Aed => money::Currency::Aed,
-        CurrencyData::Sar => money::Currency::Sar,
-        CurrencyData::Hkd => money::Currency::Hkd,
-        CurrencyData::Sgd => money::Currency::Sgd,
-        CurrencyData::Chf => money::Currency::Chf,
+        PersistedCurrency::Eur => Currency::Eur,
+        PersistedCurrency::Gbp => Currency::Gbp,
+        PersistedCurrency::Usd => Currency::Usd,
+        PersistedCurrency::Aud => Currency::Aud,
+        PersistedCurrency::Cad => Currency::Cad,
+        PersistedCurrency::Nzd => Currency::Nzd,
+        PersistedCurrency::Cny => Currency::Cny,
+        PersistedCurrency::Brl => Currency::Brl,
+        PersistedCurrency::Pln => Currency::Pln,
+        PersistedCurrency::Try => Currency::Try,
+        PersistedCurrency::Jpy => Currency::Jpy,
+        PersistedCurrency::Czk => Currency::Czk,
+        PersistedCurrency::Rub => Currency::Rub,
+        PersistedCurrency::Aed => Currency::Aed,
+        PersistedCurrency::Sar => Currency::Sar,
+        PersistedCurrency::Hkd => Currency::Hkd,
+        PersistedCurrency::Sgd => Currency::Sgd,
+        PersistedCurrency::Chf => Currency::Chf,
     };
-    Price::new(money::MonetaryAmount::from(price.amount), currency)
+    Price::new(MonetaryAmount::from(price.amount), currency)
 }
 
 fn parse_language(value: &str) -> Result<localization::Language, NotificationMappingError> {
@@ -525,7 +552,7 @@ pub(crate) fn mapping_error(error: NotificationMappingError) -> BoxError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{currency::domain::Currency, price::domain::MonetaryAmount};
+    use money::{Currency, MonetaryAmount};
 
     #[test]
     fn should_serialize_source_currency_explicitly() -> Result<(), Box<dyn std::error::Error>> {

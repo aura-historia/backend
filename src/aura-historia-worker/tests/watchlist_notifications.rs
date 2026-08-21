@@ -2,14 +2,13 @@ use aura_historia_worker::cdc::WorkerQueue;
 use aura_historia_worker::watchlist_notifications::consume_watchlist_notification_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
 
-use common::error::boxed::box_error;
-use common::event_id::EventId;
-use common::postgres::{SqlxTransaction, SqlxUnitOfWork};
-use common::product_id::ProductId;
+use application::error::box_error;
+use domain_primitives::event_id::EventId;
+use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
+use product_core::product_id::ProductId;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common::user_id::UserId;
 use notification_postgres::{
     SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
 };
@@ -35,6 +34,7 @@ use test_api::{
 use time::OffsetDateTime;
 use tokio::sync::{Barrier, oneshot};
 use tokio::task::JoinHandle;
+use user_core::user_id::UserId;
 use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");

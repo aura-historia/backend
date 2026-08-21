@@ -1,8 +1,9 @@
-use common::{error::boxed::BoxError, user_id::UserId};
+use application::error::BoxError;
 use notification_core::{
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     notification_kind::NotificationKind,
 };
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotificationDeliveryPlan {

@@ -1,5 +1,5 @@
 use crate::ports::notification_delivery_repository::NotificationDeliverySource;
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use notification_core::notification_delivery::NotificationDeliveryChannel;
 use std::{collections::HashMap, sync::Arc};
 

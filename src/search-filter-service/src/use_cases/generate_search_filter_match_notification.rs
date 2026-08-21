@@ -5,25 +5,25 @@ use crate::ports::{
     SearchFilterMonthlyMatchQuotaReaderFactory,
 };
 use crate::tier_policy::monthly_match_quota;
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    product_id::ProductId,
-    transaction::{Transaction, UnitOfWork},
-    user_id::UserId,
-    user_search_filter_id::UserSearchFilterId,
+use application::{
+    error::{BoxError, box_error},
+    transaction::{Transaction, TransactionError, UnitOfWork},
 };
+use domain_primitives::event_id::EventId;
 use notification_core::notification::{NotificationContent, ProductNotificationSnapshot};
 use notification_service::ports::notification_creator::{
     ExternalDeliveryRequest, NewNotification, NotificationCreationError,
     NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
+use product_core::product_id::ProductId;
 use product_service::ports::{
     ProductCurrentRevisionCheck, ProductCurrentRevisionCheckError, ProductCurrentRevisionGuard,
     ProductCurrentRevisionGuardFactory, ProductSearchFilterMatchSource,
     ProductSearchFilterMatchSourceReadError, ProductSearchFilterMatchSourceReader,
     ProductSearchFilterMatchSourceReaderFactory,
 };
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use user_core::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
@@ -294,7 +294,7 @@ async fn create_notification(
 ) -> Result<NotificationCreationOutcome, GenerateSearchFilterMatchNotificationError> {
     let notification = NewNotification {
         notification: notification_core::notification::Notification::new(
-            common::notification_id::NotificationId::new(),
+            Default::default(),
             match_source.user_id,
             NotificationContent::SearchFilter {
                 origin_event_id: match_source.origin_event_id,
@@ -381,9 +381,7 @@ fn monthly_match_quota_error(
     }
 }
 
-fn commit_error(
-    source: common::transaction::TransactionError,
-) -> GenerateSearchFilterMatchNotificationError {
+fn commit_error(source: TransactionError) -> GenerateSearchFilterMatchNotificationError {
     GenerateSearchFilterMatchNotificationError::CommitTransactionFailed {
         source: box_error(source),
     }
@@ -392,19 +390,22 @@ fn commit_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        product_lifecycle::domain::ProductLifecycle, product_slug_id::ProductSlugId,
-        product_state::domain::ProductState, seller_slug_id::SellerSlugId, shop_id::ShopId,
-        shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
-        transaction::TransactionError, user_search_filter_name::UserSearchFilterName,
-    };
     use indexmap::IndexSet;
     use product_core::{
         product::{ProductAddress, ProductAuction, ProductPricing},
         product_image::ProductImage,
+        product_lifecycle::ProductLifecycle,
+        product_slug_id::ProductSlugId,
+        product_state::ProductState,
+        shops_product_id::ShopsProductId,
     };
     use product_service::ports::ProductSearchFilterMatchShopType;
     use product_service::ports::ProductSearchFilterMatchSourceEventKind;
+    use search_filter_core::user_search_filter_name::UserSearchFilterName;
+    use shop_core::{
+        seller_slug_id::SellerSlugId, shop_id::ShopId, shop_name::ShopName,
+        shop_slug_id::ShopSlugId,
+    };
     use std::{
         error::Error,
         sync::{Arc, Mutex},

@@ -1,4 +1,4 @@
-use common::error::boxed::box_error;
+use application::error::{box_error, static_error};
 use indexmap::IndexMap;
 use large_language_model::LlmOperation;
 use large_language_model::{
@@ -53,7 +53,7 @@ where
         for language in target_languages {
             let Some(value) = response.titles.get(language.as_str()) else {
                 return Err(ProductTitleTranslationError::InvalidResponse {
-                    source: common::error::boxed::static_error(
+                    source: static_error(
                         "product title translation response omitted a target language",
                     ),
                 });
@@ -61,7 +61,7 @@ where
             let title = Title::from(value.as_str());
             if title.as_ref().is_empty() {
                 return Err(ProductTitleTranslationError::InvalidResponse {
-                    source: common::error::boxed::static_error(
+                    source: static_error(
                         "product title translation response contains an empty title",
                     ),
                 });

@@ -1,10 +1,8 @@
 use crate::ports::notification_seen_writer::{NotificationSeenWriteError, NotificationSeenWriter};
-use common::{
-    notification_id::NotificationId,
-    operation_context::{OperationAuthorizationError, OperationContext, Principal},
-    user_id::UserId,
-};
+use application::operation_context::{OperationAuthorizationError, OperationContext, Principal};
+use notification_core::notification_id::NotificationId;
 use std::collections::HashSet;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateNotificationsSeenCommand {
@@ -130,8 +128,8 @@ impl From<OperationAuthorizationError> for UpdateNotificationsSeenError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        error::boxed::box_error,
+    use application::{
+        error::box_error,
         operation_context::{CorrelationId, RequestId},
     };
     use std::sync::{Arc, Mutex, MutexGuard};

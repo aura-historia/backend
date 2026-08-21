@@ -1,15 +1,16 @@
 use super::types::NotificationData;
 use crate::auth::protected_context;
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE};
+use crate::pagination_data::JsonCursoredData;
 use crate::state::NotificationsState;
 use crate::values::LanguageData;
+use application::pagination::{Cursor, CursoredResult};
 use axum::Json;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 
-use common::notification_id::NotificationId;
-use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
+use notification_core::notification_id::NotificationId;
 use notification_service::ports::notification_list_reader::NotificationListCursor;
 use notification_service::use_cases::queries::list_notifications::ListNotificationsRequest;
 use serde::Deserialize;

@@ -969,7 +969,7 @@ mod tests {
         let user_id = UserId::new();
         let expected = search_result()?;
         let product_id = expected.items[0].product_id;
-        let notification_id = common::notification_id::NotificationId::new();
+        let notification_id = notification_core::notification_id::NotificationId::new();
         let mut user_state = ProductUserState::default();
         user_state.watchlist.watching = true;
         user_state.watchlist.notifications = true;

@@ -4,11 +4,12 @@ use crate::ports::{
     PartnerShopApplicationRepositoryFactory, UserPartnerShopMembershipRepository,
     UserPartnerShopMembershipRepositoryError, UserPartnerShopMembershipRepositoryFactory,
 };
-use common::change_outcome::ChangeOutcome;
-use common::error::boxed::{BoxError, box_error};
-
-use common::operation_context::{OperationAuthorizationError, OperationContext};
-use common::transaction::{Transaction, UnitOfWork};
+use application::{
+    error::{BoxError, box_error},
+    operation_context::{OperationAuthorizationError, OperationContext},
+    transaction::{Transaction, UnitOfWork},
+};
+use domain_primitives::change_outcome::ChangeOutcome;
 use notification_core::notification::{
     NotificationContent, PartnerApplicationDecision as NotificationPartnerApplicationDecision,
     PartnerApplicationNotificationSnapshot,
@@ -253,7 +254,7 @@ fn decision_notification(
     };
     Ok(NewNotification {
         notification: notification_core::notification::Notification::new(
-            common::notification_id::NotificationId::new(),
+            Default::default(),
             application.applicant_user_id(),
             NotificationContent::PartnerApplication {
                 partner_shop_application_id: application.id(),
@@ -357,15 +358,17 @@ mod tests {
         PartnerShopApplicationStorageVersion, UserPartnerShopMembershipRepository,
         VersionedPartnerShopApplication,
     };
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::transaction::TransactionError;
-    use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+    use application::{
+        operation_context::{CorrelationId, Principal, RequestId},
+        transaction::TransactionError,
+    };
     use notification_service::ports::notification_creator::NotificationCreationOutcome;
     use shop_core::{
         partner_status::ShopPartnerStatus,
         shop::{NewShop, Shop, ShopContact, ShopPresentation},
         shop_type::ShopType,
     };
+    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use shop_partner_core::partner_shop_application::{
         NewPartnerShopApplication, PartnerShopApplicationPayload,
     };
@@ -373,6 +376,7 @@ mod tests {
     use shop_service::ports::{ShopStorageVersion, StoredShop};
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
+    use user_core::user_id::UserId;
     use user_service::ports::{
         UserAdminActorView, UserAdminReadError, UserAdminReader, UserAdminReaderFactory,
     };
@@ -541,7 +545,7 @@ mod tests {
 
         async fn find_by_slug(
             &mut self,
-            _: &common::shop_slug_id::ShopSlugId,
+            _: &ShopSlugId,
         ) -> Result<Option<StoredShop>, ShopRepositoryError> {
             Ok(None)
         }

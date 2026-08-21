@@ -1,5 +1,5 @@
-use common::{error::boxed::BoxError, notification_id::NotificationId};
-use notification_core::notification::Notification;
+use application::error::BoxError;
+use notification_core::{notification::Notification, notification_id::NotificationId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExternalDeliveryRequest {

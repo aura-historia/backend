@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 
-use common::{
-    postgres::SqlxUnitOfWork,
-    product_id::ProductId,
-    transaction::{Transaction, UnitOfWork},
-    user_id::UserId,
-};
+use application::transaction::{Transaction, UnitOfWork};
+use platform_postgres::SqlxUnitOfWork;
+use product_core::product_id::ProductId;
 use product_service::ports::{
     WatchlistNotificationRecipientReader, WatchlistNotificationRecipientReaderFactory,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::Duration;
+use user_core::user_id::UserId;
 use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");

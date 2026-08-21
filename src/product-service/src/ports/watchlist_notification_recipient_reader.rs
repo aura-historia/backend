@@ -1,5 +1,7 @@
-use common::{error::boxed::BoxError, product_id::ProductId, user_id::UserId};
+use application::error::BoxError;
+use product_core::product_id::ProductId;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchlistNotificationRecipient {

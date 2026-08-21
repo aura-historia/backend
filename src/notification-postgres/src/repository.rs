@@ -1,5 +1,6 @@
 use crate::mapping::{NotificationWriteValues, PAYLOAD_VERSION, mapping_error};
-use common::{error::boxed::box_error, postgres::SqlxTransaction};
+use application::error::box_error;
+use platform_postgres::SqlxTransaction;
 
 use notification_service::ports::{
     notification_creator::{

@@ -1,10 +1,11 @@
-use common::{error::boxed::box_error, user_id::UserId};
+use application::error::box_error;
 use notification_core::notification_delivery::NotificationDeliveryTargetKey;
 use notification_email::{
     EmailDeliveryTarget, EmailDeliveryTargetReadError, EmailDeliveryTargetReader,
 };
 use serde_email::Email;
 use sqlx::PgPool;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone)]
 pub struct SqlxEmailDeliveryTargetReader {

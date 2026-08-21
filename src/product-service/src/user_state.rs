@@ -1,4 +1,4 @@
-use common::notification_id::NotificationId;
+use notification_core::notification_id::NotificationId;
 use search_filter_core::{
     enhanced_match_reason::EnhancedMatchReason, user_search_filter_id::UserSearchFilterId,
     user_search_filter_name::UserSearchFilterName,

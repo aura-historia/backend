@@ -1,12 +1,13 @@
 use crate::mapping::{NotificationRow, mapping_error};
-use common::{error::boxed::box_error, notification_id::NotificationId, user_id::UserId};
-use notification_core::notification::Notification;
+use application::error::box_error;
+use notification_core::{notification::Notification, notification_id::NotificationId};
 use notification_service::ports::notification_list_reader::{
     NotificationListCursor, NotificationListItem, NotificationListPage, NotificationListReadError,
     NotificationListReader,
 };
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone)]
 pub struct SqlxNotificationListReader {

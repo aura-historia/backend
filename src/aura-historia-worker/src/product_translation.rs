@@ -3,12 +3,12 @@ use crate::{
     cdc::{DomainJob, DomainJobPayload},
     retry::{InMemoryDeadLetterQueue, RetryConfig, run_with_retry},
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
+use application::{
+    error::{BoxError, box_error},
     operation_context::{CorrelationId, OperationContext, Principal, RequestId},
-    product_id::ProductId,
 };
+use domain_primitives::event_id::EventId;
+use product_core::product_id::ProductId;
 use product_service::use_cases::{
     TranslateProductCommand, TranslateProductEventOutcome, TranslateProductEventUseCase,
 };

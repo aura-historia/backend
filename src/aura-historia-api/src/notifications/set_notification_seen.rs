@@ -55,11 +55,12 @@ mod tests {
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
     use crate::state::NotificationsState;
+    use application::error::box_error;
+    use application::operation_context::OperationContext;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, header};
-    use common::notification_id::NotificationId;
-    use common::user_id::UserId;
+    use notification_core::notification_id::NotificationId;
     use notification_service::ports::notification_list_reader::NotificationListReadError;
     use notification_service::use_cases::commands::delete_notification::{
         DeleteNotificationCommand, DeleteNotificationError, DeleteNotificationUseCase,
@@ -83,6 +84,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
     use tower::ServiceExt;
+    use user_core::user_id::UserId;
 
     #[derive(Clone)]
     struct FakeAuthenticator {
@@ -113,7 +115,7 @@ mod tests {
     impl UpdateNotificationSeenUseCase for FakeUpdateNotificationSeen {
         async fn execute(
             &self,
-            _: &common::operation_context::OperationContext,
+            _: &OperationContext,
             command: UpdateNotificationSeenCommand,
         ) -> Result<
             notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenResult,
@@ -129,12 +131,12 @@ mod tests {
     impl ListNotificationsUseCase for UnusedList {
         async fn execute(
             &self,
-            _: &common::operation_context::OperationContext,
+            _: &OperationContext,
             _: ListNotificationsRequest,
         ) -> Result<ListNotificationsResult, ListNotificationsError> {
             Err(ListNotificationsError::ReadFailed(
                 NotificationListReadError::ReadFailed {
-                    source: common::error::boxed::box_error(std::io::Error::other("unused")),
+                    source: box_error(std::io::Error::other("unused")),
                 },
             ))
         }
@@ -145,7 +147,7 @@ mod tests {
     impl UpdateNotificationsSeenUseCase for UnusedUpdateNotificationsSeen {
         async fn execute(
             &self,
-            _: &common::operation_context::OperationContext,
+            _: &OperationContext,
             _: UpdateNotificationsSeenCommand,
         ) -> Result<
             notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenResult,
@@ -160,7 +162,7 @@ mod tests {
     impl UpdateAllNotificationsSeenUseCase for UnusedUpdateAllNotificationsSeen {
         async fn execute(
             &self,
-            _: &common::operation_context::OperationContext,
+            _: &OperationContext,
             _: UpdateAllNotificationsSeenCommand,
         ) -> Result<
             notification_service::use_cases::commands::update_all_notifications_seen::UpdateAllNotificationsSeenResult,
@@ -175,7 +177,7 @@ mod tests {
     impl DeleteNotificationUseCase for UnusedDeleteNotification {
         async fn execute(
             &self,
-            _: &common::operation_context::OperationContext,
+            _: &OperationContext,
             _: DeleteNotificationCommand,
         ) -> Result<
             notification_service::use_cases::commands::delete_notification::DeleteNotificationResult,
@@ -190,7 +192,7 @@ mod tests {
     impl DeleteNotificationsUseCase for UnusedDeleteNotifications {
         async fn execute(
             &self,
-            _: &common::operation_context::OperationContext,
+            _: &OperationContext,
             _: DeleteNotificationsCommand,
         ) -> Result<
             notification_service::use_cases::commands::delete_notifications::DeleteNotificationsResult,

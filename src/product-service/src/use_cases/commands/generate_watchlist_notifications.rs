@@ -5,19 +5,20 @@ use crate::ports::{
     ProductWatchlistNotificationSourceReaderFactory, WatchlistNotificationRecipientReader,
     WatchlistNotificationRecipientReaderFactory,
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    product_id::ProductId,
+use application::{
+    error::{BoxError, box_error},
     transaction::{Transaction, UnitOfWork},
 };
-use notification_core::notification::{
-    NotificationContent, NotificationWatchlistChange, ProductNotificationSnapshot,
+use domain_primitives::event_id::EventId;
+use notification_core::{
+    notification::{NotificationContent, NotificationWatchlistChange, ProductNotificationSnapshot},
+    notification_id::NotificationId,
 };
 use notification_service::ports::notification_creator::{
     ExternalDeliveryRequest, NewNotification, NotificationCreationError,
     NotificationCreationOutcome, NotificationCreator, NotificationCreatorFactory,
 };
+use product_core::product_id::ProductId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenerateWatchlistNotificationsCommand {
     pub event_id: EventId,
@@ -176,7 +177,7 @@ where
             .into_iter()
             .map(|recipient| NewNotification {
                 notification: notification_core::notification::Notification::new(
-                    common::notification_id::NotificationId::new(),
+                    NotificationId::new(),
                     recipient.user_id,
                     notification_content(command.event_id, source.clone()),
                 ),
@@ -261,22 +262,19 @@ mod tests {
         ProductWatchlistNotificationSourceReadError, WatchlistNotificationRecipient,
         WatchlistNotificationRecipientReadError,
     };
-    use common::{
-        error::boxed::static_error,
-        product_slug_id::ProductSlugId,
-        shop_id::ShopId,
-        shop_name::ShopName,
-        shop_slug_id::ShopSlugId,
-        shops_product_id::ShopsProductId,
+    use application::{
+        error::static_error,
         transaction::{TransactionError, UnitOfWork},
-        user_id::UserId,
     };
+    use product_core::{product_slug_id::ProductSlugId, shops_product_id::ShopsProductId};
+    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use std::{
         collections::VecDeque,
         sync::{Arc, Mutex, MutexGuard},
     };
     use time::OffsetDateTime;
     use url::Url;
+    use user_core::user_id::UserId;
 
     #[derive(Default)]
     struct State {

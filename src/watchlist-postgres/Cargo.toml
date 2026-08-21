@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true, features = ["postgres"] }
 application = { workspace = true }
+domain-primitives = { workspace = true }
 user-core = { workspace = true }
 async-trait = { workspace = true }
 platform-postgres = { workspace = true }

@@ -1,5 +1,5 @@
 use crate::delivery_mapping::channel_to_persisted;
-use common::{error::boxed::box_error, postgres::SqlxTransaction};
+use application::error::box_error;
 use notification_service::ports::{
     notification_creator::NotificationCreationError,
     notification_delivery_intent_repository::{
@@ -7,6 +7,7 @@ use notification_service::ports::{
         NotificationDeliveryIntentRepositoryFactory,
     },
 };
+use platform_postgres::SqlxTransaction;
 use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 const INSERT_CHUNK_SIZE: usize = 500;

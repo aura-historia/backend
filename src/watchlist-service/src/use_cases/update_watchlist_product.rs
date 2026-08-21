@@ -710,14 +710,14 @@ mod tests {
                 user_id,
                 product_id,
                 notifications: Some(true),
-                state: Some(ResourceState::Active),
+                state: Some(WatchlistState::Active),
             },
         )
         .await
         .map_err(|error| error.to_string())?;
 
         assert!(result.entry.notifications());
-        assert_eq!(ResourceState::Active, result.entry.state());
+        assert_eq!(WatchlistState::Active, result.entry.state());
         assert_eq!(0, state.updated());
         assert!(state.committed());
         Ok(())

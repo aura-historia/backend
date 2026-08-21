@@ -238,10 +238,10 @@ dependencies = [
  "base64 0.23.1",
  "billing-service",
  "billing-stripe",
- "common",
  "credential-core",
  "domain-primitives",
  "embedding",
+ "fxrate-core",
  "fxrate-postgres",
  "geo",
  "google-cloud-auth",
@@ -400,14 +400,15 @@ dependencies = [
  "aws-sdk-s3",
  "aws-sdk-sesv2",
  "aws-smithy-types",
- "common",
  "domain-primitives",
  "embedding",
+ "fxrate-core",
  "fxrate-postgres",
  "google-cloud-auth",
  "indexmap 2.14.0",
  "large-language-model",
  "localization",
+ "money",
  "notification-core",
  "notification-email-aws",
  "notification-postgres",
@@ -429,6 +430,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shop-core",
  "sqlx",
  "test-api",
  "thiserror 2.0.20",
@@ -4895,7 +4897,6 @@ dependencies = [
 name = "notification-core"
 version = "0.1.0"
 dependencies = [
- "common",
  "domain-primitives",
  "fake",
  "localization",
@@ -4916,21 +4917,23 @@ dependencies = [
 name = "notification-email"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
  "notification-core",
  "serde-email",
  "thiserror 2.0.20",
+ "user-core",
 ]
 
 [[package]]
 name = "notification-email-aws"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aws-sdk-s3",
  "aws-sdk-sesv2",
- "common",
+ "domain-primitives",
  "handlebars",
  "localization",
  "money",
@@ -4940,21 +4943,25 @@ dependencies = [
  "product-core",
  "rstest",
  "serde_json",
+ "shop-core",
+ "shop-partner-core",
  "url",
+ "user-core",
 ]
 
 [[package]]
 name = "notification-postgres"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
  "domain-primitives",
  "localization",
  "money",
  "notification-core",
  "notification-email",
  "notification-service",
+ "platform-postgres",
  "product-core",
  "search-filter-core",
  "serde",
@@ -4976,18 +4983,21 @@ dependencies = [
 name = "notification-service"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
  "fake",
  "localization",
  "mockall",
  "notification-core",
  "notification-service",
  "rstest",
+ "shop-core",
+ "shop-partner-core",
  "thiserror 2.0.20",
  "time",
  "tokio",
  "tracing",
+ "user-core",
  "uuid",
 ]
 
@@ -6254,7 +6264,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "domain-primitives",
  "fxrate-core",
  "geo",
@@ -6262,6 +6271,7 @@ dependencies = [
  "isocountry",
  "localization",
  "money",
+ "notification-core",
  "platform-postgres",
  "product-core",
  "product-service",
@@ -6288,7 +6298,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "domain-primitives",
  "embedding",
  "fake",
@@ -6321,8 +6330,8 @@ dependencies = [
 name = "product-translation-llm"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
- "common",
  "indexmap 2.14.0",
  "large-language-model",
  "localization",
@@ -7457,7 +7466,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "domain-primitives",
  "embedding",
  "fxrate-core",
@@ -8084,7 +8092,6 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
  "domain-primitives",
  "fake",
  "geo",
@@ -10103,7 +10110,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "platform-postgres",
  "product-core",
  "product-service",
@@ -10126,18 +10133,18 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
- "common",
+ "domain-primitives",
  "fake",
  "fxrate-core",
  "fxrate-service",
  "localization",
  "money",
- "notification-core",
  "notification-service",
  "product-core",
  "product-service",
  "serde",
  "serde-email",
+ "shop-core",
  "strum 0.28.0",
  "thiserror 2.0.20",
  "time",
