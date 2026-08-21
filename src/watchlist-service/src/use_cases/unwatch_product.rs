@@ -90,10 +90,26 @@ where
             .find_by_user_and_product(command.user_id, command.product_id)
             .await?
             .ok_or(UnwatchProductError::NotFound)?;
-        self.watchlist
+        match self
+            .watchlist
             .in_transaction(&mut tx)
             .delete(command.user_id, command.product_id, loaded.version)
-            .await?;
+            .await
+        {
+            Ok(()) => {}
+            Err(WatchlistRepositoryError::ConcurrencyConflict) => {
+                tracing::warn!(
+                    event = "watchlist_product.unwatch_rejected",
+                    actor_type = context.principal.kind(),
+                    actor_id = %context.principal.label(),
+                    user_id = %command.user_id,
+                    product_id = %command.product_id,
+                    outcome = "concurrency_conflict",
+                );
+                return Err(UnwatchProductError::ConcurrencyConflict);
+            }
+            Err(error) => return Err(error.into()),
+        }
         tx.commit()
             .await
             .map_err(|_| UnwatchProductError::CommitTransactionFailed)?;
@@ -199,6 +215,7 @@ mod tests {
         committed: Arc<Mutex<bool>>,
         updated: Arc<Mutex<usize>>,
         unwatched: Arc<Mutex<usize>>,
+        force_concurrency_conflict: bool,
     }
 
     struct TestWatchlistPort {
@@ -367,6 +384,9 @@ mod tests {
             product_id: ProductId,
             expected_version: WatchlistStorageVersion,
         ) -> Result<(), WatchlistRepositoryError> {
+            if self.state.force_concurrency_conflict {
+                return Err(WatchlistRepositoryError::ConcurrencyConflict);
+            }
             let mut entries =
                 self.state
                     .entries
@@ -498,6 +518,39 @@ mod tests {
         assert_eq!(1, state.unwatched());
         assert!(state.committed());
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_concurrency_conflict_when_entry_changes_before_delete() {
+        let user_id = UserId::new();
+        let product_id = ProductId::new();
+        let mut state = SharedState::with_entry(entry(user_id, product_id, true));
+        state.force_concurrency_conflict = true;
+
+        let result = UnwatchProductHandler::new(
+            TestUnitOfWork {
+                state: state.clone(),
+                ..Default::default()
+            },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
+        )
+        .execute(
+            &context_for_user(user_id),
+            UnwatchProductCommand {
+                user_id,
+                product_id,
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(UnwatchProductError::ConcurrencyConflict)
+        ));
+        assert_eq!(0, state.unwatched());
+        assert!(!state.committed());
     }
 
     #[tokio::test]

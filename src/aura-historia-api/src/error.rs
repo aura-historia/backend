@@ -2105,6 +2105,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_map_update_watchlist_concurrency_conflict_to_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response =
+            ApiError::from(UpdateWatchlistProductError::ConcurrencyConflict).into_response();
+
+        assert_eq!(StatusCode::CONFLICT, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(CONFLICT.to_string(), body["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_map_unwatch_product_concurrency_conflict_to_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = ApiError::from(UnwatchProductError::ConcurrencyConflict).into_response();
+
+        assert_eq!(StatusCode::CONFLICT, response.status());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await?;
+        let body = serde_json::from_slice::<serde_json::Value>(&bytes)?;
+        assert_eq!(CONFLICT.to_string(), body["error"]);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn should_render_problem_json_response() -> Result<(), Box<dyn std::error::Error>> {
         let response = ApiError::bad_request(INVALID_UUID)
             .with_path_field("shopId")

@@ -162,12 +162,26 @@ where
             changed = true;
         }
         if changed {
-            entry = self
+            entry = match self
                 .watchlist
                 .in_transaction(&mut tx)
                 .update(&entry, expected_version)
-                .await?
-                .into_value();
+                .await
+            {
+                Ok(entry) => entry.into_value(),
+                Err(WatchlistRepositoryError::ConcurrencyConflict) => {
+                    tracing::warn!(
+                        event = "watchlist_product.update_rejected",
+                        actor_type = context.principal.kind(),
+                        actor_id = ?context.principal.actor_id(),
+                        user_id = %command.user_id,
+                        product_id = %command.product_id,
+                        outcome = "concurrency_conflict",
+                    );
+                    return Err(UpdateWatchlistProductError::ConcurrencyConflict);
+                }
+                Err(error) => return Err(error.into()),
+            };
         }
 
         tx.commit()
@@ -302,6 +316,7 @@ mod tests {
         committed: Arc<Mutex<bool>>,
         updated: Arc<Mutex<usize>>,
         deleted: Arc<Mutex<usize>>,
+        force_concurrency_conflict: bool,
     }
 
     struct TestWatchlistPort {
@@ -489,6 +504,9 @@ mod tests {
             entry: &WatchlistProduct,
             expected_version: WatchlistStorageVersion,
         ) -> Result<VersionedWatchlistProduct, WatchlistRepositoryError> {
+            if self.state.force_concurrency_conflict {
+                return Err(WatchlistRepositoryError::ConcurrencyConflict);
+            }
             let mut entries =
                 self.state
                     .entries
@@ -703,6 +721,47 @@ mod tests {
         assert_eq!(0, state.updated());
         assert!(state.committed());
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_return_concurrency_conflict_when_entry_changes_before_update() {
+        let user_id = UserId::new();
+        let product_id = ProductId::new();
+        let mut state = SharedState::with_entry(entry(user_id, product_id, true));
+        state.force_concurrency_conflict = true;
+
+        let result = UpdateWatchlistProductHandler::new(
+            TestUnitOfWork {
+                state: state.clone(),
+                ..Default::default()
+            },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
+            TestWatchlistFactory {
+                state: state.clone(),
+            },
+            TestAccountFactory {
+                tier: UserTier::Free,
+            },
+        )
+        .execute(
+            &context_for_user(user_id),
+            UpdateWatchlistProductCommand {
+                user_id,
+                product_id,
+                notifications: Some(false),
+                state: None,
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(UpdateWatchlistProductError::ConcurrencyConflict)
+        ));
+        assert_eq!(0, state.updated());
+        assert!(!state.committed());
     }
 
     #[tokio::test]
