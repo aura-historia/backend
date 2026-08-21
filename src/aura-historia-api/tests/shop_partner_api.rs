@@ -1,8 +1,8 @@
 mod api_support;
 
 use api_support::{assert_problem, json_response, seed_access_token_for, seed_shop, seed_user};
-use common::partner_shop_application_id::PartnerShopApplicationId;
-use common::shop_id::ShopId;
+use shop_core::shop_id::ShopId;
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use std::collections::HashSet;
 use test_api::{
     AuraHistoriaApi, DynamoDB, IntegrationTestService, Postgres, aura_integration_test,

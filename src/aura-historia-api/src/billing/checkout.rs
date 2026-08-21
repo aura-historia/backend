@@ -15,7 +15,7 @@ pub(crate) async fn checkout(
 ) -> Response {
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let request: BillingSessionRequestData = match parse_request(&body) {
         Ok(value) => value,

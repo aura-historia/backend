@@ -1,6 +1,6 @@
 use crate::mapping::{FILTER_COLUMNS, FilterRow, user_search_filter_uuid};
-use common::error::boxed::box_error;
-use common::user_search_filter_id::UserSearchFilterId;
+use application::error::box_error;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
     SearchFilterIndexReadError, SearchFilterIndexReader, SearchFilterProjection,
 };

@@ -8,7 +8,7 @@
 
 - External HTTP adapter only.
 - Provider decimal rates parse to scaled integers with half-up rounding.
-- Provider DTOs, token, and HTTP stay private.
+- Provider DTOs, including provider currency values manually mapped to canonical `money` values, token, and HTTP stay private.
 
 ## Ownership
 

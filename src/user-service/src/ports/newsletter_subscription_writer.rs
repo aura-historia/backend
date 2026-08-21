@@ -1,4 +1,4 @@
-use common::error::boxed::BoxError;
+use application::error::BoxError;
 use user_core::newsletter_subscription::NewsletterSubscription;
 
 #[derive(Debug, thiserror::Error)]

@@ -3,17 +3,16 @@ use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
 use crate::shops::shop_data::shop_response;
 use crate::shops::types::ShopTypeData;
 use crate::state::ShopsState;
+use crate::values::{CurrencyData, LanguageData};
+use application::patch_field::PatchField;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::domain::Domain;
-use common::language::data::LanguageData;
-use common::patch_field::PatchField;
-use common::shop_id::ShopId;
 use geo::data::address_data::StructuredAddressData;
 use serde::Deserialize;
 use serde_email::Email;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_service::use_cases::commands::update_shop::UpdateShopCommand;
 
@@ -68,7 +67,7 @@ pub async fn update_shop(
     };
     let (context, _) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let data = match parse_body(&body) {
         Ok(data) => data,

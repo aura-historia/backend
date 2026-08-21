@@ -334,11 +334,11 @@ mod tests {
                     .map(|cmd| {
                         (
                             cmd,
-                            NotificationError::SdkPutItemError(
+                            NotificationError::SdkPutItemError(Box::new(
                                 aws_sdk_dynamodb::error::SdkError::construction_failure(
                                     "test error",
                                 ),
-                            ),
+                            )),
                         )
                     })
                     .collect();
@@ -603,11 +603,11 @@ mod tests {
                         processed: vec![],
                         unprocessed: vec![(
                             unprocessed_cmd,
-                            NotificationError::SdkPutItemError(
+                            NotificationError::SdkPutItemError(Box::new(
                                 aws_sdk_dynamodb::error::SdkError::construction_failure(
                                     "partial failure",
                                 ),
-                            ),
+                            )),
                         )],
                     }
                 })
@@ -734,11 +734,11 @@ mod tests {
                         .map(|cmd| {
                             (
                                 cmd,
-                                NotificationError::SdkPutItemError(
+                                NotificationError::SdkPutItemError(Box::new(
                                     aws_sdk_dynamodb::error::SdkError::construction_failure(
                                         "first call fails",
                                     ),
-                                ),
+                                )),
                             )
                         })
                         .collect()

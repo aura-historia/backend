@@ -1,10 +1,11 @@
-use common::domain::Domain;
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, shop_name::ShopName};
+use application::transaction::{Transaction, UnitOfWork};
+use platform_postgres::SqlxUnitOfWork;
 use shop_core::affiliate_configuration::AffiliateConfiguration;
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation, ShopifyIntegration};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_postgres::{SqlxShopDetailsReaderFactory, SqlxShopRepositoryFactory};
 use shop_service::ports::{
@@ -119,7 +120,7 @@ async fn should_return_none_when_shop_details_rows_are_missing() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool);
     let details = SqlxShopDetailsReaderFactory::new();
-    let missing_shop_id = common::shop_id::ShopId::new();
+    let missing_shop_id = shop_core::shop_id::ShopId::new();
 
     let mut tx = begin(&unit_of_work).await;
     let details_by_id = match details
@@ -181,14 +182,14 @@ async fn set_shop_lifecycle(pool: &sqlx::PgPool, shop_id: ShopId, lifecycle: &st
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

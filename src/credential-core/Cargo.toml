@@ -1,0 +1,13 @@
+[package]
+name = "credential-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+domain-primitives = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+
+[features]
+default = []
+test-data = ["domain-primitives/test-data"]

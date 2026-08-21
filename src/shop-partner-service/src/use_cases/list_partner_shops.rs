@@ -1,12 +1,15 @@
 use crate::ports::{
     UserPartnerShopsReadError, UserPartnerShopsReader, UserPartnerShopsReaderFactory,
 };
-use common::error::boxed::BoxError;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId, user_id::UserId};
+use application::transaction::{Transaction, UnitOfWork};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListPartnerShopsRequest {
@@ -143,7 +146,9 @@ impl From<UserPartnerShopsReadError> for ListPartnerShopsError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::operation_context::{CorrelationId, CredentialCapability, Principal, RequestId};
+    use application::operation_context::{
+        CorrelationId, CredentialCapability, Principal, RequestId,
+    };
     use std::collections::BTreeSet;
 
     #[test]

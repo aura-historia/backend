@@ -1,12 +1,12 @@
-use common::postgres::SqlxUnitOfWork;
-use common::shop_id::ShopId;
-use common::transaction::UnitOfWork;
-use common::user_id::UserId;
+use application::transaction::UnitOfWork;
+use platform_postgres::SqlxUnitOfWork;
 use product_postgres::SqlxPartnerProductAuthorizerFactory;
 use product_service::ports::{
     PartnerProductAuthorizationError, PartnerProductAuthorizer, PartnerProductAuthorizerFactory,
 };
+use shop_core::shop_id::ShopId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 

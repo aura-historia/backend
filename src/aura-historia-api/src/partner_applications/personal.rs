@@ -19,7 +19,7 @@ pub async fn list_me(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     match state
         .list
@@ -46,7 +46,7 @@ pub async fn get_me(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let application_id = match parse_id(&raw_id) {
         Ok(v) => v,
@@ -75,7 +75,7 @@ pub async fn post_me(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let data: PostApplicationData = match parse_json(&body) {
         Ok(v) => v,
@@ -144,7 +144,7 @@ pub async fn delete_me(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let application_id = match parse_id(&raw_id) {
         Ok(v) => v,

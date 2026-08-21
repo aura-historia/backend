@@ -9,7 +9,7 @@
 
 - Crawler be async, Postgres-backed, LLM-assisted ingest system for antique shop sites.
 - Root modules: `google_llm`, `local_db`, `logging`, `network`, `review`, `scraper`, `service`, `spider`.
-- Main neighbors: `common`, `product`, `shop`.
+- Main neighbors: `common`, `large-language-model`, `product`, `shop`.
 - Main binaries: `server`, `demo`, `demo-spider`, `demo-scraper`, `fetch-fixture`.
 - `service::cron` drive three parallel loops: shop sync, spider, scraper.
 - Spider and scraper cron use global slot schedulers. Refill only schedulable work; scraper fetch picks random eligible domains, takes up to 100 due URLs per domain by default, and excludes domains already seen in the pass.
@@ -22,7 +22,7 @@
 - Postgres be crawler source of truth. Main durable tables be `shops`, `shop_domains`, `shop_urls`, `shops_product_schema`, `shops_removed_page_schema`, `crawler_reviews`, `crawler_review_pages`, `product_state_mapping`.
 - Main handoff be DB-backed: shop sync feeds spider; spider feeds scraper through `shop_urls`; scraper feeds backend product push.
 - Locking be two-layer: process-local locks stop duplicate in one process, DB lock/cooldown metadata stop bad overlap and hot-loop retries across runs after final fetch failure.
-- LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair page classification, schema evaluation, state mapping fallback.
+- LLM use stay bounded and explicit: URL regex inference, product schema generation, HTML-only append-repair page classification, schema evaluation, state mapping fallback. LLM-specific operation/model/tier vocabulary and invocation metrics/logging come from `large-language-model`; legacy `common` logging remains only for unrelated legacy events.
 - Shop-level LLM spend be budgeted through `shops.llm_calls_count`.
 - Review and schema cache be safety rail: generated artifacts can be audited, approved, repaired, or superseded.
 - Schema generation and append repair must use YAML-grounded selectors only. Prefer `null` over guessed optional-field selectors. State selector prompt must choose only availability/cart action nodes and exclude price text.

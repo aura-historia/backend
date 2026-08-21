@@ -5,15 +5,16 @@ use crate::products::product_data::{
     PersonalizedProductDetailsData, personalized_product_details_data,
 };
 use crate::state::SearchFiltersState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
-use common::pagination::cursor::{Cursor, CursoredResult, api::JsonCursoredData};
-use common::product_id::ProductId;
-use common::sort::SortOrder;
+
+use crate::pagination_data::JsonCursoredData;
+use application::pagination::{Cursor, CursoredResult};
+use domain_primitives::sort::SortOrder;
+use product_core::product_id::ProductId;
 use search_filter_service::ports::SearchFilterMatchCursor;
 use search_filter_service::use_cases::ListSearchFilterMatchesRequest;
 use serde::Deserialize;
@@ -62,7 +63,7 @@ pub(super) async fn list_search_filter_matches(
     };
     let (context, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match state
         .list_search_filter_matches

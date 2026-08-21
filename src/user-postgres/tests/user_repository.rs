@@ -1,16 +1,16 @@
-use ::common::currency::domain::Currency;
-use ::common::language::domain::Language;
-use ::common::measurement_unit::domain::MeasurementUnit;
-use ::common::postgres::SqlxUnitOfWork;
-use ::common::stripe_customer_id::StripeCustomerId;
-use ::common::transaction::{Transaction, UnitOfWork};
-use ::common::user_id::UserId;
+use ::application::transaction::{Transaction, UnitOfWork};
+use ::platform_postgres::SqlxUnitOfWork;
+use ::user_core::stripe_customer_id::StripeCustomerId;
+use ::user_core::user_id::UserId;
 use geo::core::{address::StructuredAddress, continent::Continent};
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
+use user_core::measurement_unit::MeasurementUnit;
 use user_core::role::UserRole;
 use user_core::tier::UserTier;
 use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
@@ -334,14 +334,14 @@ fn email(value: &str) -> Email {
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> ::common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> ::platform_postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: ::common::postgres::SqlxTransaction) {
+async fn commit(tx: ::platform_postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

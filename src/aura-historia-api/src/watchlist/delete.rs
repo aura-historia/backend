@@ -4,7 +4,7 @@ use crate::state::WatchlistState;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::product_id::ProductId;
+use product_core::product_id::ProductId;
 use watchlist_service::use_cases::UnwatchProductCommand;
 
 pub async fn delete_watchlist(
@@ -14,7 +14,7 @@ pub async fn delete_watchlist(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let product_id = match ProductId::try_from(raw_product_id.as_str()) {
         Ok(v) => v,

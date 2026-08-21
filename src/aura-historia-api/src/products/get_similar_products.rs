@@ -2,17 +2,17 @@ use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_PATH_PARAMETER_VALUE, INVALID_UUID, PRODUCT_INTERNAL_ERROR};
 use crate::products::product_data::personalized_product_summary_data;
 use crate::state::ProductsState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use common::product_id::ProductId;
-use common::product_slug_id::ProductSlugId;
-use common::shop_slug_id::ShopSlugId;
-use common::{currency::data::CurrencyData, language::data::LanguageData};
+use product_core::product_id::ProductId;
+use product_core::product_slug_id::ProductSlugId;
 use product_service::ports::ProductEmbeddingLookup;
 use product_service::use_cases::{GetSimilarProductsRequest, GetSimilarProductsResult};
 use serde::Deserialize;
+use shop_core::shop_slug_id::ShopSlugId;
 
 #[derive(Debug, Deserialize)]
 struct SimilarProductsQuery {
@@ -188,26 +188,20 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use application::operation_context::OperationContext;
+    use application::personalized::Personalized;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::currency::domain::Currency;
-    use common::event_id::EventId;
-    use common::language::domain::Language;
-    use common::localized::Localized;
-    use common::operation_context::OperationContext;
-    use common::personalized::Personalized;
-    use common::price::domain::{MonetaryAmount, Price};
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
-    use common::shops_product_id::ShopsProductId;
-    use common::user_id::UserId;
+    use domain_primitives::event_id::EventId;
+    use localization::{Language, Localized};
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_slug_id::ProductSlugId;
+    use product_core::product_state::ProductState;
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::title::Title;
-    use product_core::user_state::ProductUserState;
     use product_service::use_cases::{
         GetProductError, GetProductRequest, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
@@ -215,11 +209,16 @@ mod tests {
         ProductSummaryPriceValuation, SearchProductsError, SearchProductsRequest,
         SearchProductsResult, SearchProductsUseCase,
     };
+    use product_service::user_state::ProductUserState;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use time::OffsetDateTime;
     use tower::ServiceExt;
     use url::Url;
+    use user_core::user_id::UserId;
 
     #[derive(Clone)]
     enum FakeSimilarProductsResult {
@@ -520,7 +519,7 @@ mod tests {
                 }),
                 display_price: Some(Price::new(MonetaryAmount::from(100_u64), Currency::Eur)),
                 price_valuation: ProductSummaryPriceValuation::Current {
-                    fx_rate_id: common::fx_rate_id::FxRateId::new(),
+                    fx_rate_id: fxrate_core::FxRateId::new(),
                     captured_at: OffsetDateTime::UNIX_EPOCH,
                 },
                 state: ProductState::Listed,

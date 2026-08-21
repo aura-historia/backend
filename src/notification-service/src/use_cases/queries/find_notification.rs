@@ -1,6 +1,7 @@
 use crate::ports::notification_repository::{NotificationRepository, NotificationRepositoryError};
-use common::{event_id::EventId, user_id::UserId};
+use domain_primitives::event_id::EventId;
 use notification_core::notification::Notification;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FindNotificationRequest {
@@ -61,10 +62,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{partner_shop_application_id::PartnerShopApplicationId, shop_name::ShopName};
     use notification_core::notification::{
         NotificationPartnerApplicationPayload, NotificationPayload,
     };
+    use shop_core::shop_name::ShopName;
+    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 
     #[derive(Clone)]
     struct FakeRepository(Option<Notification>);

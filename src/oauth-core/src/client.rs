@@ -1,8 +1,9 @@
-use common::{oauth_client_id::OAuthClientId, string_newtype};
+use credential_core::{oauth_client_id::OAuthClientId, scope::Scope};
+use domain_primitives::string_newtype;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use url::Url;
-use user_core::access_token::{HashedRawOAuthClientSecret, Scope};
+use user_core::access_token::HashedRawOAuthClientSecret;
 
 string_newtype!(
     OAuthClientName,

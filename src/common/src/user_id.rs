@@ -1,12 +1,5 @@
-use uuid::Uuid;
-
-crate::uuid_v4_newtype!(UserId);
-
-impl From<UserId> for Uuid {
-    fn from(id: UserId) -> Self {
-        id.0
-    }
-}
+// Legacy shim. Owner: user-core. Remove after legacy common consumers migrate.
+pub type UserId = user_core::user_id::UserId;
 
 #[cfg(feature = "api")]
 pub mod api {
@@ -122,7 +115,7 @@ pub mod api {
             let authorizer = create_authorizer_with_jwt(Some(jwt));
             let request_context = create_request_context_with_authorizer(Some(authorizer));
 
-            let actual = extract_user_id_request_context(&request_context).unwrap().0;
+            let actual = Uuid::from(extract_user_id_request_context(&request_context).unwrap());
 
             assert_eq!(expected, actual);
         }

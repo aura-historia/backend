@@ -7,9 +7,9 @@
 
 ## Core Design
 
-- Depends on `shop-core`, shared `common` app contracts, and shared `geo::{Geocoder, GeocodingError}`.
-- Root modules: `ports`, `use_case_bundle`, `use_cases`.
-- Operational handlers use `common::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
+- Depends on `shop-core`, shared `application` contracts, pure `money`/`localization` values, and shared `geo::{Geocoder, GeocodingError}`.
+- Root modules: `ports`, `shop_search`, `use_case_bundle`, `use_cases`. `shop_search::ShopSearch` is the Shop search use-case input.
+- Operational handlers use `application::transaction::UnitOfWork` and transaction-scoped repository/reader factories.
 - Ports are public because adapter/runtime crates implement them.
 - Shop write use cases own admin/partner authorization checks inline; controllers must not enforce those rules. WooCommerce ports expose transaction-scoped partner membership, safe integration config, and HMAC verification for the Product intake use case. The verifier returns semantic outcomes; raw secrets never appear in Shop service application return types.
 - Shop admin checks call `CheckUserAdminUseCase` with actor from `OperationContext`, not target user id.

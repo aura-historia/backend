@@ -3,17 +3,17 @@ use crate::ports::{
     WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
 };
 use crate::tier_policy::active_watchlist_quota;
-use common::error::boxed::{BoxError, box_error};
-use common::operation_context::{
+use application::error::{BoxError, box_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::product_id::ProductId;
-use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use product_core::product_id::ProductId;
+use user_core::user_id::UserId;
 use user_service::ports::{
     UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
 };
+use watchlist_core::watchlist_state::WatchlistState;
 use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -143,7 +143,7 @@ where
             user_id: command.user_id,
             product_id: command.product_id,
             notifications: command.notifications,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         });
         let entry = self
             .watchlist
@@ -222,18 +222,17 @@ mod tests {
 
     use super::*;
 
-    use common::error::boxed::static_error;
+    use application::error::static_error;
 
     use crate::ports::{
         WatchlistProductView, WatchlistQuotaReadError, WatchlistQuotaReader,
         WatchlistQuotaReaderFactory, WatchlistReadError, WatchlistReader, WatchlistReaderFactory,
         WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
     };
-    use common::operation_context::{
+    use application::operation_context::{
         CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
     };
-    use common::resource_state::domain::ResourceState;
-    use common::transaction::{Transaction, TransactionError, UnitOfWork};
+    use application::transaction::{Transaction, TransactionError, UnitOfWork};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
@@ -241,6 +240,7 @@ mod tests {
     use user_service::ports::{
         UserTierEntitlements, UserTierEntitlementsError, UserTierEntitlementsFactory,
     };
+    use watchlist_core::watchlist_state::WatchlistState;
     use watchlist_core::{NewWatchlistProduct, WatchlistProduct};
 
     #[derive(Clone, Default)]
@@ -556,7 +556,7 @@ mod tests {
             user_id,
             product_id,
             notifications,
-            state: ResourceState::Active,
+            state: WatchlistState::Active,
         })
     }
 

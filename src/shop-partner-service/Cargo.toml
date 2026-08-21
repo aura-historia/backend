@@ -5,8 +5,11 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-common = { workspace = true }
+application = { workspace = true }
+domain-primitives = { workspace = true }
 geo = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 serde = { workspace = true }
@@ -29,4 +32,4 @@ tokio = { workspace = true, features = ["macros", "rt"] }
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "shop-core/test-data", "shop-partner-core/test-data"]
+test-data = ["fake", "shop-core/test-data", "shop-partner-core/test-data"]

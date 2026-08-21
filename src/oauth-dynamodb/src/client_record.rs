@@ -1,5 +1,5 @@
 use crate::scope_record::ScopeRecord;
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::client::{OAuthClient, OAuthClientName};
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;

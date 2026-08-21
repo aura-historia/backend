@@ -1,33 +1,47 @@
-use common::currency::data::CurrencyData;
-use common::distance::data::GeoDistanceQueryData;
+use crate::values::{CurrencyData, GeoDistanceQueryData, LanguageData};
+use application::patch_field::PatchField;
+use domain_primitives::event_id::EventId;
+use domain_primitives::query::any_of_query::AnyOfQuery;
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
 
-use common::event_id::EventId;
-use common::language::data::LanguageData;
-use common::patch_field::PatchField;
-use common::price::domain::MonetaryAmount;
-use common::product_id::ProductId;
-use common::product_state::domain::ProductState;
-use common::query::any_of_query::AnyOfQuery;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
-use common::resource_state::data::{PatchResourceStateData, ResourceStateData};
-use common::seller_slug_id::SellerSlugId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use money::MonetaryAmount;
+use product_core::product_id::ProductId;
+use product_core::product_state::ProductState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
+use user_core::user_id::UserId;
 
 use geo::core::continent::Continent;
 use geo::data::continent_data::ContinentData;
 use isocountry::CountryCode;
 use product_core::product_search::{EnhancedSearchDescription, ProductSearch};
+use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
 use search_filter_service::use_cases::ProductSearchPatch;
 use serde::{Deserialize, Serialize};
 use shop_core::shop_type::ShopType;
 use std::collections::HashSet;
 use time::OffsetDateTime;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum SearchFilterStateData {
+    #[default]
+    Active,
+    InactiveByUser,
+    InactiveByRestrictedPlan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(super) enum PatchSearchFilterStateData {
+    Active,
+    InactiveByUser,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,7 +64,7 @@ pub(super) struct UpdateSearchFilterData {
     #[serde(default)]
     pub(super) notifications: Option<bool>,
     #[serde(default)]
-    pub(super) state: Option<PatchResourceStateData>,
+    pub(super) state: Option<PatchSearchFilterStateData>,
     #[serde(default)]
     pub(super) search: Option<ProductSearchPatchData>,
 }
@@ -61,13 +75,13 @@ impl UpdateSearchFilterData {
     ) -> (
         PatchField<UserSearchFilterName>,
         PatchField<bool>,
-        PatchField<common::resource_state::domain::ResourceState>,
+        PatchField<SearchFilterState>,
         ProductSearchPatch,
     ) {
         (
             patch(self.name),
             patch(self.notifications),
-            patch(self.state.map(Into::into)),
+            patch(self.state.map(search_filter_state)),
             self.search.map(Into::into).unwrap_or_default(),
         )
     }
@@ -114,25 +128,25 @@ pub(super) struct ProductSearchPatchData {
     state_query: Option<HashSet<ProductStateData>>,
     #[serde(
         rename = "created",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     created_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "updated",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     updated_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "auctionStart",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     auction_start_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "auctionEnd",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     auction_end_query: Option<RangeQuery<OffsetDateTime>>,
@@ -301,28 +315,28 @@ pub(super) struct ProductSearchData {
     state_query: HashSet<ProductStateData>,
     #[serde(
         rename = "created",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     created_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "updated",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     updated_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "auctionStart",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     auction_start_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "auctionEnd",
-        with = "common::query::range_query::range_rfc3339::option",
+        with = "domain_primitives::query::range_query::range_rfc3339::option",
         default,
         skip_serializing_if = "Option::is_none"
     )]
@@ -466,7 +480,7 @@ pub(super) struct SearchFilterData {
     user_search_filter_id: UserSearchFilterId,
     name: UserSearchFilterName,
     notifications: bool,
-    state: ResourceStateData,
+    state: SearchFilterStateData,
     search: ProductSearchData,
     #[serde(
         with = "time::serde::rfc3339::option",
@@ -487,11 +501,28 @@ impl From<SearchFilterView> for SearchFilterData {
             user_search_filter_id: view.search_filter_id,
             name: view.name,
             notifications: view.notifications,
-            state: view.state.into(),
+            state: search_filter_state_data(view.state),
             search: view.search.into(),
             created: Some(view.created),
             updated: Some(view.updated),
         }
+    }
+}
+
+fn search_filter_state_data(state: SearchFilterState) -> SearchFilterStateData {
+    match state {
+        SearchFilterState::Active => SearchFilterStateData::Active,
+        SearchFilterState::InactiveByUser => SearchFilterStateData::InactiveByUser,
+        SearchFilterState::InactiveByRestrictedPlan => {
+            SearchFilterStateData::InactiveByRestrictedPlan
+        }
+    }
+}
+
+fn search_filter_state(state: PatchSearchFilterStateData) -> SearchFilterState {
+    match state {
+        PatchSearchFilterStateData::Active => SearchFilterState::Active,
+        PatchSearchFilterStateData::InactiveByUser => SearchFilterState::InactiveByUser,
     }
 }
 
@@ -542,7 +573,7 @@ pub(super) struct PaginatedData<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::language::domain::Language;
+    use localization::Language;
 
     #[test]
     fn should_map_only_supplied_nested_search_fields_to_product_search_patch()

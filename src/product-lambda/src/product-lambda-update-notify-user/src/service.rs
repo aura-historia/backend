@@ -801,9 +801,9 @@ mod tests {
             .expect_find_user_ids_watching_product()
             .return_once(|_| {
                 Box::pin(async {
-                    Err(WatchProductError::SdkGetItemError(
+                    Err(WatchProductError::SdkGetItemError(Box::new(
                         SdkError::construction_failure("simulated DynamoDB failure"),
-                    ))
+                    )))
                 })
             });
 
@@ -840,9 +840,9 @@ mod tests {
         let mut get_product_mock = MockGetProductService::new();
         get_product_mock.expect_find_product().return_once(|_, _| {
             Box::pin(async {
-                Err(GetProductError::SdkGetItemError(
+                Err(GetProductError::SdkGetItemError(Box::new(
                     SdkError::construction_failure("simulated DynamoDB failure"),
-                ))
+                )))
             })
         });
 

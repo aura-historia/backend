@@ -4,8 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application = { workspace = true }
 aura-historia-api = { workspace = true }
 aura-historia-worker = { workspace = true }
+platform-observability = { workspace = true }
+platform-opensearch = { workspace = true }
+platform-postgres = { workspace = true }
 aws-tests = { workspace = true }
 acceptance-tests = { workspace = true }
 cognito = { workspace = true }
@@ -85,6 +89,7 @@ partner-shop-application-lambda = { workspace = true }
 [workspace]
 members = [
     "src/acceptance-tests",
+    "src/application",
     "src/aura-historia-api",
     "src/aura-historia-worker",
     "src/aws-tests",
@@ -94,6 +99,10 @@ members = [
     "src/cloudwatch-log-retention-lambda",
     "src/cognito-post-confirmation",
     "src/common",
+    "src/credential-core",
+    "src/domain-primitives",
+    "src/localization",
+    "src/money",
     "src/embedding",
     "src/image-fetcher",
     "src/geo",
@@ -110,6 +119,9 @@ members = [
     "src/product-core",
     "src/product-service",
     "src/product-postgres",
+    "src/platform-observability",
+    "src/platform-opensearch",
+    "src/platform-postgres",
     "src/fxrate-core",
     "src/fxrate-service",
     "src/fxrate-postgres",
@@ -190,6 +202,10 @@ aws-sdk-cloudwatchlogs = "1.135.0"
 aws_lambda_events = { version = "1.2.0", default-features = false }
 cloudwatch-log-retention-lambda = { path = "src/cloudwatch-log-retention-lambda" }
 common = { path = "src/common" }
+credential-core = { path = "src/credential-core" }
+domain-primitives = { path = "src/domain-primitives" }
+localization = { path = "src/localization" }
+money = { path = "src/money" }
 embedding = { path = "src/embedding" }
 image-fetcher = { path = "src/image-fetcher" }
 geo = { path = "src/geo" }
@@ -198,6 +214,10 @@ derive_builder = "0.20.2"
 fake = { version = "5.1.0", features = ["derive", "time", "uuid", "url"] }
 field = "0.1.0"
 acceptance-tests = { path = "src/acceptance-tests" }
+application = { path = "src/application" }
+platform-observability = { path = "src/platform-observability" }
+platform-opensearch = { path = "src/platform-opensearch" }
+platform-postgres = { path = "src/platform-postgres" }
 search-filter = { path = "src/search-filter" }
 search-filter-core = { path = "src/search-filter-core" }
 search-filter-service = { path = "src/search-filter-service" }

@@ -1,4 +1,5 @@
-use common::{error::boxed::BoxError, user_id::UserId};
+use application::error::BoxError;
+use user_core::user_id::UserId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WatchlistQuotaReadError {

@@ -8,7 +8,7 @@
 
 - Cognito token verification and auth helpers.
 - Root modules: `access_token_verifier_service`, `localstack_access_token_verifier_service`.
-- Main neighbors: `common`.
+- Main neighbor: `user-core`.
 - Library crate. Keep domain, persistence, and service seams explicit.
 - Cognito only used as identidy provider. No business logic here. No user-attributes besides. They live in DynamoDB.
 

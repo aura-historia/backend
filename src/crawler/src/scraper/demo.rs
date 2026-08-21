@@ -46,7 +46,6 @@ use std::io::BufWriter;
 use std::sync::Arc;
 
 use common::language::data::LocalizedTextData;
-use common::logging::GeminiServiceTier;
 use common::price::data::PriceData;
 use common::shops_product_id::ShopsProductId;
 use crawler::google_llm::{
@@ -66,6 +65,7 @@ use crawler::scraper::normalization::state_mapping_service::ProductStateMappingS
 use crawler::scraper::scraper_service::{
     DEFAULT_MAX_LLM_CALLS_PER_SHOP, ReqwestHtmlFetcher, ScraperService, ScraperServiceImpl,
 };
+use large_language_model::GeminiServiceTier;
 use product::data::product_image_data::ProductImageData;
 use product::data::product_state_data::ProductStateData;
 use sqlx::PgPool;

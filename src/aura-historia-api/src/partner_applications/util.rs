@@ -1,8 +1,8 @@
 use crate::error::{ApiError, BAD_BODY_VALUE, INVALID_UUID};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use common::partner_shop_application_id::PartnerShopApplicationId;
 use serde::Deserialize;
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 
 pub(crate) fn no_store(mut response: Response) -> Response {
     response.headers_mut().insert(

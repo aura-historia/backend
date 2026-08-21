@@ -1,19 +1,16 @@
-use common::currency::domain::Currency;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::postgres::SqlxUnitOfWork;
-use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::ProductId;
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::pagination::{Cursor, CursoredResult};
+use application::transaction::{Transaction, UnitOfWork};
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Currency;
+use money::{MonetaryAmount, Price};
+use platform_postgres::SqlxUnitOfWork;
 use product_core::description::Description;
 use product_core::product::{NewProduct, Product, ProductAddress, ProductAuction, ProductPricing};
+use product_core::product_id::ProductId;
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
 use product_core::title::Title;
 use product_postgres::{
@@ -26,9 +23,12 @@ use product_service::ports::{
     ProductWatchlistDetailsCursor, ProductWatchlistDetailsReadError, ProductWatchlistDetailsReader,
     ProductWatchlistDetailsReaderFactory, ProductWatchlistDetailsRequest,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use url::Url;
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -387,7 +387,7 @@ fn sample_product(
         id: ProductId::new(),
         shop_id,
         seller_id,
-        shops_product_id: common::shops_product_id::ShopsProductId::from(slug),
+        shops_product_id: product_core::shops_product_id::ShopsProductId::from(slug),
         address: ProductAddress::default(),
         title,
         description,
@@ -466,14 +466,14 @@ fn url(value: &str) -> Url {
     }
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

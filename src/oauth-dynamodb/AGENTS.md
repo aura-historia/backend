@@ -8,7 +8,7 @@
 
 - Map OAuth domain types to legacy DynamoDB table records.
 - Implement OAuth service repository and reader ports.
-- Keep AWS SDK and record shapes here.
+- Keep AWS SDK, record shapes, update expressions, and serialization helpers here; these storage mechanics do not escape the adapter.
 
 ## Ownership
 

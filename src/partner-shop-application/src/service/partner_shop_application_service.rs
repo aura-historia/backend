@@ -36,25 +36,29 @@ pub enum PartnerShopApplicationError {
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for QueryItem: {0:?}")]
-    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
+    SdkQueryError(
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>,
+    ),
 
     #[error("Encountered DynamoDB SdkError for PutItem: {0:?}")]
     SdkPutItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
     SdkUpdateItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
+        #[source]
+        Box<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for DeleteItem: {0:?}")]
     SdkDeleteItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+        #[source]
+        Box<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>>,
     ),
 
     #[error("Missing persistence field: {0}")]
@@ -71,6 +75,54 @@ pub enum PartnerShopApplicationError {
 
     #[error("Failed hydrating existing shop payload: {0}")]
     GetShopError(#[from] GetShopError),
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>
+    for PartnerShopApplicationError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkGetItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>
+    for PartnerShopApplicationError
+{
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>) -> Self {
+        Self::SdkQueryError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>>
+    for PartnerShopApplicationError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkPutItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>>
+    for PartnerShopApplicationError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkUpdateItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>>
+    for PartnerShopApplicationError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkDeleteItemError(Box::new(error))
+    }
 }
 
 #[cfg(feature = "data")]
@@ -90,11 +142,11 @@ pub mod api {
                 PartnerShopApplicationError::NotFoundById(_) => {
                     ApiError::not_found(PARTNER_SHOP_APPLICATION_NOT_FOUND, Box::new(err))
                 }
-                PartnerShopApplicationError::SdkGetItemError(sdk_error) => sdk_error.into(),
-                PartnerShopApplicationError::SdkQueryError(sdk_error) => sdk_error.into(),
-                PartnerShopApplicationError::SdkPutItemError(sdk_error) => sdk_error.into(),
-                PartnerShopApplicationError::SdkUpdateItemError(sdk_error) => sdk_error.into(),
-                PartnerShopApplicationError::SdkDeleteItemError(sdk_error) => sdk_error.into(),
+                PartnerShopApplicationError::SdkGetItemError(sdk_error) => (*sdk_error).into(),
+                PartnerShopApplicationError::SdkQueryError(sdk_error) => (*sdk_error).into(),
+                PartnerShopApplicationError::SdkPutItemError(sdk_error) => (*sdk_error).into(),
+                PartnerShopApplicationError::SdkUpdateItemError(sdk_error) => (*sdk_error).into(),
+                PartnerShopApplicationError::SdkDeleteItemError(sdk_error) => (*sdk_error).into(),
                 PartnerShopApplicationError::MissingPersistenceField(_) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
@@ -334,8 +386,10 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .update_partner_shop_application_record(user_id, id, record_update)
             .await?
             .ok_or_else(|| {
-                PartnerShopApplicationError::SdkUpdateItemError(SdkError::construction_failure(
-                    "Failed retrieving new PartnerShopApplication on update",
+                PartnerShopApplicationError::SdkUpdateItemError(Box::new(
+                    SdkError::construction_failure(
+                        "Failed retrieving new PartnerShopApplication on update",
+                    ),
                 ))
             })?;
 
@@ -465,8 +519,10 @@ impl<'a> PartnerShopApplicationService for PartnerShopApplicationServiceImpl<'a>
             .update_partner_shop_application_record(&user_id, id, record_update)
             .await?
             .ok_or_else(|| {
-                PartnerShopApplicationError::SdkUpdateItemError(SdkError::construction_failure(
-                    "Failed retrieving new PartnerShopApplication on update",
+                PartnerShopApplicationError::SdkUpdateItemError(Box::new(
+                    SdkError::construction_failure(
+                        "Failed retrieving new PartnerShopApplication on update",
+                    ),
                 ))
             })?;
 
@@ -657,8 +713,10 @@ impl<'a> PartnerShopApplicationServiceImpl<'a> {
             .update_partner_shop_application_record(&user_id, id, record_update)
             .await?
             .ok_or_else(|| {
-                PartnerShopApplicationError::SdkUpdateItemError(SdkError::construction_failure(
-                    "Failed retrieving PartnerShopApplication after setting Processing state",
+                PartnerShopApplicationError::SdkUpdateItemError(Box::new(
+                    SdkError::construction_failure(
+                        "Failed retrieving PartnerShopApplication after setting Processing state",
+                    ),
                 ))
             })?;
 

@@ -2,12 +2,13 @@ use crate::mapping::{
     UserRow, bind_country, bind_currency, bind_language, bind_measurement_unit, bind_role,
     bind_tier, user_columns, version_to_i64,
 };
-use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
-use common::{stripe_customer_id::StripeCustomerId, user_id::UserId};
+use application::error::box_error;
+use platform_postgres::SqlxTransaction;
 use serde_email::Email;
 use sqlx::PgConnection;
+use user_core::stripe_customer_id::StripeCustomerId;
 use user_core::user::User;
+use user_core::user_id::UserId;
 use user_service::ports::{
     UserInsertOutcome, UserRepository, UserRepositoryError, UserRepositoryFactory,
     UserStorageVersion, VersionedUser,

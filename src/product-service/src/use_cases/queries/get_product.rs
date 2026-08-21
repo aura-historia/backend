@@ -2,39 +2,38 @@ use crate::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsReadError, ProductDetailsReadRequest,
     ProductDetailsReader, ProductDetailsReaderFactory,
 };
-use common::currency::domain::Currency;
-use common::error::boxed::{BoxError, box_error};
-use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::operation_context::{OperationContext, Principal};
-use common::personalized::Personalized;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
-use common::shops_product_id::ShopsProductId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use fxrate_core::{FxRateSnapshot, FxRateSnapshotError, RoundingMode};
+use crate::user_state::{NotificationUserState, ProductUserState};
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationContext, Principal};
+use application::personalized::Personalized;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
+use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError, RoundingMode};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Currency;
 use notification_service::ports::product_notifications_reader::{
     ProductNotificationsReadError, ProductNotificationsReader,
 };
 use product_core::description::Description;
 use product_core::product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation};
+use product_core::product_id::ProductId;
 use product_core::product_image::ProductImage;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
-use product_core::user_state::{NotificationUserState, ProductUserState};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProductLookup {
@@ -61,9 +60,9 @@ pub struct ProductPricingPresentation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayProductPricing {
-    pub price: Option<common::price::domain::Price>,
-    pub price_estimate_min: Option<common::price::domain::Price>,
-    pub price_estimate_max: Option<common::price::domain::Price>,
+    pub price: Option<money::Price>,
+    pub price_estimate_min: Option<money::Price>,
+    pub price_estimate_max: Option<money::Price>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,7 +108,7 @@ pub fn present_product_pricing(
         });
     }
 
-    let convert = |price: Option<common::price::domain::Price>| {
+    let convert = |price: Option<money::Price>| {
         price
             .map(|price| snapshot.convert(price, display_currency, RoundingMode::HalfUp))
             .transpose()
@@ -487,12 +486,12 @@ impl From<ProductPricingPresentationError> for GetProductError {
 mod tests {
     use super::*;
     use crate::ports::ProductDetailsReadModel;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
-    use common::transaction::TransactionError;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::transaction::TransactionError;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
+    use money::{MonetaryAmount, Price};
     use notification_core::notification::{
         NotificationPartnerApplicationPayload, NotificationPayload,
     };
@@ -840,7 +839,7 @@ mod tests {
                 image: None,
                 partner_application_payload: NotificationPartnerApplicationPayload::Approved {
                     partner_application_id:
-                        common::partner_shop_application_id::PartnerShopApplicationId::new(),
+                        shop_partner_core::partner_shop_application_id::PartnerShopApplicationId::new(),
                 },
             },
             seen,

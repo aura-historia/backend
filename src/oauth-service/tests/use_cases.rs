@@ -1,8 +1,7 @@
-use common::oauth_client_id::OAuthClientId;
-use common::operation_context::{
+use application::operation_context::{
     CorrelationId, CredentialCapability, OperationContext, Principal, RequestId,
 };
-use common::user_id::UserId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
     OAuthCodeVerifier,
@@ -28,6 +27,7 @@ use time::OffsetDateTime;
 use user_core::access_token::{
     AccessTokenOrigin, HashedRawOAuthClientSecret, RawAccessToken, RawOAuthClientSecret, Scope,
 };
+use user_core::user_id::UserId;
 
 #[derive(Default)]
 struct State {

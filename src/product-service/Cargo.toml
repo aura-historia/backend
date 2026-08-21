@@ -5,20 +5,26 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
-common = { workspace = true }
+application = { workspace = true }
+domain-primitives = { workspace = true }
 embedding = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
 geo = { workspace = true }
 indexmap = { workspace = true }
 html-to-markdown-rs = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 notification-core = { workspace = true }
 notification-service = { workspace = true }
 product-core = { workspace = true }
+search-filter-core = { workspace = true }
 shop-core = { workspace = true }
+shop-partner-core = { workspace = true }
 shop-service = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["local-offset", "macros", "formatting"] }
+user-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 tracing = { workspace = true }
@@ -34,4 +40,4 @@ strum = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "product-core/test-data", "common/test-data", "geo/test-data"]
+test-data = ["fake", "product-core/test-data", "geo/test-data", "search-filter-core/test-data", "shop-partner-core/test-data"]

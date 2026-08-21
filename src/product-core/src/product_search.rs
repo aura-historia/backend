@@ -1,21 +1,19 @@
-use common::currency::domain::Currency;
-use common::distance::domain::GeoDistanceQuery;
-use common::language::domain::Language;
-use common::price::domain::MonetaryAmount;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_state::domain::ProductState;
-use common::query::any_of_query::AnyOfQuery;
-use common::query::range_query::RangeQuery;
-use common::query::text_query::TextQuery;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
-use common::string_newtype;
+use crate::product_id::ProductId;
+use crate::product_lifecycle::ProductLifecycle;
+use crate::product_state::ProductState;
+use domain_primitives::query::any_of_query::AnyOfQuery;
+use domain_primitives::query::range_query::RangeQuery;
+use domain_primitives::query::text_query::TextQuery;
+use domain_primitives::string_newtype;
 use geo::core::continent::Continent;
+use geo::core::distance::GeoDistanceQuery;
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
+use money::MonetaryAmount;
 use serde_fields::SerdeField;
 use shop_core::shop_type::ShopType;
+use shop_core::{seller_slug_id::SellerSlugId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use time::OffsetDateTime;
 
 string_newtype!(EnhancedSearchDescription, max_length(1000));
@@ -219,7 +217,7 @@ impl ProductSearch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::query::range_query::RangeQuery;
+    use domain_primitives::query::range_query::RangeQuery;
     use std::collections::HashSet;
 
     #[test]

@@ -1,5 +1,6 @@
-use crate::{first_name::FirstName, last_name::LastName};
-use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
+use crate::{first_name::FirstName, last_name::LastName, user_id::UserId};
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,8 +60,9 @@ impl NewsletterSubscription {
 #[cfg(test)]
 mod tests {
     use super::NewsletterSubscription;
-    use crate::{first_name::FirstName, last_name::LastName};
-    use common::{currency::domain::Currency, language::domain::Language, user_id::UserId};
+    use crate::{first_name::FirstName, last_name::LastName, user_id::UserId};
+    use localization::Language;
+    use money::Currency;
 
     #[test]
     fn should_preserve_newsletter_subscription_values() {

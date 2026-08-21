@@ -1,4 +1,5 @@
-use common::{event_id::EventId, postgres::SqlxTransaction};
+use domain_primitives::event_id::EventId;
+use platform_postgres::SqlxTransaction;
 use product_service::ports::{
     ProductEmbeddingWrite, ProductEmbeddingWriteError, ProductEmbeddingWriteOutcome,
     ProductEmbeddingWriter, ProductEmbeddingWriterFactory,
@@ -92,7 +93,7 @@ impl ProductEmbeddingWriter for SqlxProductEmbeddingWriter<'_> {
         .execute(&mut *self.connection).await.map_err(ProductEmbeddingWriteSqlxError)?;
         if update.rows_affected() != 1 {
             return Err(ProductEmbeddingWriteError::WriteFailed {
-                source: common::error::boxed::static_error(
+                source: application::error::static_error(
                     "locked product embedding source revision changed unexpectedly",
                 ),
             });
@@ -127,7 +128,7 @@ async fn duplicate_embedding_exists(
 impl From<ProductEmbeddingWriteSqlxError> for ProductEmbeddingWriteError {
     fn from(source: ProductEmbeddingWriteSqlxError) -> Self {
         Self::WriteFailed {
-            source: common::error::boxed::box_error(source),
+            source: application::error::box_error(source),
         }
     }
 }

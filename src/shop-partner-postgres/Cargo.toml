@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+user-core = { workspace = true }
+application = { workspace = true }
 async-trait = { workspace = true }
-common = { workspace = true, features = ["postgres"] }
+domain-primitives = { workspace = true }
+platform-postgres = { workspace = true }
 shop-core = { workspace = true }
 shop-partner-core = { workspace = true }
 shop-partner-service = { workspace = true }
@@ -16,6 +19,8 @@ time = { workspace = true, features = ["formatting", "parsing"] }
 uuid = { workspace = true }
 
 [dev-dependencies]
+localization = { workspace = true }
+money = { workspace = true }
 geo = { workspace = true }
 notification-service = { workspace = true }
 shop-postgres = { workspace = true }

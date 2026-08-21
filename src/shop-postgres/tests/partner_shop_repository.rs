@@ -1,10 +1,11 @@
-use common::domain::Domain;
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, shop_name::ShopName, user_id::UserId};
+use application::transaction::{Transaction, UnitOfWork};
+use platform_postgres::SqlxUnitOfWork;
 use shop_core::affiliate_configuration::AffiliateConfiguration;
+use shop_core::domain::Domain;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_postgres::{
     SqlxPartnerShopReaderFactory, SqlxPartnerShopRepositoryFactory, SqlxShopRepositoryFactory,
@@ -17,6 +18,7 @@ use shop_service::use_cases::queries::check_user_partner_shop::CheckUserPartnerS
 use std::collections::HashSet;
 use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 use url::Url;
+use user_core::user_id::UserId;
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA])]
 async fn should_report_missing_user_when_granting_partner_shop() {
@@ -110,14 +112,14 @@ fn sample_shop(slug: &str) -> Shop {
     Shop::create(new_shop(slug))
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     match unit_of_work.begin().await {
         Ok(tx) => tx,
         Err(error) => panic!("failed to begin transaction: {error}"),
     }
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     if let Err(error) = tx.commit().await {
         panic!("failed to commit transaction: {error}");
     }

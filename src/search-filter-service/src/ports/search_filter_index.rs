@@ -1,8 +1,8 @@
 use crate::ports::{SearchFilterProjection, SearchFilterView};
-use common::error::boxed::BoxError;
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::user_search_filter_id::UserSearchFilterId;
+use application::error::BoxError;
+use application::pagination::{Cursor, CursoredResult};
 use product_service::ports::ProductPercolationInput;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchFilterProjectionWriteOutcome {
@@ -12,7 +12,7 @@ pub enum SearchFilterProjectionWriteOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SearchFilterIndexQuery {
-    pub state: Option<common::resource_state::domain::ResourceState>,
+    pub state: Option<search_filter_core::search_filter_state::SearchFilterState>,
     pub has_enhanced_search_description: Option<bool>,
     pub cursor: Option<Cursor<serde_json::Value>>,
 }

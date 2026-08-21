@@ -9,23 +9,30 @@ axum = { workspace = true }
 base64 = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
+application = { workspace = true }
 billing-service = { workspace = true }
 billing-stripe = { workspace = true }
-common = { workspace = true, features = ["api", "postgres"] }
+credential-core = { workspace = true }
+domain-primitives = { workspace = true }
 embedding = { workspace = true }
+fxrate-core = { workspace = true }
 fxrate-postgres = { workspace = true }
 geo = { workspace = true, features = ["data"] }
 google-cloud-auth = { workspace = true }
 http = { workspace = true }
 httpdate = { workspace = true }
 indexmap = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 oauth-core = { workspace = true }
 oauth-dynamodb = { workspace = true }
 oauth-service = { workspace = true }
 opensearch = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
 isocountry = { workspace = true }
 jsonwebtokens = { workspace = true }
-notification-core = { workspace = true }
+
 notification-dynamodb = { workspace = true }
 notification-service = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
@@ -44,6 +51,7 @@ product-core = { workspace = true }
 product-opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
+search-filter-core = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
 thiserror = { workspace = true }

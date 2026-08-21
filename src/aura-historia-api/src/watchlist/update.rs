@@ -1,4 +1,4 @@
-use super::types::{PatchWatchlistData, WatchlistEntryData};
+use super::types::{PatchWatchlistData, WatchlistEntryData, watchlist_state};
 use super::util::parse_json;
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
@@ -7,7 +7,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::product_id::ProductId;
+use product_core::product_id::ProductId;
 use watchlist_service::use_cases::UpdateWatchlistProductCommand;
 
 pub async fn patch_watchlist(
@@ -18,7 +18,7 @@ pub async fn patch_watchlist(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let product_id = match ProductId::try_from(raw_product_id.as_str()) {
         Ok(v) => v,
@@ -41,7 +41,7 @@ pub async fn patch_watchlist(
                 user_id,
                 product_id,
                 notifications: data.notifications,
-                state: data.state.map(Into::into),
+                state: data.state.map(watchlist_state),
             },
         )
         .await

@@ -1,6 +1,7 @@
 use crate::ports::notification_repository::{NotificationRepository, NotificationRepositoryError};
-use common::{event_id::EventId, user_id::UserId};
+use domain_primitives::event_id::EventId;
 use notification_core::notification::Notification;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct UpdateNotificationCommand {
@@ -74,17 +75,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::{
-        error::boxed::{BoxError, box_error},
-        partner_shop_application_id::PartnerShopApplicationId,
-        shop_name::ShopName,
-    };
+    use application::error::{BoxError, box_error};
     use notification_core::{
         notification::{
             NotificationPartnerApplicationPayload, NotificationPayload, RehydratedNotificationState,
         },
         notification_id::NotificationId,
     };
+    use shop_core::shop_name::ShopName;
+    use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Default)]

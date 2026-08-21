@@ -8,7 +8,7 @@
 
 - Legacy Product domain, repositories, and core product services.
 - Canonical migration types now live in `product-core`, `product-service`, and `product-postgres`.
-- DynamoDB/OpenSearch and old service paths remain here until caller cutover.
+- DynamoDB/OpenSearch and old service paths remain here until caller cutover. The legacy ProductKey string codec is owned by the DynamoDB boundary and preserves persisted key text.
 - Root modules: `core`, `data`, `dynamodb`, `opensearch`, `postgres`, `service`.
 - Main neighbors: `common`, `geo`, `shop`.
 - Library crate. Keep old behavior stable while migration moves canonical code out.

@@ -8,7 +8,7 @@
 
 - Worker Lambda for Shopify product ingestion from EventBridge through SQS.
 - Root modules: `types`.
-- Main neighbors: `common`, `product-service`, `product-postgres`, `shop-service`, `shop-postgres`.
+- Main neighbors: `application`, `platform-observability`, `platform-postgres`, `product-service`, `product-postgres`, `shop-core`, `shop-service`, `shop-postgres`, `fxrate-postgres`.
 - Event/runtime edge crate. It parses SQS/EventBridge payloads and invokes canonical Product service handlers; Postgres product/event writes stay in Product service.
 
 ## Ownership

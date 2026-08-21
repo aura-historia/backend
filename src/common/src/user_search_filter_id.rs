@@ -1,4 +1,5 @@
-crate::uuid_v7_newtype!(UserSearchFilterId);
+// Legacy shim. Owner: search-filter-core. Remove after legacy common consumers migrate.
+pub type UserSearchFilterId = search_filter_core::user_search_filter_id::UserSearchFilterId;
 
 #[cfg(feature = "api")]
 pub mod api {

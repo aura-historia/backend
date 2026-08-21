@@ -3,32 +3,32 @@ use crate::ports::{
     ProductEventStore, ProductEventStoreError, ProductEventStoreFactory, ProductRepository,
     ProductRepositoryError, ProductRepositoryFactory,
 };
-use common::error::boxed::BoxError;
-use common::event_id::EventId;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::operation_context::{
+use application::error::BoxError;
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::product_id::ProductId;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
 use product_core::description::Description;
 use product_core::product::{
     NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     RehydrateProductError,
 };
+use product_core::product_id::ProductId;
 use product_core::product_image::ProductImage;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
+use shop_core::shop_id::ShopId;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateProductCommand {
@@ -468,14 +468,14 @@ impl FxRateSnapshotRepository for MissingFxRateSnapshotRepository {
 
     async fn find_by_id(
         &mut self,
-        _id: common::fx_rate_id::FxRateId,
+        _id: fxrate_core::FxRateId,
     ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(None)
     }
 
     async fn find_by_ids(
         &mut self,
-        _ids: &[common::fx_rate_id::FxRateId],
+        _ids: &[fxrate_core::FxRateId],
     ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(Vec::new())
     }
@@ -518,10 +518,10 @@ impl From<ProductEventStoreError> for CreateProductError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
-    use common::transaction::TransactionError;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::transaction::TransactionError;
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
@@ -532,8 +532,12 @@ mod tests {
         commit_error: bool,
         begin_count: usize,
         commit_count: usize,
-        insert_result:
-            Option<Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>>,
+        insert_result: Option<
+            Result<
+                domain_primitives::versioned::Versioned<Product, EventId>,
+                ProductRepositoryError,
+            >,
+        >,
         append_result: Option<Result<(), ProductEventStoreError>>,
         inserted_product: Option<Product>,
         insert_count: usize,
@@ -619,14 +623,14 @@ mod tests {
 
         async fn find_by_id(
             &mut self,
-            _id: common::fx_rate_id::FxRateId,
+            _id: fxrate_core::FxRateId,
         ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
             Ok(None)
         }
 
         async fn find_by_ids(
             &mut self,
-            _ids: &[common::fx_rate_id::FxRateId],
+            _ids: &[fxrate_core::FxRateId],
         ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
             Ok(Vec::new())
         }
@@ -738,16 +742,20 @@ mod tests {
         async fn find_by_id(
             &mut self,
             _id: ProductId,
-        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
-        {
+        ) -> Result<
+            Option<domain_primitives::versioned::Versioned<Product, EventId>>,
+            ProductRepositoryError,
+        > {
             Ok(None)
         }
 
         async fn find_by_key(
             &mut self,
-            _key: &common::product_id::ProductKey,
-        ) -> Result<Option<common::versioned::Versioned<Product, EventId>>, ProductRepositoryError>
-        {
+            _key: &product_core::product_id::ProductKey,
+        ) -> Result<
+            Option<domain_primitives::versioned::Versioned<Product, EventId>>,
+            ProductRepositoryError,
+        > {
             Ok(None)
         }
 
@@ -755,14 +763,14 @@ mod tests {
             &mut self,
             product: &Product,
             current_event_id: EventId,
-        ) -> Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>
+        ) -> Result<domain_primitives::versioned::Versioned<Product, EventId>, ProductRepositoryError>
         {
             let mut state = lock_state(&self.state);
             state.insert_count += 1;
             state.inserted_product = Some(product.clone());
             match state.insert_result.take() {
                 Some(result) => result,
-                None => Ok(common::versioned::Versioned::new(
+                None => Ok(domain_primitives::versioned::Versioned::new(
                     product.clone(),
                     current_event_id,
                 )),
@@ -774,9 +782,9 @@ mod tests {
             product: &Product,
             _expected_event_id: EventId,
             new_event_id: EventId,
-        ) -> Result<common::versioned::Versioned<Product, EventId>, ProductRepositoryError>
+        ) -> Result<domain_primitives::versioned::Versioned<Product, EventId>, ProductRepositoryError>
         {
-            Ok(common::versioned::Versioned::new(
+            Ok(domain_primitives::versioned::Versioned::new(
                 product.clone(),
                 new_event_id,
             ))
@@ -827,7 +835,7 @@ mod tests {
 
     fn snapshot() -> fxrate_core::FxRateSnapshot {
         let captured = fxrate_core::NewFxRateSnapshot::capture_eur(
-            common::fx_rate_id::FxRateId::new(),
+            fxrate_core::FxRateId::new(),
             time::OffsetDateTime::UNIX_EPOCH,
             fxrate_core::FxRateSource::FxRatesApi,
             Currency::Eur,

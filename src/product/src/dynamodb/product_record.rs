@@ -232,7 +232,10 @@ pub struct ProductRecord {
 }
 
 pub fn mk_pk(shop_id: &ShopId, shops_product_id: &ShopsProductId) -> String {
-    format!("product#shop_id#{shop_id}#shops_product_id#{shops_product_id}")
+    format!(
+        "product#{}",
+        super::product_key::encode(shop_id, shops_product_id)
+    )
 }
 
 pub fn mk_sk() -> &'static str {

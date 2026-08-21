@@ -12,7 +12,6 @@ use aura_historia_worker::{
     WorkerRuntimeComposition, WorkerScope, WorkerStartupConfig, WorkerStartupConfigError,
     WorkerVertexAiConfig, run_until_shutdown_with_runtime,
 };
-use common::postgres::{PostgresConnectError, SqlxUnitOfWork};
 use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use google_cloud_auth::credentials::Builder as GoogleCredentialsBuilder;
@@ -24,6 +23,8 @@ use opensearch::{
     auth::Credentials,
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
+use platform_observability::{LogLevel, LoggingConfig, init};
+use platform_postgres::{PostgresConnectError, SqlxUnitOfWork};
 use product_opensearch::OpenSearchProductSearchProjection;
 use product_postgres::{
     SqlxProductCurrentRevisionGuardFactory, SqlxProductEmbeddingSourceReader,
@@ -53,9 +54,18 @@ use watchlist_postgres::SqlxWatchlistNotificationRecipientReaderFactory;
 
 const GOOGLE_CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
+fn logging_config_from_env() -> LoggingConfig {
+    let level = std::env::var("LOG_LEVEL")
+        .ok()
+        .as_deref()
+        .and_then(LogLevel::parse)
+        .unwrap_or_default();
+    LoggingConfig::new(level)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
-    common::logging::init_logging();
+    init(logging_config_from_env());
     let startup = WorkerStartupConfig::from_env()?;
     let scope = startup.scope();
     let worker_config = startup.worker().clone();

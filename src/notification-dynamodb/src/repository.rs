@@ -1,22 +1,23 @@
+use crate::dynamodb_update::DynamoDbUpdate;
 use crate::{
     notification_record::{NotificationRecord, mk_pk, mk_sk},
     notification_record_update::NotificationRecordUpdate,
 };
+use application::error::box_error;
 use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
     operation::{get_item::GetItemError, put_item::PutItemError, update_item::UpdateItemError},
     types::{AttributeValue, ReturnValue},
 };
-use common::{
-    dynamodb_update::DynamoDbUpdate, error::boxed::box_error, event_id::EventId, user_id::UserId,
-};
+use domain_primitives::event_id::EventId;
 use notification_core::notification::Notification;
 use notification_service::ports::notification_repository::{
     NotificationRepository, NotificationRepositoryError,
 };
 use time::OffsetDateTime;
 use tracing::error;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone)]
 pub struct NotificationDynamoDbRepository<'a> {
@@ -35,7 +36,7 @@ impl<'a> NotificationDynamoDbRepository<'a> {
     async fn insert_record(
         &self,
         record: NotificationRecord,
-    ) -> Result<(), SdkError<PutItemError>> {
+    ) -> Result<(), Box<SdkError<PutItemError>>> {
         self.client
             .put_item()
             .table_name(&self.table)
@@ -45,13 +46,14 @@ impl<'a> NotificationDynamoDbRepository<'a> {
             .send()
             .await
             .map(|_| ())
+            .map_err(Box::new)
     }
 
     async fn find_record_by_origin_event_id(
         &self,
         user_id: &UserId,
         origin_event_id: &EventId,
-    ) -> Result<Option<NotificationRecord>, SdkError<GetItemError>> {
+    ) -> Result<Option<NotificationRecord>, Box<SdkError<GetItemError>>> {
         let record = self
             .client
             .get_item()
@@ -84,7 +86,7 @@ impl<'a> NotificationDynamoDbRepository<'a> {
         user_id: &UserId,
         origin_event_id: &EventId,
         update: NotificationRecordUpdate,
-    ) -> Result<Option<NotificationRecord>, SdkError<UpdateItemError>> {
+    ) -> Result<Option<NotificationRecord>, Box<SdkError<UpdateItemError>>> {
         let update_expr = update.into_update_expr()?;
 
         self.client
@@ -116,6 +118,7 @@ impl<'a> NotificationDynamoDbRepository<'a> {
                         }
                     })
             })
+            .map_err(Box::new)
     }
 }
 
@@ -175,7 +178,7 @@ impl NotificationRepository for NotificationDynamoDbRepository<'_> {
                 source: box_error(source),
             })?
             .ok_or_else(|| NotificationRepositoryError::OperationFailed {
-                source: common::error::boxed::static_error("notification update returned no state"),
+                source: application::error::static_error("notification update returned no state"),
             })?;
 
         Notification::try_from(record).map_err(|source| {

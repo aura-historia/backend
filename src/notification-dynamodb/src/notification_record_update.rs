@@ -1,5 +1,5 @@
+use crate::dynamodb_update::DynamoDbUpdate;
 use crate::notification_type_record::NotificationTypeRecord;
-use common::dynamodb_update::DynamoDbUpdate;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use time::OffsetDateTime;

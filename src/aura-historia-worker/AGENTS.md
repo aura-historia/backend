@@ -6,8 +6,8 @@
 
 ## Core Design
 
-- `main.rs` bootstraps logging, config, health/CDC server, and graceful shutdown.
-- `lib.rs` owns runtime config, `/health`, `/ready`, `/cdc/sequin`, server loop, default all-queue runtime, and bounded queue primitives.
+- `main.rs` reads `LOG_LEVEL`, bootstraps typed `platform-observability` logging, config, health/CDC server, and graceful shutdown.
+- `lib.rs` owns runtime config including typed `POSTGRES_*` parsing, `/health`, `/ready`, `/cdc/sequin`, server loop, default all-queue runtime, and bounded queue primitives. Runtime wiring uses `platform-postgres` SQLx mechanics.
 - `cdc.rs` normalizes Sequin webhook JSON to domain jobs and fans out after route validation.
 - `product_opensearch.rs` consumes `ProductOpenSearch` jobs, rereads the committed current Product source by stable event/Product IDs, loads an immutable sale snapshot only when a main source price needs sale-time conversion, then writes or deletes the canonical rebuildable Product document with OpenSearch external version protection from `products.projection_version`.
 - `search_filter_projection.rs` consumes `SearchFilterOpenSearch` jobs, rereads committed Postgres state, and writes its FX-independent canonical OpenSearch projection with target-side source-version protection.
@@ -15,7 +15,7 @@
 - `search_filter_match_notifications.rs` maps persisted-match insert jobs to the inbound notification command and invokes the service. Match jobs and source reads use `(user_id, user_search_filter_id, product_id, origin_event_id)`; stale or superseded rows suppress without notification. The service reads typed Postgres match/Product sources in one snapshot, then conditionally creates one DynamoDB SearchFilter notification after commit. Worker logs distinguish inserted notifications from conditional-write deduplication.
 - `watchlist_notifications.rs consumes price/state Product event jobs, rereads committed Postgres source plus active watchlist recipients, then creates idempotent DynamoDB notification records. Its worker log reports inserted and deduplicated counts separately.
 - `product_embedding.rs` consumes `DOMAIN_CREATED` Product event jobs, rereads committed current Product state, invokes the neutral Vertex embedding capability before a short transaction, and atomically persists the vector plus `ENRICHMENT_EMBEDDED`. Stale and duplicate jobs are explicit no-ops.
-- `product_translation.rs` consumes `ENRICHMENT_EMBEDDED` Product event jobs, rereads the committed current Product source, invokes the configured neutral Vertex LLM title translator, and atomically persists canonical Postgres translations plus one translated-titles enrichment event. Stale and duplicate jobs are explicit no-ops.
+- `product_translation.rs` consumes `ENRICHMENT_EMBEDDED` Product event jobs, uses `localization::Language`, rereads the committed current Product source, invokes the configured neutral Vertex LLM title translator, and atomically persists canonical Postgres translations plus one translated-titles enrichment event. Stale and duplicate jobs are explicit no-ops.
 - `retry.rs` owns in-process retry, idempotency memory, and in-memory DLQ helpers.
 - No worker persistence tables in MVP. Crash after CDC fan-out may lose queued jobs.
 

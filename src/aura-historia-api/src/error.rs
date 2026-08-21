@@ -1965,7 +1965,7 @@ mod tests {
     async fn should_map_product_notification_read_failure_to_service_unavailable()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = ApiError::from(GetProductError::ProductNotificationReadFailed {
-            source: common::error::boxed::box_error(std::io::Error::other("dynamodb unavailable")),
+            source: application::error::box_error(std::io::Error::other("dynamodb unavailable")),
         })
         .into_response();
 

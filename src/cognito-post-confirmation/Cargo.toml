@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true, features = ["postgres"] }
+application = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
+user-core = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }

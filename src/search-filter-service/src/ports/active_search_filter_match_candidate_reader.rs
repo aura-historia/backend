@@ -1,9 +1,9 @@
-use common::enhanced_match_reason::EnhancedMatchReason;
-use common::error::boxed::BoxError;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use application::error::BoxError;
 use search_filter_core::PriceMatchValuation;
+use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterMatchCandidate {

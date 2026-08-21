@@ -1,10 +1,10 @@
 use crate::ports::PersistedSearchFilter;
-use common::resource_state::domain::ResourceState;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
-use search_filter_core::ProductSearch;
+use product_core::product_search::ProductSearch;
+use search_filter_core::search_filter_state::SearchFilterState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchFilterView {
@@ -12,7 +12,7 @@ pub struct SearchFilterView {
     pub user_id: UserId,
     pub name: UserSearchFilterName,
     pub notifications: bool,
-    pub state: ResourceState,
+    pub state: SearchFilterState,
     pub search: ProductSearch,
     pub embedding: Option<Vec<f32>>,
     pub created: OffsetDateTime,

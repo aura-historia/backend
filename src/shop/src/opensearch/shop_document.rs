@@ -14,6 +14,7 @@ use common::{
     actor::document::ActorDocument, domain::Domain, shop_id::ShopId, shop_name::ShopName,
     shop_slug_id::ShopSlugId,
 };
+use geo::opensearch::{geo_address_from_opensearch_point, geo_address_to_opensearch_point};
 use isocountry::CountryCode;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
@@ -115,7 +116,7 @@ impl From<Shop> for ShopDocument {
                 .as_ref()
                 .and_then(|a| a.continent)
                 .map(ContinentDocument::from),
-            geo_address: shop.geo_address.map(GeoAddress::to_opensearch_geo_point),
+            geo_address: shop.geo_address.map(geo_address_to_opensearch_point),
             phone: shop.phone,
             email: shop.email,
             partner_status: shop.partner_status.into(),
@@ -155,7 +156,7 @@ impl From<ShopDocument> for Shop {
             geo_address: document
                 .geo_address
                 .as_deref()
-                .and_then(GeoAddress::from_opensearch_geo_point),
+                .and_then(geo_address_from_opensearch_point),
             phone: document.phone,
             email: document.email,
             partner_status: document.partner_status.into(),
@@ -191,7 +192,7 @@ impl From<ShopRecord> for ShopDocument {
             geo_address: record
                 .geo_address_lat
                 .zip(record.geo_address_lon)
-                .map(|(lat, lon)| GeoAddress { lat, lon }.to_opensearch_geo_point()),
+                .map(|(lat, lon)| geo_address_to_opensearch_point(GeoAddress { lat, lon })),
             phone: record.phone,
             email: record.email,
             partner_status: record.shop_partner_status.into(),

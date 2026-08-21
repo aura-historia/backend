@@ -2,11 +2,11 @@ use crate::error::OAuthServiceError;
 use crate::ports::{OAuthAccessTokenGateway, OAuthAccessTokenGatewayError, OAuthClientRepository};
 use crate::use_cases::support::authenticate_client;
 use crate::use_cases::token_by_authorization_code::OAuthTokenType;
-use common::oauth_client_id::OAuthClientId;
-use common::user_id::UserId;
+use credential_core::oauth_client_id::OAuthClientId;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::{AccessTokenOrigin, RawAccessToken, RawOAuthClientSecret, Scope};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntrospectTokenRequest {

@@ -36,12 +36,12 @@ impl SqlxProductEmbeddingReaderFactory {
     }
 }
 
-impl ProductEmbeddingReaderFactory<common::postgres::SqlxTransaction>
+impl ProductEmbeddingReaderFactory<platform_postgres::SqlxTransaction>
     for SqlxProductEmbeddingReaderFactory
 {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut common::postgres::SqlxTransaction,
+        tx: &'tx mut platform_postgres::SqlxTransaction,
     ) -> impl ProductEmbeddingReader + 'tx {
         SqlxProductEmbeddingReader {
             connection: tx.connection(),

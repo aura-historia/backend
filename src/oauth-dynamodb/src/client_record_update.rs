@@ -1,5 +1,5 @@
+use crate::dynamodb_update::DynamoDbUpdate;
 use crate::scope_record::ScopeRecord;
-use common::dynamodb_update::DynamoDbUpdate;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
 use std::collections::HashSet;

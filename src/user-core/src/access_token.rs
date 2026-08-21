@@ -1,4 +1,6 @@
-use common::{oauth_client_id::OAuthClientId, string_newtype, user_id::UserId, uuid_v7_newtype};
+use crate::user_id::UserId;
+use credential_core::oauth_client_id::OAuthClientId;
+use domain_primitives::{string_newtype, uuid_v7_newtype};
 use prefixed_api_key::{
     PrefixedApiKey, PrefixedApiKeyController,
     sha2::{Digest, Sha256},
@@ -10,42 +12,7 @@ use time::OffsetDateTime;
 uuid_v7_newtype!(AccessTokenId);
 string_newtype!(AccessTokenName, max_length(128));
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Scope {
-    ProductsWrite,
-    ShopsRead,
-    ShopsWrite,
-    PartnerShopApplicationsWrite,
-    PartnerShopsRead,
-    PartnerShopsWrite,
-    UsersRead,
-    UsersWrite,
-    AccessTokensRead,
-    AccessTokensWrite,
-    SearchFiltersWrite,
-    WatchlistRead,
-    WatchlistWrite,
-}
-
-impl Scope {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Scope::ProductsWrite => "products:write",
-            Scope::ShopsRead => "shops:read",
-            Scope::ShopsWrite => "shops:write",
-            Scope::PartnerShopApplicationsWrite => "partner-shop-applications:write",
-            Scope::PartnerShopsRead => "partner-shops:read",
-            Scope::PartnerShopsWrite => "partner-shops:write",
-            Scope::UsersRead => "users:read",
-            Scope::UsersWrite => "users:write",
-            Scope::AccessTokensRead => "access-tokens:read",
-            Scope::AccessTokensWrite => "access-tokens:write",
-            Scope::SearchFiltersWrite => "search-filters:write",
-            Scope::WatchlistRead => "watchlist:read",
-            Scope::WatchlistWrite => "watchlist:write",
-        }
-    }
-}
+pub use credential_core::scope::Scope;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccessToken {
@@ -270,7 +237,7 @@ impl<P: TokenPrefix> TryFrom<String> for RawToken<P> {
     }
 }
 
-#[cfg(feature = "data")]
+#[cfg(any())]
 pub mod api {
     use crate::access_token::{AccessTokenId, RawAccessToken};
     use common::{
@@ -366,7 +333,7 @@ pub mod api {
     }
 }
 
-#[cfg(all(test, feature = "data"))]
+#[cfg(all(test, any()))]
 mod api_tests {
     use super::*;
     use crate::access_token::api::{

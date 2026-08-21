@@ -1,5 +1,6 @@
-use common::{error::boxed::BoxError, language::domain::Language};
+use application::error::BoxError;
 use indexmap::IndexMap;
+use localization::Language;
 use product_core::title::Title;
 
 #[derive(Debug, thiserror::Error)]

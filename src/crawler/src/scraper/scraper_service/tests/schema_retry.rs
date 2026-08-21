@@ -144,11 +144,14 @@ async fn should_exhaust_append_repair_when_yaml_append_does_not_apply() {
         err,
         ScraperError::SchemaRegenerationExhausted {
             attempts: 1,
-            last_error: crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
-                ExtractionError::NoElementMatched { .. }
-            ),
+            ref last_error,
             ..
-        }
+        } if matches!(
+            last_error.as_ref(),
+            crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
+                ExtractionError::NoElementMatched { .. }
+            )
+        )
     ));
 }
 
@@ -196,11 +199,14 @@ async fn should_exhaust_append_repair_after_yaml_fails() {
         err,
         ScraperError::SchemaRegenerationExhausted {
             attempts: 1,
-            last_error: crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
-                ExtractionError::NoElementMatched { .. }
-            ),
+            ref last_error,
             ..
-        }
+        } if matches!(
+            last_error.as_ref(),
+            crate::scraper::css_selector::product_schema::ApplySchemaError::Title(
+                ExtractionError::NoElementMatched { .. }
+            )
+        )
     ));
 }
 

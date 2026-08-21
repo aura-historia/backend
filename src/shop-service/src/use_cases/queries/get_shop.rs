@@ -1,12 +1,14 @@
 use crate::ports::{ShopDetailsReadError, ShopDetailsReader, ShopDetailsReaderFactory, StoredShop};
-use common::currency::domain::Currency;
-use common::domain::Domain;
-use common::error::boxed::BoxError;
-use common::language::domain::Language;
-use common::operation_context::OperationContext;
-use common::transaction::{Transaction, UnitOfWork};
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
+use application::error::BoxError;
+use application::operation_context::OperationContext;
+use application::transaction::{Transaction, UnitOfWork};
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use shop_core::{
     address::{GeoAddress, StructuredAddress},
     affiliate_configuration::AffiliateConfiguration,
@@ -182,9 +184,9 @@ impl From<ShopDetailsReadError> for GetShopError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::transaction::{TransactionError, UnitOfWork};
+    use application::error::static_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::transaction::{TransactionError, UnitOfWork};
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Copy)]

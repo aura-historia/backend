@@ -1,8 +1,9 @@
 use crate::access_token_record::{self, AccessTokenRecord};
+use application::error::box_error;
 use aws_sdk_dynamodb::{Client, types::AttributeValue};
-use common::{error::boxed::box_error, user_id::UserId};
 use time::OffsetDateTime;
 use user_core::access_token::{AccessToken, AccessTokenId, HashedRawAccessToken};
+use user_core::user_id::UserId;
 use user_service::ports::{AccessTokenStore, AccessTokenStoreError};
 
 const ACCESS_TOKEN_SK_PREFIX: &str = "access_token#";

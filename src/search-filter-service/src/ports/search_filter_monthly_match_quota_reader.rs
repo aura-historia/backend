@@ -1,7 +1,7 @@
-use common::error::boxed::BoxError;
-use common::event_id::EventId;
-use common::user_id::UserId;
+use application::error::BoxError;
+use domain_primitives::event_id::EventId;
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterMonthlyMatchQuotaReadError {

@@ -1,32 +1,33 @@
 #![allow(dead_code)]
 
-use common::currency::domain::Currency;
-use common::error::boxed::box_error;
-use common::event_id::EventId;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::{ProductId, ProductKey};
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
-use common::versioned::Versioned;
+use application::error::box_error;
+use domain_primitives::event_id::EventId;
+use domain_primitives::versioned::Versioned;
+use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Currency;
+use money::{MonetaryAmount, Price};
 use product_core::description::Description;
 use product_core::product::{
     Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     RehydratedProductState,
 };
+use product_core::product_id::{ProductId, ProductKey};
 use product_core::product_image::ProductImage;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use product_service::ports::product_repository::{
     ProductRepository, ProductRepositoryError, ProductRepositoryFactory,
 };
 use serde::{Deserialize, Serialize};
+use shop_core::shop_id::ShopId;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use url::Url;
@@ -89,10 +90,10 @@ impl SqlxProductRepositoryFactory {
     }
 }
 
-impl ProductRepositoryFactory<common::postgres::SqlxTransaction> for SqlxProductRepositoryFactory {
+impl ProductRepositoryFactory<platform_postgres::SqlxTransaction> for SqlxProductRepositoryFactory {
     fn in_transaction<'tx>(
         &'tx self,
-        tx: &'tx mut common::postgres::SqlxTransaction,
+        tx: &'tx mut platform_postgres::SqlxTransaction,
     ) -> impl ProductRepository + 'tx {
         SqlxProductRepository {
             connection: tx.connection(),
@@ -471,7 +472,7 @@ fn sale_valuation_from_parts(
     match (sold_at, fx_rate_id) {
         (Some(sold_at), Some(fx_rate_id)) => Ok(Some(ProductSaleValuation {
             sold_at,
-            fx_rate_id: common::fx_rate_id::FxRateId::from(fx_rate_id),
+            fx_rate_id: FxRateId::from(fx_rate_id),
         })),
         (None, None) => Ok(None),
         _ => Err(ProductRepositoryError::InvalidAggregateStatePersisted),
@@ -749,7 +750,7 @@ impl From<ProductUpdateSqlxError> for ProductRepositoryError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::event_id::EventId;
+    use domain_primitives::event_id::EventId;
     use serde_json::json;
 
     #[test]

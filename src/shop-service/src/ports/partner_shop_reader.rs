@@ -2,8 +2,8 @@
 
 use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
 use crate::use_cases::queries::search_shops::ShopSummary;
-use common::error::boxed::BoxError;
-use common::user_id::UserId;
+use application::error::BoxError;
+use user_core::user_id::UserId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PartnerShopReadError {

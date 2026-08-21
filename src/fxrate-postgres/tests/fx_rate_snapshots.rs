@@ -1,15 +1,12 @@
-use common::{
-    currency::domain::Currency,
-    fx_rate_id::FxRateId,
-    postgres::SqlxUnitOfWork,
-    transaction::{Transaction, UnitOfWork},
-};
-use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+use application::transaction::{Transaction, UnitOfWork};
+use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use fxrate_service::ports::{
     FxRateSnapshotInsertOutcome, FxRateSnapshotRepository, FxRateSnapshotRepositoryError,
     FxRateSnapshotRepositoryFactory,
 };
+use money::Currency;
+use platform_postgres::SqlxUnitOfWork;
 use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};

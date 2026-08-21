@@ -4,10 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application = { workspace = true }
 async-trait = { workspace = true }
-common = { workspace = true, features = ["postgres"] }
+platform-postgres = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
+money = { workspace = true }
 sqlx = { workspace = true }
 strum = { workspace = true }
 thiserror = { workspace = true }

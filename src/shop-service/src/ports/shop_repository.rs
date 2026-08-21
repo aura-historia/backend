@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
-use common::error::boxed::BoxError;
-use common::{shop_id::ShopId, shop_slug_id::ShopSlugId};
+use application::error::BoxError;
 use shop_core::shop::Shop;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;
 
-common::version_newtype!(ShopStorageVersion);
+domain_primitives::version_newtype!(ShopStorageVersion);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredShop {

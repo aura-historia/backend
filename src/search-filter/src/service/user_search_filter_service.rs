@@ -42,31 +42,40 @@ pub enum UserSearchFilterError {
 
     #[error("Encountered DynamoDB SdkError for GetItem: {0:?}")]
     SdkGetItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for QueryItem: {0:?}")]
-    SdkQueryError(#[from] SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>),
+    SdkQueryError(
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>,
+    ),
 
     #[error("Encountered DynamoDB SdkError for PutItem: {0:?}")]
     SdkPutItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
+        #[source] Box<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for DeleteItem: {0:?}")]
     SdkDeleteItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+        #[source]
+        Box<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for UpdateItem: {0:?}")]
     SdkUpdateItemError(
-        #[from] SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
+        #[source]
+        Box<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>>,
     ),
 
     #[error("Encountered DynamoDB SdkError for BatchWriteItem: {0:?}")]
     SdkBatchWriteItemError(
-        #[from]
-        SdkError<aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError, HttpResponse>,
+        #[source]
+        Box<
+            SdkError<
+                aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
+                HttpResponse,
+            >,
+        >,
     ),
 
     #[cfg(feature = "opensearch")]
@@ -90,10 +99,78 @@ pub enum UserSearchFilterError {
     SearchFilterFeatureForbidden(ProductSearchSerdeField),
 
     #[error("UserServiceError: {0}")]
-    UserServiceError(UserServiceError),
+    UserServiceError(#[source] Box<UserServiceError>),
 
     #[error("Periodic hybrid match batch write incomplete: {0} match(es) not persisted.")]
     PeriodicHybridMatchWriteIncomplete(usize),
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>>
+    for UserSearchFilterError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::get_item::GetItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkGetItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>>
+    for UserSearchFilterError
+{
+    fn from(error: SdkError<aws_sdk_dynamodb::operation::query::QueryError, HttpResponse>) -> Self {
+        Self::SdkQueryError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>>
+    for UserSearchFilterError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::put_item::PutItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkPutItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>>
+    for UserSearchFilterError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::delete_item::DeleteItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkDeleteItemError(Box::new(error))
+    }
+}
+
+impl From<SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>>
+    for UserSearchFilterError
+{
+    fn from(
+        error: SdkError<aws_sdk_dynamodb::operation::update_item::UpdateItemError, HttpResponse>,
+    ) -> Self {
+        Self::SdkUpdateItemError(Box::new(error))
+    }
+}
+
+impl
+    From<SdkError<aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError, HttpResponse>>
+    for UserSearchFilterError
+{
+    fn from(
+        error: SdkError<
+            aws_sdk_dynamodb::operation::batch_write_item::BatchWriteItemError,
+            HttpResponse,
+        >,
+    ) -> Self {
+        Self::SdkBatchWriteItemError(Box::new(error))
+    }
+}
+
+impl From<UserServiceError> for UserSearchFilterError {
+    fn from(error: UserServiceError) -> Self {
+        Self::UserServiceError(Box::new(error))
+    }
 }
 
 #[cfg(feature = "data")]
@@ -112,11 +189,11 @@ pub mod api {
                 | UserSearchFilterError::UserSearchFilterMatchNotFound(_, _, _, _) => {
                     ApiError::not_found(SEARCH_FILTER_NOT_FOUND, Box::new(err))
                 }
-                UserSearchFilterError::SdkGetItemError(err) => err.into(),
-                UserSearchFilterError::SdkQueryError(err) => err.into(),
-                UserSearchFilterError::SdkPutItemError(err) => err.into(),
-                UserSearchFilterError::SdkDeleteItemError(err) => err.into(),
-                UserSearchFilterError::SdkUpdateItemError(err) => err.into(),
+                UserSearchFilterError::SdkGetItemError(err) => (*err).into(),
+                UserSearchFilterError::SdkQueryError(err) => (*err).into(),
+                UserSearchFilterError::SdkPutItemError(err) => (*err).into(),
+                UserSearchFilterError::SdkDeleteItemError(err) => (*err).into(),
+                UserSearchFilterError::SdkUpdateItemError(err) => (*err).into(),
                 UserSearchFilterError::SdkBatchWriteItemError(err) => {
                     ApiError::internal_server_error(INTERNAL_SERVER_ERROR, Box::new(err))
                 }
@@ -415,7 +492,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .await
             .map_err(|e| match e {
                 UserServiceError::UserNotFound(id) => UserSearchFilterError::UserNotFound(id),
-                other => UserSearchFilterError::UserServiceError(other),
+                other => UserSearchFilterError::UserServiceError(Box::new(other)),
             })?;
 
         let limit = user.tier.search_filter_quota();
@@ -491,7 +568,7 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             .await
             .map_err(|e| match e {
                 UserServiceError::UserNotFound(id) => UserSearchFilterError::UserNotFound(id),
-                other => UserSearchFilterError::UserServiceError(other),
+                other => UserSearchFilterError::UserServiceError(Box::new(other)),
             })?;
         let () = user
             .tier
@@ -804,9 +881,9 @@ impl<'a> UserSearchFilterService for UserSearchFilterServiceImpl<'a> {
             )
             .await?
             .ok_or_else(|| {
-                UserSearchFilterError::SdkUpdateItemError(SdkError::construction_failure(
+                UserSearchFilterError::SdkUpdateItemError(Box::new(SdkError::construction_failure(
                     "Failed parsing DynamoDB UpdateItem Response-Payload",
-                ))
+                )))
             })?;
 
         info!(actor = %ctx.actor, userId = %user_id, searchFilterId = %search_filter_id, shopId = %shop_id, shopsProductId = %shops_product_id, "Updated SearchFilterProductMatch.");

@@ -1,5 +1,5 @@
 use crate::ports::notification_repository::NotificationRepository;
-use common::error::boxed::{BoxError, box_error};
+use application::error::{BoxError, box_error};
 use notification_core::notification::Notification;
 
 #[allow(clippy::large_enum_variant)]

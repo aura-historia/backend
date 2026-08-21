@@ -2,16 +2,16 @@ use super::util::{no_store, parse_json, patch};
 use crate::auth::protected_context;
 use crate::error::{ApiError, INVALID_UUID};
 use crate::state::UsersState;
+use application::patch_field::PatchField;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use common::patch_field::PatchField;
-use common::user_id::UserId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::{AccessTokenId, AccessTokenName, AccessTokenOrigin, Scope};
+use user_core::user_id::UserId;
 use user_service::use_cases::commands::create_access_token::{
     CreateAccessTokenCommand, CreateAccessTokenResult,
 };
@@ -91,7 +91,7 @@ pub async fn post_access_token(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let data: PostTokenData = match parse_json(&body) {
         Ok(v) => v,
@@ -112,7 +112,7 @@ pub async fn post_access_token(
 pub async fn list_access_tokens(State(state): State<UsersState>, headers: HeaderMap) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     match state
         .list_access_tokens
@@ -132,7 +132,7 @@ pub async fn get_access_token(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let access_token_id = match AccessTokenId::try_from(raw.as_str()) {
         Ok(v) => v,
@@ -165,7 +165,7 @@ pub async fn patch_access_token(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let data: PatchTokenData = match parse_json(&body) {
         Ok(v) => v,
@@ -194,7 +194,7 @@ pub async fn delete_access_token(
 ) -> Response {
     let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let access_token_id = match AccessTokenId::try_from(raw.as_str()) {
         Ok(v) => v,

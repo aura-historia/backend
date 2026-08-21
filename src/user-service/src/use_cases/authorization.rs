@@ -1,5 +1,5 @@
 use crate::ports::{UserAdminReadError, UserAdminReader};
-use common::operation_context::{
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
 use user_core::role::UserRole;
@@ -63,15 +63,15 @@ mod tests {
     };
 
     use super::*;
-    use common::error::boxed::{BoxError, box_error};
-    use common::operation_context::{CorrelationId, RequestId};
-    use common::stripe_customer_id::StripeCustomerId;
-    use common::user_id::UserId;
-    use common::versioned::Versioned;
+    use application::error::{BoxError, box_error};
+    use application::operation_context::{CorrelationId, RequestId};
+    use domain_primitives::versioned::Versioned;
     use serde_email::Email;
     use std::collections::BTreeSet;
+    use user_core::stripe_customer_id::StripeCustomerId;
     use user_core::tier::UserTier;
     use user_core::user::{NewUser, User, UserAccount, UserPreferences, UserProfile};
+    use user_core::user_id::UserId;
 
     struct FakeUserRepository {
         user: Option<User>,

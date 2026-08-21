@@ -1,29 +1,178 @@
 use crate::product_image_document::ProductImageDocument;
+use crate::product_lifecycle_document::ProductLifecycleDocument;
 use crate::product_state_document::ProductStateDocument;
 use crate::shop_type_document::ShopTypeDocument;
-use common::currency::{data::CurrencyData, domain::Currency};
-use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
-use common::language::document::TextDocument;
-use common::product_id::ProductId;
-use common::product_lifecycle::document::ProductLifecycleDocument;
-use common::product_slug_id::ProductSlugId;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_id::ShopId;
-use common::shop_slug_id::ShopSlugId;
-use common::shops_product_id::ShopsProductId;
+use domain_primitives::event_id::EventId;
+use fxrate_core::FxRateId;
 use indexmap::IndexSet;
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
+use product_core::product_id::ProductId;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::shops_product_id::ShopsProductId;
 use serde::{Deserialize, Serialize};
 use serde_fields::SerdeField;
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_slug_id::ShopSlugId;
 use time::OffsetDateTime;
 use url::Url;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum CurrencyDocument {
+    Eur,
+    Gbp,
+    Usd,
+    Aud,
+    Cad,
+    Nzd,
+    Cny,
+    Brl,
+    Pln,
+    Try,
+    Jpy,
+    Czk,
+    Rub,
+    Aed,
+    Sar,
+    Hkd,
+    Sgd,
+    Chf,
+}
+
+impl From<Currency> for CurrencyDocument {
+    fn from(currency: Currency) -> Self {
+        match currency {
+            Currency::Eur => Self::Eur,
+            Currency::Gbp => Self::Gbp,
+            Currency::Usd => Self::Usd,
+            Currency::Aud => Self::Aud,
+            Currency::Cad => Self::Cad,
+            Currency::Nzd => Self::Nzd,
+            Currency::Cny => Self::Cny,
+            Currency::Brl => Self::Brl,
+            Currency::Pln => Self::Pln,
+            Currency::Try => Self::Try,
+            Currency::Jpy => Self::Jpy,
+            Currency::Czk => Self::Czk,
+            Currency::Rub => Self::Rub,
+            Currency::Aed => Self::Aed,
+            Currency::Sar => Self::Sar,
+            Currency::Hkd => Self::Hkd,
+            Currency::Sgd => Self::Sgd,
+            Currency::Chf => Self::Chf,
+        }
+    }
+}
+
+impl From<CurrencyDocument> for Currency {
+    fn from(currency: CurrencyDocument) -> Self {
+        match currency {
+            CurrencyDocument::Eur => Self::Eur,
+            CurrencyDocument::Gbp => Self::Gbp,
+            CurrencyDocument::Usd => Self::Usd,
+            CurrencyDocument::Aud => Self::Aud,
+            CurrencyDocument::Cad => Self::Cad,
+            CurrencyDocument::Nzd => Self::Nzd,
+            CurrencyDocument::Cny => Self::Cny,
+            CurrencyDocument::Brl => Self::Brl,
+            CurrencyDocument::Pln => Self::Pln,
+            CurrencyDocument::Try => Self::Try,
+            CurrencyDocument::Jpy => Self::Jpy,
+            CurrencyDocument::Czk => Self::Czk,
+            CurrencyDocument::Rub => Self::Rub,
+            CurrencyDocument::Aed => Self::Aed,
+            CurrencyDocument::Sar => Self::Sar,
+            CurrencyDocument::Hkd => Self::Hkd,
+            CurrencyDocument::Sgd => Self::Sgd,
+            CurrencyDocument::Chf => Self::Chf,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum LanguageDocument {
+    De,
+    En,
+    Fr,
+    Es,
+    It,
+    Zh,
+    Pt,
+    Pl,
+    Tr,
+    Nl,
+    Cs,
+    Ja,
+    Ru,
+    Ar,
+}
+
+impl From<Language> for LanguageDocument {
+    fn from(language: Language) -> Self {
+        match language {
+            Language::De => Self::De,
+            Language::En => Self::En,
+            Language::Fr => Self::Fr,
+            Language::Es => Self::Es,
+            Language::It => Self::It,
+            Language::Zh => Self::Zh,
+            Language::Pt => Self::Pt,
+            Language::Pl => Self::Pl,
+            Language::Tr => Self::Tr,
+            Language::Nl => Self::Nl,
+            Language::Cs => Self::Cs,
+            Language::Ja => Self::Ja,
+            Language::Ru => Self::Ru,
+            Language::Ar => Self::Ar,
+        }
+    }
+}
+
+impl From<LanguageDocument> for Language {
+    fn from(language: LanguageDocument) -> Self {
+        match language {
+            LanguageDocument::De => Self::De,
+            LanguageDocument::En => Self::En,
+            LanguageDocument::Fr => Self::Fr,
+            LanguageDocument::Es => Self::Es,
+            LanguageDocument::It => Self::It,
+            LanguageDocument::Zh => Self::Zh,
+            LanguageDocument::Pt => Self::Pt,
+            LanguageDocument::Pl => Self::Pl,
+            LanguageDocument::Tr => Self::Tr,
+            LanguageDocument::Nl => Self::Nl,
+            LanguageDocument::Cs => Self::Cs,
+            LanguageDocument::Ja => Self::Ja,
+            LanguageDocument::Ru => Self::Ru,
+            LanguageDocument::Ar => Self::Ar,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct TextDocument {
+    pub(crate) text: String,
+    pub(crate) language: LanguageDocument,
+}
+
+impl TextDocument {
+    pub(crate) fn new(text: impl Into<String>, language: LanguageDocument) -> Self {
+        Self {
+            text: text.into(),
+            language,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SourcePriceDocument {
     pub(crate) amount: u64,
-    pub(crate) currency: CurrencyData,
+    pub(crate) currency: CurrencyDocument,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,7 +339,7 @@ impl ProductDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::language::document::LanguageDocument;
+
     use time::macros::datetime;
 
     fn document() -> Result<ProductDocument, url::ParseError> {
@@ -222,7 +371,7 @@ mod tests {
             title_it: None,
             source_price: Some(SourcePriceDocument {
                 amount: 100,
-                currency: CurrencyData::Eur,
+                currency: CurrencyDocument::Eur,
             }),
             sale_prices: None,
             sale_fx_rate_id: None,

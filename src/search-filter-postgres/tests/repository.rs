@@ -1,15 +1,14 @@
-use common::currency::domain::Currency;
-use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::postgres::SqlxUnitOfWork;
-use common::product_id::ProductId;
-use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
+use fxrate_core::FxRateId;
+use localization::Language;
+use money::Currency;
+use platform_postgres::SqlxUnitOfWork;
+use product_core::product_id::ProductId;
 use product_core::{product::ProductPriceValuationBasis, product_search::ProductSearch};
+use search_filter_core::search_filter_state::SearchFilterState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_core::{
     NewSearchFilter, PriceMatchValuation, SearchFilter, SearchFilterProductMatch,
 };
@@ -23,6 +22,7 @@ use search_filter_service::ports::{
     SearchFilterRepository, SearchFilterRepositoryFactory,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -152,7 +152,7 @@ async fn should_count_only_active_search_filters_in_transaction() {
     let user_id = seed_user(&pool, "search-filter-postgres-quota@example.com").await;
     let active = sample_filter(user_id, "active filter");
     let mut inactive = sample_filter(user_id, "inactive filter");
-    let _ = inactive.change_state(ResourceState::InactiveByUser);
+    let _ = inactive.change_state(SearchFilterState::InactiveByUser);
 
     let mut tx = begin(&unit).await;
     filters
@@ -235,19 +235,19 @@ fn sample_filter(user_id: UserId, name: &str) -> SearchFilter {
         user_id,
         name: UserSearchFilterName::from(name),
         notifications: true,
-        state: ResourceState::Active,
+        state: SearchFilterState::Active,
         search: ProductSearch::new(Language::En, Currency::Eur),
         embedding: None,
     })
 }
 
-async fn begin(unit: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     unit.begin()
         .await
         .unwrap_or_else(|error| panic!("begin failed: {error:?}"))
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("commit failed: {error:?}"));

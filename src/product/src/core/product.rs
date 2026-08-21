@@ -270,7 +270,7 @@ impl Product {
         match self.native_price {
             Some(old_native_price) => {
                 self.native_price = None;
-                let old_other_price = self.other_price.drain().collect();
+                let old_other_price = std::mem::take(&mut self.other_price);
                 Some(Event {
                     aggregate_id: self.product_id,
                     event_id: EventId::new(),

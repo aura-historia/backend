@@ -3,17 +3,14 @@ use crate::ports::{
     ProductSearchFilterMatchSourceReader, ProductSearchFilterMatchSourceReaderFactory,
     ProductSearchProjection, ProductSearchProjectionWriteOutcome,
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    product_id::ProductId,
-    product_lifecycle::domain::ProductLifecycle,
-    transaction::{Transaction, UnitOfWork},
-};
+use application::error::{BoxError, box_error};
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::event_id::EventId;
 use fxrate_core::FxRateSnapshot;
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
+use product_core::{product_id::ProductId, product_lifecycle::ProductLifecycle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProjectProductCommand {
@@ -227,22 +224,26 @@ mod tests {
         ProductSearchFilterMatchShopType, ProductSearchFilterMatchSourceEventKind,
         ProductSearchProjectionWriteError,
     };
-    use common::{
-        currency::domain::Currency, error::boxed::box_error, fx_rate_id::FxRateId,
-        language::domain::Language, localized::Localized, product_slug_id::ProductSlugId,
-        product_state::domain::ProductState, seller_slug_id::SellerSlugId, shop_id::ShopId,
-        shop_name::ShopName, shop_slug_id::ShopSlugId, shops_product_id::ShopsProductId,
-        transaction::TransactionError,
-    };
+    use application::error::box_error;
+    use application::transaction::TransactionError;
     use fxrate_core::{
-        FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
+        FX_RATE_SCALE, FxRateGeneration, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
     use indexmap::IndexSet;
+    use localization::{Language, Localized};
+    use money::Currency;
     use product_core::{
         description::Description,
         product::{ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation},
+        product_slug_id::ProductSlugId,
+        product_state::ProductState,
+        shops_product_id::ShopsProductId,
         title::Title,
     };
+    use shop_core::seller_slug_id::SellerSlugId;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::{
         collections::HashMap,
         sync::{Arc, Mutex, MutexGuard},
@@ -564,10 +565,7 @@ mod tests {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
-        source.pricing.price = Some(common::price::domain::Price::new(
-            100_u64.into(),
-            Currency::Eur,
-        ));
+        source.pricing.price = Some(money::Price::new(100_u64.into(), Currency::Eur));
         source.sale_valuation = Some(ProductSaleValuation {
             sold_at: time::OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: snapshot.id(),
@@ -617,10 +615,7 @@ mod tests {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
-        source.pricing.price = Some(common::price::domain::Price::new(
-            100_u64.into(),
-            Currency::Eur,
-        ));
+        source.pricing.price = Some(money::Price::new(100_u64.into(), Currency::Eur));
         source.sale_valuation = Some(ProductSaleValuation {
             sold_at: time::OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: snapshot.id(),
@@ -651,10 +646,7 @@ mod tests {
         let state = state();
         let snapshot = snapshot()?;
         let mut source = source()?;
-        source.pricing.price = Some(common::price::domain::Price::new(
-            100_u64.into(),
-            Currency::Eur,
-        ));
+        source.pricing.price = Some(money::Price::new(100_u64.into(), Currency::Eur));
         source.sale_valuation = Some(ProductSaleValuation {
             sold_at: time::OffsetDateTime::UNIX_EPOCH,
             fx_rate_id: snapshot.id(),

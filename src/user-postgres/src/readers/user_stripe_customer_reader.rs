@@ -1,6 +1,6 @@
 use crate::mapping::{UserRow, user_columns};
-use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
+use application::error::box_error;
+use platform_postgres::SqlxTransaction;
 use user_service::ports::{
     UserStripeCustomerReadError, UserStripeCustomerReader, UserStripeCustomerReaderFactory,
 };

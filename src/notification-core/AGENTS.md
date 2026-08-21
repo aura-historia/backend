@@ -12,6 +12,7 @@
 - `Notification` aggregate has no created/updated or actor metadata.
 - Watchlist/search-filter product titles are optional.
 - View types may carry created/updated timestamps.
+- Uses canonical identifiers from `user-core`, `search-filter-core`, and `shop-partner-core`; uses `shop-core` shop values and pure `money`/`localization` values.
 - No DynamoDB, transport, or runtime glue.
 
 ## Ownership

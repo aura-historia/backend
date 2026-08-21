@@ -5,20 +5,19 @@ use crate::ports::{
 use crate::use_cases::commands::create_shop::woocommerce_integration;
 use crate::use_cases::queries::check_user_partner_shop::CheckUserPartnerShopRequest;
 use crate::use_cases::queries::get_shop::ShopDetailsView;
-use common::change_outcome::ChangeOutcome;
-use common::currency::domain::Currency;
-use common::domain::Domain;
-use common::error::boxed::{BoxError, static_error};
-use common::language::domain::Language;
-use common::operation_context::{
+use application::error::{BoxError, static_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext, Principal,
 };
-use common::patch_field::PatchField;
-use common::shop_id::ShopId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::patch_field::PatchField;
+use application::transaction::{Transaction, UnitOfWork};
+use domain_primitives::change_outcome::ChangeOutcome;
 use geo::{Geocoder, GeocodingError};
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
+use shop_core::domain::Domain;
+use shop_core::shop_id::ShopId;
 use shop_core::{
     address::StructuredAddress,
     affiliate_configuration::AffiliateConfiguration,
@@ -31,6 +30,7 @@ use shop_core::{
 };
 use std::collections::HashSet;
 use url::Url;
+use user_core::user_id::UserId;
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
 };
@@ -611,14 +611,14 @@ mod tests {
     use crate::ports::{
         ShopRepository, ShopRepositoryError, ShopRepositoryFactory, ShopStorageVersion, StoredShop,
     };
-    use common::error::boxed::static_error;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
-    use common::transaction::{TransactionError, UnitOfWork};
+    use application::error::static_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::transaction::{TransactionError, UnitOfWork};
     use shop_core::address::GeoAddress;
     use shop_core::partner_status::ShopPartnerStatus;
     use shop_core::shop::NewShop;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::sync::{Arc, Mutex};
     use user_service::use_cases::queries::check_user_admin::{
         CheckUserAdminRequest, CheckUserAdminResult,

@@ -1,4 +1,6 @@
+use crate::batch::Batch;
 use crate::notification_record::{mk_pk, mk_sk};
+use application::error::box_error;
 use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
@@ -8,11 +10,12 @@ use aws_sdk_dynamodb::{
     },
     types::{AttributeValue, DeleteRequest, WriteRequest},
 };
-use common::{batch::Batch, error::boxed::box_error, event_id::EventId, user_id::UserId};
+use domain_primitives::event_id::EventId;
 use notification_service::ports::notification_deleter::{
     NotificationDeleteError, NotificationDeleter,
 };
 use std::collections::HashMap;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone)]
 pub struct DynamoDbNotificationDeleter<'a> {
@@ -32,7 +35,7 @@ impl<'a> DynamoDbNotificationDeleter<'a> {
         &self,
         user_id: &UserId,
         origin_event_id: &EventId,
-    ) -> Result<(), SdkError<DeleteItemError>> {
+    ) -> Result<(), Box<SdkError<DeleteItemError>>> {
         self.client
             .delete_item()
             .table_name(&self.table)
@@ -41,13 +44,14 @@ impl<'a> DynamoDbNotificationDeleter<'a> {
             .send()
             .await
             .map(|_| ())
+            .map_err(Box::new)
     }
 
     async fn delete_record_batch_by_origin_event_id(
         &self,
         user_id: &UserId,
         origin_event_ids: &Batch<EventId, 25>,
-    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>> {
+    ) -> Result<BatchWriteItemOutput, Box<SdkError<BatchWriteItemError>>> {
         let write_requests: Vec<WriteRequest> = origin_event_ids
             .iter()
             .map(|id| {
@@ -71,6 +75,7 @@ impl<'a> DynamoDbNotificationDeleter<'a> {
             .set_request_items(Some(HashMap::from([(self.table.clone(), write_requests)])))
             .send()
             .await
+            .map_err(Box::new)
     }
 }
 

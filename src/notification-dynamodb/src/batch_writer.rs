@@ -1,10 +1,11 @@
+use crate::batch::Batch;
 use crate::notification_record::NotificationRecord;
+use application::error::box_error;
 use aws_sdk_dynamodb::{
     Client,
     error::SdkError,
     operation::batch_write_item::{BatchWriteItemError, BatchWriteItemOutput},
 };
-use common::{batch::Batch, error::boxed::box_error};
 use notification_core::notification::Notification;
 use notification_service::ports::notification_batch_inserter::{
     NotificationBatchInsertError, NotificationBatchInserter,
@@ -28,7 +29,7 @@ impl<'a> DynamoDbNotificationBatchInserter<'a> {
     async fn insert_record_batch(
         &self,
         records: Batch<NotificationRecord, 25>,
-    ) -> Result<BatchWriteItemOutput, SdkError<BatchWriteItemError>> {
+    ) -> Result<BatchWriteItemOutput, Box<SdkError<BatchWriteItemError>>> {
         self.client
             .batch_write_item()
             .set_request_items(Some(HashMap::from([(
@@ -37,6 +38,7 @@ impl<'a> DynamoDbNotificationBatchInserter<'a> {
             )])))
             .send()
             .await
+            .map_err(Box::new)
     }
 }
 
@@ -54,7 +56,7 @@ impl NotificationBatchInserter for DynamoDbNotificationBatchInserter<'_> {
             .iter()
             .map(NotificationRecord::from_notification)
             .collect::<Vec<_>>();
-        for batch in Batch::<NotificationRecord, 25>::chunked_from(records.into_iter()) {
+        for batch in Batch::<NotificationRecord, 25>::chunked_from(records) {
             self.insert_record_batch(batch).await.map_err(|source| {
                 NotificationBatchInsertError::OperationFailed {
                     source: box_error(source),

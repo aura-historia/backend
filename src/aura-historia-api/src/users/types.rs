@@ -1,11 +1,9 @@
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
-use common::measurement_unit::data::MeasurementUnitData;
-use common::user_id::UserId;
+use crate::values::{CurrencyData, LanguageData, MeasurementUnitData};
 use geo::data::address_data::{GeoAddressData, StructuredAddressData};
 use serde::{Deserialize, Serialize};
 use user_core::role::UserRole;
 use user_core::tier::UserTier;
+use user_core::user_id::UserId;
 use user_service::ports::UserDetailsView;
 use user_service::use_cases::queries::search_users::UserSummary;
 
@@ -81,7 +79,7 @@ pub(crate) struct OwnUserData {
     pub(crate) tier: UserTierData,
     pub(crate) role: UserRoleData,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) stripe_customer_id: Option<common::stripe_customer_id::StripeCustomerId>,
+    pub(crate) stripe_customer_id: Option<user_core::stripe_customer_id::StripeCustomerId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) structured_address: Option<StructuredAddressData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -127,7 +125,7 @@ pub(crate) struct AdminUserData {
     pub(crate) tier: UserTierData,
     pub(crate) role: UserRoleData,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) stripe_customer_id: Option<common::stripe_customer_id::StripeCustomerId>,
+    pub(crate) stripe_customer_id: Option<user_core::stripe_customer_id::StripeCustomerId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) structured_address: Option<StructuredAddressData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -166,7 +164,7 @@ pub(crate) struct AdminUserSummaryData {
     pub(crate) tier: UserTierData,
     pub(crate) role: UserRoleData,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) stripe_customer_id: Option<common::stripe_customer_id::StripeCustomerId>,
+    pub(crate) stripe_customer_id: Option<user_core::stripe_customer_id::StripeCustomerId>,
 }
 impl From<UserSummary> for AdminUserSummaryData {
     fn from(v: UserSummary) -> Self {

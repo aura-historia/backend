@@ -7,10 +7,14 @@ edition = "2024"
 async-trait = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-dynamodb = { workspace = true }
-common = { workspace = true, features = ["postgres"] }
+application = { workspace = true }
+domain-primitives = { workspace = true }
+platform-observability = { workspace = true }
+platform-postgres = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }
 large-language-model = { workspace = true }
+localization = { workspace = true }
 google-cloud-auth = { workspace = true }
 indexmap = { workspace = true }
 notification-dynamodb = { workspace = true }
@@ -21,10 +25,12 @@ product-opensearch = { workspace = true }
 product-postgres = { workspace = true }
 product-service = { workspace = true }
 reqwest = { workspace = true }
+search-filter-core = { workspace = true }
 search-filter-opensearch = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
 watchlist-postgres = { workspace = true }
+user-core = { workspace = true }
 user-postgres = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -35,9 +41,12 @@ tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-th
 tracing = { workspace = true }
 
 [dev-dependencies]
+fxrate-core = { workspace = true }
+money = { workspace = true }
 rstest = { workspace = true }
 search-filter-core = { workspace = true }
 notification-core = { workspace = true }
+shop-core = { workspace = true }
 indexmap = { workspace = true }
 time = { workspace = true }
 serial_test = { workspace = true }

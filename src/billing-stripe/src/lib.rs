@@ -1,14 +1,14 @@
+use application::error::box_error;
 use billing_service::ports::{
     CreateStripeCheckoutSessionRequest, CreateStripeCustomerRequest,
     CreateStripePortalSessionRequest, StripeBillingError, StripeCheckoutSessionCreator,
     StripeCustomerCreator, StripePortalSessionCreator,
 };
-use common::error::boxed::box_error;
-use common::stripe_customer_id::StripeCustomerId;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use std::time::Duration;
 use url::Url;
+use user_core::stripe_customer_id::StripeCustomerId;
 
 const STRIPE_API_BASE_URL: &str = "https://api.stripe.com";
 

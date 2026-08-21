@@ -3,13 +3,13 @@
 ## Purpose
 
 - Own `fxrate-core` crate.
-- Own immutable EUR-base FX snapshots and exact money conversion.
+- Own `FxRateId`, immutable EUR-base FX snapshots, and exact money conversion.
 
 ## Core Design
 
 - Domain-only. Quotes are `units_per_eur` scaled by `FX_RATE_SCALE`.
 - Snapshots contain every supported currency, including EUR at the exact scale.
-- Conversion uses checked integer arithmetic and source/target minor-unit exponents.
+- Conversion uses `money` values, checked integer arithmetic, and source/target minor-unit exponents.
 
 ## Ownership
 

@@ -1,7 +1,7 @@
 use super::StripeBillingError;
-use common::stripe_customer_id::StripeCustomerId;
-use common::user_id::UserId;
 use serde_email::Email;
+use user_core::stripe_customer_id::StripeCustomerId;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateStripeCustomerRequest {

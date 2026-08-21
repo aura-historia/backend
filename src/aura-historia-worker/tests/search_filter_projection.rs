@@ -1,23 +1,16 @@
+use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_worker::search_filter_projection::consume_search_filter_projection_queue;
 use aura_historia_worker::{QueueConfig, WorkerRunError, WorkerRuntime, serve_with_runtime};
-use common::currency::domain::Currency;
-use common::event_id::EventId;
-use common::language::domain::Language;
-use common::postgres::SqlxUnitOfWork;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::resource_state::domain::ResourceState;
-use common::seller_slug_id::SellerSlugId;
-use common::shop_id::ShopId;
-use common::shop_name::ShopName;
-use common::shop_slug_id::ShopSlugId;
-use common::shops_product_id::ShopsProductId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use domain_primitives::event_id::EventId;
+use localization::{Language, Localized};
+use money::Currency;
+use platform_postgres::SqlxUnitOfWork;
+use product_core::product_id::ProductId;
+use product_core::product_lifecycle::ProductLifecycle;
+use product_core::product_search::ProductSearch;
+use product_core::product_slug_id::ProductSlugId;
+use product_core::product_state::ProductState;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
     title::Title,
@@ -25,7 +18,10 @@ use product_core::{
 use product_service::ports::{
     ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
 };
-use search_filter_core::{NewSearchFilter, ProductSearch, SearchFilter};
+use search_filter_core::search_filter_state::SearchFilterState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
+use search_filter_core::{NewSearchFilter, SearchFilter};
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_postgres::{SqlxSearchFilterIndexReader, SqlxSearchFilterRepositoryFactory};
 use search_filter_service::ports::{
@@ -34,6 +30,10 @@ use search_filter_service::ports::{
 use search_filter_service::use_cases::{
     ProjectSearchFilterChangeHandler, ProjectSearchFilterChangeUseCase,
 };
+use shop_core::seller_slug_id::SellerSlugId;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use test_api::{
@@ -42,6 +42,7 @@ use test_api::{
 };
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 const WORKER_SEQUIN: Sequin = Sequin::worker_webhook();
@@ -391,10 +392,7 @@ fn product_source(
         seller_name: ShopName::from("Test seller"),
         shops_product_id: ShopsProductId::from("test-product-1"),
         address: ProductAddress::default(),
-        product_title: Some(common::localized::Localized::new(
-            Language::En,
-            title.clone(),
-        )),
+        product_title: Some(Localized::new(Language::En, title.clone())),
         product_description: None,
         titles: std::collections::HashMap::from([(Language::En, title)]),
         descriptions: std::collections::HashMap::new(),
@@ -419,7 +417,7 @@ fn search_filter(user_id: UserId, query: &str) -> Result<SearchFilter, Box<dyn s
         user_id,
         name: UserSearchFilterName::from("Sequin acceptance filter"),
         notifications: true,
-        state: ResourceState::Active,
+        state: SearchFilterState::Active,
         search: ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query(query.try_into()?),
         embedding: None,

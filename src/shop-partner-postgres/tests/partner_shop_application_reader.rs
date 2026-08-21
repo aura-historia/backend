@@ -1,11 +1,10 @@
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
-use common::{
-    partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
-};
+use application::transaction::{Transaction, UnitOfWork};
+use platform_postgres::SqlxUnitOfWork;
+use shop_core::shop_id::ShopId;
 use shop_partner_core::partner_shop_application::{
     NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
 };
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_partner_postgres::{
     SqlxPartnerShopApplicationReaderFactory, SqlxPartnerShopApplicationRepositoryFactory,
 };
@@ -14,6 +13,7 @@ use shop_partner_service::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryFactory,
 };
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
+use user_core::user_id::UserId;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
@@ -91,14 +91,14 @@ async fn seed_shop(pool: &sqlx::PgPool, slug: &str) -> ShopId {
     shop_id
 }
 
-async fn begin(unit_of_work: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit_of_work: &SqlxUnitOfWork) -> platform_postgres::SqlxTransaction {
     unit_of_work
         .begin()
         .await
         .unwrap_or_else(|error| panic!("failed to begin transaction: {error}"))
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: platform_postgres::SqlxTransaction) {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("failed to commit transaction: {error}"));

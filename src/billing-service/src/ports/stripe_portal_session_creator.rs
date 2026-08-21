@@ -1,6 +1,6 @@
 use super::StripeBillingError;
-use common::stripe_customer_id::StripeCustomerId;
 use url::Url;
+use user_core::stripe_customer_id::StripeCustomerId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateStripePortalSessionRequest {

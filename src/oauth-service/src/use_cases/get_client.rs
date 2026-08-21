@@ -1,7 +1,7 @@
 use crate::error::OAuthServiceError;
 use crate::ports::OAuthClientRepository;
 use crate::use_cases::support::find_client;
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::client::OAuthClient;
 
 #[async_trait::async_trait]

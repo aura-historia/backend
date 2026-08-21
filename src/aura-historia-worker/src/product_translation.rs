@@ -3,18 +3,18 @@ use crate::{
     cdc::{DomainJob, DomainJobPayload},
     retry::{InMemoryDeadLetterQueue, RetryConfig, run_with_retry},
 };
-use common::{
-    error::boxed::{BoxError, box_error},
-    event_id::EventId,
-    language::domain::Language,
-    logging::LlmOperation,
+use application::{
+    error::{BoxError, box_error},
     operation_context::{CorrelationId, OperationContext, Principal, RequestId},
-    product_id::ProductId,
 };
+use domain_primitives::event_id::EventId;
 use indexmap::IndexMap;
+use large_language_model::LlmOperation;
 use large_language_model::{
     GenerationOptions, LargeLanguageModel, LargeLanguageModelError, StructuredGenerationRequest,
 };
+use localization::Language;
+use product_core::product_id::ProductId;
 use product_core::title::Title;
 use product_service::{
     ports::{ProductTitleTranslationError, ProductTitleTranslator},
@@ -70,7 +70,7 @@ where
         for language in target_languages {
             let Some(value) = response.titles.get(language.as_str()) else {
                 return Err(ProductTitleTranslationError::InvalidResponse {
-                    source: common::error::boxed::static_error(
+                    source: application::error::static_error(
                         "product title translation response omitted a target language",
                     ),
                 });
@@ -78,7 +78,7 @@ where
             let title = Title::from(value.as_str());
             if title.as_ref().is_empty() {
                 return Err(ProductTitleTranslationError::InvalidResponse {
-                    source: common::error::boxed::static_error(
+                    source: application::error::static_error(
                         "product title translation response contains an empty title",
                     ),
                 });

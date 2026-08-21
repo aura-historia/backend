@@ -1,10 +1,7 @@
-use common::{
-    error::boxed::{box_error, static_error},
-    event_id::EventId,
-    language::domain::Language,
-    product_id::ProductId,
-};
-use product_core::title::Title;
+use application::error::{box_error, static_error};
+use domain_primitives::event_id::EventId;
+use localization::Language;
+use product_core::{product_id::ProductId, title::Title};
 use product_service::ports::{
     ProductTranslationSource, ProductTranslationSourceReadError, ProductTranslationSourceReader,
 };
@@ -33,7 +30,7 @@ struct ProductTranslationSourceQueryError(#[source] sqlx::Error);
 #[error("product translation source row is invalid")]
 struct ProductTranslationSourceMappingError {
     #[source]
-    source: common::error::boxed::BoxError,
+    source: application::error::BoxError,
 }
 
 impl From<ProductTranslationSourceQueryError> for ProductTranslationSourceReadError {

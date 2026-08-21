@@ -1,7 +1,6 @@
 use crate::auth::core::{
     AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
 };
-use common::user_id::UserId;
 use jsonwebtokens::{Algorithm, AlgorithmID, Verifier, raw};
 use serde::Deserialize;
 use serde_json::Value;
@@ -9,6 +8,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CognitoJwtConfig {

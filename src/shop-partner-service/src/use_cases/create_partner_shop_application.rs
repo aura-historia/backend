@@ -2,37 +2,37 @@ use crate::ports::{
     PartnerShopApplicationRepository, PartnerShopApplicationRepositoryError,
     PartnerShopApplicationRepositoryFactory,
 };
-use common::currency::domain::Currency;
-use common::domain::Domain;
-use common::error::boxed::{BoxError, static_error};
-use common::language::domain::Language;
-use common::operation_context::{
+use application::error::{BoxError, static_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::transaction::{Transaction, UnitOfWork};
-use common::{
-    partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, shop_name::ShopName,
-};
+use application::transaction::{Transaction, UnitOfWork};
 use geo::{Geocoder, GeocodingError};
+use localization::Language;
+use money::Currency;
 use serde_email::Email;
+use shop_core::domain::Domain;
 use shop_core::lifecycle::ShopLifecycle;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{
     NewShop, Shop, ShopAddress, ShopContact, ShopPresentation, ShopifyIntegration,
     WoocommerceIntegration,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_partner_core::partner_shop_application::{
     NewPartnerShopApplication, PartnerShopApplication, PartnerShopApplicationPayload,
 };
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_service::ports::{ShopRepository, ShopRepositoryError, ShopRepositoryFactory};
 use std::collections::HashSet;
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreatePartnerShopApplicationCommand {
-    pub applicant_user_id: common::user_id::UserId,
+    pub applicant_user_id: user_core::user_id::UserId,
     pub payload: CreatePartnerShopApplicationPayload,
 }
 
@@ -317,7 +317,7 @@ impl From<ShopRepositoryError> for CreatePartnerShopApplicationError {
 
 fn authorize_create(
     context: &OperationContext,
-    applicant_user_id: common::user_id::UserId,
+    applicant_user_id: user_core::user_id::UserId,
 ) -> Result<(), CreatePartnerShopApplicationError> {
     context
         .require()

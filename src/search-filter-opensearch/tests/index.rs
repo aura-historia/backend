@@ -1,13 +1,9 @@
-use common::currency::domain::Currency;
-use common::event_id::EventId;
-use common::language::domain::Language;
-use common::pagination::cursor::Cursor;
-use common::query::text_query::TextQuery;
-use common::resource_state::domain::ResourceState;
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use common::user_search_filter_name::UserSearchFilterName;
+use application::pagination::Cursor;
+use domain_primitives::event_id::EventId;
+use domain_primitives::query::text_query::TextQuery;
 use indexmap::IndexSet;
+use localization::Language;
+use money::Currency;
 use product_core::{
     product::{ProductAddress, ProductAuction, ProductPricing},
     product_image::ProductImage,
@@ -17,12 +13,16 @@ use product_core::{
 use product_service::ports::{
     ProductPercolationInput, ProductSearchFilterMatchShopType, ProductSearchFilterMatchSource,
 };
+use search_filter_core::search_filter_state::SearchFilterState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use search_filter_core::user_search_filter_name::UserSearchFilterName;
 use search_filter_opensearch::OpenSearchSearchFilterIndex;
 use search_filter_service::ports::{
     SearchFilterIndex, SearchFilterIndexQuery, SearchFilterProjection,
     SearchFilterProjectionWriteOutcome, SearchFilterView,
 };
 use std::collections::HashMap;
+use user_core::user_id::UserId;
 
 use test_api::{
     IntegrationTestService, OpenSearch, aura_integration_test, get_opensearch_client, refresh_index,
@@ -44,7 +44,7 @@ async fn should_index_query_percolate_and_delete_search_filter_document() {
 
     let query_result = index
         .query(&SearchFilterIndexQuery {
-            state: Some(ResourceState::Active),
+            state: Some(SearchFilterState::Active),
             has_enhanced_search_description: Some(false),
             cursor: Some(Cursor {
                 size: 50,
@@ -153,7 +153,7 @@ async fn should_use_application_default_size_for_first_query_page() {
 
     let result = index
         .query(&SearchFilterIndexQuery {
-            state: Some(ResourceState::Active),
+            state: Some(SearchFilterState::Active),
             has_enhanced_search_description: Some(false),
             ..Default::default()
         })
@@ -179,7 +179,7 @@ async fn should_filter_query_by_enhanced_description_presence() {
 
     let query_result = index
         .query(&SearchFilterIndexQuery {
-            state: Some(ResourceState::Active),
+            state: Some(SearchFilterState::Active),
             has_enhanced_search_description: Some(true),
             cursor: Some(Cursor {
                 size: 50,
@@ -212,16 +212,16 @@ fn product_source(title: &str) -> ProductSearchFilterMatchSource {
         origin_event_time: OffsetDateTime::UNIX_EPOCH,
         current_event_id: event_id,
         projection_version: 1,
-        product_id: common::product_id::ProductId::new(),
-        product_slug_id: common::product_slug_id::ProductSlugId::from("product"),
-        shop_id: common::shop_id::ShopId::new(),
-        shop_slug_id: common::shop_slug_id::ShopSlugId::from("shop"),
-        shop_name: common::shop_name::ShopName::from("Shop"),
+        product_id: product_core::product_id::ProductId::new(),
+        product_slug_id: product_core::product_slug_id::ProductSlugId::from("product"),
+        shop_id: shop_core::shop_id::ShopId::new(),
+        shop_slug_id: shop_core::shop_slug_id::ShopSlugId::from("shop"),
+        shop_name: shop_core::shop_name::ShopName::from("Shop"),
         shop_type: ProductSearchFilterMatchShopType::Marketplace,
-        seller_id: common::shop_id::ShopId::new(),
-        seller_slug_id: common::seller_slug_id::SellerSlugId::from("seller"),
-        seller_name: common::shop_name::ShopName::from("Seller"),
-        shops_product_id: common::shops_product_id::ShopsProductId::from("sku-1"),
+        seller_id: shop_core::shop_id::ShopId::new(),
+        seller_slug_id: shop_core::seller_slug_id::SellerSlugId::from("seller"),
+        seller_name: shop_core::shop_name::ShopName::from("Seller"),
+        shops_product_id: product_core::shops_product_id::ShopsProductId::from("sku-1"),
         address: ProductAddress::default(),
         product_title: None,
         product_description: None,
@@ -229,8 +229,8 @@ fn product_source(title: &str) -> ProductSearchFilterMatchSource {
         descriptions: HashMap::new(),
         pricing: ProductPricing::default(),
         sale_valuation: None,
-        state: common::product_state::domain::ProductState::Available,
-        lifecycle: common::product_lifecycle::domain::ProductLifecycle::Active,
+        state: product_core::product_state::ProductState::Available,
+        lifecycle: product_core::product_lifecycle::ProductLifecycle::Active,
         url: Url::parse("https://shop.example.test/products/sku-1")
             .unwrap_or_else(|error| panic!("test URL must be valid: {error}")),
         view_url: Url::parse("https://aura.example.test/products/product")
@@ -257,7 +257,7 @@ fn sample_view(query_text: &str) -> SearchFilterView {
         user_id: UserId::new(),
         name: UserSearchFilterName::from("canonical search"),
         notifications: true,
-        state: ResourceState::Active,
+        state: SearchFilterState::Active,
         search: ProductSearch::new(Language::En, Currency::Eur)
             .with_product_query(text_query(query_text)),
         embedding: None,

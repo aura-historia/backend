@@ -4,11 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-common = { workspace = true }
+domain-primitives = { workspace = true }
+fxrate-core = { workspace = true }
 product-core = { workspace = true }
+user-core = { workspace = true }
 fake = { workspace = true, optional = true }
+serde = { workspace = true }
 serde_fields = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+localization = { workspace = true }
+money = { workspace = true }
 
 [features]
 default = []
-test-data = ["fake", "common/test-data", "product-core/test-data"]
+test-data = ["fake", "domain-primitives/test-data", "fxrate-core/test-data", "product-core/test-data", "user-core/test-data"]

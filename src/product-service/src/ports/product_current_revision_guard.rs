@@ -1,6 +1,6 @@
-use common::error::boxed::BoxError;
-use common::event_id::EventId;
-use common::product_id::ProductId;
+use application::error::BoxError;
+use domain_primitives::event_id::EventId;
+use product_core::product_id::ProductId;
 
 /// Result of locking the current Product revision for an invariant-critical write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

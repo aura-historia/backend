@@ -1,19 +1,21 @@
-use common::currency::domain::Currency;
-use common::domain::Domain;
-use common::language::domain::Language;
-use common::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
 use geo::core::address::{GeoAddress, StructuredAddress};
 use geo::core::continent::Continent;
 use isocountry::CountryCode;
+use localization::Language;
+use money::Currency;
 use serde::{Deserialize, Serialize};
 use serde_email::Email;
 use shop_core::affiliate_configuration::AffiliateConfiguration;
+use shop_core::domain::Domain;
 use shop_core::lifecycle::ShopLifecycle;
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{
     RehydratedShopState, Shop, ShopAddress, ShopContact, ShopPresentation, ShopifyIntegration,
     WoocommerceIntegration,
 };
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use shop_core::shop_type::ShopType;
 use shop_core::woocommerce_webhook_secret::WoocommerceWebhookSecret;
 use shop_service::ports::{ShopStorageVersion, StoredShop};
@@ -301,7 +303,7 @@ pub(crate) fn bind_language(value: Option<Language>) -> Option<&'static str> {
 }
 
 pub(crate) fn version_to_i64(version: ShopStorageVersion) -> i64 {
-    i64::try_from(version.into_inner()).map_or(i64::MAX, |value| value)
+    i64::try_from(version.into_inner()).unwrap_or(i64::MAX)
 }
 
 pub(crate) fn countries_for_continents(continents: &HashSet<Continent>) -> Vec<String> {
@@ -419,6 +421,17 @@ fn contact_from_row(row: &ShopRow) -> Result<ShopContact, ShopRowMappingError> {
     })
 }
 
+fn append_utm_params(mut url: Url) -> Url {
+    if url.query_pairs().any(|(key, _)| key == "utm_source") {
+        return url;
+    }
+
+    url.query_pairs_mut()
+        .append_pair("utm_source", "aura_historia")
+        .append_pair("utm_medium", "referral");
+    url
+}
+
 fn derive_view_url(
     url: Option<&Url>,
     affiliate_configuration: Option<&AffiliateConfiguration>,
@@ -426,7 +439,7 @@ fn derive_view_url(
     url.map(|url| {
         affiliate_configuration
             .map(|configuration| configuration.build_url(url))
-            .unwrap_or_else(|| common::utm::append_utm_params(url.clone()))
+            .unwrap_or_else(|| append_utm_params(url.clone()))
     })
 }
 

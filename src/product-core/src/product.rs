@@ -1,21 +1,19 @@
 use crate::description::Description;
+use crate::product_id::ProductId;
 use crate::product_image::ProductImage;
+use crate::product_lifecycle::ProductLifecycle;
+use crate::product_slug_id::ProductSlugId;
+use crate::product_state::ProductState;
+use crate::shops_product_id::ShopsProductId;
 use crate::title::Title;
-use common::change_outcome::ChangeOutcome;
-use common::event::Event;
-use common::event_id::EventId;
-use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::localized::Localized;
-use common::price::domain::Price;
-use common::product_id::ProductId;
-use common::product_lifecycle::domain::ProductLifecycle;
-use common::product_slug_id::ProductSlugId;
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
+use domain_primitives::{change_outcome::ChangeOutcome, event::Event, event_id::EventId};
+use fxrate_core::FxRateId;
 use geo::core::address::{GeoAddress, StructuredAddress};
 use indexmap::IndexSet;
+use localization::Language;
+use localization::Localized;
+use money::Price;
+use shop_core::shop_id::ShopId;
 use time::OffsetDateTime;
 use url::Url;
 
@@ -503,10 +501,6 @@ impl Product {
         &self.url
     }
 
-    pub fn view_url(&self) -> Url {
-        common::utm::append_utm_params(self.url.clone())
-    }
-
     pub fn images(&self) -> &IndexSet<ProductImage> {
         &self.images
     }
@@ -571,8 +565,8 @@ fn replace_if_changed<T: PartialEq>(target: &mut T, value: T) -> ChangeOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::currency::domain::Currency;
-    use common::price::domain::MonetaryAmount;
+    use money::Currency;
+    use money::MonetaryAmount;
 
     fn test_url() -> Url {
         match Url::parse("https://shop.example/products/1") {
@@ -1132,17 +1126,5 @@ mod tests {
         #[case] expected: &'static str,
     ) {
         assert_eq!(expected, payload.event_type());
-    }
-
-    #[test]
-    fn should_append_utm_params_for_product_view_url() {
-        let product = created_product();
-
-        assert!(
-            product
-                .view_url()
-                .as_str()
-                .contains("utm_source=aura_historia")
-        );
     }
 }

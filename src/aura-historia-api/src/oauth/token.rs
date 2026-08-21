@@ -6,7 +6,7 @@ use axum::{
     extract::State,
     response::{IntoResponse, Response},
 };
-use common::oauth_client_id::OAuthClientId;
+use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{OAuthAuthorizationCode, OAuthCodeVerifier};
 
 use oauth_service::use_cases::{

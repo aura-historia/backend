@@ -1,25 +1,23 @@
+use localization::Language;
 use std::collections::HashMap;
 
-use common::{
-    error::boxed::{BoxError, box_error, static_error},
-    event_id::EventId,
-    language::domain::Language,
-    postgres::SqlxTransaction,
-    product_id::ProductId,
-    product_slug_id::ProductSlugId,
-    shop_id::ShopId,
-    shop_name::ShopName,
-    shop_slug_id::ShopSlugId,
-    shops_product_id::ShopsProductId,
-    utm::append_utm_params,
+use crate::url::append_utm_params;
+use application::error::{BoxError, box_error, static_error};
+use domain_primitives::event_id::EventId;
+use platform_postgres::SqlxTransaction;
+use product_core::{
+    product_id::ProductId, product_slug_id::ProductSlugId, shops_product_id::ShopsProductId,
+    title::Title,
 };
-use product_core::title::Title;
 use product_service::ports::{
     ProductWatchlistNotificationChange, ProductWatchlistNotificationSource,
     ProductWatchlistNotificationSourceReadError, ProductWatchlistNotificationSourceReader,
     ProductWatchlistNotificationSourceReaderFactory,
 };
 use product_service::use_cases::ProductEventPayload;
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_core::shop_slug_id::ShopSlugId;
 use sqlx::PgConnection;
 
 use super::product_details_reader::images;

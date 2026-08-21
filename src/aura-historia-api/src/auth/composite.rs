@@ -36,10 +36,10 @@ where
 mod tests {
     use super::*;
     use crate::auth::core::AuthMethod;
-    use common::operation_context::CredentialCapability;
-    use common::user_id::UserId;
+    use application::operation_context::CredentialCapability;
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex, MutexGuard};
+    use user_core::user_id::UserId;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum AuthenticatorKind {

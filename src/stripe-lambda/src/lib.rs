@@ -5,17 +5,14 @@
 //! transactions, user locking, persistence, and entitlement reconciliation stay
 //! inside `user-service` and its adapters.
 
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use aws_lambda_events::eventbridge::EventBridgeEvent;
-use common::{
-    operation_context::{CorrelationId, OperationContext, Principal, RequestId},
-    stripe_customer_id::StripeCustomerId,
-    user_id::UserId,
-};
 use lambda_runtime::LambdaEvent;
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{error, info, warn};
 use user_core::tier::UserTier;
+use user_core::{stripe_customer_id::StripeCustomerId, user_id::UserId};
 use user_service::use_cases::{
     ApplyStripeSubscriptionCommand, ApplyStripeSubscriptionError, ApplyStripeSubscriptionTarget,
     ApplyStripeSubscriptionUseCase,

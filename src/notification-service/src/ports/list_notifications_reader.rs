@@ -1,11 +1,12 @@
-use common::{
-    error::boxed::BoxError, event_id::EventId, pagination::cursor::Cursor, user_id::UserId,
-};
+use application::error::BoxError;
+use application::pagination::Cursor;
+use domain_primitives::event_id::EventId;
 use notification_core::{
     notification::NotificationPayload, notification_id::NotificationId,
     notification_type::NotificationType,
 };
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NotificationListReadItem {

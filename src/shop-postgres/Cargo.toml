@@ -4,10 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application = { workspace = true }
+user-core = { workspace = true }
+domain-primitives = { workspace = true }
 async-trait = { workspace = true }
-common = { workspace = true, features = ["postgres"] }
+platform-postgres = { workspace = true }
 geo = { workspace = true }
 isocountry = { workspace = true }
+localization = { workspace = true }
+money = { workspace = true }
 openssl = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

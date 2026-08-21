@@ -1,7 +1,7 @@
 use crate::mapping::{UserRow, user_columns};
-use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
-use common::user_id::UserId;
+use application::error::box_error;
+use platform_postgres::SqlxTransaction;
+use user_core::user_id::UserId;
 use user_service::ports::{
     UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserDetailsView,
 };

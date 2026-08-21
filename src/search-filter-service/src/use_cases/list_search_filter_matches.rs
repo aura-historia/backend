@@ -1,26 +1,22 @@
 use crate::ports::{
     SearchFilterMatchListQuery, SearchFilterMatchReadError, SearchFilterMatchReader,
 };
-use common::currency::domain::Currency;
-use common::error::boxed::{BoxError, box_error, static_error};
-use common::fx_rate_id::FxRateId;
-use common::language::domain::Language;
-use common::operation_context::{
+use application::error::{BoxError, box_error, static_error};
+use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
-use common::pagination::cursor::{Cursor, CursoredResult};
-use common::product_id::ProductId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
-use common::user_search_filter_id::UserSearchFilterId;
-use fxrate_core::{FxRateSnapshot, FxRateSnapshotError};
+use application::pagination::{Cursor, CursoredResult};
+use application::transaction::{Transaction, UnitOfWork};
+use fxrate_core::{FxRateId, FxRateSnapshot, FxRateSnapshotError};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
+use localization::Language;
+use money::Currency;
 use notification_service::ports::all_notifications_reader::{
     AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
 };
-use product_core::user_state::NotificationUserState;
+use product_core::product_id::ProductId;
 use product_service::ports::{
     PersonalizedProductDetailsReadModel, ProductDetailsBatchReadError,
     ProductDetailsBatchReadRequest, ProductDetailsBatchReader,
@@ -29,8 +25,11 @@ use product_service::use_cases::{
     PersonalizedProductDetailsView, ProductPricingPresentationError, present_product_details,
     redact_hidden_product,
 };
+use product_service::user_state::NotificationUserState;
+use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListSearchFilterMatchesRequest {
@@ -39,7 +38,7 @@ pub struct ListSearchFilterMatchesRequest {
     pub language: Language,
     pub currency: Currency,
     pub cursor: Option<Cursor<crate::ports::SearchFilterMatchCursor>>,
-    pub order: common::sort::SortOrder,
+    pub order: domain_primitives::sort::SortOrder,
 }
 
 pub type ListSearchFilterMatchesResult =
@@ -450,17 +449,10 @@ mod tests {
     use crate::ports::{
         SearchFilterMatchCursor, SearchFilterMatchListItem, SearchFilterMatchReadError,
     };
-    use common::event_id::EventId;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::personalized::Personalized;
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
-    use common::shops_product_id::ShopsProductId;
-    use common::transaction::TransactionError;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::personalized::Personalized;
+    use application::transaction::TransactionError;
+    use domain_primitives::event_id::EventId;
     use fxrate_core::{
         FX_RATE_SCALE, FxRateGeneration, FxRateQuote, FxRateSource, NewFxRateSnapshot,
     };
@@ -468,9 +460,14 @@ mod tests {
     use product_core::product::{
         ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
     };
-    use product_core::user_state::ProductUserState;
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_slug_id::ProductSlugId;
+    use product_core::product_state::ProductState;
+    use product_core::shops_product_id::ShopsProductId;
     use product_service::ports::ProductDetailsReadModel;
     use product_service::use_cases::ProductPricingValuation;
+    use product_service::user_state::ProductUserState;
+    use shop_core::{shop_id::ShopId, shop_name::ShopName, shop_slug_id::ShopSlugId};
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
@@ -707,7 +704,7 @@ mod tests {
             language: Language::En,
             currency: Currency::Usd,
             cursor: None,
-            order: common::sort::SortOrder::Asc,
+            order: domain_primitives::sort::SortOrder::Asc,
         }
     }
 

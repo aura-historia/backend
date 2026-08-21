@@ -7,12 +7,12 @@ use crate::use_cases::PersonalizedProductSummary;
 use crate::use_cases::queries::product_summary_personalization::{
     ProductSummaryPersonalizationError, hydrate_product_summaries,
 };
-use common::currency::domain::Currency;
-use common::error::boxed::{BoxError, box_error};
-use common::language::domain::Language;
-use common::operation_context::{OperationContext, Principal};
-use common::personalized::Personalized;
-use common::transaction::{Transaction, UnitOfWork};
+use application::error::{BoxError, box_error};
+use application::operation_context::{OperationContext, Principal};
+use application::personalized::Personalized;
+use application::transaction::{Transaction, UnitOfWork};
+use localization::Language;
+use money::Currency;
 
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
@@ -214,7 +214,7 @@ where
     }
 }
 
-fn personalization_user_id(principal: &Principal) -> Option<common::user_id::UserId> {
+fn personalization_user_id(principal: &Principal) -> Option<user_core::user_id::UserId> {
     match principal {
         Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
         Principal::Anonymous | Principal::Service(_) | Principal::System => None,
@@ -279,29 +279,28 @@ mod tests {
     use super::*;
     use crate::ports::{ProductEmbedding, ProductSimilarProductsReadError};
     use crate::use_cases::{ProductSummary, ProductSummaryPriceValuation};
-    use common::currency::domain::Currency;
-    use common::error::boxed::box_error;
-    use common::event_id::EventId;
-    use common::fx_rate_id::FxRateId;
-    use common::localized::Localized;
-    use common::operation_context::{CorrelationId, Principal, RequestId};
-    use common::price::domain::{MonetaryAmount, Price};
-    use common::product_id::ProductId;
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
-    use common::shops_product_id::ShopsProductId;
-    use common::transaction::TransactionError;
-    use fxrate_core::{FX_RATE_SCALE, FxRateQuote, FxRateSource, NewFxRateSnapshot};
+    use crate::user_state::ProductUserState;
+    use application::error::box_error;
+    use application::operation_context::{CorrelationId, Principal, RequestId};
+    use application::transaction::TransactionError;
+    use domain_primitives::event_id::EventId;
+    use fxrate_core::{FX_RATE_SCALE, FxRateId, FxRateQuote, FxRateSource, NewFxRateSnapshot};
     use indexmap::IndexSet;
+    use localization::Localized;
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
     use notification_service::ports::all_notifications_reader::{
         AllNotificationsReadError, AllNotificationsReadItem, AllNotificationsReader,
     };
+    use product_core::product_id::ProductId;
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_slug_id::ProductSlugId;
+    use product_core::product_state::ProductState;
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::title::Title;
-    use product_core::user_state::ProductUserState;
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, MutexGuard};
     use strum::IntoEnumIterator;
@@ -516,7 +515,7 @@ mod tests {
     impl AllNotificationsReader for EmptyNotificationsReader {
         async fn list_all_by_user(
             &self,
-            _user_id: &common::user_id::UserId,
+            _user_id: &user_core::user_id::UserId,
         ) -> Result<Vec<AllNotificationsReadItem>, AllNotificationsReadError> {
             Ok(Vec::new())
         }
@@ -571,7 +570,7 @@ mod tests {
         }
     }
 
-    fn authenticated_context(user_id: common::user_id::UserId) -> OperationContext {
+    fn authenticated_context(user_id: user_core::user_id::UserId) -> OperationContext {
         OperationContext {
             principal: Principal::User(user_id),
             request_id: RequestId::new("request"),
@@ -673,7 +672,7 @@ mod tests {
     async fn should_hydrate_ready_similar_products_for_authenticated_user()
     -> Result<(), Box<dyn std::error::Error>> {
         let state = state();
-        let user_id = common::user_id::UserId::new();
+        let user_id = user_core::user_id::UserId::new();
         let product_id = ProductId::new();
         let mut user_state = ProductUserState::default();
         user_state.watchlist.watching = true;

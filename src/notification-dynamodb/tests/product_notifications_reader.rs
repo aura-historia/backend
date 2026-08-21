@@ -1,11 +1,13 @@
 mod support;
 
-use common::{event_id::EventId, product_id::ProductId, user_id::UserId};
+use domain_primitives::event_id::EventId;
 use notification_service::ports::{
     notification_repository::NotificationRepository,
     product_notifications_reader::ProductNotificationsReader,
 };
+use product_core::product_id::ProductId;
 use test_api::*;
+use user_core::user_id::UserId;
 
 #[aura_integration_test(services = [DynamoDB()])]
 fn should_list_notifications_for_product_with_limit() {

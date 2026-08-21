@@ -8,7 +8,8 @@
 ## Core Design
 
 - Domain-only crate.
-- `WatchlistProduct` uses `user_id` and `product_id` as identity.
+- Owns `WatchlistState`; its lifecycle is separate from Search Filter state.
+- `WatchlistProduct` uses canonical `user_id` and `product_id` as identity.
 - Aggregate has no persistence timestamps.
 - No legacy, service, adapter, transport, or runtime dependency.
 

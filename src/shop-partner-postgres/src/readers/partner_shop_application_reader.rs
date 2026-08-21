@@ -1,12 +1,12 @@
 use crate::mapping::{APPLICATION_COLUMNS, PartnerShopApplicationRow};
-use common::error::boxed::box_error;
-use common::postgres::SqlxTransaction;
-use common::user_id::UserId;
+use application::error::box_error;
+use platform_postgres::SqlxTransaction;
 use shop_partner_service::ports::{
     PartnerShopApplicationReader, PartnerShopApplicationReaderFactory,
     PartnerShopApplicationRepositoryError, PartnerShopApplicationView,
 };
 use sqlx::PgConnection;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxPartnerShopApplicationReaderFactory;

@@ -7,7 +7,7 @@
 
 ## Core Design
 
-- Implements `watchlist-service` repositories for `SqlxTransaction`.
+- Implements `watchlist-service` repositories for `platform_postgres::SqlxTransaction`.
 - Implements transaction-scoped `SqlxWatchlistReaderFactory` for read models and `SqlxWatchlistQuotaReaderFactory` for tier-policy invariants.
 - Maps `product_watchlist` rows to `watchlist-core` domain or reader views.
 - Repository writes return storage-neutral persisted watchlist state.

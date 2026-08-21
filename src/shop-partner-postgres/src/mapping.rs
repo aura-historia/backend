@@ -1,16 +1,16 @@
-use common::versioned::Versioned;
-use common::{
-    partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, user_id::UserId,
-};
+use domain_primitives::versioned::Versioned;
+use shop_core::shop_id::ShopId;
 use shop_partner_core::partner_shop_application::{
     PartnerShopApplication, PartnerShopApplicationPayload, RehydratedPartnerShopApplicationState,
 };
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
 use shop_partner_core::partner_shop_application_state::PartnerShopApplicationState;
 use shop_partner_service::ports::{
     PartnerShopApplicationStorageVersion, PartnerShopApplicationView,
     VersionedPartnerShopApplication,
 };
 use time::OffsetDateTime;
+use user_core::user_id::UserId;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, sqlx::FromRow)]

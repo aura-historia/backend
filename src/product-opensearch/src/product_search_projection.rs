@@ -1,7 +1,8 @@
 use crate::percolation_document::{ProductPercolationDocumentError, product_document};
-use common::{error::boxed::box_error, product_id::ProductId};
+use application::error::box_error;
 use fxrate_core::FxRateSnapshot;
 use opensearch::{DeleteParts, IndexParts, OpenSearch, http::StatusCode, params::VersionType};
+use product_core::product_id::ProductId;
 use product_service::ports::{
     ProductSearchFilterMatchSource, ProductSearchProjection, ProductSearchProjectionWriteError,
     ProductSearchProjectionWriteOutcome,
@@ -80,9 +81,7 @@ impl ProductSearchProjection for OpenSearchProductSearchProjection {
 fn checked_source_version(version: i64) -> Result<i64, ProductSearchProjectionWriteError> {
     (version >= 1).then_some(version).ok_or_else(|| {
         ProductSearchProjectionWriteError::WriteFailed {
-            source: common::error::boxed::static_error(
-                "Product projection version must be positive",
-            ),
+            source: application::error::static_error("Product projection version must be positive"),
         }
     })
 }
@@ -103,7 +102,7 @@ fn write_outcome(
     if status.is_success() {
         return Ok(ProductSearchProjectionWriteOutcome::Applied);
     }
-    let error = common::error::boxed::static_error(
+    let error = application::error::static_error(
         "OpenSearch Product projection returned an unsuccessful status",
     );
     Err(if is_write {

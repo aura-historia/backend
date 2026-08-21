@@ -2,12 +2,11 @@ use crate::auth::{OptionalAuthExtractor, request_metadata};
 use crate::error::{ApiError, BAD_QUERY_PARAMETER_VALUE, INVALID_UUID};
 use crate::products::product_data::product_response;
 use crate::state::ProductsState;
+use crate::values::{CurrencyData, LanguageData};
 use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
-use common::currency::data::CurrencyData;
-use common::language::data::LanguageData;
-use common::product_id::ProductId;
+use product_core::product_id::ProductId;
 use product_service::use_cases::{GetProductRequest, ProductLookup};
 use serde::Deserialize;
 
@@ -76,34 +75,22 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use application::operation_context::OperationContext;
+    use application::personalized::Personalized;
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header};
-    use common::currency::domain::Currency;
-    use common::enhanced_match_reason::EnhancedMatchReason;
-    use common::event_id::EventId;
-    use common::fx_rate_id::FxRateId;
-    use common::language::domain::Language;
-    use common::localized::Localized;
-    use common::operation_context::OperationContext;
-    use common::personalized::Personalized;
-    use common::price::domain::{MonetaryAmount, Price};
-    use common::product_lifecycle::domain::ProductLifecycle;
-    use common::product_slug_id::ProductSlugId;
-    use common::product_state::domain::ProductState;
-    use common::shop_id::ShopId;
-    use common::shop_name::ShopName;
-    use common::shop_slug_id::ShopSlugId;
-    use common::shops_product_id::ShopsProductId;
-    use common::user_id::UserId;
-    use common::user_search_filter_id::UserSearchFilterId;
-    use common::user_search_filter_name::UserSearchFilterName;
+    use domain_primitives::event_id::EventId;
+    use fxrate_core::FxRateId;
+    use localization::{Language, Localized};
+    use money::Currency;
+    use money::{MonetaryAmount, Price};
     use product_core::product::{ProductAddress, ProductAuction, ProductPricing};
+    use product_core::product_lifecycle::ProductLifecycle;
+    use product_core::product_slug_id::ProductSlugId;
+    use product_core::product_state::ProductState;
+    use product_core::shops_product_id::ShopsProductId;
     use product_core::title::Title;
-    use product_core::user_state::{
-        NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
-        WatchlistUserState,
-    };
     use product_service::use_cases::{
         DisplayProductPricing, GetProductError, GetProductUseCase, GetSimilarProductsError,
         GetSimilarProductsRequest, GetSimilarProductsResult, GetSimilarProductsUseCase,
@@ -111,11 +98,22 @@ mod tests {
         ProductPricingValuation, SearchProductsError, SearchProductsRequest, SearchProductsResult,
         SearchProductsUseCase,
     };
+    use product_service::user_state::{
+        NotificationUserState, ProductUserState, ProhibitedContentUserState, SearchFilterUserState,
+        WatchlistUserState,
+    };
+    use search_filter_core::enhanced_match_reason::EnhancedMatchReason;
+    use search_filter_core::user_search_filter_id::UserSearchFilterId;
+    use search_filter_core::user_search_filter_name::UserSearchFilterName;
     use serde_json::{Value, json};
+    use shop_core::shop_id::ShopId;
+    use shop_core::shop_name::ShopName;
+    use shop_core::shop_slug_id::ShopSlugId;
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::OffsetDateTime;
     use tower::ServiceExt;
     use url::Url;
+    use user_core::user_id::UserId;
 
     type GetProductCalls = Arc<Mutex<Vec<(OperationContext, GetProductRequest)>>>;
 
@@ -366,7 +364,7 @@ mod tests {
         assert_eq!(false, body["userState"]["searchFilter"]["matchFeedback"]);
         assert!(matches!(
             lock(&calls)[0].0.principal,
-            common::operation_context::Principal::User(actual) if actual == user_id
+            application::operation_context::Principal::User(actual) if actual == user_id
         ));
         Ok(())
     }

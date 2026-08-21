@@ -5,28 +5,27 @@ use crate::ports::{
 use crate::use_cases::{
     UpdateProductError, UpdateProductResult, UpsertProductError, UpsertProductResult,
 };
-use common::error::boxed::BoxError;
-use common::localized::Localized;
-use common::operation_context::{CredentialCapability, OperationContext, Principal};
-use common::price::domain::{MonetaryAmount, Price};
-use common::product_id::{ProductId, ProductKey};
-use common::product_state::domain::ProductState;
-use common::shop_id::ShopId;
-use common::shops_product_id::ShopsProductId;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::error::BoxError;
+use application::operation_context::{CredentialCapability, OperationContext, Principal};
+use application::transaction::{Transaction, UnitOfWork};
 use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
+use localization::Localized;
+use money::{MonetaryAmount, Price};
 use product_core::description::Description;
 use product_core::product::{
     NewProduct, Product, ProductAddress, ProductAuction, ProductPricing, ProductSaleValuation,
 };
+use product_core::product_id::{ProductId, ProductKey};
 use product_core::product_image::ProductImage;
+use product_core::product_state::ProductState;
 use product_core::prohibited_content::ProhibitedContent;
+use product_core::shops_product_id::ShopsProductId;
 use product_core::title::Title;
 use shop_core::partner_status::ShopPartnerStatus;
+use shop_core::shop_id::ShopId;
 use shop_service::ports::{
     PartnerShopReadError, PartnerShopReader, PartnerShopReaderFactory, WoocommerceWebhookShop,
     WoocommerceWebhookShopReadError, WoocommerceWebhookShopReader,
@@ -35,6 +34,7 @@ use shop_service::ports::{
 };
 use shop_service::use_cases::CheckUserPartnerShopRequest;
 use url::Url;
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WoocommerceProductEventKind {
@@ -138,8 +138,8 @@ pub trait IngestWoocommerceProductUseCase: Send + Sync {
 struct CanonicalWoocommerceProduct {
     shop_id: ShopId,
     shops_product_id: ShopsProductId,
-    title: Localized<common::language::domain::Language, Title>,
-    description: Option<Localized<common::language::domain::Language, Description>>,
+    title: Localized<localization::Language, Title>,
+    description: Option<Localized<localization::Language, Description>>,
     price: Option<Price>,
     state: ProductState,
     url: Url,
@@ -632,14 +632,14 @@ impl FxRateSnapshotRepository for MissingFxRateSnapshotRepository {
 
     async fn find_by_id(
         &mut self,
-        _id: common::fx_rate_id::FxRateId,
+        _id: fxrate_core::FxRateId,
     ) -> Result<Option<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(None)
     }
 
     async fn find_by_ids(
         &mut self,
-        _ids: &[common::fx_rate_id::FxRateId],
+        _ids: &[fxrate_core::FxRateId],
     ) -> Result<Vec<fxrate_core::FxRateSnapshot>, FxRateSnapshotRepositoryError> {
         Ok(Vec::new())
     }
@@ -695,7 +695,7 @@ impl From<WoocommerceWebhookShopReadError> for IngestWoocommerceProductError {
 
 fn parse_price(
     value: Option<&str>,
-    currency: Option<common::currency::domain::Currency>,
+    currency: Option<money::Currency>,
 ) -> Result<Option<Price>, IngestWoocommerceProductError> {
     let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
@@ -747,10 +747,7 @@ mod tests {
 
     #[test]
     fn should_parse_woocommerce_price_with_truncated_minor_digits() {
-        let price = parse_price(
-            Some("42.699"),
-            Some(common::currency::domain::Currency::Eur),
-        );
+        let price = parse_price(Some("42.699"), Some(money::Currency::Eur));
         assert!(matches!(
             price,
             Ok(Some(value)) if value.monetary_amount == MonetaryAmount::from(4_269_u64)
@@ -769,10 +766,12 @@ mod tests {
         );
     }
 
-    use common::event_id::EventId;
-    use common::operation_context::{CorrelationId, RequestId};
-    use common::transaction::TransactionError;
-    use common::versioned::Versioned;
+    use application::operation_context::{CorrelationId, RequestId};
+    use application::transaction::TransactionError;
+    use domain_primitives::event_id::EventId;
+    use domain_primitives::versioned::Versioned;
+    use localization::Language;
+    use money::Currency;
     use product_core::product::ProductDomainEvent;
     use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -847,8 +846,8 @@ mod tests {
             shop: Some(WoocommerceWebhookShop {
                 shop_id,
                 partner_status: ShopPartnerStatus::Partnered,
-                currency: Some(common::currency::domain::Currency::Eur),
-                language: Some(common::language::domain::Language::En),
+                currency: Some(Currency::Eur),
+                language: Some(Language::En),
             }),
             ..Default::default()
         }))
