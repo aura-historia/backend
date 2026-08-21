@@ -213,6 +213,9 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("failed to inactivate watchlist entry by user: {error:?}"));
+    let plan_restricted_version =
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await;
+    let user_inactive_version = version_for_watchlist_entry(&pool, user_id, watchlist_ids[1]).await;
 
     let mut tx = begin(&unit).await;
     entitlements
@@ -242,6 +245,14 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     assert_eq!(
         "INACTIVE_BY_USER",
         state_for_watchlist_entry(&pool, user_id, watchlist_ids[1]).await
+    );
+    assert_eq!(
+        plan_restricted_version + 1,
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[0]).await
+    );
+    assert_eq!(
+        user_inactive_version,
+        version_for_watchlist_entry(&pool, user_id, watchlist_ids[1]).await
     );
 }
 
