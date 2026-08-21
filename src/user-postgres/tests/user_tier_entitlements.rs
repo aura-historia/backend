@@ -1,13 +1,13 @@
-use common::postgres::SqlxUnitOfWork;
-use common::product_id::ProductId;
-use common::resource_state::domain::ResourceState;
-use common::transaction::{Transaction, UnitOfWork};
-use common::user_id::UserId;
+use application::transaction::{Transaction, UnitOfWork};
+use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
+use product_core::product_id::ProductId;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use user_core::tier::UserTier;
+use user_core::user_id::UserId;
 use user_postgres::SqlxUserTierEntitlementsFactory;
 use user_service::ports::{UserTierEntitlements, UserTierEntitlementsFactory};
+use watchlist_core::WatchlistState;
 use watchlist_postgres::SqlxWatchlistRepositoryFactory;
 use watchlist_service::ports::{
     WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
@@ -157,7 +157,7 @@ async fn should_keep_user_deactivation_when_tier_reconciliation_runs_afterward()
         .unwrap_or_else(|error| panic!("user write lookup failed: {error:?}"))
         .unwrap_or_else(|| panic!("missing watchlist entry"));
     let mut deactivated = loaded.value;
-    deactivated.change_state(ResourceState::InactiveByUser);
+    deactivated.change_state(WatchlistState::InactiveByUser);
     watchlist
         .in_transaction(&mut user_tx)
         .update(&deactivated, loaded.version)
@@ -365,13 +365,13 @@ async fn should_reactivate_only_plan_restricted_resources_on_upgrade() {
     );
 }
 
-async fn begin(unit: &SqlxUnitOfWork) -> common::postgres::SqlxTransaction {
+async fn begin(unit: &SqlxUnitOfWork) -> SqlxTransaction {
     unit.begin()
         .await
         .unwrap_or_else(|error| panic!("failed to begin transaction: {error:?}"))
 }
 
-async fn commit(tx: common::postgres::SqlxTransaction) {
+async fn commit(tx: SqlxTransaction) {
     tx.commit()
         .await
         .unwrap_or_else(|error| panic!("failed to commit transaction: {error:?}"));

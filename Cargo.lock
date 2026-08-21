@@ -9854,6 +9854,7 @@ dependencies = [
  "localization",
  "money",
  "platform-postgres",
+ "product-core",
  "rstest",
  "serde-email",
  "serde_json",
@@ -9866,6 +9867,7 @@ dependencies = [
  "user-core",
  "user-service",
  "uuid",
+ "watchlist-core",
  "watchlist-postgres",
  "watchlist-service",
 ]

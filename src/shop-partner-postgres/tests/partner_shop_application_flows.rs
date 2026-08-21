@@ -1,16 +1,16 @@
+use application::error::static_error;
+use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
+use application::transaction::{Transaction, UnitOfWork};
 use async_trait::async_trait;
-use common::error::boxed::static_error;
-use common::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
-use common::postgres::SqlxUnitOfWork;
-use common::transaction::{Transaction, UnitOfWork};
-use common::{
-    partner_shop_application_id::PartnerShopApplicationId, shop_id::ShopId, shop_name::ShopName,
-    user_id::UserId,
-};
 use notification_service::ports::notification_creator::{
     NewNotification, NotificationCreationError, NotificationCreationOutcome, NotificationCreator,
     NotificationCreatorFactory,
 };
+use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
+use shop_core::shop_id::ShopId;
+use shop_core::shop_name::ShopName;
+use shop_partner_core::partner_shop_application_id::PartnerShopApplicationId;
+use user_core::user_id::UserId;
 
 use shop_core::partner_status::ShopPartnerStatus;
 use shop_core::shop::{NewShop, Shop, ShopContact, ShopPresentation};
@@ -51,12 +51,10 @@ struct FailingMembershipFactory;
 
 struct FailingMembershipRepository;
 
-impl UserPartnerShopMembershipRepositoryFactory<common::postgres::SqlxTransaction>
-    for FailingMembershipFactory
-{
+impl UserPartnerShopMembershipRepositoryFactory<SqlxTransaction> for FailingMembershipFactory {
     fn in_transaction<'tx>(
         &'tx self,
-        _: &'tx mut common::postgres::SqlxTransaction,
+        _: &'tx mut SqlxTransaction,
     ) -> impl UserPartnerShopMembershipRepository + 'tx {
         FailingMembershipRepository
     }
@@ -75,10 +73,10 @@ impl UserPartnerShopMembershipRepository for FailingMembershipRepository {
     }
 }
 
-impl NotificationCreatorFactory<common::postgres::SqlxTransaction> for FakeNotificationService {
+impl NotificationCreatorFactory<SqlxTransaction> for FakeNotificationService {
     fn in_transaction<'tx>(
         &'tx self,
-        _: &'tx mut common::postgres::SqlxTransaction,
+        _: &'tx mut SqlxTransaction,
     ) -> impl NotificationCreator + 'tx {
         FakeNotificationCreator
     }
@@ -503,8 +501,8 @@ async fn membership_exists(pool: &sqlx::PgPool, user_id: UserId, shop_id: ShopId
     }
 }
 
-fn domain(value: &str) -> common::domain::Domain {
-    match common::domain::Domain::try_from(value) {
+fn domain(value: &str) -> shop_core::domain::Domain {
+    match shop_core::domain::Domain::try_from(value) {
         Ok(domain) => domain,
         Err(error) => panic!("invalid test domain: {error}"),
     }
